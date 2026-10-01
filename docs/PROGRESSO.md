@@ -193,4 +193,23 @@ Linux final: lint, typecheck, **48 testes unitários**, **55 de integração**, 
 
 Em implementação na branch `feat/fase-9-producao`. Compose e imagens em validação no servidor local, com stack e volumes exclusivos. Domínio e SMTP real continuam pendentes para publicação HTTPS e entrega externa de convites/recuperação.
 
+- [x] Compose principal sem portas públicas; override local com bind em loopback.
+- [x] Dockerfiles API/worker/web e nginx com DNS renovado, WebSocket, CSP e cache dos assets.
+- [x] PostgreSQL/Redis/API/worker/web saudáveis e migration concluída com código 0.
+- [x] Execução sem root: UIDs 70, 999, 1000, 1000 e 101, respectivamente.
+- [x] Cadastro → empresa → caixa → sincronização → resposta com anexo → dashboard → convite → chat na stack Docker.
+- [x] IMAPS/SMTPS com certificado confiável de teste e validação TLS ativa.
+- [x] Reinício da API preserva web, reconecta socket e restabelece a sala do chat sem recarga.
+- [x] Down/up preserva Postgres, Redis/AOF e hash do anexo.
+- [x] Backup e restauração em banco/volume separados; mensagens e hash do anexo conferidos.
+- [x] README e guia completo de ambiente, Dokploy, HTTPS, backup, restauração e manutenção.
+- [x] CI [36941383077](https://github.com/APTechSolucoesTI/APMail/actions/runs/36941383077) aprovado, incluindo build Docker, saúde, migration e UIDs.
+- [x] Projeto APMail e serviço Compose exclusivos criados no Dokploy, provedor GitHub/main e segredos novos.
+- [ ] Deploy e revisão da instalação gerenciada pelo Dokploy; fechamento da fase.
+- [ ] Domínio final/HTTPS e SMTP externo informados e validados.
+
+Inicialização local com imagens construídas: **34 segundos**. A aplicação não usa scripts inline; o inicializador de tema foi extraído para arquivo próprio após a CSP detectar o script da página inicial. O fluxo completo passou sem erros de JavaScript. O backup restaurou duas mensagens e anexos com hash idêntico; o teste de persistência também confirmou um marcador no Redis após down/up. Provedores GreenMail/Mailpit e restauração são exclusivos de QA, sem alteração dos serviços de outros projetos.
+
+Dokploy: projeto `A0UfmHWgOBSv7SYUsbKgx`, ambiente `j8pFJm-Vkn6mTSijFpA2f`, Compose `R5nlKL0Qt47g_a4sxCeSc`, appName `apmail-next-production-qrufqc`. A prévia usa somente loopback 8081; a publicação pública precisa de domínio/HTTPS e SMTP. Segredos não aparecem nos arquivos versionados.
+
 Evidências da fase 0: 14 testes unitários e 2 testes de integração aprovados; seis combinações de viewport e tema inspecionadas; SIGTERM validado no Linux com Node 22.
