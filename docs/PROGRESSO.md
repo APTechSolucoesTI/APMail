@@ -84,7 +84,17 @@ Evidências: agendamento real entregue em 1.359 ms após o horário; perda do ba
 
 ## Fase 4 — Organização
 
-Não iniciada.
+Em implementação.
+
+- [x] Migration de etiquetas e regras; tipos reais de 26 tabelas.
+- [x] Operadores e validação de escopo testados, com comparação sem acentos.
+- [x] API de pastas, etiquetas próprias, regras e ações em lote.
+- [x] Busca SQL, paginação com total confiável, filtros e ordenação.
+- [x] Worker de pastas e regras, recuperação após falha e encaminhamento idempotente.
+- [x] 22 testes de integração do worker no Linux, incluindo isolamento entre empresas.
+- [ ] Gestão de pastas, regras e etiquetas na interface.
+- [ ] Revisão de acessibilidade e responsividade nos dois temas.
+- [ ] Checks completos, CI, merge e tag.
 
 ## Fase 5 — Filas e notas
 

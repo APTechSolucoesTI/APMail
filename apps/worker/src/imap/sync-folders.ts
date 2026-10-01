@@ -34,7 +34,6 @@ export async function syncFolders(r: WorkerResources, box: Mailbox, client: Imap
     .selectAll()
     .where('mailbox_id', '=', box.id)
     .where('tenant_id', '=', box.tenant_id)
-    .where('deleted_at', 'is', null)
     .execute();
   for (const f of list) {
     const special_use =
@@ -55,17 +54,23 @@ export async function syncFolders(r: WorkerResources, box: Mailbox, client: Imap
         })
         .execute();
       changed = true;
-    } else if (old.name !== f.name || old.special_use !== special_use) {
+    } else if (old.deleted_at || old.name !== f.name || old.special_use !== special_use) {
       await r.db
         .updateTable('folders')
-        .set({ name: f.name, special_use, delimiter: f.delimiter ?? '/' })
+        .set({
+          name: f.name,
+          special_use,
+          delimiter: f.delimiter ?? '/',
+          deleted_at: null,
+          ...(old.deleted_at ? { last_uid: 0, uidvalidity: null } : {}),
+        })
         .where('id', '=', old.id)
         .execute();
       changed = true;
     }
   }
   const paths = new Set(list.map((f) => f.path));
-  for (const f of existing.filter((f) => !paths.has(f.imap_path))) {
+  for (const f of existing.filter((f) => !f.deleted_at && !paths.has(f.imap_path))) {
     const ids = await r.db.transaction().execute(async (trx) => {
       await trx
         .updateTable('folders')

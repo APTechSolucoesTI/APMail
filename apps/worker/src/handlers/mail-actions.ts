@@ -6,6 +6,7 @@ import { withMailboxLock } from '../lib/mailbox-lock.js';
 import { emitThreads } from '../lib/events.js';
 import { markMailboxError } from './mailbox-connection.js';
 import { isConnectionError } from '../lib/errors.js';
+import { handleFolderAction } from './folder-actions.js';
 export const actionPayloadSchema = z.object({
   message_ids: z.array(z.uuid()).max(1000),
   target_folder_id: z.uuid().optional(),
@@ -27,6 +28,8 @@ export async function handleMailAction(
     .where('status', 'in', ['pending', 'processing'])
     .executeTakeFirst();
   if (!initial) return;
+  if (['create_folder', 'rename_folder', 'delete_folder'].includes(initial.type))
+    return handleFolderAction(r, initial, jobId, lastAttempt);
   const result = await withMailboxLock(
     r.redis,
     initial.mailbox_id,

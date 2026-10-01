@@ -8,6 +8,7 @@ import { handleMailboxConnection } from './handlers/mailbox-connection.js';
 import { handleMailboxSync } from './handlers/mailbox-sync.js';
 import { handleMailAction } from './handlers/mail-actions.js';
 import { handleOutboxSend } from './handlers/outbox-send.js';
+import { handleRulesApply } from './handlers/rules-apply.js';
 import { sweepOutbox, cleanupUploads } from './handlers/outbox-maintenance.js';
 import { ensureSchedulers } from './handlers/ensure-schedulers.js';
 import { closeImapConnections } from './imap/connect.js';
@@ -41,6 +42,8 @@ const workers = QUEUE_NAMES.map(
         if (name === 'mailbox-connection') return handleMailboxConnection(r, job.data.mailbox_id);
         if (name === 'mailbox-sync') return handleMailboxSync(r, job.data.mailbox_id, job.id!);
         if (name === 'outbox-send') return handleOutboxSend(r, job.data.outbox_id, job);
+        if (name === 'rules-apply')
+          return handleRulesApply(r, job.data.ruleId, job.data.sinceDays ?? 30, job.id!);
         if (name === 'mail-actions')
           return handleMailAction(
             r,

@@ -101,6 +101,7 @@ export async function ingestMessage(
           cc_addresses: asJson(metadata.cc_addresses),
           id,
           folder_id: folder.id,
+          rules_inbox: folder.special_use === 'inbox',
           thread_id: threadId,
           imap_uid: msg.uid,
           message_id_header: header,
