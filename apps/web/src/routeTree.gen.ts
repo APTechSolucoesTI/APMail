@@ -21,9 +21,11 @@ import { Route as AppScheduledRouteImport } from './routes/_app.scheduled'
 import { Route as DevUiRouteImport } from './routes/[_]dev.ui'
 import { Route as AppMailMailboxIdRouteImport } from './routes/_app.mail.$mailboxId'
 import { Route as AppSettingsAuditRouteImport } from './routes/_app.settings.audit'
+import { Route as AppSettingsLabelsRouteImport } from './routes/_app.settings.labels'
 import { Route as AppSettingsMailboxesRouteImport } from './routes/_app.settings.mailboxes'
 import { Route as AppSettingsPreferencesRouteImport } from './routes/_app.settings.preferences'
 import { Route as AppSettingsProfileRouteImport } from './routes/_app.settings.profile'
+import { Route as AppSettingsRulesRouteImport } from './routes/_app.settings.rules'
 import { Route as AppSettingsSignaturesRouteImport } from './routes/_app.settings.signatures'
 import { Route as AppSettingsTenantRouteImport } from './routes/_app.settings.tenant'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app.settings.users'
@@ -88,6 +90,11 @@ const AppSettingsAuditRoute = AppSettingsAuditRouteImport.update({
   path: '/settings/audit',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsLabelsRoute = AppSettingsLabelsRouteImport.update({
+  id: '/settings/labels',
+  path: '/settings/labels',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsMailboxesRoute = AppSettingsMailboxesRouteImport.update({
   id: '/settings/mailboxes',
   path: '/settings/mailboxes',
@@ -101,6 +108,11 @@ const AppSettingsPreferencesRoute = AppSettingsPreferencesRouteImport.update({
 const AppSettingsProfileRoute = AppSettingsProfileRouteImport.update({
   id: '/settings/profile',
   path: '/settings/profile',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRulesRoute = AppSettingsRulesRouteImport.update({
+  id: '/settings/rules',
+  path: '/settings/rules',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsSignaturesRoute = AppSettingsSignaturesRouteImport.update({
@@ -137,9 +149,11 @@ export interface FileRoutesByFullPath {
   '/_dev/ui': typeof DevUiRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/labels': typeof AppSettingsLabelsRoute
   '/settings/mailboxes': typeof AppSettingsMailboxesRoute
   '/settings/preferences': typeof AppSettingsPreferencesRoute
   '/settings/profile': typeof AppSettingsProfileRoute
+  '/settings/rules': typeof AppSettingsRulesRoute
   '/settings/signatures': typeof AppSettingsSignaturesRoute
   '/settings/tenant': typeof AppSettingsTenantRoute
   '/settings/users': typeof AppSettingsUsersRoute
@@ -157,9 +171,11 @@ export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/labels': typeof AppSettingsLabelsRoute
   '/settings/mailboxes': typeof AppSettingsMailboxesRoute
   '/settings/preferences': typeof AppSettingsPreferencesRoute
   '/settings/profile': typeof AppSettingsProfileRoute
+  '/settings/rules': typeof AppSettingsRulesRoute
   '/settings/signatures': typeof AppSettingsSignaturesRoute
   '/settings/tenant': typeof AppSettingsTenantRoute
   '/settings/users': typeof AppSettingsUsersRoute
@@ -179,9 +195,11 @@ export interface FileRoutesById {
   '/_app/': typeof AppIndexRoute
   '/_app/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/_app/settings/audit': typeof AppSettingsAuditRoute
+  '/_app/settings/labels': typeof AppSettingsLabelsRoute
   '/_app/settings/mailboxes': typeof AppSettingsMailboxesRoute
   '/_app/settings/preferences': typeof AppSettingsPreferencesRoute
   '/_app/settings/profile': typeof AppSettingsProfileRoute
+  '/_app/settings/rules': typeof AppSettingsRulesRoute
   '/_app/settings/signatures': typeof AppSettingsSignaturesRoute
   '/_app/settings/tenant': typeof AppSettingsTenantRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
@@ -201,9 +219,11 @@ export interface FileRouteTypes {
     | '/_dev/ui'
     | '/mail/$mailboxId'
     | '/settings/audit'
+    | '/settings/labels'
     | '/settings/mailboxes'
     | '/settings/preferences'
     | '/settings/profile'
+    | '/settings/rules'
     | '/settings/signatures'
     | '/settings/tenant'
     | '/settings/users'
@@ -221,9 +241,11 @@ export interface FileRouteTypes {
     | '/'
     | '/mail/$mailboxId'
     | '/settings/audit'
+    | '/settings/labels'
     | '/settings/mailboxes'
     | '/settings/preferences'
     | '/settings/profile'
+    | '/settings/rules'
     | '/settings/signatures'
     | '/settings/tenant'
     | '/settings/users'
@@ -242,9 +264,11 @@ export interface FileRouteTypes {
     | '/_app/'
     | '/_app/mail/$mailboxId'
     | '/_app/settings/audit'
+    | '/_app/settings/labels'
     | '/_app/settings/mailboxes'
     | '/_app/settings/preferences'
     | '/_app/settings/profile'
+    | '/_app/settings/rules'
     | '/_app/settings/signatures'
     | '/_app/settings/tenant'
     | '/_app/settings/users'
@@ -348,6 +372,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsAuditRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/labels': {
+      id: '/_app/settings/labels'
+      path: '/settings/labels'
+      fullPath: '/settings/labels'
+      preLoaderRoute: typeof AppSettingsLabelsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/mailboxes': {
       id: '/_app/settings/mailboxes'
       path: '/settings/mailboxes'
@@ -367,6 +398,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/profile'
       fullPath: '/settings/profile'
       preLoaderRoute: typeof AppSettingsProfileRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/rules': {
+      id: '/_app/settings/rules'
+      path: '/settings/rules'
+      fullPath: '/settings/rules'
+      preLoaderRoute: typeof AppSettingsRulesRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/signatures': {
@@ -405,9 +443,11 @@ interface AppRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppMailMailboxIdRoute: typeof AppMailMailboxIdRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
+  AppSettingsLabelsRoute: typeof AppSettingsLabelsRoute
   AppSettingsMailboxesRoute: typeof AppSettingsMailboxesRoute
   AppSettingsPreferencesRoute: typeof AppSettingsPreferencesRoute
   AppSettingsProfileRoute: typeof AppSettingsProfileRoute
+  AppSettingsRulesRoute: typeof AppSettingsRulesRoute
   AppSettingsSignaturesRoute: typeof AppSettingsSignaturesRoute
   AppSettingsTenantRoute: typeof AppSettingsTenantRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRoute
@@ -419,9 +459,11 @@ const AppRouteChildren: AppRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppMailMailboxIdRoute: AppMailMailboxIdRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
+  AppSettingsLabelsRoute: AppSettingsLabelsRoute,
   AppSettingsMailboxesRoute: AppSettingsMailboxesRoute,
   AppSettingsPreferencesRoute: AppSettingsPreferencesRoute,
   AppSettingsProfileRoute: AppSettingsProfileRoute,
+  AppSettingsRulesRoute: AppSettingsRulesRoute,
   AppSettingsSignaturesRoute: AppSettingsSignaturesRoute,
   AppSettingsTenantRoute: AppSettingsTenantRoute,
   AppSettingsUsersRoute: AppSettingsUsersRoute,

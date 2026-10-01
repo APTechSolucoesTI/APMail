@@ -34,10 +34,20 @@ export function AppShell() {
       void client.invalidateQueries({ queryKey: ['mailboxes'] });
       void client.invalidateQueries({ queryKey: ['me'] });
       void client.invalidateQueries({ queryKey: ['notifications'] });
-      for (const key of ['threads', 'thread', 'folders', 'queue-counts', 'outbox'])
+      for (const key of [
+        'threads',
+        'thread',
+        'folders',
+        'queue-counts',
+        'outbox',
+        'labels',
+        'rules',
+      ])
         void client.invalidateQueries({ queryKey: [key] });
     });
     socket.on('mailboxes:changed', () => {
+      for (const key of ['labels', 'threads', 'thread'])
+        void client.invalidateQueries({ queryKey: [key] });
       void client.invalidateQueries({ queryKey: ['mailboxes'] });
       void client.invalidateQueries({ queryKey: ['mailbox'] });
       void client.invalidateQueries({ queryKey: ['me'] });
@@ -50,7 +60,7 @@ export function AppShell() {
     const invalidate = (...keys: string[]) => {
       for (const key of keys) void client.invalidateQueries({ queryKey: [key] });
     };
-    socket.on('threads:changed', () => invalidate('threads'));
+    socket.on('threads:changed', () => invalidate('labels', 'threads', 'thread'));
     socket.on('queue-counts:changed', () => invalidate('folders', 'queue-counts'));
     socket.on(
       'thread:messages-changed',
@@ -119,6 +129,8 @@ export function AppShell() {
           ['/settings/profile', 'Meu perfil'],
           ['/settings/preferences', 'Preferências'],
           ['/settings/signatures', 'Assinaturas'],
+          ['/settings/labels', 'Etiquetas'],
+          ['/settings/rules', 'Regras'],
           ...(admin
             ? [
                 ['/settings/users', 'Equipe e acessos'],

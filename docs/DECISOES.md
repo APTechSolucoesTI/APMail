@@ -40,3 +40,7 @@ Jobs outbox usam outbox~<id>~<contador>, pois BullMQ proíbe dois-pontos no jobI
 MIME usa [MailComposer](https://nodemailer.com/extras/mailcomposer) com envelope explícito, Bcc fora do cabeçalho e corpo final pronto pelo compositor. O worker nunca acrescenta uma assinatura compartilhada.
 
 Testes IMAP/SMTP usam uma instância GreenMail exclusiva de QA. Isso impede que a exclusão de pastas dos testes interfira na sincronização e nos agendamentos do ambiente interativo. Limpeza de Redis usa FLUSHDB apenas no banco lógico 0 da instância exclusiva de desenvolvimento; nunca FLUSHALL. Watchdog recupera schedulers mesmo sem reconexão e o sweep também recria jobs futuros ausentes, preservando seu prazo.
+
+Fase 4: mensagens guardam rules_inbox e rules_applied_at para preservar a origem e retomar regras após falha, mesmo quando o cursor IMAP já avançou ou uma ação anterior moveu a mensagem. Registros anteriores à migration são marcados como processados; a ação explícita de reaplicação continua disponível. Índice único por regra e mensagem evita repetir encaminhamentos; todos os destinos de uma regra são reunidos no mesmo envio. Pastas usam o delimiter informado pelo IMAP, mantendo IDs ao renomear a árvore.
+
+Fase 4: o payload do job rules-apply usa rule_id/since_days e attempts=1 conforme o contrato da tabela 12.1. A referência em camelCase da seção 10.4 é tratada como pseudocódigo; o worker aceita o formato anterior apenas para drenar jobs criados durante a implementação. O consumidor desta fila tem concorrência 1.

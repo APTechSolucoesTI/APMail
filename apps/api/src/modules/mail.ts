@@ -6,6 +6,8 @@ import { toBullJobId, type MailboxPerm } from '@apmail/shared';
 import { requireTenant, notFound, conflict, type RequestContext } from '../authz/context.js';
 import { requireMailboxPerm } from '../authz/guards.js';
 import type { Resources } from './resources.js';
+import { listThreads, queueCounts } from './mail-queries.js';
+import { replaceLabels, validateLabelIds, labelIdsSchema } from './organization/service.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 export const threadListSchema = z.object({
   view: z.enum(['folder', 'queue', 'label', 'search']).default('folder'),
@@ -105,66 +107,14 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
     const id = idOf(req.params),
       c = requireTenant(req.ctx);
     await requireMailboxPerm(c, r.db, id, 'read');
-    const row = await sql<{
-      unread_inbox: number;
-    }>`select count(distinct t.id)::int as unread_inbox from threads t join messages m on m.thread_id=t.id join folders f on f.id=m.folder_id left join thread_user_state us on us.thread_id=t.id and us.user_id=${c.userId} where t.tenant_id=${c.tenantId} and t.mailbox_id=${id} and t.deleted_at is null and m.deleted_at is null and f.special_use='inbox' and t.last_inbound_at>coalesce(us.last_read_at,'-infinity'::timestamptz)`.execute(
-      r.db,
-    );
-    return {
-      to_reply: 0,
-      in_progress: 0,
-      awaiting_reply: 0,
-      scheduled: 0,
-      done_7d: 0,
-      overdue: 0,
-      unread_inbox: row.rows[0]?.unread_inbox ?? 0,
-    };
+    return queueCounts(r, c, id);
   });
   app.get('/api/mailboxes/:id/threads', async (req) => {
     const id = idOf(req.params),
       c = requireTenant(req.ctx);
     await requireMailboxPerm(c, r.db, id, 'read');
     const q = threadListSchema.parse(req.query);
-    const folder = q.folder_id
-      ? await r.db
-          .selectFrom('folders')
-          .select('id')
-          .where('id', '=', q.folder_id)
-          .where('tenant_id', '=', c.tenantId)
-          .where('mailbox_id', '=', id)
-          .where('deleted_at', 'is', null)
-          .executeTakeFirst()
-      : await r.db
-          .selectFrom('folders')
-          .select('id')
-          .where('tenant_id', '=', c.tenantId)
-          .where('mailbox_id', '=', id)
-          .where('special_use', '=', 'inbox')
-          .where('deleted_at', 'is', null)
-          .executeTakeFirst();
-    if (q.folder_id && !folder) throw notFound();
-    if (!folder) return { items: [], total: 0, page: q.page, page_size: q.page_size };
-    const base = sql`from threads t join lateral (select max(message_at) as last_at,count(*)::int as folder_count from messages where thread_id=t.id and folder_id=${folder.id} and deleted_at is null having count(*)>0) fm on true left join thread_user_state us on us.thread_id=t.id and us.user_id=${c.userId} left join lateral (select from_name,from_address,subject,snippet from messages where thread_id=t.id and folder_id=${folder.id} and deleted_at is null order by message_at desc limit 1) latest on true where t.tenant_id=${c.tenantId} and t.mailbox_id=${id} and t.deleted_at is null ${q.unread ? sql`and t.last_inbound_at>coalesce(us.last_read_at,'-infinity'::timestamptz)` : sql``}`;
-    const result = await sql<
-      Record<string, unknown> & { total: number }
-    >`select t.id,coalesce(nullif(t.subject,''),latest.subject) as subject,latest.snippet,t.participants,fm.folder_count as message_count,t.has_attachments,fm.last_at as last_message_at,t.last_inbound_at,t.queue_status,false as is_overdue,null as assigned_to,coalesce(t.last_inbound_at>coalesce(us.last_read_at,'-infinity'::timestamptz),false) as is_unread,coalesce(us.is_pinned,false) as is_pinned,'[]'::jsonb as labels,false as has_scheduled,jsonb_build_object('name',latest.from_name,'address',latest.from_address) as latest_from,count(*) over()::int as total ${base} order by coalesce(us.is_pinned,false) desc,fm.last_at desc,t.id limit ${q.page_size} offset ${(q.page - 1) * q.page_size}`.execute(
-      r.db,
-    );
-    const total =
-      result.rows[0]?.total ??
-      (await sql<{ count: number }>`select count(*)::int as count ${base}`.execute(r.db)).rows[0]
-        ?.count ??
-      0;
-    return {
-      items: result.rows.map((row) => {
-        const item = { ...row };
-        delete (item as Partial<typeof row>).total;
-        return item;
-      }),
-      total,
-      page: q.page,
-      page_size: q.page_size,
-    };
+    return listThreads(r, c, id, q);
   });
   app.get('/api/threads/:id', async (req) => {
     const { thread, role, c } = await requireThread(req.ctx, r, idOf(req.params));
@@ -240,7 +190,15 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       cid_map: Object.fromEntries(
         attachments.filter((a) => a.content_id).map((a) => [a.content_id, a.id]),
       ),
-      labels: [],
+      labels: await r.db
+        .selectFrom('thread_personal_labels as tl')
+        .innerJoin('personal_labels as l', 'l.id', 'tl.label_id')
+        .select(['l.id', 'l.name', 'l.color'])
+        .where('tl.tenant_id', '=', c.tenantId)
+        .where('tl.user_id', '=', c.userId)
+        .where('tl.thread_id', '=', thread.id)
+        .orderBy('l.name')
+        .execute(),
       is_pinned: state?.is_pinned ?? false,
       last_read_at: state?.last_read_at ?? null,
       pending_outbox: await r.db
@@ -294,7 +252,11 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       c = requireTenant(req.ctx);
     await requireMailboxPerm(c, r.db, id, 'read');
     const b = z
-      .object({ thread_ids: z.array(z.uuid()).min(1).max(100), action: z.enum(['read', 'unread']) })
+      .object({
+        thread_ids: z.array(z.uuid()).min(1).max(100),
+        action: z.enum(['read', 'unread', 'labels']),
+        label_ids: labelIdsSchema.shape.label_ids.optional(),
+      })
       .parse(req.body);
     const ids = [...new Set(b.thread_ids)];
     const found = await r.db
@@ -306,7 +268,13 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       .where('deleted_at', 'is', null)
       .execute();
     if (found.length !== ids.length) throw notFound();
+    const labels =
+      b.action === 'labels' ? await validateLabelIds(r, c, labelIdsSchema.parse(b).label_ids) : [];
     await r.db.transaction().execute(async (trx) => {
+      if (b.action === 'labels') {
+        await replaceLabels(trx, c, ids, labels);
+        return;
+      }
       for (const threadId of ids)
         await trx
           .insertInto('thread_user_state')

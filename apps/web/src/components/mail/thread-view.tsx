@@ -13,6 +13,8 @@ import { MessageCard } from './message-card';
 import { MessageActions } from './message-actions';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import type { ThreadDetail, Folder } from '@/lib/mail';
+import { ThreadLabels } from './thread-labels';
+import { LabelBadge } from './label-badge';
 export function ThreadView({
   threadId,
   mailboxId,
@@ -76,6 +78,7 @@ export function ThreadView({
         </div>
         <QueueStatusBadge status={data.thread.queue_status} />
         <div className="flex flex-wrap gap-1">
+          <ThreadLabels threadIds={[threadId]} labels={data.labels} mailboxId={mailboxId} />
           <Button
             size="sm"
             variant="outline"
@@ -90,6 +93,13 @@ export function ThreadView({
             {data.is_pinned ? 'Desafixar' : 'Fixar'}
           </Button>
         </div>
+        {!!data.labels.length && (
+          <div className="flex flex-wrap gap-1">
+            {data.labels.map((label) => (
+              <LabelBadge key={label.id} label={label} />
+            ))}
+          </div>
+        )}
         {organize && (
           <MessageActions mailboxId={mailboxId} folders={folders} threadIds={[threadId]} />
         )}

@@ -3,18 +3,22 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { QueueStatusBadge } from '@/components/common/status-badge';
 import { cn } from '@/lib/utils';
 import type { Thread } from '@/lib/mail';
+import { LabelBadge } from './label-badge';
+import { SearchHighlight } from './search-highlight';
 export function ThreadListItem({
   thread,
   selected,
   active,
   onSelect,
   onOpen,
+  query,
 }: {
   thread: Thread;
   selected: boolean;
   active: boolean;
   onSelect: (value: boolean) => void;
   onOpen: () => void;
+  query?: string;
 }) {
   const date = thread.last_message_at ? new Date(thread.last_message_at) : null;
   return (
@@ -69,7 +73,7 @@ export function ThreadListItem({
           {thread.subject || '(Sem assunto)'}
         </p>
         <p className="mt-0.5 truncate text-xs text-muted-foreground" title={thread.snippet}>
-          {thread.snippet}
+          <SearchHighlight text={thread.snippet} query={query} />
         </p>
         <div className="mt-2 flex items-center gap-2">
           <QueueStatusBadge status={thread.queue_status} />
@@ -78,6 +82,24 @@ export function ThreadListItem({
           )}
           {thread.is_pinned && <Pin className="size-3 text-muted-foreground" aria-label="Fixada" />}
         </div>
+        {!!thread.labels?.length && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {thread.labels.slice(0, 2).map((label) => (
+              <LabelBadge key={label.id} label={label} />
+            ))}
+            {thread.labels.length > 2 && (
+              <span
+                className="text-xs text-muted-foreground"
+                title={thread.labels
+                  .slice(2)
+                  .map((l) => l.name)
+                  .join(', ')}
+              >
+                +{thread.labels.length - 2}
+              </span>
+            )}
+          </div>
+        )}
       </button>
     </article>
   );

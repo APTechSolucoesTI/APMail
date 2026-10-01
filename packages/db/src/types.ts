@@ -45,6 +45,8 @@ export type OutboxStatus = "canceled" | "draft" | "failed" | "queued" | "schedul
 
 export type QueueStatus = "awaiting_reply" | "done" | "in_progress" | "none" | "scheduled" | "to_reply";
 
+export type RuleScope = "mailbox" | "personal";
+
 export type TenantRole = "admin" | "member" | "owner";
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
@@ -163,6 +165,25 @@ export interface MailboxMembers {
   user_id: string;
 }
 
+export interface MailRules {
+  actions: Json;
+  conditions: Json;
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  deleted_at: Timestamp | null;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  mailbox_id: string;
+  match_mode: Generated<string>;
+  name: string;
+  owner_user_id: string | null;
+  priority: Generated<number>;
+  scope: RuleScope;
+  stop_processing: Generated<boolean>;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface Messages {
   bcc_addresses: Generated<Json>;
   body_html: string | null;
@@ -187,6 +208,8 @@ export interface Messages {
   pending_action: Generated<boolean>;
   references_headers: Generated<string[]>;
   reply_to_addresses: Generated<Json>;
+  rules_applied_at: Timestamp | null;
+  rules_inbox: Generated<boolean>;
   search_vector: string | null;
   sent_by_user_id: string | null;
   size_bytes: Generated<number>;
@@ -250,6 +273,16 @@ export interface PasswordResetTokens {
   user_id: string;
 }
 
+export interface PersonalLabels {
+  color: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  name: string;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
 export interface SchemaMigrations {
   applied_at: Generated<Timestamp>;
   checksum: string;
@@ -306,6 +339,14 @@ export interface Tenants {
   slug: string;
   timezone: Generated<string>;
   updated_at: Generated<Timestamp>;
+}
+
+export interface ThreadPersonalLabels {
+  created_at: Generated<Timestamp>;
+  label_id: string;
+  tenant_id: string;
+  thread_id: string;
+  user_id: string;
 }
 
 export interface Threads {
@@ -387,6 +428,7 @@ export interface DB {
   folders: Folders;
   invitations: Invitations;
   mail_actions: MailActions;
+  mail_rules: MailRules;
   mailbox_credentials: MailboxCredentials;
   mailbox_members: MailboxMembers;
   mailboxes: Mailboxes;
@@ -394,12 +436,14 @@ export interface DB {
   notifications: Notifications;
   outbox: Outbox;
   password_reset_tokens: PasswordResetTokens;
+  personal_labels: PersonalLabels;
   schema_migrations: SchemaMigrations;
   sessions: Sessions;
   signatures: Signatures;
   table_preferences: TablePreferences;
   tenant_members: TenantMembers;
   tenants: Tenants;
+  thread_personal_labels: ThreadPersonalLabels;
   thread_user_state: ThreadUserState;
   threads: Threads;
   uploads: Uploads;

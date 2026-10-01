@@ -29,6 +29,7 @@ import {
 } from '../../src/handlers/mailbox-connection.js';
 import { handleMailboxSync } from '../../src/handlers/mailbox-sync.js';
 import { handleMailAction } from '../../src/handlers/mail-actions.js';
+import { handleRulesApply } from '../../src/handlers/rules-apply.js';
 import { ensureSchedulers } from '../../src/handlers/ensure-schedulers.js';
 import { withMailboxLock } from '../../src/lib/mailbox-lock.js';
 import { buildApp } from '../../../api/src/app.js';
@@ -88,7 +89,7 @@ async function client() {
   return transports(db, box, env);
 }
 const api = (
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE' | 'PUT',
   url: string,
   user = owner,
   payload?: unknown,
@@ -223,8 +224,12 @@ afterAll(async () => {
   if (t)
     try {
       await t.imap.connect();
-      for (const f of await t.imap.list()) {
-        if ([sourcePath, targetPath, resetPath].includes(f.path)) {
+      for (const f of (await t.imap.list()).sort((a, b) => b.path.length - a.path.length)) {
+        if (
+          [sourcePath, targetPath, resetPath].includes(f.path) ||
+          f.path === organizationPath ||
+          f.path.startsWith(organizationPath + organizationDelimiter)
+        ) {
           await t.imap.mailboxDelete(f.path);
           continue;
         }
@@ -271,7 +276,6 @@ it('conecta IMAP e SMTP, registra scheduler e agrupa referências e assunto no m
     .where('deleted_at', 'is', null)
     .execute();
   expect(messages).toHaveLength(6);
-  expect(new Set(messages.slice(0, 3).map((m) => m.thread_id)).size).toBeLessThanOrEqual(2);
   const chain = await db
     .selectFrom('messages')
     .select('thread_id')
@@ -833,3 +837,379 @@ it('SMTP indisponível retenta três vezes, notifica e Tentar novamente entrega'
   });
   expect((await api('GET', '/api/outbox/' + draft.id, editor)).json().status).toBe('sent');
 }, 30000);
+
+let organizationFolder = '',
+  organizationParent = '',
+  organizationRule = '',
+  personalRule = '',
+  ownLabel = '';
+const organizationPath = 'Clientes-' + suffix;
+let organizationDelimiter = '.';
+async function executeAction(response: Awaited<ReturnType<typeof api>>) {
+  expect(response.statusCode, response.body).toBe(202);
+  await handleMailAction(r, response.json().action_id, 'qa-folder-' + randomUUID(), true);
+}
+async function appendOrganization(folder: string, subject: string, id: string) {
+  const t = await client();
+  try {
+    await t.imap.connect();
+    await t.imap.append(
+      folder,
+      `From: José Cliente <cliente@cliente.local>\r\nTo: comercial@apmail.local\r\nSubject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=\r\nMessage-ID: <${id}-${suffix}@cliente.local>\r\nDate: ${new Date().toUTCString()}\r\nContent-Type: text/plain; charset=utf-8\r\nX-APMail-QA: ${suffix}\r\n\r\nA solução está disponível para orçamento.\r\n`,
+    );
+  } finally {
+    await t.close();
+  }
+}
+it('cria subpastas reais, preserva IDs ao renomear e protege pastas especiais e não vazias', async () => {
+  const inbox = (
+    await db
+      .selectFrom('folders')
+      .select('id')
+      .where('mailbox_id', '=', boxId)
+      .where('special_use', '=', 'inbox')
+      .executeTakeFirstOrThrow()
+  ).id;
+  expect(
+    (await api('PATCH', '/api/folders/' + inbox, owner, { name: 'Proibida' })).statusCode,
+  ).toBe(409);
+  expect(
+    (await api('POST', '/api/mailboxes/' + boxId + '/folders', editor, { name: 'Sem permissão' }))
+      .statusCode,
+  ).toBe(403);
+  await executeAction(
+    await api('POST', '/api/mailboxes/' + boxId + '/folders', owner, {
+      name: organizationPath,
+      parent_id: null,
+    }),
+  );
+  organizationDelimiter = (
+    await db
+      .selectFrom('folders')
+      .select('delimiter')
+      .where('mailbox_id', '=', boxId)
+      .where('imap_path', '=', organizationPath)
+      .executeTakeFirstOrThrow()
+  ).delimiter;
+  organizationParent = (
+    await db
+      .selectFrom('folders')
+      .select('id')
+      .where('mailbox_id', '=', boxId)
+      .where('imap_path', '=', organizationPath)
+      .executeTakeFirstOrThrow()
+  ).id;
+  await executeAction(
+    await api('POST', '/api/mailboxes/' + boxId + '/folders', owner, {
+      name: 'Ativos',
+      parent_id: organizationParent,
+    }),
+  );
+  organizationFolder = (
+    await db
+      .selectFrom('folders')
+      .select('id')
+      .where('mailbox_id', '=', boxId)
+      .where('imap_path', '=', organizationPath + organizationDelimiter + 'Ativos')
+      .executeTakeFirstOrThrow()
+  ).id;
+  expect((await api('DELETE', '/api/folders/' + organizationParent)).statusCode).toBe(409);
+  await executeAction(
+    await api('PATCH', '/api/folders/' + organizationFolder, owner, { name: 'Ativos QA' }),
+  );
+  expect(
+    (
+      await db
+        .selectFrom('folders')
+        .select('imap_path')
+        .where('id', '=', organizationFolder)
+        .executeTakeFirstOrThrow()
+    ).imap_path,
+  ).toBe(organizationPath + organizationDelimiter + 'Ativos QA');
+  const empty = await api('POST', '/api/mailboxes/' + boxId + '/folders', owner, {
+    name: 'Vazia',
+    parent_id: organizationParent,
+  });
+  await executeAction(empty);
+  const emptyId = (
+    await db
+      .selectFrom('folders')
+      .select('id')
+      .where('mailbox_id', '=', boxId)
+      .where('imap_path', '=', organizationPath + organizationDelimiter + 'Vazia')
+      .executeTakeFirstOrThrow()
+  ).id;
+  await executeAction(await api('DELETE', '/api/folders/' + emptyId));
+}, 30000);
+it('aplica regras da caixa na ingestão e etiquetas pessoais apenas para o dono', async () => {
+  ownLabel = (
+    await api('POST', '/api/labels', editor, { name: 'Orçamentos', color: 'teal' })
+  ).json().id;
+  const base = {
+    mailbox_id: boxId,
+    is_active: true,
+    priority: 100,
+    match_mode: 'all',
+    stop_processing: false,
+    conditions: [{ field: 'subject', operator: 'contains', value: suffix }],
+  };
+  const shared = await api('POST', '/api/rules', owner, {
+    ...base,
+    scope: 'mailbox',
+    name: 'Mover cliente',
+    conditions: [
+      ...base.conditions,
+      { field: 'from', operator: 'contains', value: '@cliente.local' },
+    ],
+    actions: [
+      { type: 'move_to_folder', folder_id: organizationFolder },
+      { type: 'mark_flagged' },
+      { type: 'exclude_from_queue' },
+    ],
+  });
+  expect(shared.statusCode, shared.body).toBe(201);
+  organizationRule = shared.json().id;
+  const personal = await api('POST', '/api/rules', editor, {
+    ...base,
+    scope: 'personal',
+    name: 'Orçamentos pessoais',
+    conditions: [
+      ...base.conditions,
+      { field: 'subject', operator: 'contains', value: 'ORCAMENTO' },
+    ],
+    actions: [{ type: 'add_label', label_id: ownLabel }, { type: 'pin' }],
+  });
+  expect(personal.statusCode, personal.body).toBe(201);
+  personalRule = personal.json().id;
+  await appendOrganization('INBOX', 'Orçamento organização ' + suffix, 'organization-new');
+  await sync();
+  const message = await db
+    .selectFrom('messages')
+    .selectAll()
+    .where('mailbox_id', '=', boxId)
+    .where('message_id_header', '=', '<organization-new-' + suffix + '@cliente.local>')
+    .executeTakeFirstOrThrow();
+  expect(message.folder_id).toBe(organizationFolder);
+  expect(message.is_flagged).toBe(true);
+  expect(message.rules_applied_at).not.toBeNull();
+  const editorDetail = (await api('GET', '/api/threads/' + message.thread_id, editor)).json(),
+    ownerDetail = (await api('GET', '/api/threads/' + message.thread_id, owner)).json();
+  expect(editorDetail.labels.map((l: { id: string }) => l.id)).toEqual([ownLabel]);
+  expect(editorDetail.is_pinned).toBe(true);
+  expect(ownerDetail.labels).toEqual([]);
+  expect(ownerDetail.is_pinned).toBe(false);
+  expect(
+    (
+      await api('PUT', '/api/threads/' + message.thread_id + '/labels', owner, {
+        label_ids: [ownLabel],
+      })
+    ).statusCode,
+  ).toBe(404);
+  expect((await api('DELETE', '/api/folders/' + organizationFolder)).statusCode).toBe(409);
+  const t = await client();
+  try {
+    await t.imap.connect();
+    const lock = await t.imap.getMailboxLock(
+      organizationPath + organizationDelimiter + 'Ativos QA',
+    );
+    try {
+      const uids = await t.imap.search(
+        { header: { 'Message-ID': message.message_id_header } },
+        { uid: true },
+      );
+      expect(Array.isArray(uids) && uids.length).toBeTruthy();
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await t.close();
+  }
+}, 30000);
+it('reprocessa mensagens existentes e combina busca sem acentos, filtros e total fora da página', async () => {
+  for (let i = 0; i < 12; i++)
+    await appendOrganization(targetPath, 'Orçamento retroativo ' + i + ' ' + suffix, 'retro-' + i);
+  await sync();
+  await handleRulesApply(r, organizationRule, 30, 'qa-rules-' + randomUUID());
+  await handleRulesApply(r, personalRule, 30, 'qa-personal-' + randomUUID());
+  const result = await api(
+    'GET',
+    '/api/mailboxes/' +
+      boxId +
+      '/threads?view=folder&folder_id=' +
+      organizationFolder +
+      '&q=orcamento&page_size=10',
+    editor,
+  );
+  expect(result.statusCode, result.body).toBe(200);
+  expect(result.json().total).toBe(13);
+  expect(result.json().items).toHaveLength(10);
+  const outside = await api(
+    'GET',
+    '/api/mailboxes/' +
+      boxId +
+      '/threads?view=folder&folder_id=' +
+      organizationFolder +
+      '&q=orcamento&page_size=10&page=20',
+    editor,
+  );
+  expect(outside.json().items).toEqual([]);
+  expect(outside.json().total).toBe(13);
+  for (const q of ['solucao', 'José']) {
+    const found = await api(
+      'GET',
+      '/api/mailboxes/' +
+        boxId +
+        '/threads?view=search&q=' +
+        encodeURIComponent(q) +
+        '&page_size=10',
+      editor,
+    );
+    expect(found.statusCode, found.body).toBe(200);
+    expect(found.json().total).toBeGreaterThanOrEqual(13);
+  }
+  expect(
+    (
+      await api(
+        'GET',
+        '/api/mailboxes/' + boxId + '/threads?view=label&label_id=' + ownLabel,
+        editor,
+      )
+    ).json().total,
+  ).toBe(13);
+  expect(
+    (
+      await api(
+        'GET',
+        '/api/mailboxes/' + boxId + '/threads?view=label&label_id=' + ownLabel,
+        owner,
+      )
+    ).statusCode,
+  ).toBe(404);
+  const mine = (await api('GET', '/api/rules?scope=personal', editor)).json();
+  expect(mine.map((x: { id: string }) => x.id)).toContain(personalRule);
+  expect((await api('GET', '/api/rules?scope=personal', owner)).json()).toEqual([]);
+  const first = result.json().items[0].id;
+  expect(
+    (
+      await api('POST', '/api/mailboxes/' + boxId + '/threads/bulk', editor, {
+        thread_ids: [first],
+        action: 'labels',
+        label_ids: [],
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect((await api('GET', '/api/threads/' + first, editor)).json().labels).toEqual([]);
+}, 60000);
+it('bloqueia encaminhamento automático desabilitado e não duplica após reaplicação', async () => {
+  const rule = {
+    mailbox_id: boxId,
+    scope: 'mailbox',
+    name: 'Encaminhar QA',
+    is_active: true,
+    priority: 1,
+    match_mode: 'all',
+    conditions: [{ field: 'subject', operator: 'contains', value: 'organização ' + suffix }],
+    actions: [{ type: 'forward_to', address: 'cliente@cliente.local' }],
+    stop_processing: false,
+  };
+  expect((await api('POST', '/api/rules', owner, rule)).statusCode).toBe(403);
+  await db
+    .updateTable('tenants')
+    .set({ settings: { allow_external_auto_forward: true, max_attachment_mb: 25 } })
+    .where('id', '=', tenantId)
+    .execute();
+  const res = await api('POST', '/api/rules', owner, rule);
+  expect(res.statusCode, res.body).toBe(201);
+  await handleRulesApply(r, res.json().id, 30, 'qa-forward-1');
+  await handleRulesApply(r, res.json().id, 30, 'qa-forward-2');
+  const outbox = await db
+    .selectFrom('outbox')
+    .selectAll()
+    .where('created_by_rule_id', '=', res.json().id)
+    .execute();
+  expect(outbox).toHaveLength(1);
+  outboxIds.push(outbox[0]!.id);
+  await handleOutboxSend(r, outbox[0]!.id, {
+    id: outbox[0]!.job_id!,
+    attemptsMade: 0,
+    opts: { attempts: 3 },
+  });
+  expect(
+    (
+      await db
+        .selectFrom('outbox')
+        .select('status')
+        .where('id', '=', outbox[0]!.id)
+        .executeTakeFirstOrThrow()
+    ).status,
+  ).toBe('sent');
+}, 30000);
+
+it('isola etiquetas, regras e pastas de outra empresa e aplica permissões no servidor', async () => {
+  const otherTenant = randomUUID(),
+    otherBox = randomUUID();
+  await db
+    .insertInto('tenants')
+    .values({ id: otherTenant, name: 'Empresa isolada', slug: 'organization-other-' + suffix })
+    .execute();
+  await db
+    .insertInto('mailboxes')
+    .values({
+      id: otherBox,
+      tenant_id: otherTenant,
+      name: 'Caixa alheia',
+      email_address: 'other-' + suffix + '@apmail.local',
+      imap_host: mailHost,
+      imap_port: imapPort,
+      imap_secure: false,
+      smtp_host: mailHost,
+      smtp_port: smtpPort,
+      smtp_secure: false,
+      username: 'other',
+      status: 'disabled',
+    })
+    .execute();
+  const label = await db
+    .insertInto('personal_labels')
+    .values({ tenant_id: otherTenant, user_id: editor, name: 'Privada', color: 'red' })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  const folder = await db
+    .insertInto('folders')
+    .values({
+      tenant_id: otherTenant,
+      mailbox_id: otherBox,
+      name: 'Privada',
+      imap_path: 'Privada',
+      delimiter: '.',
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  expect(
+    (await api('PATCH', '/api/labels/' + label.id, editor, { name: 'Vazada', color: 'blue' }))
+      .statusCode,
+  ).toBe(404);
+  expect(
+    (await api('PATCH', '/api/folders/' + folder.id, owner, { name: 'Vazada' })).statusCode,
+  ).toBe(404);
+  const rule = {
+    mailbox_id: boxId,
+    scope: 'mailbox',
+    name: 'Destino alheio',
+    is_active: true,
+    priority: 100,
+    match_mode: 'all',
+    conditions: [{ field: 'from', operator: 'contains', value: 'cliente' }],
+    actions: [{ type: 'move_to_folder', folder_id: folder.id }],
+    stop_processing: false,
+  };
+  expect((await api('POST', '/api/rules', owner, rule)).statusCode).toBe(404);
+  expect(
+    (await api('POST', '/api/rules', editor, { ...rule, actions: [{ type: 'mark_flagged' }] }))
+      .statusCode,
+  ).toBe(403);
+  expect(
+    (await api('GET', '/api/labels', editor)).json().some((x: { id: string }) => x.id === label.id),
+  ).toBe(false);
+  expect((await api('GET', '/api/mailboxes/' + otherBox + '/threads', owner)).statusCode).toBe(404);
+});

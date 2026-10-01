@@ -7,6 +7,7 @@ import { withMailboxLock } from '../lib/mailbox-lock.js';
 import { isConnectionError } from '../lib/errors.js';
 import { markMailboxError } from './mailbox-connection.js';
 import { emitThreads } from '../lib/events.js';
+import { applyPendingRules } from './rules-apply.js';
 export async function handleMailboxSync(r: WorkerResources, mailboxId: string, jobId: string) {
   return withMailboxLock(r.redis, mailboxId, jobId, async () => {
     const box = await r.db
@@ -151,6 +152,7 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
           lock.release();
         }
       }
+      await applyPendingRules(r, box, t.imap);
       if (affected.size)
         await r.db.transaction().execute((trx) => touchThreads(trx, [...affected], 'sync', null));
       await r.db

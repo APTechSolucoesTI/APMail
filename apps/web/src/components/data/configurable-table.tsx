@@ -379,7 +379,7 @@ export function ConfigurableTable<T extends { id: string }>(props: ConfigurableT
                   {visible.map((column) => (
                     <div key={column.id} className="flex items-start justify-between gap-3 text-xs">
                       <dt className="font-semibold text-muted-foreground">{column.header}</dt>
-                      <dd className="break-words text-right">
+                      <dd className="min-w-0 flex-1 break-words text-right">
                         {column.cell?.(row) ?? String(columnValue(row, column) ?? '')}
                       </dd>
                     </div>
