@@ -1,0 +1,30 @@
+{
+  "name": "@apmail/shared",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --exclude **/integration/**"
+  },
+  "dependencies": {
+    "zod": "^4.6.5",
+    "date-fns": "^4.4.0",
+    "date-fns-tz": "^3.2.0"
+  },
+  "devDependencies": {},
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    }
+  },
+  "files": [
+    "dist"
+  ]
+}

@@ -1,0 +1,44 @@
+name: apmail-next-dev
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: apmail
+      POSTGRES_USER: apmail
+      POSTGRES_PASSWORD: troqueestasenha
+    ports: ['${DEV_BIND:-127.0.0.1}:${DEV_POSTGRES_PORT:-5432}:5432']
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+      - ./scripts/dev-init-db.sql:/docker-entrypoint-initdb.d/01-test-db.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U apmail -d apmail']
+      interval: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--maxmemory-policy', 'noeviction']
+    ports: ['${DEV_BIND:-127.0.0.1}:${DEV_REDIS_PORT:-6379}:6379']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      retries: 10
+  greenmail:
+    image: greenmail/standalone:2.1.0
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0
+        -Dgreenmail.auth.disabled=false
+        -Dgreenmail.users=comercial:Senha123@apmail.local,suporte:Senha123@apmail.local,cliente:Senha123@cliente.local
+        -Dgreenmail.users.login=email
+    ports:
+      - '${DEV_BIND:-127.0.0.1}:${DEV_SMTP_PORT:-3025}:3025'
+      - '${DEV_BIND:-127.0.0.1}:${DEV_IMAP_PORT:-3143}:3143'
+      - '${DEV_BIND:-127.0.0.1}:${DEV_SMTPS_PORT:-3465}:3465'
+      - '${DEV_BIND:-127.0.0.1}:${DEV_IMAPS_PORT:-3993}:3993'
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - '${DEV_BIND:-127.0.0.1}:${DEV_SYSTEM_SMTP_PORT:-1025}:1025'
+      - '${DEV_BIND:-127.0.0.1}:${DEV_MAILPIT_PORT:-8025}:8025'
+volumes:
+  pgdata-dev:
