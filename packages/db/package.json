@@ -1,0 +1,41 @@
+{
+  "name": "@apmail/db",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --exclude **/integration/**",
+    "migrate": "tsx src/migrate.ts",
+    "reset": "tsx src/reset.ts",
+    "codegen": "tsx src/codegen.ts",
+    "test:integration": "vitest run test/integration"
+  },
+  "dependencies": {
+    "pg": "^8.23.1",
+    "kysely": "^0.29.6",
+    "bullmq": "^6.3.11",
+    "ioredis": "^6.0.0",
+    "dotenv": "^18.0.5",
+    "@apmail/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "kysely-codegen": "^0.20.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    }
+  },
+  "files": [
+    "dist",
+    "migrations"
+  ]
+}

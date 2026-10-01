@@ -1,0 +1,40 @@
+{
+  "name": "apmail",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.8.1",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @apmail/web --filter @apmail/api --filter @apmail/worker dev",
+    "dev:infra": "docker compose -f docker-compose.dev.yml up -d",
+    "db:migrate": "pnpm --filter @apmail/db migrate",
+    "db:reset": "pnpm --filter @apmail/db reset",
+    "db:types": "pnpm --filter @apmail/db codegen",
+    "seed:dev": "tsx scripts/seed-dev.ts",
+    "mail:test": "tsx scripts/send-test-emails.ts",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:integration": "pnpm -r --if-present test:integration",
+    "build": "pnpm -r build",
+    "docker:up": "docker compose up -d --build",
+    "postinstall": "pnpm --filter @apmail/shared build && pnpm --filter @apmail/db build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.11.0",
+    "typescript-eslint": "^8.71.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "vitest": "^5.0.3",
+    "@types/node": "^26.6.3",
+    "@typescript/native": "npm:typescript@^7.0.2"
+  }
+}
