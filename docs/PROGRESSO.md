@@ -148,7 +148,44 @@ Linux final: 45 testes unitários e 48 de integração aprovados, reset exclusiv
 
 ## Fase 8 — Endurecimento
 
-Não iniciada.
+Em validação final na branch `feat/fase-8-endurecimento`.
+
+- [x] Migration aplicada e tipos reais de 32 tabelas.
+- [x] Restrição de pastas com herança por descendentes, isolamento de empresa e negação por seleção vazia.
+- [x] Listagens, busca, detalhe, anexos, contadores, sugestões, compartilhamento e salas Socket.IO filtrados no servidor.
+- [x] Seletores em Membros da caixa e no diálogo de permissões; revogação refletida imediatamente na tela.
+- [x] Atalhos de teclado e diálogo de ajuda; campos de edição e modais não disparam ações da caixa.
+- [x] Auditoria com filtros combinados e metadados sem segredos; logs com request_id e saúde das filas restrita a administradores.
+- [x] Carga real de 50.000 mensagens e 20.000 conversas no banco exclusivo de testes.
+- [x] Seis layouts de pastas, leitura restrita e auditoria, com teclado e revogação ao vivo.
+- [x] Revisão final de rotas, contraste, teclado e redução de movimento.
+- [ ] Checks completos no Linux, revisão do bundle, limpeza dos dados temporários, CI, merge e tag.
+
+Performance: `EXPLAIN ANALYZE (BUFFERS, FORMAT JSON)` executado sobre a mesma consulta compilada usada pela API, em PostgreSQL 17. Listagem por pasta: **121,216 ms**; filas: **124,310 ms**; busca: **50,659 ms**. Todas abaixo da meta de 300 ms. Fixture isolada em `apmail_test`; o gerador recusa bancos cujo nome não termina em `_test`. Índices de árvore de pastas e cronologia de mensagens legíveis incluídos na migration.
+
+Revisão por tela: as colunas abaixo correspondem aos checklists de design, desenvolvimento e acessibilidade/QA. Revisão operacional em 114 combinações de rota, tamanho e tema; autenticação pública em 30 combinações, mais onboarding. Sem overflow, um h1 por página, sem erros de JavaScript ou violações detectadas pelo axe-core nos critérios WCAG 2 A/AA e 2.1 AA. Teclado e redução de movimento conferidos; os fluxos completos de cada módulo também têm as evidências das fases anteriores. Isso não substitui uma auditoria manual integral de conformidade WCAG.
+
+| Tela/rota | Design | Desenvolvimento | Acessibilidade/QA |
+| --- | --- | --- | --- |
+| Entrar, cadastrar, recuperar e redefinir senha, aceitar convite | [x] | [x] | [x] |
+| Onboarding | [x] | [x] | [x] |
+| Meu perfil | [x] | [x] | [x] |
+| Preferências | [x] | [x] | [x] |
+| Equipe e permissões | [x] | [x] | [x] |
+| Empresa | [x] | [x] | [x] |
+| Lista de caixas | [x] | [x] | [x] |
+| Configuração da caixa e membros/pastas | [x] | [x] | [x] |
+| Assinaturas | [x] | [x] | [x] |
+| Etiquetas | [x] | [x] | [x] |
+| Regras | [x] | [x] | [x] |
+| Auditoria e detalhes | [x] | [x] | [x] |
+| Dashboard | [x] | [x] | [x] |
+| Lista e leitura de e-mail | [x] | [x] | [x] |
+| Rascunhos, agendados, na fila e com falha | [x] | [x] | [x] |
+| Lista do chat e conversa | [x] | [x] | [x] |
+| Ajuda de atalhos | [x] | [x] | [x] |
+
+Os ajustes incluíram contraste dos tokens claros e das abas, painel associado às abas de Envios e histórico do chat/tabelas roláveis acessíveis por teclado. A caixa desativada e a pessoa temporária de QA foram removidas, preservando as caixas reais e os serviços de outros projetos. A revogação no navegador retornou 404 e retirou o conteúdo em cache; o worker recusou resposta e anexo original após o agendamento, antes de construir MIME ou acessar SMTP.
 
 ## Fase 9 — Produção
 

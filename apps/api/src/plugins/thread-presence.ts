@@ -24,11 +24,23 @@ export function installThreadPresence(
       try {
         e = JSON.parse(json) as Entry;
       } catch {
-        await r.redis.hdel(key, userId);
+        await r.redis.eval(
+          "if redis.call('HGET',KEYS[1],ARGV[1])==ARGV[2] then return redis.call('HDEL',KEYS[1],ARGV[1]) end; return 0",
+          1,
+          key,
+          userId,
+          json,
+        );
         continue;
       }
       if (e.expires_at <= Date.now()) {
-        await r.redis.hdel(key, userId);
+        await r.redis.eval(
+          "if redis.call('HGET',KEYS[1],ARGV[1])==ARGV[2] then return redis.call('HDEL',KEYS[1],ARGV[1]) end; return 0",
+          1,
+          key,
+          userId,
+          json,
+        );
         continue;
       }
       if (e.composing) users.push({ user_id: userId, full_name: e.full_name, composing: true });

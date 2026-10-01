@@ -6,6 +6,7 @@ import type { Resources } from '../modules/resources.js';
 import { installThreadPresence } from './thread-presence.js';
 import { installChatSocket } from './chat-socket.js';
 import { installTenantPresence } from './tenant-presence.js';
+import { requireThread } from '../modules/mail.js';
 export function installSocket(app: FastifyInstance, r: Resources) {
   const pending = new Set<Promise<void>>();
   const track = (task: Promise<void>) => {
@@ -105,15 +106,7 @@ export function installSocket(app: FastifyInstance, r: Resources) {
             socket.id,
           );
           if (!fresh?.tenantId) throw new Error();
-          const thread = await r.db
-            .selectFrom('threads')
-            .select('mailbox_id')
-            .where('id', '=', thread_id)
-            .where('tenant_id', '=', fresh.tenantId)
-            .where('deleted_at', 'is', null)
-            .executeTakeFirst();
-          if (!thread) throw new Error();
-          await requireMailboxPerm(fresh, r.db, thread.mailbox_id, 'read');
+          await requireThread(fresh, r, thread_id);
           await socket.join('thread:' + thread_id);
           ack?.({ ok: true });
         } catch {

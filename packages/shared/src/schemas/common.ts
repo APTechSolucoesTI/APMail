@@ -27,3 +27,15 @@ export const healthSchema = z.object({
   redis: z.enum(['ok', 'error']),
   version: z.string(),
 });
+export const healthQueuesSchema = z.object({
+  queues: z.record(
+    z.string(),
+    z.object({
+      waiting: z.number().int().min(0),
+      active: z.number().int().min(0),
+      delayed: z.number().int().min(0),
+      failed: z.number().int().min(0),
+    }),
+  ),
+  worker_last_heartbeat: z.iso.datetime().nullable(),
+});

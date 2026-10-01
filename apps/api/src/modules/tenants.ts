@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { sql } from 'kysely';
-import { audit, auditChanges } from '@apmail/db';
+import { sql, type Kysely } from 'kysely';
+import { audit, auditChanges, safeAuditMetadata, type DB } from '@apmail/db';
+import { AUDIT_ACTION_LABELS } from '@apmail/shared';
 import {
   tenantSettingsSchema,
   timezoneSchema,
@@ -38,38 +39,101 @@ export async function emitAccessChanged(r: Resources, userId: string) {
   }
   r.io.to('user:' + userId).emit('mailboxes:changed', {});
 }
+export async function saveMailboxAccess(
+  db: Kysely<DB>,
+  tenantId: string,
+  mailboxId: string,
+  userId: string,
+  role: z.infer<typeof mailboxRoleSchema> | null,
+  restrict = false,
+  folderIds: string[] = [],
+) {
+  const ids = [...new Set(folderIds)];
+  if (restrict && (!role || role === 'mailbox_admin'))
+    throw new ApiError(400, 'validation_error', 'A restrição exige Editor ou Somente leitura.');
+  if (restrict && ids.length) {
+    const found = await db
+      .selectFrom('folders')
+      .select('id')
+      .where('tenant_id', '=', tenantId)
+      .where('mailbox_id', '=', mailboxId)
+      .where('deleted_at', 'is', null)
+      .where('id', 'in', ids)
+      .execute();
+    if (found.length !== ids.length) throw notFound();
+  }
+  if (!role) {
+    await db
+      .deleteFrom('mailbox_members')
+      .where('tenant_id', '=', tenantId)
+      .where('mailbox_id', '=', mailboxId)
+      .where('user_id', '=', userId)
+      .execute();
+    return;
+  }
+  await db
+    .insertInto('mailbox_members')
+    .values({
+      tenant_id: tenantId,
+      mailbox_id: mailboxId,
+      user_id: userId,
+      role,
+      restrict_to_folders: restrict,
+    })
+    .onConflict((oc) =>
+      oc.columns(['mailbox_id', 'user_id']).doUpdateSet({ role, restrict_to_folders: restrict }),
+    )
+    .execute();
+  await db
+    .deleteFrom('folder_permissions')
+    .where('tenant_id', '=', tenantId)
+    .where('mailbox_id', '=', mailboxId)
+    .where('user_id', '=', userId)
+    .execute();
+  if (restrict && ids.length)
+    await db
+      .insertInto('folder_permissions')
+      .values(
+        ids.map((folder_id) => ({
+          tenant_id: tenantId,
+          mailbox_id: mailboxId,
+          user_id: userId,
+          folder_id,
+        })),
+      )
+      .execute();
+}
 export async function setMailboxMember(
   ctx: RequestContext,
   r: Resources,
   mailboxId: string,
   userId: string,
   role: z.infer<typeof mailboxRoleSchema> | null,
+  restrict = false,
+  folderIds: string[] = [],
 ) {
   const c = requireTenantAdmin(ctx);
   await requireMailboxPerm(c, r.db, mailboxId, 'read');
   const member = await requireMember(c, r, userId);
   if (member.status !== 'active' && role)
     throw new ApiError(409, 'conflict', 'Reative o usuário antes de conceder acesso.');
-  if (role)
-    await r.db
-      .insertInto('mailbox_members')
-      .values({ tenant_id: c.tenantId, mailbox_id: mailboxId, user_id: userId, role })
-      .onConflict((oc) => oc.columns(['mailbox_id', 'user_id']).doUpdateSet({ role }))
-      .execute();
-  else
-    await r.db
-      .deleteFrom('mailbox_members')
-      .where('tenant_id', '=', c.tenantId)
-      .where('mailbox_id', '=', mailboxId)
-      .where('user_id', '=', userId)
-      .execute();
+  await r.db
+    .transaction()
+    .execute((tx) =>
+      saveMailboxAccess(tx, c.tenantId, mailboxId, userId, role, restrict, folderIds),
+    );
   await audit(r.db, {
     tenantId: c.tenantId,
     actorId: c.userId,
     action: 'mailbox_member.updated',
     entityType: 'mailbox',
     entityId: mailboxId,
-    metadata: { user_id: userId, role },
+    metadata: {
+      user_id: userId,
+      role,
+      restrict_to_folders: restrict,
+      folder_ids: restrict ? folderIds : [],
+    },
     ip: c.ip,
   });
   await emitAccessChanged(r, userId);
@@ -207,13 +271,26 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
           .on('m.tenant_id', '=', c.tenantId)
           .on('m.user_id', '=', userId),
       )
-      .select(['b.id as mailbox_id', 'b.name as mailbox_name', 'm.role'])
+      .select([
+        'b.id as mailbox_id',
+        'b.name as mailbox_name',
+        'm.role',
+        'm.restrict_to_folders',
+        sql<
+          string[]
+        >`coalesce((select array_agg(p.folder_id) from folder_permissions p where p.tenant_id=${c.tenantId} and p.mailbox_id=b.id and p.user_id=${userId}),'{}'::uuid[])`.as(
+          'folder_ids',
+        ),
+      ])
       .where('b.tenant_id', '=', c.tenantId)
       .where('b.deleted_at', 'is', null)
       .execute();
     return {
       tenant_role: member.role,
-      mailbox_roles: boxes.map((b) => ({ ...b, restrict_to_folders: false, folder_ids: [] })),
+      mailbox_roles: boxes.map((b) => ({
+        ...b,
+        restrict_to_folders: b.restrict_to_folders ?? false,
+      })),
     };
   });
   app.put('/api/members/:userId/access', async (req) => {
@@ -235,26 +312,15 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         .where('user_id', '=', userId)
         .execute();
       for (const box of b.mailbox_roles) {
-        if (box.role)
-          await tx
-            .insertInto('mailbox_members')
-            .values({
-              tenant_id: c.tenantId,
-              mailbox_id: box.mailbox_id,
-              user_id: userId,
-              role: box.role,
-            })
-            .onConflict((oc) =>
-              oc.columns(['mailbox_id', 'user_id']).doUpdateSet({ role: box.role! }),
-            )
-            .execute();
-        else
-          await tx
-            .deleteFrom('mailbox_members')
-            .where('tenant_id', '=', c.tenantId)
-            .where('mailbox_id', '=', box.mailbox_id)
-            .where('user_id', '=', userId)
-            .execute();
+        await saveMailboxAccess(
+          tx,
+          c.tenantId,
+          box.mailbox_id,
+          userId,
+          box.role,
+          box.restrict_to_folders,
+          box.folder_ids,
+        );
       }
       await audit(tx, {
         tenantId: c.tenantId,
@@ -355,7 +421,20 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         from: z.iso.datetime().optional(),
         to: z.iso.datetime().optional(),
         actor_id: z.uuid().optional(),
+        actor_ids: z
+          .string()
+          .max(4000)
+          .transform((value) => z.array(z.uuid()).max(100).parse(value.split(',')))
+          .optional(),
         action: z.string().max(100).optional(),
+        actions: z
+          .string()
+          .max(10000)
+          .transform((value) =>
+            z.array(z.string().min(1).max(100)).max(100).parse(value.split(',')),
+          )
+          .optional(),
+        search: z.string().trim().max(200).optional(),
       })
       .parse(req.query);
     let query = r.db
@@ -365,8 +444,34 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
     if (q.from) query = query.where('a.created_at', '>=', new Date(q.from));
     if (q.to) query = query.where('a.created_at', '<=', new Date(q.to));
     if (q.actor_id) query = query.where('a.actor_id', '=', q.actor_id);
+    if (q.actor_ids?.length) query = query.where('a.actor_id', 'in', q.actor_ids);
+    if (q.actions?.length) query = query.where('a.action', 'in', q.actions);
     if (q.action)
       query = query.where('a.action', 'like', q.action.replace(/[%_\\]/g, '\\$&') + '%');
+    if (q.search) {
+      const text = '%' + q.search.replace(/[%_\\]/g, '\\$&') + '%',
+        actions = Object.entries(AUDIT_ACTION_LABELS)
+          .filter(([, label]) =>
+            label
+              .toLocaleLowerCase('pt-BR')
+              .normalize('NFD')
+              .replace(/\p{Diacritic}/gu, '')
+              .includes(
+                q
+                  .search!.toLocaleLowerCase('pt-BR')
+                  .normalize('NFD')
+                  .replace(/\p{Diacritic}/gu, ''),
+              ),
+          )
+          .map(([key]) => key);
+      query = query.where((eb) =>
+        eb.or([
+          eb('u.full_name', 'ilike', text),
+          eb('a.action', 'ilike', text),
+          ...(actions.length ? [eb('a.action', 'in', actions)] : []),
+        ]),
+      );
+    }
     const count = await query
       .select((eb) => eb.fn.countAll<number>().as('n'))
       .executeTakeFirstOrThrow();
@@ -385,6 +490,11 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       .offset((q.page - 1) * q.pageSize)
       .limit(q.pageSize)
       .execute();
-    return { items, total: Number(count.n), page: q.page, pageSize: q.pageSize };
+    return {
+      items: items.map((item) => ({ ...item, metadata: safeAuditMetadata(item.metadata) })),
+      total: Number(count.n),
+      page: q.page,
+      pageSize: q.pageSize,
+    };
   });
 }

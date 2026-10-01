@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, {LogController} from 'fastify';
 import helmet from '@fastify/helmet';
 import sensible from '@fastify/sensible';
 import cookie from '@fastify/cookie';
@@ -13,7 +13,8 @@ import {
 } from 'fastify-type-provider-zod';
 import { Redis } from 'ioredis';
 import { createDb, createQueues } from '@apmail/db';
-import { healthSchema, socketRedisKey } from '@apmail/shared';
+import { healthSchema, healthQueuesSchema, socketRedisKey } from '@apmail/shared';
+import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
 import { Server } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
@@ -32,11 +33,13 @@ import { registerOrganizationRoutes } from './modules/organization/routes.js';
 import { registerThreadOperations } from './modules/thread-operations/routes.js';
 import { registerDashboard } from './modules/dashboard/routes.js';
 import { registerChat } from './modules/chat/routes.js';
-import { ApiError } from './authz/context.js';
+import { ApiError, requireTenantAdmin } from './authz/context.js';
 
 export async function buildApp(config: ApiEnv = readEnv()) {
   const app = Fastify({
     trustProxy: true,
+    genReqId: () => randomUUID(),
+    logController:new LogController({requestIdLogLabel:'request_id'}),
     logger:
       config.NODE_ENV === 'test'
         ? false
@@ -75,7 +78,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
     });
     await app.register(swaggerUi, { routePrefix: '/api/docs' });
   }
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     const e = error as {
       validation?: unknown;
       statusCode?: number;
@@ -108,7 +111,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
       return;
     }
     const status = e.validation ? 400 : (e.statusCode ?? 500);
-    if (status >= 500) app.log.error({ err: error }, 'Falha na requisição.');
+    if (status >= 500) request.log.error({ err: error }, 'Falha na requisição.');
     const code =
       (
         {
@@ -161,6 +164,27 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   io.adapter(createAdapter(pub, sub, { key: socketRedisKey(config.REDIS_URL) }));
   const resources = { db, redis, io, queues: queueResources.queues, env: config };
   await installAuth(app, db, redis, config);
+  app.get(
+    '/api/health/queues',
+    { schema: { response: { 200: healthQueuesSchema } } },
+    async (req) => {
+      requireTenantAdmin(req.ctx);
+      const entries = await Promise.all(
+        Object.entries(resources.queues).map(
+          async ([name, queue]) =>
+            [name, await queue.getJobCounts('waiting', 'active', 'delayed', 'failed')] as const,
+        ),
+      );
+      return healthQueuesSchema.parse({
+        queues: Object.fromEntries(entries),
+        worker_last_heartbeat: await redis.get('worker:heartbeat'),
+      });
+    },
+  );
+  app.addHook('onSend', async (request, reply, payload) => {
+    reply.header('X-Request-Id', request.id);
+    return payload;
+  });
   const sockets = installSocket(app, resources);
   await registerAuthRoutes(app, resources);
   await registerTenantRoutes(app, resources);
@@ -174,7 +198,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   registerDashboard(app, resources);
   registerChat(app, resources);
   app.addHook('onClose', async () => {
-    io.disconnectSockets(true);
+    io.local.disconnectSockets(true);
     await sockets.drain();
     await new Promise<void>((resolve) => io.close(() => resolve()));
     await Promise.all([pub.quit(), sub.quit(), redis.quit(), queueResources.close(), db.destroy()]);

@@ -31,6 +31,8 @@ import {
   type RequestContext,
 } from '../authz/context.js';
 import { requireMailboxPerm, getMailboxRole } from '../authz/guards.js';
+import { readableFolders, folderPredicate, requireFolder } from '../authz/folders.js';
+import { requireThread } from './mail.js';
 import type { Resources } from './resources.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 const validation = (message: string) => new ApiError(400, 'validation_error', message);
@@ -76,6 +78,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
   };
   const validateRefs = async (c: ReturnType<typeof requireTenant>, body: OutboxInput) => {
     await requireMailboxPerm(c, r.db, body.mailbox_id, 'send');
+    const scope = await readableFolders(c, r.db, body.mailbox_id);
     if (body.thread_id) {
       const t = await r.db
         .selectFrom('threads')
@@ -86,17 +89,19 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         .where('deleted_at', 'is', null)
         .executeTakeFirst();
       if (!t) throw notFound();
+      await requireThread(c, r, body.thread_id);
     }
     if (body.reply_to_message_id) {
       const m = await r.db
         .selectFrom('messages')
-        .select('thread_id')
+        .select(['thread_id', 'folder_id'])
         .where('id', '=', body.reply_to_message_id)
         .where('tenant_id', '=', c.tenantId)
         .where('mailbox_id', '=', body.mailbox_id)
         .where('deleted_at', 'is', null)
         .executeTakeFirst();
       if (!m || m.thread_id !== body.thread_id) throw notFound();
+      await requireFolder(c, r.db, body.mailbox_id, m.folder_id);
     }
     if (
       ['reply', 'reply_all'].includes(body.kind) &&
@@ -113,6 +118,20 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         .where('deleted_at', 'is', null)
         .executeTakeFirst();
       if (!s || (s.mailbox_id && s.mailbox_id !== body.mailbox_id)) throw notFound();
+    }
+    for (const ref of body.attachments) {
+      if (ref.source !== 'message_attachment') continue;
+      const file = await r.db
+        .selectFrom('attachments as a')
+        .innerJoin('messages as m', 'm.id', 'a.message_id')
+        .select('a.id')
+        .where('a.id', '=', ref.attachment_id)
+        .where('a.tenant_id', '=', c.tenantId)
+        .where('a.mailbox_id', '=', body.mailbox_id)
+        .where('m.deleted_at', 'is', null)
+        .where(folderPredicate(scope))
+        .executeTakeFirst();
+      if (!file) throw notFound();
     }
     try {
       await resolveOutboxAttachments(r.db, {
@@ -234,6 +253,11 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     if (row.created_by !== c.userId) {
       if (row.status === 'draft') throw notFound();
       await requireMailboxPerm(c, r.db, row.mailbox_id, 'read');
+      const scope = await readableFolders(c, r.db, row.mailbox_id);
+      if (scope !== null) {
+        if (!row.thread_id) throw notFound();
+        await requireThread(c, r, row.thread_id);
+      }
     }
     const attachment_metadata = await resolveOutboxAttachments(r.db, row)
       .then((files) =>
@@ -324,6 +348,20 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         q.tab === 'drafts' ? ['draft'] : q.tab === 'queued' ? ['queued', 'sending'] : [q.tab],
       );
     if (q.tab === 'drafts') query = query.where('o.created_by', '=', c.userId);
+    const boxPredicates = [];
+    for (const box of visible) {
+      const scope = await readableFolders(c, r.db, box.id);
+      boxPredicates.push(
+        scope === null
+          ? sql`o.mailbox_id=${box.id}`
+          : sql`(o.mailbox_id=${box.id} and (o.created_by=${c.userId} or exists(select 1 from messages m where m.tenant_id=${c.tenantId} and m.thread_id=o.thread_id and m.deleted_at is null and ${folderPredicate(scope)})))`,
+      );
+    }
+    query = query.where(
+      boxPredicates.length
+        ? sql<boolean>`(${sql.join(boxPredicates, sql` or `)})`
+        : sql<boolean>`false`,
+    );
     if (q.mailbox_id) query = query.where('o.mailbox_id', '=', q.mailbox_id);
     if (q.search) query = query.where('o.subject', 'ilike', `%${q.search}%`);
     const total = Number(
@@ -463,10 +501,11 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     const c = requireTenant(req.ctx),
       id = idOf(req.params);
     await requireMailboxPerm(c, r.db, id, 'read');
+    const scope = await readableFolders(c, r.db, id);
     const { q } = z.object({ q: z.string().trim().max(100).default('') }).parse(req.query);
     if (!q) return [];
     const result =
-      await sql<Address>`select address,coalesce((array_agg(name order by message_at desc))[1],'') as name from (select from_address as address,from_name as name,message_at from messages where tenant_id=${c.tenantId} and mailbox_id=${id} and deleted_at is null union all select a->>'address',a->>'name',m.message_at from messages m cross join lateral jsonb_array_elements(m.to_addresses||m.cc_addresses) a where m.tenant_id=${c.tenantId} and m.mailbox_id=${id} and m.deleted_at is null) contacts where unaccent(address) ilike unaccent(${'%' + q + '%'}) or unaccent(name) ilike unaccent(${'%' + q + '%'}) group by address order by max(message_at) desc,address limit 8`.execute(
+      await sql<Address>`select address,coalesce((array_agg(name order by message_at desc))[1],'') as name from (select m.from_address as address,m.from_name as name,m.message_at from messages m where m.tenant_id=${c.tenantId} and m.mailbox_id=${id} and m.deleted_at is null and ${folderPredicate(scope)} union all select a->>'address',a->>'name',m.message_at from messages m cross join lateral jsonb_array_elements(m.to_addresses||m.cc_addresses) a where m.tenant_id=${c.tenantId} and m.mailbox_id=${id} and m.deleted_at is null and ${folderPredicate(scope)}) contacts where unaccent(address) ilike unaccent(${'%' + q + '%'}) or unaccent(name) ilike unaccent(${'%' + q + '%'}) group by address order by max(message_at) desc,address limit 8`.execute(
         r.db,
       );
     return result.rows;

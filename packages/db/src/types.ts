@@ -119,6 +119,13 @@ export interface ChatParticipants {
   user_id: string;
 }
 
+export interface FolderPermissions {
+  folder_id: string;
+  mailbox_id: string;
+  tenant_id: string;
+  user_id: string;
+}
+
 export interface Folders {
   created_at: Generated<Timestamp>;
   deleted_at: Timestamp | null;
@@ -201,6 +208,7 @@ export interface MailboxMembers {
   created_at: Generated<Timestamp>;
   id: Generated<string>;
   mailbox_id: string;
+  restrict_to_folders: Generated<boolean>;
   role: MailboxRole;
   tenant_id: string;
   updated_at: Generated<Timestamp>;
@@ -495,6 +503,7 @@ export interface DB {
   chat_conversations: ChatConversations;
   chat_messages: ChatMessages;
   chat_participants: ChatParticipants;
+  folder_permissions: FolderPermissions;
   folders: Folders;
   invitations: Invitations;
   mail_actions: MailActions;

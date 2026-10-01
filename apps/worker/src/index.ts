@@ -17,6 +17,7 @@ import { createSystemEmailHandler } from './handlers/system-email.js';
 import { QUEUE_NAMES, socketRedisKey } from '@apmail/shared';
 import { readEnv } from './env.js';
 const env = readEnv();
+let stopping = false;
 const db = createDb(env.DATABASE_URL);
 const sendSystemEmail = createSystemEmailHandler(env);
 const log = pino({
@@ -172,7 +173,6 @@ const timer = setInterval(
   30000,
 );
 log.info('Worker iniciado.');
-let stopping = false;
 for (const signal of ['SIGINT', 'SIGTERM'])
   process.on(signal, async () => {
     if (stopping) return;

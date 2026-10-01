@@ -15,6 +15,7 @@ import {
 } from '../../authz/context.js';
 import { avatarUrl } from '../auth.js';
 import { requireThread } from '../mail.js';
+import { readableFolders, folderPredicate } from '../../authz/folders.js';
 import type { Resources } from '../resources.js';
 type TenantContext = ReturnType<typeof requireTenant>;
 const preciseCreatedAt =
@@ -426,12 +427,14 @@ export async function shareThread(
   },
 ) {
   const { c, thread } = await requireThread(ctx, r, input.thread_id);
+  const scope = await readableFolders(c, r.db, thread.mailbox_id);
   const latest = await r.db
     .selectFrom('messages')
     .select(['subject', 'from_name', 'from_address', 'message_at', 'snippet'])
     .where('thread_id', '=', thread.id)
     .where('tenant_id', '=', c.tenantId)
     .where('deleted_at', 'is', null)
+    .where(folderPredicate(scope, 'messages.folder_id'))
     .orderBy('message_at', 'desc')
     .orderBy('id', 'desc')
     .executeTakeFirst();

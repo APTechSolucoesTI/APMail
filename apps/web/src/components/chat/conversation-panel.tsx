@@ -211,7 +211,8 @@ export function ConversationPanel({ id }: { id: string }) {
       </header>
       <div
         ref={area}
-        className="min-h-0 flex-1 overflow-y-auto p-4"
+        className="min-h-0 flex-1 overflow-y-auto p-4 focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2"
+        tabIndex={0}
         role="log"
         aria-label="Mensagens da conversa"
         aria-live="polite"

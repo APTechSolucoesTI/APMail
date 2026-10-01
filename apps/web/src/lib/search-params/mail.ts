@@ -13,7 +13,7 @@ export const mailSearchSchema = z.object({
   page: z.number().int().min(1).default(1),
   pageSize: z
     .union([z.literal(10), z.literal(20), z.literal(30), z.literal(50), z.literal(100)])
-    .default(50),
+    .default(10),
   thread: z.uuid().optional(),
   compose: z.string().optional(),
 });

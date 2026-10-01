@@ -10,9 +10,10 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
 import { toast } from 'sonner';
+import { FolderAccessPicker, type FolderAccess } from './folder-access-picker';
 type Access = {
   tenant_role: TenantRole;
-  mailbox_roles: { mailbox_id: string; role: MailboxRole | null }[];
+  mailbox_roles: ({ mailbox_id: string; role: MailboxRole | null } & FolderAccess)[];
 };
 export function AccessEditor({ userId, onDone }: { userId?: string; onDone: () => void }) {
   const q = useQuery({
@@ -78,6 +79,11 @@ function AccessForm({
         const mailbox_roles = (boxes.data ?? []).map((box) => ({
           mailbox_id: box.id,
           role: roles.find((r) => r.mailbox_id === box.id)?.role ?? null,
+          restrict_to_folders:
+            (b.tenant_role === 'member' &&
+              roles.find((r) => r.mailbox_id === box.id)?.restrict_to_folders) ||
+            false,
+          folder_ids: roles.find((r) => r.mailbox_id === box.id)?.folder_ids ?? [],
         }));
         await api(userId ? '/members/' + userId + '/access' : '/invitations', {
           method: userId ? 'PUT' : 'POST',
@@ -90,6 +96,56 @@ function AccessForm({
         toast.success(userId ? 'Permissões atualizadas.' : 'Convite enviado.');
         onDone();
       }}
+      renderPreview={(values) => (
+        <div className="space-y-4">
+          {boxes.data?.map((box) => {
+            const current = roles.find((r) => r.mailbox_id === box.id),
+              role = current?.role ?? null;
+            return (
+              <fieldset key={box.id} className="space-y-3 rounded-md border p-3">
+                <legend className="px-1 text-sm font-semibold">{box.name}</legend>
+                <RadioGroup
+                  value={role ?? 'none'}
+                  onValueChange={(v) =>
+                    setRoles((prev) => [
+                      ...prev.filter((r) => r.mailbox_id !== box.id),
+                      {
+                        mailbox_id: box.id,
+                        role: v === 'none' ? null : (v as MailboxRole),
+                        restrict_to_folders: false,
+                        folder_ids: [],
+                      },
+                    ])
+                  }
+                  className="grid gap-2 sm:grid-cols-2"
+                >
+                  {['none', 'viewer', 'editor', 'mailbox_admin'].map((role) => (
+                    <div key={role} className="flex min-h-11 items-center gap-2">
+                      <RadioGroupItem id={box.id + '-' + role} value={role} />
+                      <Label htmlFor={box.id + '-' + role}>
+                        {role === 'none' ? 'Sem acesso' : ROLE_LABELS[role as MailboxRole]}
+                      </Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+                {userId &&
+                  values.tenant_role === 'member' &&
+                  (role === 'editor' || role === 'viewer') && (
+                    <FolderAccessPicker
+                      mailboxId={box.id}
+                      value={current ?? { restrict_to_folders: false, folder_ids: [] }}
+                      onChange={(access) =>
+                        setRoles((prev) =>
+                          prev.map((r) => (r.mailbox_id === box.id ? { ...r, ...access } : r)),
+                        )
+                      }
+                    />
+                  )}
+              </fieldset>
+            );
+          })}
+        </div>
+      )}
     >
       <p className="text-sm text-muted-foreground">
         Administradores e proprietários acessam todas as caixas como Admin da caixa.
@@ -98,32 +154,6 @@ function AccessForm({
         Somente leitura: ler. Editor: ler, responder, criar notas e assumir conversas. Admin da
         caixa: inclui organização, regras, atribuição e dashboard.
       </p>
-      <div className="space-y-4">
-        {boxes.data?.map((box) => (
-          <fieldset key={box.id} className="rounded-md border p-3">
-            <legend className="px-1 text-sm font-semibold">{box.name}</legend>
-            <RadioGroup
-              value={roles.find((r) => r.mailbox_id === box.id)?.role ?? 'none'}
-              onValueChange={(v) =>
-                setRoles((prev) => [
-                  ...prev.filter((r) => r.mailbox_id !== box.id),
-                  { mailbox_id: box.id, role: v === 'none' ? null : (v as MailboxRole) },
-                ])
-              }
-              className="grid gap-2 sm:grid-cols-2"
-            >
-              {['none', 'viewer', 'editor', 'mailbox_admin'].map((role) => (
-                <div key={role} className="flex min-h-11 items-center gap-2">
-                  <RadioGroupItem id={box.id + '-' + role} value={role} />
-                  <Label htmlFor={box.id + '-' + role}>
-                    {role === 'none' ? 'Sem acesso' : ROLE_LABELS[role as MailboxRole]}
-                  </Label>
-                </div>
-              ))}
-            </RadioGroup>
-          </fieldset>
-        ))}
-      </div>
     </SchemaForm>
   );
 }

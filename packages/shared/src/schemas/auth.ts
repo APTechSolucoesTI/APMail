@@ -54,6 +54,8 @@ export const mailboxRoleSchema = z.enum(['mailbox_admin', 'editor', 'viewer']);
 export const mailboxAccessSchema = z.object({
   mailbox_id: z.uuid(),
   role: mailboxRoleSchema.nullable(),
+  restrict_to_folders: z.boolean().default(false),
+  folder_ids: z.array(z.uuid()).max(1000).default([]),
 });
 export const memberAccessSchema = z.object({
   tenant_role: z.enum(['owner', 'admin', 'member']),

@@ -56,17 +56,17 @@ Implemente exatamente estes tokens (Tailwind 4, `@theme inline`), temas claro e 
   --card-foreground: #111827;
   --popover: #ffffff;
   --popover-foreground: #111827;
-  --primary: #1686a7;
+  --primary: #137a98;
   --primary-foreground: #ffffff;
   --secondary: #e9f6f9;
   --secondary-foreground: #155e75;
   --accent: #ddf4f8;
   --accent-foreground: #155e75;
   --muted: #f1f3f5;
-  --muted-foreground: #667085;
+  --muted-foreground: #626d80;
   --border: #e4e7ec;
   --input: #dde1e7;
-  --ring: #45bdd6;
+  --ring: #137a98;
   --destructive: #e7000b;
   --destructive-foreground: #ffffff;
   --sidebar: #ffffff;
@@ -264,7 +264,7 @@ Regras: componentes usam **somente** classes semânticas (`bg-card`, `text-muted
 Anatomia: (1) cabeçalho da página com `h1`, descrição opcional e ação primária à direita; (2) toolbar: busca (debounce 400 ms), filtros em popover com contador, botão `Colunas` (ícone `Settings2`), ações em lote quando houver seleção; (3) resumo "início–fim de total" + paginação; (4) tabela com cabeçalho sticky (cabeçalho 11 px/600/caixa alta, altura 32 px; célula 12 px, `py-1.5 px-2`; hover `bg-muted/50`; seleção `bg-muted`); (5) estados: loading (skeleton), atualização (mantém dados + indicador discreto), vazio, sem resultado (com "Limpar filtros (N)"), erro ("Tentar novamente"), sem permissão; (6) paginação inferior.
 
 - Paginação padrão **10**, opções **10, 20, 30, 50, 100**. Filtro/ordenação/tamanho voltam à página 1. Estado refletido na URL (search params).
-- **Exceção documentada:** a lista de conversas da caixa de e-mail usa padrão **50** por página (mesmas opções). Registrar em `docs/DECISOES.md`.
+- A lista de conversas usa padrão **10** por página, conforme a instrução AGENTS.md mais recente. A API preserva o padrão 50 para clientes que não enviam o tamanho explicitamente.
 - Ordenação: nenhuma → asc → desc → nenhuma; `aria-sort` no `<th>`.
 - Ações por linha: `Eye` (Visualizar), `Pencil` (Editar), `Trash2` (Excluir, cor destrutiva, com confirmação), `Ellipsis` (Mais ações). Botão `icon` 32×32 com `aria-label` e tooltip. Máximo 3 ações expostas.
 - Preferências de colunas persistidas por usuário em `table_preferences` com `list_key` exclusivo (lista de `list_key` na seção 13). Botão "Restaurar padrão". Pelo menos uma coluna de identificação sempre visível.
