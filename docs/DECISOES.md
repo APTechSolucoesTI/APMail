@@ -22,3 +22,5 @@ TanStack Table 9: `useTable` e `tableFeatures` substituem a API v8, conforme [gu
 Migrations normalizam CRLF para LF antes do checksum, preservando o mesmo SHA-256 em Windows e Linux; alterações no SQL continuam proibidas. Atributos Git fixam LF no repositório.
 
 Node mínimo atualizado para 22.22.2, exigido pelas dependências estáveis atuais de lint e testes. API e worker usam armazenamento relativo à raiz do workspace para compartilhar os mesmos arquivos.
+
+Consultas de domínio no SPA incluem a empresa atual na chave de cache. Alteração e reconexão de Socket.IO invalidam os dados acessíveis; cookies e associações são verificados novamente no servidor.

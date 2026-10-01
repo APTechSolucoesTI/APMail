@@ -42,7 +42,12 @@ function Preferences() {
                 { value: 'compact', label: 'Compacta' },
               ],
             },
-            { name: 'timezone', label: 'Fuso horário', help: 'Exemplo: America/Sao_Paulo.' },
+            {
+              name: 'timezone',
+              label: 'Fuso horário',
+              type: 'timezone',
+              help: 'Exemplo: America/Sao_Paulo.',
+            },
             ...[
               'notify_mentions',
               'notify_assignments',

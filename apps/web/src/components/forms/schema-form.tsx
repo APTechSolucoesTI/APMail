@@ -8,10 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ApiError } from '@/lib/api';
 import { X } from 'lucide-react';
+import { TimezoneSelect } from './timezone-select';
 export type FormField = {
   name: string;
   label: string;
-  type?: 'text' | 'email' | 'password' | 'number' | 'checkbox' | 'select' | 'emails';
+  type?: 'text' | 'email' | 'password' | 'number' | 'checkbox' | 'select' | 'emails' | 'timezone';
   autoComplete?: string;
   help?: string;
   options?: { value: string; label: string }[];
@@ -57,7 +58,13 @@ export function SchemaForm({
         return (
           <div key={field.name} className="space-y-2">
             <Label htmlFor={id}>{field.label}</Label>
-            {field.type === 'checkbox' ? (
+            {field.type === 'timezone' ? (
+              <TimezoneSelect
+                id={id}
+                value={String(values[field.name] ?? '')}
+                onChange={(value) => form.setValue(field.name, value, { shouldValidate: true })}
+              />
+            ) : field.type === 'checkbox' ? (
               <div className="flex min-h-11 items-center gap-2">
                 <Checkbox
                   id={id}
@@ -77,7 +84,12 @@ export function SchemaForm({
                   }
                   aria-invalid={!!message}
                 />
-                <span className="text-sm">{field.help ?? 'Habilitado'}</span>
+                <Label
+                  htmlFor={id}
+                  className="flex min-h-11 flex-1 items-center text-sm font-normal"
+                >
+                  {field.help ?? 'Habilitado'}
+                </Label>
               </div>
             ) : field.type === 'select' ? (
               <select

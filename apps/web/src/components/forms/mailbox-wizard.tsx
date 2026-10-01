@@ -1,3 +1,4 @@
+import { useTenantId } from '@/lib/auth';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
@@ -47,11 +48,11 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
   const client = useQueryClient();
   const me = useQuery(meQuery);
   const directory = useQuery({
-    queryKey: ['directory'],
+    queryKey: ['directory', useTenantId()],
     queryFn: () => api<{ id: string; full_name: string; email: string }[]>('/members/directory'),
   });
   const box = useQuery({
-    queryKey: ['mailbox', boxId],
+    queryKey: ['mailbox', useTenantId(), boxId],
     queryFn: () => api<Mailbox>('/mailboxes/' + boxId),
     enabled: !!boxId,
     refetchInterval: boxId ? 5000 : false,
@@ -293,7 +294,7 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
             setBoxId(result.id);
             setDraft((prev) => ({ ...prev, password: undefined }));
             setStep(4);
-            await client.invalidateQueries({ queryKey: ['mailboxes'] });
+            await client.invalidateQueries({ queryKey: ['mailboxes', useTenantId()] });
           }}
         />
       )}

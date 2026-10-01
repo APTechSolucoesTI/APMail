@@ -2,6 +2,9 @@ import { api } from './api';
 import { queryClient } from './query-client';
 import { redirect } from '@tanstack/react-router';
 import type { MailboxRole, TenantRole } from '@apmail/shared';
+import { createContext, useContext } from 'react';
+export const TenantContext = createContext<string | null>(null);
+export const useTenantId = () => useContext(TenantContext);
 export type Preferences = {
   theme: 'system' | 'light' | 'dark';
   density: 'comfortable' | 'compact';

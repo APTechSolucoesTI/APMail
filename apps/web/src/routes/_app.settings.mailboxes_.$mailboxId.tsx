@@ -1,3 +1,4 @@
+import { useTenantId } from '@/lib/auth';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { mailboxSchema, type MailboxRole } from '@apmail/shared';
@@ -30,18 +31,18 @@ function MailboxSettings() {
     onError: (e) => toast.error(e.message),
   });
   const q = useQuery({
-    queryKey: ['mailbox', mailboxId],
+    queryKey: ['mailbox', useTenantId(), mailboxId],
     queryFn: () => api<Mailbox>('/mailboxes/' + mailboxId),
   });
   const members = useQuery({
-    queryKey: ['mailbox-members', mailboxId],
+    queryKey: ['mailbox-members', useTenantId(), mailboxId],
     queryFn: () =>
       api<{ user_id: string; full_name: string; email: string; role: MailboxRole }[]>(
         '/mailboxes/' + mailboxId + '/members',
       ),
   });
   const directory = useQuery({
-    queryKey: ['directory'],
+    queryKey: ['directory', useTenantId()],
     queryFn: () => api<{ id: string; full_name: string; email: string }[]>('/members/directory'),
   });
   if (q.isLoading) return <LoadingState />;

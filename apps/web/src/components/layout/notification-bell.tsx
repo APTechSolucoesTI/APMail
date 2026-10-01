@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { ErrorState } from '@/components/data/data-state';
 import { format } from 'date-fns';
+import { useTenantId } from '@/lib/auth';
 type Notification = {
   id: string;
   title: string;
@@ -16,11 +17,11 @@ type Notification = {
 export function NotificationBell() {
   const client = useQueryClient();
   const count = useQuery({
-    queryKey: ['notifications', 'count'],
+    queryKey: ['notifications', useTenantId(), 'count'],
     queryFn: () => api<{ count: number }>('/notifications/unread-count'),
   });
   const list = useQuery({
-    queryKey: ['notifications', 'list'],
+    queryKey: ['notifications', useTenantId(), 'list'],
     queryFn: () => api<Notification[]>('/notifications'),
   });
   const read = async (id?: string) => {

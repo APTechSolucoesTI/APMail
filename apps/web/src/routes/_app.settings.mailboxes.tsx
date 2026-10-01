@@ -1,3 +1,4 @@
+import { useTenantId } from '@/lib/auth';
 import { useState } from 'react';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -32,7 +33,7 @@ function Mailboxes() {
   const query = Route.useSearch();
   const navigate = useNavigate();
   const q = useQuery({
-    queryKey: ['mailboxes-settings'],
+    queryKey: ['mailboxes-settings', useTenantId()],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
   });
   const action = async (id: string, name: string) => {

@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
 import { Mail, Menu, Settings, LogOut } from 'lucide-react';
 import { api } from '@/lib/api';
-import { meQuery, type Mailbox } from '@/lib/auth';
+import { meQuery, TenantContext, type Mailbox } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { UserAvatar } from '@/components/common/user-avatar';
@@ -118,88 +118,90 @@ export function AppShell() {
     </nav>
   );
   return (
-    <TableUserContext.Provider value={me.data.user.id}>
-      <div
-        data-density={me.data.preferences.density}
-        className="flex min-h-dvh data-[density=comfortable]:[&_td]:py-2 data-[density=compact]:[&_td]:py-1.5"
-      >
-        <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 border-r bg-sidebar text-sidebar-foreground lg:block">
-          {sidebar}
-        </aside>
-        <div className="min-w-0 flex-1">
-          <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-2 border-b bg-card px-4">
-            <div className="flex min-w-0 items-center gap-2">
-              <Sheet open={open} onOpenChange={setOpen}>
-                <SheetTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Abrir navegação"
-                    className="lg:hidden"
-                  >
-                    <Menu />
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="left" className="p-0">
-                  <SheetTitle className="sr-only">Navegação APMail</SheetTitle>
-                  {sidebar}
-                </SheetContent>
-              </Sheet>
-              <label htmlFor="company" className="sr-only">
-                Empresa atual
-              </label>
-              <select
-                id="company"
-                className="h-11 max-w-36 rounded-md sm:max-w-48 border border-input bg-card px-2 text-sm"
-                value={me.data.current_tenant_id ?? ''}
-                onChange={async (e) => {
-                  await api('/me/current-tenant', {
-                    method: 'PUT',
-                    body: { tenant_id: e.target.value },
-                  });
-                  client.clear();
-                  await navigate({ to: '/' });
-                  location.reload();
-                }}
-              >
-                {me.data.tenants.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <NotificationBell />
-              <Link
-                to="/settings/profile"
-                aria-label="Meu perfil"
-                className="inline-flex min-h-11 min-w-11 items-center justify-center"
-              >
-                <UserAvatar
-                  name={me.data.user.full_name}
-                  src={me.data.user.avatar_url ?? undefined}
-                />
-              </Link>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Sair"
-                onClick={async () => {
-                  await api('/auth/logout', { method: 'POST' });
-                  client.clear();
-                  await navigate({ to: '/login' });
-                }}
-              >
-                <LogOut />
-              </Button>
-            </div>
-          </header>
-          <main className="mx-auto max-w-screen-2xl p-4 sm:p-6">
-            <Outlet />
-          </main>
+    <TenantContext.Provider value={me.data.current_tenant_id}>
+      <TableUserContext.Provider value={me.data.user.id}>
+        <div
+          data-density={me.data.preferences.density}
+          className="flex min-h-dvh data-[density=comfortable]:[&_td]:py-2 data-[density=compact]:[&_td]:py-1.5"
+        >
+          <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 border-r bg-sidebar text-sidebar-foreground lg:block">
+            {sidebar}
+          </aside>
+          <div className="min-w-0 flex-1">
+            <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-2 border-b bg-card px-4">
+              <div className="flex min-w-0 items-center gap-2">
+                <Sheet open={open} onOpenChange={setOpen}>
+                  <SheetTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Abrir navegação"
+                      className="lg:hidden"
+                    >
+                      <Menu />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="left" className="p-0">
+                    <SheetTitle className="sr-only">Navegação APMail</SheetTitle>
+                    {sidebar}
+                  </SheetContent>
+                </Sheet>
+                <label htmlFor="company" className="sr-only">
+                  Empresa atual
+                </label>
+                <select
+                  id="company"
+                  className="h-11 max-w-36 rounded-md sm:max-w-48 border border-input bg-card px-2 text-sm"
+                  value={me.data.current_tenant_id ?? ''}
+                  onChange={async (e) => {
+                    await api('/me/current-tenant', {
+                      method: 'PUT',
+                      body: { tenant_id: e.target.value },
+                    });
+                    client.clear();
+                    await navigate({ to: '/' });
+                    location.reload();
+                  }}
+                >
+                  {me.data.tenants.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <NotificationBell />
+                <Link
+                  to="/settings/profile"
+                  aria-label="Meu perfil"
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center"
+                >
+                  <UserAvatar
+                    name={me.data.user.full_name}
+                    src={me.data.user.avatar_url ?? undefined}
+                  />
+                </Link>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Sair"
+                  onClick={async () => {
+                    await api('/auth/logout', { method: 'POST' });
+                    client.clear();
+                    await navigate({ to: '/login' });
+                  }}
+                >
+                  <LogOut />
+                </Button>
+              </div>
+            </header>
+            <main className="mx-auto max-w-screen-2xl p-4 sm:p-6">
+              <Outlet />
+            </main>
+          </div>
         </div>
-      </div>
-    </TableUserContext.Provider>
+      </TableUserContext.Provider>
+    </TenantContext.Provider>
   );
 }

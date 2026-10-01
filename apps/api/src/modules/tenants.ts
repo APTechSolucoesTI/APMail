@@ -159,7 +159,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         'm.role',
         'm.status',
         'm.created_at',
-        sql<number>`(select count(*)::int from mailbox_members mm where mm.user_id=m.user_id and mm.tenant_id=${c.tenantId})`.as(
+        sql<number>`case when m.role in ('owner','admin') then (select count(*)::int from mailboxes b where b.tenant_id=${c.tenantId} and b.deleted_at is null) else (select count(*)::int from mailbox_members mm join mailboxes b on b.id=mm.mailbox_id where mm.user_id=m.user_id and mm.tenant_id=${c.tenantId} and b.tenant_id=${c.tenantId} and b.deleted_at is null) end`.as(
           'mailbox_count',
         ),
       ])

@@ -1,3 +1,4 @@
+import { useTenantId } from '@/lib/auth';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { meQuery, type Mailbox } from '@/lib/auth';
@@ -9,7 +10,7 @@ export const Route = createFileRoute('/_app/')({ component: Home });
 function Home() {
   const me = useQuery(meQuery);
   const boxes = useQuery({
-    queryKey: ['mailboxes', me.data?.current_tenant_id],
+    queryKey: ['mailboxes', useTenantId(), me.data?.current_tenant_id],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
   });
   return (

@@ -1,3 +1,4 @@
+import { useTenantId } from '@/lib/auth';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
@@ -9,7 +10,7 @@ export const Route = createFileRoute('/_app/mail/$mailboxId')({ component: Mail 
 function Mail() {
   const { mailboxId } = Route.useParams();
   const q = useQuery({
-    queryKey: ['mailbox', mailboxId],
+    queryKey: ['mailbox', useTenantId(), mailboxId],
     queryFn: () => api<Mailbox>('/mailboxes/' + mailboxId),
   });
   if (q.isLoading) return <LoadingState />;

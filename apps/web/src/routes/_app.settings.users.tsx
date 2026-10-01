@@ -1,3 +1,4 @@
+import { useTenantId } from '@/lib/auth';
 import { useState } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,6 +21,7 @@ import { api } from '@/lib/api';
 import { requireAdmin } from '@/lib/settings';
 import { Pencil, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
+import { meQuery } from '@/lib/auth';
 type Member = {
   user_id: string;
   full_name: string;
@@ -36,11 +38,13 @@ export const Route = createFileRoute('/_app/settings/users')({
   component: Users,
 });
 function Users() {
+  const me = useQuery(meQuery);
+  const owner = me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id)?.role === 'owner';
   const query = Route.useSearch();
   const navigate = useNavigate();
   const client = useQueryClient();
   const q = useQuery({
-    queryKey: ['members'],
+    queryKey: ['members', useTenantId()],
     queryFn: () => api<{ members: Member[]; invitations: Invite[] }>('/members'),
   });
   const [editing, setEditing] = useState<string | null | undefined>(undefined);
@@ -98,21 +102,33 @@ function Users() {
           },
           { id: 'mailbox_count', header: 'Caixas', align: 'right' },
         ]}
-        rowActions={(m) => (
-          <>
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label={'Editar permissões de ' + m.full_name}
-              onClick={() => setEditing(m.user_id)}
-            >
-              <Pencil />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setChange(m)}>
-              {m.status === 'active' ? 'Desativar' : 'Reativar'}
-            </Button>
-          </>
-        )}
+        rowActions={(m) =>
+          m.role !== 'owner' || owner ? (
+            <>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label={'Editar permissões de ' + m.full_name}
+                onClick={() => setEditing(m.user_id)}
+              >
+                <Pencil />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={m.user_id === me.data?.user.id}
+                title={
+                  m.user_id === me.data?.user.id
+                    ? 'Você não pode desativar sua própria conta.'
+                    : undefined
+                }
+                onClick={() => setChange(m)}
+              >
+                {m.status === 'active' ? 'Desativar' : 'Reativar'}
+              </Button>
+            </>
+          ) : null
+        }
       />
       {!!q.data?.invitations.length && (
         <section className="mt-6 rounded-lg border bg-card p-4">

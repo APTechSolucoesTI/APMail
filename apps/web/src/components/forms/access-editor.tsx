@@ -1,3 +1,4 @@
+import { useTenantId } from '@/lib/auth';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -15,7 +16,7 @@ type Access = {
 };
 export function AccessEditor({ userId, onDone }: { userId?: string; onDone: () => void }) {
   const q = useQuery({
-    queryKey: ['access', userId],
+    queryKey: ['access', useTenantId(), userId],
     queryFn: () => api<Access>('/members/' + userId + '/access'),
     enabled: !!userId,
   });
@@ -41,7 +42,7 @@ function AccessForm({
   const client = useQueryClient();
   const me = useQuery(meQuery);
   const boxes = useQuery({
-    queryKey: ['mailboxes', me.data?.current_tenant_id],
+    queryKey: ['mailboxes', useTenantId(), me.data?.current_tenant_id],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
   });
   const [roles, setRoles] = useState(initial.mailbox_roles);
@@ -66,7 +67,9 @@ function AccessForm({
                   { value: 'admin', label: 'Administrador' },
                   ...(userId ? [{ value: 'owner', label: 'Proprietário' }] : []),
                 ]
-              : []),
+              : initial.tenant_role === 'admin'
+                ? [{ value: 'admin', label: 'Administrador' }]
+                : []),
           ],
         },
       ]}

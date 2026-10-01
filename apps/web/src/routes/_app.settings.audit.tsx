@@ -1,3 +1,4 @@
+import { useTenantId } from '@/lib/auth';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { listQuerySchema } from '@apmail/shared';
@@ -23,7 +24,7 @@ function Audit() {
   const query = Route.useSearch();
   const navigate = useNavigate();
   const q = useQuery({
-    queryKey: ['audit', query],
+    queryKey: ['audit', useTenantId(), query],
     queryFn: ({ signal }) =>
       api<{ items: Entry[]; total: number }>(
         '/audit-logs?' +

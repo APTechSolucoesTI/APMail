@@ -1,3 +1,4 @@
+import { useTenantId } from '@/lib/auth';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
@@ -15,7 +16,7 @@ export const Route = createFileRoute('/_app/settings/tenant')({
 function Tenant() {
   const client = useQueryClient();
   const q = useQuery({
-    queryKey: ['tenant'],
+    queryKey: ['tenant', useTenantId()],
     queryFn: () =>
       api<{ name: string; timezone: string; settings: Record<string, unknown> }>('/tenant'),
   });
@@ -38,7 +39,7 @@ function Tenant() {
             defaults={{ ...q.data }}
             fields={[
               { name: 'name', label: 'Nome da empresa' },
-              { name: 'timezone', label: 'Fuso horário' },
+              { name: 'timezone', label: 'Fuso horário', type: 'timezone' },
               {
                 name: 'settings.max_attachment_mb',
                 label: 'Limite por anexo (MB)',
