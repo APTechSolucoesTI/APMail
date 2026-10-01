@@ -341,6 +341,19 @@ export interface Tenants {
   updated_at: Generated<Timestamp>;
 }
 
+export interface ThreadNotes {
+  author_id: string;
+  body: string;
+  created_at: Generated<Timestamp>;
+  deleted_at: Timestamp | null;
+  id: Generated<string>;
+  mailbox_id: string;
+  mentioned_user_ids: Generated<string[]>;
+  tenant_id: string;
+  thread_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface ThreadPersonalLabels {
   created_at: Generated<Timestamp>;
   label_id: string;
@@ -374,6 +387,18 @@ export interface Threads {
   subject_normalized: Generated<string>;
   tenant_id: string;
   updated_at: Generated<Timestamp>;
+}
+
+export interface ThreadStatusHistory {
+  changed_by: string | null;
+  created_at: Generated<Timestamp>;
+  from_status: QueueStatus | null;
+  id: Generated<string>;
+  mailbox_id: string;
+  reason: string;
+  tenant_id: string;
+  thread_id: string;
+  to_status: QueueStatus;
 }
 
 export interface ThreadUserState {
@@ -443,7 +468,9 @@ export interface DB {
   table_preferences: TablePreferences;
   tenant_members: TenantMembers;
   tenants: Tenants;
+  thread_notes: ThreadNotes;
   thread_personal_labels: ThreadPersonalLabels;
+  thread_status_history: ThreadStatusHistory;
   thread_user_state: ThreadUserState;
   threads: Threads;
   uploads: Uploads;

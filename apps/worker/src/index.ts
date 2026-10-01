@@ -9,6 +9,7 @@ import { handleMailboxSync } from './handlers/mailbox-sync.js';
 import { handleMailAction } from './handlers/mail-actions.js';
 import { handleOutboxSend } from './handlers/outbox-send.js';
 import { handleRulesApply } from './handlers/rules-apply.js';
+import { recomputeAll } from './handlers/recompute-all.js';
 import { sweepOutbox, cleanupUploads } from './handlers/outbox-maintenance.js';
 import { ensureSchedulers } from './handlers/ensure-schedulers.js';
 import { closeImapConnections } from './imap/connect.js';
@@ -59,6 +60,7 @@ const workers = QUEUE_NAMES.map(
         if (name === 'maintenance' && job.name === 'ensure-schedulers') return ensureSchedulers(r);
         if (name === 'maintenance' && job.name === 'sweep-outbox') return sweepOutbox(r);
         if (name === 'maintenance' && job.name === 'cleanup-uploads') return cleanupUploads(r);
+        if (name === 'maintenance' && job.name === 'recompute-all') return recomputeAll(r);
         if (name === 'maintenance' && job.name === 'cleanup-auth') {
           const now = new Date();
           await db.deleteFrom('sessions').where('expires_at', '<', now).execute();
@@ -110,6 +112,16 @@ const workers = QUEUE_NAMES.map(
 for (const worker of workers)
   worker.on('error', (error) => log.error({ err: error, queue: worker.name }, 'Falha no worker.'));
 async function registerMaintenance() {
+  if (!(await connection.exists('apmail:recompute:v5'))) {
+    const previous = await resources.queues.maintenance.getJob('recompute-v5');
+    if (previous && ['completed', 'failed'].includes(await previous.getState()))
+      await previous.remove();
+    await resources.queues.maintenance.add(
+      'recompute-all',
+      {},
+      { jobId: 'recompute-v5', attempts: 3 },
+    );
+  }
   for (const [name, every] of [
     ['sweep-outbox', 60000],
     ['ensure-schedulers', 300000],

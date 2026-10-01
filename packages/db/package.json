@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --exclude **/integration/**",
+    "test": "vitest run --exclude \"**/integration/**\"",
     "migrate": "tsx src/migrate.ts",
     "reset": "tsx src/reset.ts",
     "codegen": "tsx src/codegen.ts",

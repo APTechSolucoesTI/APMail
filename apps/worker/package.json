@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --exclude **/integration/**",
+    "test": "vitest run --exclude \"**/integration/**\"",
     "test:integration": "vitest run test/integration",
     "dev": "tsx watch src/index.ts"
   },

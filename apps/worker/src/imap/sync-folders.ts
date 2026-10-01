@@ -85,7 +85,7 @@ export async function syncFolders(r: WorkerResources, box: Mailbox, client: Imap
         .returning('thread_id')
         .execute();
       const ids = removed.map((m) => m.thread_id);
-      await touchThreads(trx, ids, 'folder_deleted', null);
+      await touchThreads(trx, ids, 'sync', null);
       return ids;
     });
     for (const thread_id of new Set(ids))

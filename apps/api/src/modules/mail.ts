@@ -8,6 +8,7 @@ import { requireMailboxPerm } from '../authz/guards.js';
 import type { Resources } from './resources.js';
 import { listThreads, queueCounts } from './mail-queries.js';
 import { replaceLabels, validateLabelIds, labelIdsSchema } from './organization/service.js';
+import { bulkQueue } from './thread-operations/service.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 export const threadListSchema = z.object({
   view: z.enum(['folder', 'queue', 'label', 'search']).default('folder'),
@@ -180,8 +181,38 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       .where('thread_id', '=', thread.id)
       .where('user_id', '=', c.userId)
       .executeTakeFirst();
+    const assignee = thread.assigned_to
+      ? await r.db
+          .selectFrom('users')
+          .select([
+            'id',
+            'full_name',
+            sql<
+              string | null
+            >`case when avatar_path is not null then '/api/avatars/'||id||'?v='||extract(epoch from updated_at)::bigint else null end`.as(
+              'avatar_url',
+            ),
+          ])
+          .where('id', '=', thread.assigned_to)
+          .executeTakeFirst()
+      : null;
+    const tenant = await r.db
+      .selectFrom('tenants')
+      .select('settings')
+      .where('id', '=', c.tenantId)
+      .executeTakeFirstOrThrow();
+    const sla = Number(
+      (tenant.settings as { sla_first_response_hours?: number }).sla_first_response_hours ?? 24,
+    );
     return {
-      thread,
+      thread: {
+        ...thread,
+        assigned_to: assignee ?? null,
+        is_overdue:
+          ['to_reply', 'in_progress'].includes(thread.queue_status) &&
+          !!thread.last_inbound_at &&
+          thread.last_inbound_at.getTime() < Date.now() - sla * 3600000,
+      },
       messages: messages.map((m) => ({
         ...m,
         attachments: attachments.filter((a) => a.message_id === m.id),
@@ -254,11 +285,17 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
     const b = z
       .object({
         thread_ids: z.array(z.uuid()).min(1).max(100),
-        action: z.enum(['read', 'unread', 'labels']),
+        action: z.enum(['read', 'unread', 'labels', 'done', 'reopen', 'assign']),
+        user_id: z.uuid().nullable().optional(),
         label_ids: labelIdsSchema.shape.label_ids.optional(),
       })
       .parse(req.body);
     const ids = [...new Set(b.thread_ids)];
+    if (b.action === 'done' || b.action === 'reopen' || b.action === 'assign') {
+      if (b.action === 'assign' && b.user_id === undefined)
+        throw conflict('Escolha um responsável.');
+      return bulkQueue(r, c, id, ids, b.action, b.user_id ?? null);
+    }
     const found = await r.db
       .selectFrom('threads')
       .select('id')
@@ -376,7 +413,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
           .execute();
       }
       const ids = messages.map((m) => m.thread_id);
-      await touchThreads(trx, ids, 'mail_action', c.userId);
+      await touchThreads(trx, ids, 'manual', c.userId);
       return { id: row.id, ids };
     });
     await r.queues['mail-actions'].add(

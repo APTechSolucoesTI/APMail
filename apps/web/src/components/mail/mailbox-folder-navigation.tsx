@@ -2,6 +2,7 @@ import { Link, useLocation } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { can } from '@apmail/shared';
 import { PersonalLabelNavigation } from './personal-label-navigation';
+import { QueueNavigation } from './queue-navigation';
 import { FolderControls } from './folder-controls';
 import { Mail } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -50,6 +51,7 @@ export function MailboxFolderNavigation({
           />
           {can(box.role, 'organize') && <FolderControls mailboxId={box.id} />}
           <PersonalLabelNavigation mailboxId={box.id} onNavigate={onNavigate} />
+          <QueueNavigation mailboxId={box.id} onNavigate={onNavigate} />
         </div>
       )}
     </div>

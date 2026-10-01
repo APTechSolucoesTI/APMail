@@ -149,7 +149,7 @@ export async function handleMailAction(
             .set({ status: 'done', processed_at: new Date(), last_error: null })
             .where('id', '=', action.id)
             .execute();
-          await touchThreads(trx, [...threadIds], 'mail_action', action.requested_by);
+          await touchThreads(trx, [...threadIds], 'manual', action.requested_by);
         });
         emitThreads(r, box.id, [...threadIds]);
       } catch (error) {
@@ -184,7 +184,7 @@ export async function handleMailAction(
               .set({ status: 'failed', processed_at: new Date(), last_error })
               .where('id', '=', action.id)
               .execute();
-            await touchThreads(trx, [...threadIds], 'mail_action_failed', action.requested_by);
+            await touchThreads(trx, [...threadIds], 'sync', action.requested_by);
             if (action.requested_by) {
               const notification = await trx
                 .insertInto('notifications')

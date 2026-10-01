@@ -100,7 +100,17 @@ Evidências: 33 testes unitários e 33 de integração aprovados no Linux; reset
 
 ## Fase 5 — Filas e notas
 
-Não iniciada.
+Em implementação.
+
+- [x] Migration de histórico e notas; tipos reais de 28 tabelas.
+- [x] Algoritmo completo, reabertura por inbound e lock de recomputação.
+- [x] Atribuição, ações em lote, SLA, histórico e notas com menções autorizadas.
+- [x] Presença de composição com TTL e limpeza aguardada no encerramento.
+- [x] Worker de recálculo e atribuição por regras com auditoria/notificação.
+- [x] Linux: 35 testes unitários, 38 de integração, lint, typecheck, reset, tipos, build e SIGTERM.
+- [ ] QA final de filas, agendamento, menções e presença no navegador.
+- [ ] Desktop, tablet e mobile nos dois temas.
+- [ ] CI, merge e tag.
 
 ## Fase 6 — Dashboard
 
