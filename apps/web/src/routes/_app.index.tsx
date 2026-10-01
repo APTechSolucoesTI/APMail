@@ -1,16 +1,15 @@
 import { useTenantId } from '@/lib/auth';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { meQuery, type Mailbox } from '@/lib/auth';
+import { type Mailbox } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { PageHeader } from '@/components/layout/page-header';
 import { MailboxStatusBadge } from '@/components/common/status-badge';
 import { EmptyState, LoadingState, ErrorState } from '@/components/data/data-state';
 export const Route = createFileRoute('/_app/')({ component: Home });
 function Home() {
-  const me = useQuery(meQuery);
   const boxes = useQuery({
-    queryKey: ['mailboxes', useTenantId(), me.data?.current_tenant_id],
+    queryKey: ['mailboxes', useTenantId()],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
   });
   return (

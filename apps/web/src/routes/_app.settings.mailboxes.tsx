@@ -33,7 +33,7 @@ function Mailboxes() {
   const query = Route.useSearch();
   const navigate = useNavigate();
   const q = useQuery({
-    queryKey: ['mailboxes-settings', useTenantId()],
+    queryKey: ['mailboxes', useTenantId()],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
   });
   const action = async (id: string, name: string) => {

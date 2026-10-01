@@ -50,7 +50,24 @@ function Users() {
   const [editing, setEditing] = useState<string | null | undefined>(undefined);
   const [change, setChange] = useState<Member | null>(null);
   const [sending, setSending] = useState<string | null>(null);
-  const rows = (q.data?.members ?? []).map((m) => ({ ...m, id: m.user_id }));
+  const rows = [
+    ...(q.data?.members ?? []).map((m) => ({
+      ...m,
+      id: m.user_id,
+      invitation_id: null,
+    })),
+    ...(q.data?.invitations ?? []).map((i) => ({
+      id: i.id,
+      invitation_id: i.id,
+      user_id: '',
+      full_name: 'Convite pendente',
+      email: i.email,
+      avatar_url: null,
+      role: i.tenant_role,
+      status: 'invited' as const,
+      mailbox_count: null,
+    })),
+  ];
   const refresh = async () => {
     await client.invalidateQueries();
   };
@@ -95,15 +112,58 @@ function Users() {
             header: 'Status',
             cell: (m) => (
               <StatusBadge
-                label={m.status === 'active' ? 'Ativo' : 'Desativado'}
-                variant={m.status === 'active' ? 'success' : 'neutral'}
+                label={
+                  m.status === 'active'
+                    ? 'Ativo'
+                    : m.status === 'invited'
+                      ? 'Convidado'
+                      : 'Desativado'
+                }
+                variant={
+                  m.status === 'active' ? 'success' : m.status === 'invited' ? 'info' : 'neutral'
+                }
               />
             ),
           },
           { id: 'mailbox_count', header: 'Caixas', align: 'right' },
         ]}
         rowActions={(m) =>
-          m.role !== 'owner' || owner ? (
+          m.invitation_id !== null ? (
+            <div className="flex gap-2">
+              {' '}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={sending === m.invitation_id!}
+                onClick={async () => {
+                  setSending(m.invitation_id!);
+                  try {
+                    await api('/invitations/' + m.invitation_id! + '/resend', { method: 'POST' });
+                    toast.success('Convite reenviado.');
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Falha ao reenviar.');
+                  } finally {
+                    setSending(null);
+                  }
+                }}
+              >
+                Reenviar
+              </Button>
+              <ConfirmDialog
+                trigger={
+                  <Button variant="ghost" size="sm">
+                    Revogar
+                  </Button>
+                }
+                title="Revogar convite?"
+                description="O link enviado deixará de permitir a entrada na empresa."
+                onConfirm={async () => {
+                  await api('/invitations/' + m.invitation_id!, { method: 'DELETE' });
+                  await refresh();
+                }}
+              />
+            </div>
+          ) : m.role !== 'owner' || owner ? (
             <>
               <Button
                 size="icon"
@@ -130,57 +190,6 @@ function Users() {
           ) : null
         }
       />
-      {!!q.data?.invitations.length && (
-        <section className="mt-6 rounded-lg border bg-card p-4">
-          <h2 className="mb-4 text-xl font-semibold">Convites pendentes</h2>
-          <ul className="space-y-3">
-            {q.data.invitations.map((i) => (
-              <li
-                key={i.id}
-                className="flex flex-wrap items-center justify-between gap-3 border-b pb-3"
-              >
-                <div className="min-w-0">
-                  <p className="break-all text-sm">{i.email}</p>
-                  <StatusBadge label="Convidado" variant="info" />
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={sending === i.id}
-                    onClick={async () => {
-                      setSending(i.id);
-                      try {
-                        await api('/invitations/' + i.id + '/resend', { method: 'POST' });
-                        toast.success('Convite reenviado.');
-                      } catch (e) {
-                        toast.error(e instanceof Error ? e.message : 'Falha ao reenviar.');
-                      } finally {
-                        setSending(null);
-                      }
-                    }}
-                  >
-                    Reenviar
-                  </Button>
-                  <ConfirmDialog
-                    trigger={
-                      <Button variant="ghost" size="sm">
-                        Revogar
-                      </Button>
-                    }
-                    title="Revogar convite?"
-                    description="O link enviado deixará de permitir a entrada na empresa."
-                    onConfirm={async () => {
-                      await api('/invitations/' + i.id, { method: 'DELETE' });
-                      await refresh();
-                    }}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
       <Dialog
         open={editing !== undefined}
         onOpenChange={(open) => {

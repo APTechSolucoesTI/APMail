@@ -42,7 +42,7 @@ function AccessForm({
   const client = useQueryClient();
   const me = useQuery(meQuery);
   const boxes = useQuery({
-    queryKey: ['mailboxes', useTenantId(), me.data?.current_tenant_id],
+    queryKey: ['mailboxes', useTenantId()],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
   });
   const [roles, setRoles] = useState(initial.mailbox_roles);
