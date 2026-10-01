@@ -12,7 +12,7 @@ export const pageSizeSchema = z.union([
 export const listQuerySchema = z.object({
   page: z.number().int().min(1).default(1),
   pageSize: pageSizeSchema.default(10),
-  search: z.string().trim().max(200).optional(),
+  search: z.coerce.string().trim().max(200).optional(),
   sort: z.object({ key: z.string(), direction: z.enum(['asc', 'desc']) }).optional(),
   filters: z.record(z.string(), z.array(z.string())).default({}),
 });

@@ -1,4 +1,5 @@
 import type { Address, MailboxRole } from '@apmail/shared';
+import type { PersonalLabel } from './organization';
 export type Folder = {
   id: string;
   name: string;
@@ -19,6 +20,10 @@ export type Thread = {
   queue_status: 'none' | 'to_reply' | 'in_progress' | 'awaiting_reply' | 'scheduled' | 'done';
   is_unread: boolean;
   is_pinned: boolean;
+  labels: PersonalLabel[];
+  assigned_to: { id: string; full_name: string; avatar_url: string | null } | null;
+  is_overdue: boolean;
+  has_scheduled: boolean;
   latest_from: { name: string; address: string };
 };
 export type Attachment = {
@@ -48,6 +53,7 @@ export type Message = {
   sent_by: { id: string; full_name: string } | null;
 };
 export type ThreadDetail = {
+  labels: PersonalLabel[];
   thread: Thread;
   messages: Message[];
   cid_map: Record<string, string>;

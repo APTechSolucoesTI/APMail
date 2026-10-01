@@ -101,8 +101,8 @@ export function organizationService(r: Resources) {
   const enqueueRule = async (id: string) => {
     await r.queues['rules-apply'].add(
       'apply',
-      { ruleId: id, sinceDays: 30 },
-      { attempts: 3, backoff: { type: 'exponential', delay: 10000 } },
+      { rule_id: id, since_days: 30 },
+      { jobId: toBullJobId('rule:' + id + ':' + Date.now()), attempts: 1 },
     );
   };
   const validateRule = async (c: ReturnType<typeof requireTenant>, b: MailRuleInput) => {
@@ -323,7 +323,7 @@ export function organizationService(r: Resources) {
             .values({ ...b, tenant_id: c.tenantId, user_id: c.userId })
             .returningAll()
             .executeTakeFirstOrThrow();
-      r.io.to('user:' + c.userId).emit('labels:changed', {});
+      r.io.to('user:' + c.userId).emit('mailboxes:changed', {});
       return row;
     },
     deleteLabel: async (ctx: RequestContext | null, id: string) => {
@@ -334,15 +334,13 @@ export function organizationService(r: Resources) {
         .where('tenant_id', '=', c.tenantId)
         .where('user_id', '=', c.userId)
         .execute();
-      r.io.to('user:' + c.userId).emit('labels:changed', {});
-      r.io.to('user:' + c.userId).emit('threads:changed', {});
+      r.io.to('user:' + c.userId).emit('mailboxes:changed', {});
     },
     threadLabels: async (ctx: RequestContext | null, id: string, body: unknown) => {
       const { c, thread } = await requireThread(ctx, r, id);
       const labels = await validateLabelIds(r, c, labelIdsSchema.parse(body).label_ids);
       await r.db.transaction().execute((tx) => replaceLabels(tx, c, [id], labels));
       mailEvents(r, thread.mailbox_id, [id], c.userId);
-      r.io.to('user:' + c.userId).emit('labels:changed', {});
       return { updated: 1 };
     },
     rules: async (ctx: RequestContext | null, query: unknown) => {

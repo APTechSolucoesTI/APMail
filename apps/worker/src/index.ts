@@ -43,7 +43,12 @@ const workers = QUEUE_NAMES.map(
         if (name === 'mailbox-sync') return handleMailboxSync(r, job.data.mailbox_id, job.id!);
         if (name === 'outbox-send') return handleOutboxSend(r, job.data.outbox_id, job);
         if (name === 'rules-apply')
-          return handleRulesApply(r, job.data.ruleId, job.data.sinceDays ?? 30, job.id!);
+          return handleRulesApply(
+            r,
+            job.data.rule_id ?? job.data.ruleId,
+            job.data.since_days ?? job.data.sinceDays ?? 30,
+            job.id!,
+          );
         if (name === 'mail-actions')
           return handleMailAction(
             r,
@@ -94,9 +99,11 @@ const workers = QUEUE_NAMES.map(
                 ? env.WORKER_SYNC_CONCURRENCY
                 : name === 'outbox-send'
                   ? env.WORKER_SEND_CONCURRENCY
-                  : name === 'mail-actions'
-                    ? env.WORKER_ACTIONS_CONCURRENCY
-                    : 2,
+                  : name === 'rules-apply'
+                    ? 1
+                    : name === 'mail-actions'
+                      ? env.WORKER_ACTIONS_CONCURRENCY
+                      : 2,
       },
     ),
 );

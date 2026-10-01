@@ -303,3 +303,5 @@ export type ListResult<T> = { items: T[]; total: number; page: number; pageSize:
 | `useTablePreferences`  | `hooks/use-table-preferences.ts`             | Lê/grava preferências por `list_key` via `GET/PUT /api/preferences/tables/:listKey`.                                                                                                                                                                                                                                                                                                              |
 
 ---
+
+Etiquetas pessoais: cores azul, índigo, verde, âmbar, vermelho e cinza reutilizam os tokens de feedback correspondentes. Verde petróleo usa label-teal-bg/fg (#CCFBF1/#115E59 no claro, #134E4A/#99F6E4 no escuro); ciano usa label-cyan-bg/fg (#CFFAFE/#155E75 no claro, #164E63/#A5F3FC no escuro). Toda etiqueta inclui seu nome, com contraste AA nos dois temas.

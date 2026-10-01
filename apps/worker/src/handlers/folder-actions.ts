@@ -121,7 +121,9 @@ export async function handleFolderAction(
           .set({ status: 'done', processed_at: new Date(), last_error: null })
           .where('id', '=', action.id)
           .execute();
-        r.io.to('mailbox:' + box.id).emit('folders:changed', { mailbox_id: box.id });
+        r.io
+          .to('mailbox:' + box.id)
+          .emit('folders:changed', { mailbox_id: box.id, action_id: action.id, status: 'done' });
       } catch (error) {
         if (isConnectionError(error)) await markMailboxError(r, box, error);
         if (lastAttempt) {
@@ -150,6 +152,15 @@ export async function handleFolderAction(
               r.io.to('user:' + action.requested_by).emit('notification:new', { notification });
             }
           });
+          if (action.requested_by)
+            r.io
+              .to('user:' + action.requested_by)
+              .emit('folders:changed', {
+                mailbox_id: box.id,
+                action_id: action.id,
+                status: 'failed',
+                error: text,
+              });
         }
         throw error;
       } finally {

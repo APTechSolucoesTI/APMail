@@ -4,6 +4,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { RefreshCw, MailOpen, Mail, FolderOpen } from 'lucide-react';
 import { can } from '@apmail/shared';
 import { toast } from 'sonner';
+import type { PersonalLabel } from '@/lib/organization';
 import { api } from '@/lib/api';
 import { useTenantId, meQuery, type Mailbox } from '@/lib/auth';
 import { mailSearchSchema } from '@/lib/search-params/mail';
@@ -14,6 +15,8 @@ import { MailboxStatusBadge } from '@/components/common/status-badge';
 import { LoadingState, ErrorState, EmptyState } from '@/components/data/data-state';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { SearchInput } from '@/components/data/search-input';
+import { ThreadLabels } from '@/components/mail/thread-labels';
 import { Pagination } from '@/components/data/pagination';
 import { ThreadListItem } from '@/components/mail/thread-list-item';
 import { ThreadView } from '@/components/mail/thread-view';
@@ -40,13 +43,23 @@ function MailPage() {
     queryKey: ['folders', tenantId, mailboxId],
     queryFn: () => api<Folder[]>('/mailboxes/' + mailboxId + '/folders'),
   });
+  const labels = useQuery({
+    queryKey: ['labels', tenantId],
+    queryFn: () => api<PersonalLabel[]>('/labels'),
+    enabled: search.view === 'label',
+  });
   const query = new URLSearchParams({
-    view: 'folder',
+    view: search.view,
+    assigned: search.assigned,
+    sort: search.sort,
     page: String(search.page),
     page_size: String(search.pageSize),
     unread: String(search.unread ?? false),
   });
   if (search.folderId) query.set('folder_id', search.folderId);
+  if (search.q) query.set('q', search.q);
+  if (search.queue) query.set('queue', search.queue);
+  if (search.labelId) query.set('label_id', search.labelId);
   const threads = useQuery({
     queryKey: ['threads', tenantId, mailboxId, query.toString()],
     queryFn: () =>
@@ -67,6 +80,15 @@ function MailPage() {
   const change = (patch: Partial<typeof search>) =>
     void navigate({ search: { ...search, ...patch } });
   const close = () => change({ thread: undefined });
+  const clearFilters = () =>
+    change({
+      q: undefined,
+      unread: undefined,
+      assigned: 'any',
+      sort: 'recent',
+      view: search.view === 'search' ? 'folder' : search.view,
+      page: 1,
+    });
   const openComposer = (mode: string) => {
     if (search.compose) setPendingCompose(mode);
     else if (!search.compose) change({ compose: mode });
@@ -96,45 +118,121 @@ function MailPage() {
   const admin = me.data?.tenants.find((t) => t.id === tenantId)?.role !== 'member';
   const list = (
     <section aria-label="Lista de conversas" className="flex h-full min-w-0 flex-col bg-card">
-      <div className="flex flex-wrap items-center gap-3 border-b p-3">
-        <Checkbox
-          checked={
-            selected.length === items.length && items.length > 0
-              ? true
-              : selected.length > 0
-                ? 'indeterminate'
-                : false
-          }
-          disabled={!items.length}
-          aria-label="Selecionar conversas da página"
-          onCheckedChange={(v) =>
-            setSelection({ context, ids: v === true ? items.map((t) => t.id) : [] })
+      <div className="space-y-2 border-b p-3">
+        <SearchInput
+          value={search.q ?? ''}
+          placeholder="Buscar assunto, remetente, conteúdo…"
+          debounce={300}
+          onChange={(q) =>
+            change({
+              q: q || undefined,
+              view: q ? 'search' : search.view === 'search' ? 'folder' : search.view,
+              page: 1,
+            })
           }
         />
-        <label className="flex min-h-11 items-center gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-3">
           <Checkbox
-            checked={!!search.unread}
-            onCheckedChange={(v) => change({ unread: v === true, page: 1 })}
+            checked={
+              selected.length === items.length && items.length > 0
+                ? true
+                : selected.length > 0
+                  ? 'indeterminate'
+                  : false
+            }
+            disabled={!items.length}
+            aria-label="Selecionar conversas da página"
+            onCheckedChange={(v) =>
+              setSelection({ context, ids: v === true ? items.map((t) => t.id) : [] })
+            }
           />
-          Não lidas
-        </label>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="ml-auto"
-          aria-label="Atualizar conversas"
-          disabled={threads.isFetching}
-          onClick={() => void threads.refetch()}
-        >
-          <RefreshCw
-            className={threads.isFetching ? 'animate-spin motion-reduce:animate-none' : ''}
-          />
-        </Button>
+          <label className="flex min-h-11 items-center gap-2 text-xs">
+            <Checkbox
+              checked={!!search.unread}
+              onCheckedChange={(v) => change({ unread: v === true, page: 1 })}
+            />
+            Não lidas
+          </label>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="ml-auto"
+            aria-label="Atualizar conversas"
+            disabled={threads.isFetching}
+            onClick={() => void threads.refetch()}
+          >
+            <RefreshCw
+              className={threads.isFetching ? 'animate-spin motion-reduce:animate-none' : ''}
+            />
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-xs" htmlFor="mail-assigned">
+            Responsável
+          </label>
+          <select
+            id="mail-assigned"
+            className="h-11 max-w-full rounded-md border border-input bg-card px-2 text-xs sm:h-8"
+            value={search.assigned}
+            onChange={(e) =>
+              change({ assigned: e.target.value as typeof search.assigned, page: 1 })
+            }
+          >
+            <option value="any">Todos</option>
+            <option value="me">Minhas conversas</option>
+            <option value="unassigned">Sem responsável</option>
+          </select>
+          <label className="text-xs" htmlFor="mail-sort">
+            Ordenar
+          </label>
+          <select
+            id="mail-sort"
+            className="h-11 max-w-full rounded-md border border-input bg-card px-2 text-xs sm:h-8"
+            value={search.sort}
+            onChange={(e) => change({ sort: e.target.value as typeof search.sort, page: 1 })}
+          >
+            <option value="recent">Mais recentes</option>
+            <option value="oldest">Mais antigas</option>
+            <option value="waiting_longest">Maior espera</option>
+          </select>
+          {(search.q || search.unread || search.assigned !== 'any' || search.sort !== 'recent') && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                change({
+                  q: undefined,
+                  unread: undefined,
+                  assigned: 'any',
+                  sort: 'recent',
+                  view: search.view === 'search' ? 'folder' : search.view,
+                  page: 1,
+                })
+              }
+            >
+              Limpar filtros (
+              {
+                [
+                  !!search.q,
+                  !!search.unread,
+                  search.assigned !== 'any',
+                  search.sort !== 'recent',
+                ].filter(Boolean).length
+              }
+              )
+            </Button>
+          )}
+        </div>
       </div>
       {!!selected.length && (
         <div className="space-y-2 border-b bg-muted p-3">
           <p className="text-xs font-semibold">{selected.length} selecionada(s) nesta página</p>
           <div className="flex flex-wrap gap-1">
+            <ThreadLabels
+              mailboxId={mailboxId}
+              threadIds={selected}
+              onDone={() => setSelection({ context, ids: [] })}
+            />
             <Button
               size="sm"
               variant="outline"
@@ -177,11 +275,26 @@ function MailPage() {
           <ErrorState onRetry={() => void threads.refetch()} />
         ) : !items.length ? (
           <EmptyState
-            title={search.unread ? 'Nenhuma conversa não lida' : 'Esta pasta está vazia.'}
+            title={
+              search.q
+                ? 'Nenhum resultado para esta busca'
+                : search.unread
+                  ? 'Nenhuma conversa não lida'
+                  : 'Esta pasta está vazia.'
+            }
             description={
-              search.unread
-                ? 'Desative o filtro para ver as demais conversas.'
-                : 'As mensagens desta pasta aparecerão aqui após a sincronização.'
+              search.view === 'label'
+                ? 'Aplique esta etiqueta nas conversas que deseja organizar.'
+                : search.q
+                  ? 'Tente outro termo ou ajuste os filtros.'
+                  : 'As mensagens desta pasta aparecerão após a sincronização.'
+            }
+            action={
+              search.q || search.unread || search.assigned !== 'any' ? (
+                <Button variant="outline" onClick={clearFilters}>
+                  Limpar filtros
+                </Button>
+              ) : undefined
             }
           />
         ) : (
@@ -189,6 +302,7 @@ function MailPage() {
             <ThreadListItem
               key={t.id}
               thread={t}
+              query={search.q}
               selected={selected.includes(t.id)}
               active={search.thread === t.id}
               onSelect={(v) =>
@@ -232,8 +346,15 @@ function MailPage() {
         <div>
           <h1 className="text-xl font-bold">{box.data.name}</h1>
           <p className="mt-1 text-xs text-muted-foreground">
-            {folder ? folderLabel(folder) : 'Caixa de entrada'} ·{' '}
-            <span className="font-mono">{box.data.email_address}</span>
+            {search.view === 'search'
+              ? 'Resultados da busca'
+              : search.view === 'label'
+                ? 'Etiqueta: ' +
+                  (labels.data?.find((l) => l.id === search.labelId)?.name ?? 'Carregando…')
+                : folder
+                  ? folderLabel(folder)
+                  : 'Caixa de entrada'}{' '}
+            · <span className="font-mono">{box.data.email_address}</span>
           </p>
         </div>
         <div className="flex items-center gap-2">

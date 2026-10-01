@@ -48,6 +48,10 @@
   --neutral-bg: #f1f3f5;
   --neutral-fg: #344054;
 
+  --label-teal-bg: #ccfbf1;
+  --label-teal-fg: #115e59;
+  --label-cyan-bg: #cffafe;
+  --label-cyan-fg: #155e75;
   --chart-1: #1686a7;
   --chart-2: #0d2b5e;
   --chart-3: #00c2cb;
@@ -101,6 +105,10 @@
   --neutral-bg: #191b20;
   --neutral-fg: #d0d5dd;
 
+  --label-teal-bg: #134e4a;
+  --label-teal-fg: #99f6e4;
+  --label-cyan-bg: #164e63;
+  --label-cyan-fg: #a5f3fc;
   --chart-1: #47c4dd;
   --chart-2: #93c5fd;
   --chart-3: #168db8;
@@ -151,6 +159,10 @@
   --color-neutral: var(--neutral);
   --color-neutral-bg: var(--neutral-bg);
   --color-neutral-fg: var(--neutral-fg);
+  --color-label-teal-bg: var(--label-teal-bg);
+  --color-label-teal-fg: var(--label-teal-fg);
+  --color-label-cyan-bg: var(--label-cyan-bg);
+  --color-label-cyan-fg: var(--label-cyan-fg);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);

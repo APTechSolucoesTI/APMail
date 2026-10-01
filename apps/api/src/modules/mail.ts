@@ -292,7 +292,6 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
           .execute();
     });
     mailEvents(r, id, ids, c.userId);
-    if (b.action === 'labels') r.io.to('user:' + c.userId).emit('labels:changed', {});
     return { updated: ids.length };
   });
   app.post('/api/mailboxes/:id/messages/actions', async (req, reply) => {

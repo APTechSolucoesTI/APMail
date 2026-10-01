@@ -281,7 +281,14 @@ async function applyRule(
       });
       if (outbox) {
         await r.queues['outbox-send'].add('send', { outbox_id: outbox.id }, sendJobOptions(outbox));
-        r.io.to('mailbox:' + box.id).emit('outbox:changed', { mailbox_id: box.id });
+        r.io
+          .to('mailbox:' + box.id)
+          .emit('outbox:changed', {
+            mailbox_id: box.id,
+            outbox_id: outbox.id,
+            thread_id: msg.thread_id,
+            status: outbox.status,
+          });
       }
     }
   }
@@ -289,7 +296,6 @@ async function applyRule(
     .transaction()
     .execute((tx) => touchThreads(tx, [msg.thread_id], 'rule', row.created_by));
   if (row.scope === 'personal') {
-    r.io.to('user:' + row.owner_user_id).emit('labels:changed', {});
     r.io
       .to('user:' + row.owner_user_id)
       .emit('threads:changed', { mailbox_id: box.id, thread_ids: [msg.thread_id] });

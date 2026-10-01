@@ -6,7 +6,7 @@ export const mailSearchSchema = z.object({
     .enum(['to_reply', 'in_progress', 'awaiting_reply', 'scheduled', 'done', 'overdue'])
     .optional(),
   labelId: z.uuid().optional(),
-  q: z.string().max(200).optional(),
+  q: z.coerce.string().max(200).optional(),
   unread: z.boolean().optional(),
   assigned: z.enum(['any', 'me', 'unassigned']).default('any'),
   sort: z.enum(['recent', 'oldest', 'waiting_longest']).default('recent'),

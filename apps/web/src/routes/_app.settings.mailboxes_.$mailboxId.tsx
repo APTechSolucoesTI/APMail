@@ -13,6 +13,8 @@ import { MailboxStatusBadge } from '@/components/common/status-badge';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
 import { MailboxMembersPanel } from '@/components/settings/mailbox-members-panel';
 import { toast } from 'sonner';
+import { FolderManagement } from '@/components/mail/folder-controls';
+import { RuleManagement } from '@/components/settings/rule-management';
 import { z } from 'zod';
 export const Route = createFileRoute('/_app/settings/mailboxes_/$mailboxId')({
   beforeLoad: requireAdmin,
@@ -32,9 +34,11 @@ function MailboxSettings() {
       <PageHeader title={q.data.name} description={q.data.email_address} />
       <MailboxStatusBadge status={q.data.status} />
       <Tabs defaultValue="connection" className="mt-4">
-        <TabsList>
+        <TabsList className="h-auto max-w-full flex-wrap">
           <TabsTrigger value="connection">Conexão</TabsTrigger>
           <TabsTrigger value="members">Membros</TabsTrigger>
+          <TabsTrigger value="folders">Pastas</TabsTrigger>
+          <TabsTrigger value="rules">Regras</TabsTrigger>
           <TabsTrigger value="send">Envio</TabsTrigger>
         </TabsList>
         <TabsContent value="connection" className="max-w-2xl rounded-lg border bg-card p-4">
@@ -69,6 +73,12 @@ function MailboxSettings() {
         </TabsContent>
         <TabsContent value="members">
           <MailboxMembersPanel mailboxId={mailboxId} />
+        </TabsContent>
+        <TabsContent value="folders">
+          <FolderManagement mailboxId={mailboxId} />
+        </TabsContent>
+        <TabsContent value="rules">
+          <RuleManagement mailboxId={mailboxId} fixedScope="mailbox" />
         </TabsContent>
         <TabsContent value="send" className="max-w-2xl rounded-lg border bg-card p-4">
           <SchemaForm
