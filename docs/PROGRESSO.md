@@ -148,7 +148,7 @@ Linux final: 45 testes unitários e 48 de integração aprovados, reset exclusiv
 
 ## Fase 8 — Endurecimento
 
-Em validação final na branch `feat/fase-8-endurecimento`.
+Concluída. Tag `fase-8`. CI [36939591795](https://github.com/APTechSolucoesTI/APMail/actions/runs/36939591795) aprovado.
 
 - [x] Migration aplicada e tipos reais de 32 tabelas.
 - [x] Restrição de pastas com herança por descendentes, isolamento de empresa e negação por seleção vazia.
@@ -159,7 +159,7 @@ Em validação final na branch `feat/fase-8-endurecimento`.
 - [x] Carga real de 50.000 mensagens e 20.000 conversas no banco exclusivo de testes.
 - [x] Seis layouts de pastas, leitura restrita e auditoria, com teclado e revogação ao vivo.
 - [x] Revisão final de rotas, contraste, teclado e redução de movimento.
-- [ ] Checks completos no Linux, revisão do bundle, limpeza dos dados temporários, CI, merge e tag.
+- [x] Checks completos no Linux, revisão do bundle, limpeza dos dados temporários, CI, merge e tag.
 
 Performance: `EXPLAIN ANALYZE (BUFFERS, FORMAT JSON)` executado sobre a mesma consulta compilada usada pela API, em PostgreSQL 17. Listagem por pasta: **121,216 ms**; filas: **124,310 ms**; busca: **50,659 ms**. Todas abaixo da meta de 300 ms. Fixture isolada em `apmail_test`; o gerador recusa bancos cujo nome não termina em `_test`. Índices de árvore de pastas e cronologia de mensagens legíveis incluídos na migration.
 
@@ -186,6 +186,8 @@ Revisão por tela: as colunas abaixo correspondem aos checklists de design, dese
 | Ajuda de atalhos | [x] | [x] | [x] |
 
 Os ajustes incluíram contraste dos tokens claros e das abas, painel associado às abas de Envios e histórico do chat/tabelas roláveis acessíveis por teclado. A caixa desativada e a pessoa temporária de QA foram removidas, preservando as caixas reais e os serviços de outros projetos. A revogação no navegador retornou 404 e retirou o conteúdo em cache; o worker recusou resposta e anexo original após o agendamento, antes de construir MIME ou acessar SMTP.
+
+Linux final: lint, typecheck, **48 testes unitários**, **55 de integração**, reset exclusivo de TEST, tipos de 32 tabelas, build e SIGTERM aprovados. Build local aprovado e bundle comparado aos valores sensíveis do ambiente, sem ocorrência. CI aprovado. A integração cobre também auditoria filtrada e remoção de metadados sensíveis de registros históricos, além do encerramento independente de instâncias Socket.IO.
 
 ## Fase 9 — Produção
 
