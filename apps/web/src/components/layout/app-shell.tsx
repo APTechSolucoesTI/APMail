@@ -5,7 +5,8 @@ import { io } from 'socket.io-client';
 import { toast } from 'sonner';
 import { SocketContext } from '@/hooks/use-socket-room';
 import { MailboxFolderNavigation } from '@/components/mail/mailbox-folder-navigation';
-import { Mail, Menu, Settings, LogOut } from 'lucide-react';
+import { Mail, Menu, Settings, LogOut, LayoutDashboard } from 'lucide-react';
+import { can } from '@apmail/shared';
 import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
@@ -45,6 +46,7 @@ export function AppShell() {
         'rules',
         'thread-notes',
         'thread-history',
+        'dashboard',
       ])
         void client.invalidateQueries({ queryKey: [key] });
     });
@@ -108,7 +110,7 @@ export function AppShell() {
           queryKey: ['thread-notes', me.data?.current_tenant_id, thread_id],
         }),
     );
-    socket.on('queue-counts:changed', () => invalidate('folders', 'queue-counts'));
+    socket.on('queue-counts:changed', () => invalidate('folders', 'queue-counts', 'dashboard'));
     socket.on(
       'thread:messages-changed',
       ({ thread_id }: { thread_id: string }) =>
@@ -166,6 +168,16 @@ export function AppShell() {
       ))}
       {!boxes.data?.length && (
         <p className="px-2 py-4 text-sm text-muted-foreground">Sem caixas disponíveis</p>
+      )}
+      {(admin || boxes.data?.some((b) => can(b.role, 'dashboard'))) && (
+        <Link
+          to="/dashboard"
+          onClick={() => setOpen(false)}
+          className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+        >
+          <LayoutDashboard className="size-4" aria-hidden />
+          Dashboard
+        </Link>
       )}
       <div className="mt-auto border-t pt-4">
         <p className="mb-2 flex items-center gap-2 px-2 text-xs font-semibold text-muted-foreground">

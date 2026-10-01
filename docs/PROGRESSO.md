@@ -116,7 +116,16 @@ Evidências: `mail:test` criou e-mail em A responder; editor assumiu, agendou pe
 
 ## Fase 6 — Dashboard
 
-Não iniciada.
+Concluída. Tag `fase-6`. CI [36925532922](https://github.com/APTechSolucoesTI/APMail/actions/runs/36925532922) aprovado.
+
+- [x] Seis consultas SQL, índices e isolamento por tenant/caixa administrada.
+- [x] Dados fixos conferem métricas, fuso, zeros, spam, automáticos e produtividade.
+- [x] Interface com oito indicadores, gráficos, tabelas e exportação CSV.
+- [x] QA de filtros, permissões e seis combinações de tela/tema.
+- [x] Linux: 37 testes unitários, 42 de integração, reset, tipos, lint, typecheck, build e SIGTERM.
+- [x] CI, merge e tag.
+
+Evidências: seis endpoints conferidos com dados fixos, incluindo mensagens importadas versus enviadas pelo APMail, Spam, automáticos, Lixeira, exclusão, dias sem movimento, limites no fuso da empresa e resposta cuja mensagem anterior está fora do período. Editor e leitor restritos não veem o menu e recebem 403; administrador de caixa vê somente sua caixa; proprietário reúne todas. Contas temporárias de QA removidas ao final. Dashboard, gráficos e tabelas conferidos nas seis combinações de tela/tema, com um h1, sem overflow ou erros JS. Filtros persistem na URL e após recarga; cards abrem a fila escolhida; CSV inclui acentos e neutraliza fórmulas. Linux final: 37 testes unitários e 42 de integração, reset exclusivo de TEST, geração de tipos de 28 tabelas, lint, typecheck, build e SIGTERM.
 
 ## Fase 7 — Chat
 

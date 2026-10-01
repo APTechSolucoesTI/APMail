@@ -17,6 +17,7 @@ import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
+import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppScheduledRouteImport } from './routes/_app.scheduled'
 import { Route as DevUiRouteImport } from './routes/[_]dev.ui'
 import { Route as AppMailMailboxIdRouteImport } from './routes/_app.mail.$mailboxId'
@@ -68,6 +69,11 @@ const SignupRoute = SignupRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDashboardRoute = AppDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => AppRoute,
 } as any)
 const AppScheduledRoute = AppScheduledRouteImport.update({
@@ -145,6 +151,7 @@ export interface FileRoutesByFullPath {
   '/onboarding': typeof OnboardingRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/dashboard': typeof AppDashboardRoute
   '/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
@@ -166,6 +173,7 @@ export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/dashboard': typeof AppDashboardRoute
   '/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
   '/': typeof AppIndexRoute
@@ -190,6 +198,7 @@ export interface FileRoutesById {
   '/onboarding': typeof OnboardingRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/_app/dashboard': typeof AppDashboardRoute
   '/_app/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
   '/_app/': typeof AppIndexRoute
@@ -215,6 +224,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/reset-password'
     | '/signup'
+    | '/dashboard'
     | '/scheduled'
     | '/_dev/ui'
     | '/mail/$mailboxId'
@@ -236,6 +246,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/reset-password'
     | '/signup'
+    | '/dashboard'
     | '/scheduled'
     | '/_dev/ui'
     | '/'
@@ -259,6 +270,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/reset-password'
     | '/signup'
+    | '/_app/dashboard'
     | '/_app/scheduled'
     | '/_dev/ui'
     | '/_app/'
@@ -342,6 +354,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/dashboard': {
+      id: '/_app/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/scheduled': {
@@ -439,6 +458,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppDashboardRoute: typeof AppDashboardRoute
   AppScheduledRoute: typeof AppScheduledRoute
   AppIndexRoute: typeof AppIndexRoute
   AppMailMailboxIdRoute: typeof AppMailMailboxIdRoute
@@ -455,6 +475,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppDashboardRoute: AppDashboardRoute,
   AppScheduledRoute: AppScheduledRoute,
   AppIndexRoute: AppIndexRoute,
   AppMailMailboxIdRoute: AppMailMailboxIdRoute,
