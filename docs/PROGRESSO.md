@@ -28,7 +28,7 @@ CI: https://github.com/APTechSolucoesTI/APMail/actions/runs/36860749036 — apro
 
 ## Fase 1 — Autenticação e permissões
 
-Em validação final.
+Concluída.
 
 - [x] Migration de usuários, sessões, empresas, convites, caixas e auditoria.
 - [x] API de sessão, CSRF, rate limit, autorização e endpoints de configuração.
@@ -39,9 +39,11 @@ Em validação final.
 - [x] Preferências autenticadas persistem após recarregar; restauração validada.
 - [x] Desktop, tablet e mobile inspecionados nos dois temas, sem overflow ou erros de JavaScript.
 - [x] Lint, typecheck, testes, build, reset e geração de tipos.
-- [ ] Verificação Linux final, CI, merge, tag e push.
+- [x] Verificação Linux final, CI, merge, tag e push.
 
 Evidências: 14 testes unitários; 11 testes de integração, incluindo autenticação Socket.IO com Referer; QA real com cadastro, empresa, assistente de caixa, convite entregue no Mailpit, remoção de acesso em sessão aberta, desativação imediata e recuperação de senha com invalidação das sessões antigas.
+
+CI: https://github.com/APTechSolucoesTI/APMail/actions/runs/36873520325 — aprovado. Tag: `fase-1`.
 
 ## Fase 2 — Sincronização
 
