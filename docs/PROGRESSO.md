@@ -47,7 +47,7 @@ CI: https://github.com/APTechSolucoesTI/APMail/actions/runs/36873520325 — apro
 
 ## Fase 2 — Sincronização
 
-Em validação final.
+Concluída.
 
 - [x] Migrations e tipos reais de pastas, threads, mensagens, anexos e ações.
 - [x] Conexão IMAP/SMTP, sincronização incremental e reconciliação.
@@ -60,9 +60,11 @@ Em validação final.
 - [x] QA nos três tamanhos e dois temas, sem overflow ou erros JS.
 - [x] Reinício real do Redis restaura schedulers e sincronizações.
 - [x] Testes completos de integração: 21 aprovados.
-- [ ] Linux final, CI, merge, tag e push.
+- [x] Linux final, CI, merge, tag e push.
 
 Evidências: fixtures MIME, remoção externa, troca de UIDVALIDITY, lock concorrente, erro por senha inválida e reconexão, CID visível, PDF com nome UTF-8 e bloqueio de imagens externas até autorização.
+
+CI: https://github.com/APTechSolucoesTI/APMail/actions/runs/36894254853 — aprovado. Tag: `fase-2`. Linux Node 22: lint, typecheck, 21 testes unitários e 21 de integração, reset, geração de tipos, build e SIGTERM aprovados. Assistente confirmou IMAP/SMTP ativos no navegador.
 
 ## Fase 3 — Composição e envio
 
