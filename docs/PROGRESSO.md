@@ -84,7 +84,7 @@ Evidências: agendamento real entregue em 1.359 ms após o horário; perda do ba
 
 ## Fase 4 — Organização
 
-Em implementação.
+Concluída. Tag `fase-4`. CI final [36911301148](https://github.com/APTechSolucoesTI/APMail/actions/runs/36911301148) aprovado.
 
 - [x] Migration de etiquetas e regras; tipos reais de 26 tabelas.
 - [x] Operadores e validação de escopo testados, com comparação sem acentos.
@@ -94,7 +94,7 @@ Em implementação.
 - [x] 22 testes de integração do worker no Linux, incluindo isolamento entre empresas.
 - [x] Gestão de pastas, regras e etiquetas na interface.
 - [x] Revisão de acessibilidade e responsividade nos dois temas.
-- [ ] Checks completos, CI, merge e tag.
+- [x] Checks completos, CI, merge e tag.
 
 Evidências: 33 testes unitários e 33 de integração aprovados no Linux; reset do banco exclusivo de testes, geração de tipos, lint, typecheck, build e SIGTERM. QA real confirmou criação/renomeação de árvore IMAP, exclusão de pasta vazia, regras de caixa e pessoais, etiquetas privadas, busca sem acentos e destaque de resultados. Reaplicação dos últimos 30 dias executou com payload `rule_id`/`since_days`, uma tentativa e encaminhamento idempotente. E-mail novo foi movido pela regra de caixa e recebeu somente a etiqueta do usuário criador. As três telas e os painéis de pastas/editor foram conferidos nas seis combinações de viewport e tema, com teclado, sem overflow ou erros de JavaScript.
 
