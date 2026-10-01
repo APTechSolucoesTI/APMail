@@ -29,6 +29,7 @@ import { registerAvatarRoutes } from './modules/avatars.js';
 import { registerMailRoutes } from './modules/mail.js';
 import { registerOutboxRoutes } from './modules/outbox.js';
 import { registerOrganizationRoutes } from './modules/organization/routes.js';
+import { registerThreadOperations } from './modules/thread-operations/routes.js';
 import { ApiError } from './authz/context.js';
 
 export async function buildApp(config: ApiEnv = readEnv()) {
@@ -158,7 +159,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   io.adapter(createAdapter(pub, sub, { key: socketRedisKey(config.REDIS_URL) }));
   const resources = { db, redis, io, queues: queueResources.queues, env: config };
   await installAuth(app, db, redis, config);
-  installSocket(app, resources);
+  const sockets = installSocket(app, resources);
   await registerAuthRoutes(app, resources);
   await registerTenantRoutes(app, resources);
   await registerMailboxRoutes(app, resources);
@@ -167,8 +168,10 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await registerMailRoutes(app, resources);
   await registerOutboxRoutes(app, resources);
   await registerOrganizationRoutes(app, resources);
+  registerThreadOperations(app, resources);
   app.addHook('onClose', async () => {
     io.disconnectSockets(true);
+    await sockets.drain();
     await new Promise<void>((resolve) => io.close(() => resolve()));
     await Promise.all([pub.quit(), sub.quit(), redis.quit(), queueResources.close(), db.destroy()]);
   });

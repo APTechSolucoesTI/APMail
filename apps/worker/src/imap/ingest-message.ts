@@ -144,7 +144,7 @@ export async function ingestMessage(
           })
           .execute();
       }
-      await touchThreads(trx, [threadId], 'inbound', null);
+      await touchThreads(trx, [threadId], own.includes(from.address) ? 'outbound' : 'inbound', null);
       return threadId;
     });
   } catch (error) {

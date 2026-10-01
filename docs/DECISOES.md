@@ -44,3 +44,7 @@ Testes IMAP/SMTP usam uma instância GreenMail exclusiva de QA. Isso impede que 
 Fase 4: mensagens guardam rules_inbox e rules_applied_at para preservar a origem e retomar regras após falha, mesmo quando o cursor IMAP já avançou ou uma ação anterior moveu a mensagem. Registros anteriores à migration são marcados como processados; a ação explícita de reaplicação continua disponível. Índice único por regra e mensagem evita repetir encaminhamentos; todos os destinos de uma regra são reunidos no mesmo envio. Pastas usam o delimiter informado pelo IMAP, mantendo IDs ao renomear a árvore.
 
 Fase 4: o payload do job rules-apply usa rule_id/since_days e attempts=1 conforme o contrato da tabela 12.1. A referência em camelCase da seção 10.4 é tratada como pseudocódigo; o worker aceita o formato anterior apenas para drenar jobs criados durante a implementação. O consumidor desta fila tem concorrência 1.
+
+Fase 5: salas Socket.IO usam join/leave com ack conforme o contrato; subscribe permanece como compatibilidade. A confirmação de entrada revalida os dados para recuperar eventos ocorridos entre a consulta inicial e a entrada na sala. O encerramento aguarda a limpeza de presença antes de fechar Redis. O heartbeat de outra aba do mesmo usuário é preservado ao fechar uma aba.
+
+Fase 5: globs de exclusão dos testes unitários usam aspas nos scripts para impedir expansão pelo shell Linux. Testes de integração permanecem no comando próprio, com banco e GreenMail exclusivos de QA.

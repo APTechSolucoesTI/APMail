@@ -15,6 +15,7 @@ import {
 } from '@apmail/shared';
 import { Send, Clock, Paperclip, X, Trash2, Minus, Maximize2, Minimize2 } from 'lucide-react';
 import { useMediaQuery } from '@/hooks/use-media-query';
+import { useComposingPresence } from '@/hooks/use-thread-presence';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { meQuery, useTenantId, type Mailbox } from '@/lib/auth';
@@ -125,6 +126,12 @@ export function Composer({
     savePromise = useRef<Promise<Outbox> | null>(null),
     fileInput = useRef<HTMLInputElement>(null),
     pendingSchedule = useRef<string | undefined>(undefined);
+  useComposingPresence(
+    data.thread_id,
+    ready &&
+      ['reply', 'reply_all'].includes(data.kind) &&
+      can(boxes.data?.find((b) => b.id === data.mailbox_id)?.role ?? null, 'send'),
+  );
   const combined = {
     ...data,
     body_html: DOMPurify.sanitize(

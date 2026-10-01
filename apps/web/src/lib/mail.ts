@@ -18,6 +18,7 @@ export type Thread = {
   last_message_at: string | null;
   last_inbound_at: string | null;
   queue_status: 'none' | 'to_reply' | 'in_progress' | 'awaiting_reply' | 'scheduled' | 'done';
+  queue_excluded?: boolean;
   is_unread: boolean;
   is_pinned: boolean;
   labels: PersonalLabel[];

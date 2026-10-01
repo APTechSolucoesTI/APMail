@@ -8,13 +8,15 @@ import { useTenantId, meQuery } from '@/lib/auth';
 import { useSocketRoom } from '@/hooks/use-socket-room';
 import { Button } from '@/components/ui/button';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
-import { QueueStatusBadge } from '@/components/common/status-badge';
+import { QueueStatusBadge, OverdueBadge } from '@/components/common/status-badge';
 import { MessageCard } from './message-card';
 import { MessageActions } from './message-actions';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import type { ThreadDetail, Folder } from '@/lib/mail';
 import { ThreadLabels } from './thread-labels';
 import { LabelBadge } from './label-badge';
+import { ThreadWorkflow } from './thread-workflow';
+import { ThreadNotes } from './thread-notes';
 export function ThreadView({
   threadId,
   mailboxId,
@@ -76,7 +78,11 @@ export function ThreadView({
             {data.thread.subject || data.messages[0]?.subject || '(Sem assunto)'}
           </h2>
         </div>
-        <QueueStatusBadge status={data.thread.queue_status} />
+        <div className="flex flex-wrap gap-2">
+          <QueueStatusBadge status={data.thread.queue_status} />
+          {data.thread.is_overdue && <OverdueBadge />}
+        </div>
+        <ThreadWorkflow thread={data.thread} mailboxId={mailboxId} role={data.my_role} />
         <div className="flex flex-wrap gap-1">
           <ThreadLabels threadIds={[threadId]} labels={data.labels} mailboxId={mailboxId} />
           <Button
@@ -179,6 +185,7 @@ export function ThreadView({
           onCompose={can(data.my_role, 'send') ? onCompose : undefined}
         />
       ))}
+      <ThreadNotes key={threadId} threadId={threadId} mailboxId={mailboxId} role={data.my_role} />
     </section>
   );
 }

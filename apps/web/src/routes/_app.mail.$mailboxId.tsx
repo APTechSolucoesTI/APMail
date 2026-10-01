@@ -1,8 +1,8 @@
 ﻿import { useState, useRef } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
-import { RefreshCw, MailOpen, Mail, FolderOpen } from 'lucide-react';
-import { can } from '@apmail/shared';
+import { RefreshCw, MailOpen, Mail, FolderOpen, CheckCircle2, RotateCcw } from 'lucide-react';
+import { can, QUEUE_LABELS } from '@apmail/shared';
 import { toast } from 'sonner';
 import type { PersonalLabel } from '@/lib/organization';
 import { api } from '@/lib/api';
@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { SearchInput } from '@/components/data/search-input';
 import { ThreadLabels } from '@/components/mail/thread-labels';
+import { ThreadAssignee } from '@/components/mail/thread-assignee';
 import { Pagination } from '@/components/data/pagination';
 import { ThreadListItem } from '@/components/mail/thread-list-item';
 import { ThreadView } from '@/components/mail/thread-view';
@@ -97,7 +98,7 @@ function MailPage() {
     folder = flattenFolders(folders.data ?? []).find((f) =>
       search.folderId ? f.id === search.folderId : f.special_use === 'inbox',
     );
-  const mark = async (action: 'read' | 'unread') => {
+  const mark = async (action: 'read' | 'unread' | 'done' | 'reopen') => {
     setUpdating(true);
     try {
       await api('/mailboxes/' + mailboxId + '/threads/bulk', {
@@ -106,7 +107,13 @@ function MailPage() {
       });
       setSelection({ context, ids: [] });
       await threads.refetch();
-      toast.success('Estado de leitura atualizado.');
+      toast.success(
+        action === 'done'
+          ? 'Conversas concluídas.'
+          : action === 'reopen'
+            ? 'Conversas reabertas.'
+            : 'Estado de leitura atualizado.',
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Não foi possível atualizar.');
     } finally {
@@ -233,6 +240,34 @@ function MailPage() {
               threadIds={selected}
               onDone={() => setSelection({ context, ids: [] })}
             />
+            {can(box.data.role, 'queue') && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={updating}
+                  onClick={() => void mark('done')}
+                >
+                  <CheckCircle2 />
+                  Concluir
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={updating}
+                  onClick={() => void mark('reopen')}
+                >
+                  <RotateCcw />
+                  Reabrir
+                </Button>
+                <ThreadAssignee
+                  mailboxId={mailboxId}
+                  threadIds={selected}
+                  role={box.data.role}
+                  onComplete={() => setSelection({ context, ids: [] })}
+                />
+              </>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -280,14 +315,18 @@ function MailPage() {
                 ? 'Nenhum resultado para esta busca'
                 : search.unread
                   ? 'Nenhuma conversa não lida'
-                  : 'Esta pasta está vazia.'
+                  : search.view === 'queue'
+                    ? 'Nenhuma conversa nesta fila'
+                    : 'Esta pasta está vazia.'
             }
             description={
               search.view === 'label'
                 ? 'Aplique esta etiqueta nas conversas que deseja organizar.'
-                : search.q
-                  ? 'Tente outro termo ou ajuste os filtros.'
-                  : 'As mensagens desta pasta aparecerão após a sincronização.'
+                : search.view === 'queue'
+                  ? 'As conversas aparecerão aqui conforme o atendimento.'
+                  : search.q
+                    ? 'Tente outro termo ou ajuste os filtros.'
+                    : 'As mensagens desta pasta aparecerão após a sincronização.'
             }
             action={
               search.q || search.unread || search.assigned !== 'any' ? (
@@ -351,9 +390,13 @@ function MailPage() {
               : search.view === 'label'
                 ? 'Etiqueta: ' +
                   (labels.data?.find((l) => l.id === search.labelId)?.name ?? 'Carregando…')
-                : folder
-                  ? folderLabel(folder)
-                  : 'Caixa de entrada'}{' '}
+                : search.view === 'queue'
+                  ? search.queue === 'overdue'
+                    ? 'Fora do SLA'
+                    : QUEUE_LABELS[search.queue ?? 'to_reply']
+                  : folder
+                    ? folderLabel(folder)
+                    : 'Caixa de entrada'}{' '}
             · <span className="font-mono">{box.data.email_address}</span>
           </p>
         </div>

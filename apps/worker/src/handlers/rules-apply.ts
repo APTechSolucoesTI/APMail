@@ -7,6 +7,7 @@ import {
   sanitizeEmailHtml,
   outboxJobId,
   sendJobOptions,
+  assignThread,
   type DB,
 } from '@apmail/db';
 import {
@@ -135,14 +136,13 @@ async function applyRule(
         .where('tenant_id', '=', box.tenant_id)
         .execute();
     } else if (action.type === 'assign_to') {
-      if (await userCanMailbox(r, box, action.user_id, 'send'))
-        await r.db
-          .updateTable('threads')
-          .set({ assigned_to: action.user_id })
-          .where('id', '=', msg.thread_id)
-          .where('tenant_id', '=', box.tenant_id)
-          .execute();
-      else
+      if (await userCanMailbox(r, box, action.user_id, 'send')) {
+        const notification = await r.db
+          .transaction()
+          .execute((tx) => assignThread(tx, msg.thread_id, action.user_id, row.created_by, 'rule'));
+        if (notification)
+          r.io.to('user:' + notification.user_id).emit('notification:new', { notification });
+      } else
         r.log.warn(
           { rule_id: row.id, user_id: action.user_id },
           'Responsável sem permissão de envio; atribuição ignorada.',
@@ -281,14 +281,12 @@ async function applyRule(
       });
       if (outbox) {
         await r.queues['outbox-send'].add('send', { outbox_id: outbox.id }, sendJobOptions(outbox));
-        r.io
-          .to('mailbox:' + box.id)
-          .emit('outbox:changed', {
-            mailbox_id: box.id,
-            outbox_id: outbox.id,
-            thread_id: msg.thread_id,
-            status: outbox.status,
-          });
+        r.io.to('mailbox:' + box.id).emit('outbox:changed', {
+          mailbox_id: box.id,
+          outbox_id: outbox.id,
+          thread_id: msg.thread_id,
+          status: outbox.status,
+        });
       }
     }
   }

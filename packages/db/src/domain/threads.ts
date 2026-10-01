@@ -1,5 +1,11 @@
 import { sql, type Kysely, type Transaction } from 'kysely';
-import { externalParticipants, normalizeSubject, type Address } from '@apmail/shared';
+import {
+  computeThreadStatus,
+  externalParticipants,
+  normalizeSubject,
+  type QueueReason,
+  type Address,
+} from '@apmail/shared';
 import type { DB, Json, QueueStatus } from '../types.js';
 export type Database = Kysely<DB> | Transaction<DB>;
 export type ThreadMessage = {
@@ -138,40 +144,48 @@ export async function refreshThreadAggregates(db: Database, threadId: string): P
 export async function recomputeThreadStatus(
   db: Database,
   threadId: string,
-  _reason: string,
-  _actorId: string | null,
+  reason: QueueReason,
+  actorId: string | null,
 ) {
-  void _reason;
-  void _actorId;
   const thread = await db
     .selectFrom('threads')
     .selectAll()
     .where('id', '=', threadId)
     .forUpdate()
     .executeTakeFirstOrThrow();
-  let to: QueueStatus = 'none';
-  const scheduled = await db.selectFrom('outbox').select('id').where('thread_id','=',threadId).where('status','in',['queued','scheduled','sending']).executeTakeFirst();
-  if (scheduled && !thread.queue_excluded) to = 'scheduled';
-  else if (
-    !thread.queue_excluded &&
-    thread.last_inbound_at &&
-    (!thread.last_outbound_at || thread.last_inbound_at > thread.last_outbound_at)
-  )
-    to = 'to_reply';
-  else if (!thread.queue_excluded && thread.last_outbound_at) to = 'awaiting_reply';
+  const scheduled = await db
+    .selectFrom('outbox')
+    .select('id')
+    .where('thread_id', '=', threadId)
+    .where('status', 'in', ['queued', 'scheduled', 'sending'])
+    .executeTakeFirst();
+  const to: QueueStatus = computeThreadStatus({ ...thread, has_pending_outbox: !!scheduled });
   const changed = to !== thread.queue_status;
-  if (changed)
+  if (changed) {
     await db
       .updateTable('threads')
       .set({ queue_status: to, queue_status_changed_at: new Date() })
       .where('id', '=', threadId)
       .execute();
+    await db
+      .insertInto('thread_status_history')
+      .values({
+        tenant_id: thread.tenant_id,
+        mailbox_id: thread.mailbox_id,
+        thread_id: thread.id,
+        from_status: thread.queue_status,
+        to_status: to,
+        changed_by: actorId,
+        reason,
+      })
+      .execute();
+  }
   return { changed, from: thread.queue_status, to };
 }
 export async function touchThreads(
   db: Database,
   threadIds: string[],
-  reason: string,
+  reason: QueueReason,
   actorId: string | null,
 ): Promise<void> {
   for (const id of [...new Set(threadIds)].sort()) {

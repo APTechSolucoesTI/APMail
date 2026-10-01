@@ -1,6 +1,7 @@
 import { Paperclip, Pin } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { QueueStatusBadge } from '@/components/common/status-badge';
+import { QueueStatusBadge, OverdueBadge } from '@/components/common/status-badge';
+import { UserAvatar } from '@/components/common/user-avatar';
 import { cn } from '@/lib/utils';
 import type { Thread } from '@/lib/mail';
 import { LabelBadge } from './label-badge';
@@ -75,8 +76,21 @@ export function ThreadListItem({
         <p className="mt-0.5 truncate text-xs text-muted-foreground" title={thread.snippet}>
           <SearchHighlight text={thread.snippet} query={query} />
         </p>
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <QueueStatusBadge status={thread.queue_status} />
+          {thread.is_overdue && <OverdueBadge />}
+          {thread.assigned_to && (
+            <span
+              title={'Responsável: ' + thread.assigned_to.full_name}
+              aria-label={'Responsável: ' + thread.assigned_to.full_name}
+            >
+              <UserAvatar
+                name={thread.assigned_to.full_name}
+                src={thread.assigned_to.avatar_url}
+                size={20}
+              />
+            </span>
+          )}
           {thread.has_attachments && (
             <Paperclip className="size-3 text-muted-foreground" aria-label="Com anexos" />
           )}

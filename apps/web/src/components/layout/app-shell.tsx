@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link, Outlet, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
+import { toast } from 'sonner';
 import { SocketContext } from '@/hooks/use-socket-room';
 import { MailboxFolderNavigation } from '@/components/mail/mailbox-folder-navigation';
 import { Mail, Menu, Settings, LogOut } from 'lucide-react';
 import { api } from '@/lib/api';
-import { meQuery, TenantContext, type Mailbox } from '@/lib/auth';
+import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { UserAvatar } from '@/components/common/user-avatar';
@@ -42,6 +43,8 @@ export function AppShell() {
         'outbox',
         'labels',
         'rules',
+        'thread-notes',
+        'thread-history',
       ])
         void client.invalidateQueries({ queryKey: [key] });
     });
@@ -54,13 +57,57 @@ export function AppShell() {
     });
     socket.on(
       'notification:new',
-      () => void client.invalidateQueries({ queryKey: ['notifications'] }),
+      ({
+        notification,
+      }: {
+        notification: {
+          id: string;
+          type: string;
+          title: string;
+          body: string;
+          link: string | null;
+        };
+      }) => {
+        void client.invalidateQueries({ queryKey: ['notifications'] });
+        const prefs = client.getQueryData<Me>(['me'])?.preferences;
+        if (
+          (notification.type === 'mention' && prefs?.notify_mentions === false) ||
+          (notification.type === 'assignment' && prefs?.notify_assignments === false) ||
+          (notification.type === 'chat_message' && prefs?.notify_chat === false)
+        )
+          return;
+        toast.info(notification.title, { description: notification.body });
+        if (
+          prefs?.desktop_notifications &&
+          document.visibilityState !== 'visible' &&
+          'Notification' in window &&
+          Notification.permission === 'granted'
+        ) {
+          const notice = new Notification(notification.title, {
+            body: notification.body,
+            tag: notification.id,
+          });
+          notice.onclick = () => {
+            window.focus();
+            if (notification.link?.startsWith('/') && !notification.link.startsWith('//'))
+              window.location.assign(notification.link);
+            notice.close();
+          };
+        }
+      },
     );
     socket.on('disconnect', () => void client.invalidateQueries({ queryKey: ['me'] }));
     const invalidate = (...keys: string[]) => {
       for (const key of keys) void client.invalidateQueries({ queryKey: [key] });
     };
-    socket.on('threads:changed', () => invalidate('labels', 'threads', 'thread'));
+    socket.on('threads:changed', () => invalidate('labels', 'threads', 'thread', 'thread-history'));
+    socket.on(
+      'thread:notes-changed',
+      ({ thread_id }: { thread_id: string }) =>
+        void client.invalidateQueries({
+          queryKey: ['thread-notes', me.data?.current_tenant_id, thread_id],
+        }),
+    );
     socket.on('queue-counts:changed', () => invalidate('folders', 'queue-counts'));
     socket.on(
       'thread:messages-changed',
