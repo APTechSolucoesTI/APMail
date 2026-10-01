@@ -32,6 +32,9 @@ jobs:
       APP_URL: http://localhost:5173
       SESSION_SECRET: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       CREDENTIALS_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      POSTGRES_USER: apmail
+      POSTGRES_DB: apmail_ci
+      POSTGRES_PASSWORD: ci-compose-password
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -46,3 +49,19 @@ jobs:
       - run: pnpm db:migrate
       - run: pnpm test:integration
       - run: pnpm build
+      - name: Build e saúde da stack de produção
+        env:
+          APP_URL: http://localhost:8080
+        run: |
+          docker compose config --quiet
+          docker compose config --format json | node -e 'let s="";process.stdin.on("data",x=>s+=x);process.stdin.on("end",()=>{const c=JSON.parse(s);if(Object.values(c.services).some(x=>x.ports?.length))process.exit(1)})'
+          docker compose build
+          docker compose -f docker-compose.yml -f docker-compose.override.example.yml up -d --wait --wait-timeout 180
+          curl -fsS http://localhost:8080/api/health
+          for service in postgres redis api worker web; do
+            test "$(docker compose exec -T "$service" id -u)" != 0
+          done
+          test "$(docker inspect --format '{{.State.ExitCode}}' "$(docker compose ps -a -q migrate)")" = 0
+      - name: Encerrar stack de produção
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.override.example.yml down --remove-orphans
