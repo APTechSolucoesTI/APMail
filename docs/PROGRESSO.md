@@ -100,7 +100,7 @@ Evidências: 33 testes unitários e 33 de integração aprovados no Linux; reset
 
 ## Fase 5 — Filas e notas
 
-Em implementação.
+Concluída. Tag `fase-5`. CI final [36921362628](https://github.com/APTechSolucoesTI/APMail/actions/runs/36921362628) aprovado.
 
 - [x] Migration de histórico e notas; tipos reais de 28 tabelas.
 - [x] Algoritmo completo, reabertura por inbound e lock de recomputação.
@@ -108,9 +108,11 @@ Em implementação.
 - [x] Presença de composição com TTL e limpeza aguardada no encerramento.
 - [x] Worker de recálculo e atribuição por regras com auditoria/notificação.
 - [x] Linux: 35 testes unitários, 38 de integração, lint, typecheck, reset, tipos, build e SIGTERM.
-- [ ] QA final de filas, agendamento, menções e presença no navegador.
-- [ ] Desktop, tablet e mobile nos dois temas.
-- [ ] CI, merge e tag.
+- [x] QA final de filas, agendamento, menções e presença no navegador.
+- [x] Desktop, tablet e mobile nos dois temas.
+- [x] CI, merge e tag.
+
+Evidências: `mail:test` criou e-mail em A responder; editor assumiu, agendou pela interface e o proprietário viu o agendamento e a presença de composição. Entrega real ocorreu 936 ms após o horário, passando para Aguardando resposta. `mail:test --reply-last` reabriu Em atendimento mantendo o responsável; conclusão manual e nova resposta reabriram com histórico/autor/motivo corretos. Newsletter permaneceu sem fila. Menção inserida por teclado notificou o leitor, que recebeu a nota em tempo real sem controles de escrita. SLA de 1 h e mensagem de 2 h atrás foram conferidos nas seis combinações de tela/tema; configuração de demonstração restaurada. Filas, notas, histórico e seleção de responsável foram revisados com teclado nas seis combinações, sem overflow ou erros JS. Recomposição concorrente de quatro transações produziu somente um registro de histórico. Entrada/saída/reentrada rápida de Socket.IO preservou a sala, com teste de regressão.
 
 ## Fase 6 — Dashboard
 
