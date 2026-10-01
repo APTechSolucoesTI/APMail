@@ -6,6 +6,8 @@ Funcionalidades implementadas: múltiplas empresas, caixas compartilhadas IMAP/S
 
 As fases concluídas, checks e pendências de publicação estão em [PROGRESSO](docs/PROGRESSO.md). Domínio/HTTPS e SMTP externo dependem da configuração de cada instalação.
 
+Fases 0–9 entregues e instalação local no Dokploy validada. Para acessar a instalação APTech, use o túnel localhost:8081 descrito em [DEPLOY](docs/DEPLOY.md); credenciais iniciais ficam em `.data/APMail-acesso-local.txt`, fora do Git. Cadastro público desativado e backup diário configurado. A publicação externa aguarda domínio/SMTP e credenciais das caixas reais.
+
 ## Docker e Dokploy
 
 1. Copie `.env.example` para `.env`; preencha senha do Postgres, duas chaves de 32 bytes, URL e SMTP do sistema.

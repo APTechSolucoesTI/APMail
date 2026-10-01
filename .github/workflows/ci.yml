@@ -49,6 +49,7 @@ jobs:
       - run: pnpm db:migrate
       - run: pnpm test:integration
       - run: pnpm build
+      - run: bash -n scripts/backup-production.sh
       - name: Build e saúde da stack de produção
         env:
           APP_URL: http://localhost:8080

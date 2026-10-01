@@ -191,7 +191,7 @@ Linux final: lint, typecheck, **48 testes unitários**, **55 de integração**, 
 
 ## Fase 9 — Produção
 
-Em implementação na branch `feat/fase-9-producao`. Compose e imagens em validação no servidor local, com stack e volumes exclusivos. Domínio e SMTP real continuam pendentes para publicação HTTPS e entrega externa de convites/recuperação.
+Entrega técnica concluída conforme os critérios de aceite Docker da Fase 9. Tag `fase-9`. Instalação gerenciada pelo Dokploy validada com stack, volumes e segredos exclusivos. A publicação externa permanece pendente: domínio/DNS, HTTPS, SMTP real e conexão das caixas reais precisam dos dados do usuário.
 
 - [x] Compose principal sem portas públicas; override local com bind em loopback.
 - [x] Dockerfiles API/worker/web e nginx com DNS renovado, WebSocket, CSP e cache dos assets.
@@ -203,13 +203,18 @@ Em implementação na branch `feat/fase-9-producao`. Compose e imagens em valida
 - [x] Down/up preserva Postgres, Redis/AOF e hash do anexo.
 - [x] Backup e restauração em banco/volume separados; mensagens e hash do anexo conferidos.
 - [x] README e guia completo de ambiente, Dokploy, HTTPS, backup, restauração e manutenção.
-- [x] CI [36941383077](https://github.com/APTechSolucoesTI/APMail/actions/runs/36941383077) aprovado, incluindo build Docker, saúde, migration e UIDs.
+- [x] CI [36941813302](https://github.com/APTechSolucoesTI/APMail/actions/runs/36941813302) aprovado, incluindo 48 testes unitários, 55 de integração, build Docker, saúde, migration e UIDs.
 - [x] Projeto APMail e serviço Compose exclusivos criados no Dokploy, provedor GitHub/main e segredos novos.
-- [ ] Deploy e revisão da instalação gerenciada pelo Dokploy; fechamento da fase.
+- [x] Deploy GitHub/main concluído pelo Dokploy, cinco serviços saudáveis e migration com código 0.
+- [x] Proprietário e empresa APTech criados; cadastro público desativado e recusa 403 conferida após redeploy.
+- [x] Sessão preservada, seis layouts sem overflow/erros de JavaScript e imagens não-root conferidas na instalação gerenciada.
+- [x] Backup automatizado testado, checksums conferidos e proprietário restaurado em banco separado; cron diário às 03h do host (-03).
+- [x] Guia final, acesso privado entregue, CI, merge e tag.
 - [ ] Domínio final/HTTPS e SMTP externo informados e validados.
+- [ ] Caixas reais conectadas e entrega externa conferida com as credenciais do usuário.
 
 Inicialização local com imagens construídas: **34 segundos**. A aplicação não usa scripts inline; o inicializador de tema foi extraído para arquivo próprio após a CSP detectar o script da página inicial. O fluxo completo passou sem erros de JavaScript. O backup restaurou duas mensagens e anexos com hash idêntico; o teste de persistência também confirmou um marcador no Redis após down/up. Provedores GreenMail/Mailpit e restauração são exclusivos de QA, sem alteração dos serviços de outros projetos.
 
-Dokploy: projeto `A0UfmHWgOBSv7SYUsbKgx`, ambiente `j8pFJm-Vkn6mTSijFpA2f`, Compose `R5nlKL0Qt47g_a4sxCeSc`, appName `apmail-next-production-qrufqc`. A prévia usa somente loopback 8081; a publicação pública precisa de domínio/HTTPS e SMTP. Segredos não aparecem nos arquivos versionados.
+Dokploy: projeto `A0UfmHWgOBSv7SYUsbKgx`, ambiente `j8pFJm-Vkn6mTSijFpA2f`, Compose `R5nlKL0Qt47g_a4sxCeSc`, appName `apmail-next-production-qrufqc`. Deploy inicial `0xzjpQD43e0acSpq_9k-J` e redeploy `Wx5UPWC4OSVmz-SnPjjJq` concluídos. A prévia usa somente loopback 8081, acessível por túnel SSH. Credenciais de acesso em `.data/APMail-acesso-local.txt` e ambiente em `.data/qa/dokploy-production.env`, ambos fora do Git. O backup inclui banco, arquivos, snapshot Redis, chaves e checksums; diretório privado `/home/administrador/apmail-next/.data/backups/production`. Cron preserva os agendamentos preexistentes. Cópia externa/cofre e monitoramento dos backups ficam sob responsabilidade operacional da equipe; não há serviço externo configurado.
 
 Evidências da fase 0: 14 testes unitários e 2 testes de integração aprovados; seis combinações de viewport e tema inspecionadas; SIGTERM validado no Linux com Node 22.
