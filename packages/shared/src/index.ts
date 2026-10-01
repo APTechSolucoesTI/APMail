@@ -9,3 +9,4 @@ export * from './rules.js';
 export * from './reply.js';
 export * from './schedule.js';
 export * from './schemas/auth.js';
+export * from './schemas/outbox.js';

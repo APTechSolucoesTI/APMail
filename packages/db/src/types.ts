@@ -39,6 +39,10 @@ export type MessageDirection = "inbound" | "outbound";
 
 export type NotificationType = "action_failed" | "assignment" | "chat_message" | "mailbox_error" | "mention" | "send_failed";
 
+export type OutboxKind = "forward" | "new" | "reply" | "reply_all";
+
+export type OutboxStatus = "canceled" | "draft" | "failed" | "queued" | "scheduled" | "sending" | "sent";
+
 export type QueueStatus = "awaiting_reply" | "done" | "in_progress" | "none" | "scheduled" | "to_reply";
 
 export type TenantRole = "admin" | "member" | "owner";
@@ -207,6 +211,36 @@ export interface Notifications {
   user_id: string;
 }
 
+export interface Outbox {
+  attachments: Generated<Json>;
+  attempts: Generated<number>;
+  bcc_addresses: Generated<Json>;
+  body_html: Generated<string>;
+  cc_addresses: Generated<Json>;
+  created_at: Generated<Timestamp>;
+  created_by: string;
+  created_by_rule_id: string | null;
+  id: Generated<string>;
+  job_id: string | null;
+  kind: Generated<OutboxKind>;
+  last_error: string | null;
+  mailbox_id: string;
+  message_id_header: string | null;
+  reply_to_message_id: string | null;
+  scheduled_at: Timestamp | null;
+  send_after: Timestamp | null;
+  sent_at: Timestamp | null;
+  sent_message_id: string | null;
+  signature_id: string | null;
+  status: Generated<OutboxStatus>;
+  subject: Generated<string>;
+  submit_count: Generated<number>;
+  tenant_id: string;
+  thread_id: string | null;
+  to_addresses: Generated<Json>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface PasswordResetTokens {
   created_at: Generated<Timestamp>;
   expires_at: Timestamp;
@@ -230,6 +264,19 @@ export interface Sessions {
   last_seen_at: Generated<Timestamp>;
   token_hash: string;
   user_agent: string | null;
+  user_id: string;
+}
+
+export interface Signatures {
+  body_html: string;
+  created_at: Generated<Timestamp>;
+  deleted_at: Timestamp | null;
+  id: Generated<string>;
+  is_default: Generated<boolean>;
+  mailbox_id: string | null;
+  name: string;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
   user_id: string;
 }
 
@@ -297,6 +344,18 @@ export interface ThreadUserState {
   user_id: string;
 }
 
+export interface Uploads {
+  consumed_at: Timestamp | null;
+  content_type: string;
+  created_at: Generated<Timestamp>;
+  filename: string;
+  id: Generated<string>;
+  size_bytes: number;
+  storage_path: string;
+  tenant_id: string;
+  user_id: string;
+}
+
 export interface UserPreferences {
   density: Generated<string>;
   desktop_notifications: Generated<boolean>;
@@ -333,14 +392,17 @@ export interface DB {
   mailboxes: Mailboxes;
   messages: Messages;
   notifications: Notifications;
+  outbox: Outbox;
   password_reset_tokens: PasswordResetTokens;
   schema_migrations: SchemaMigrations;
   sessions: Sessions;
+  signatures: Signatures;
   table_preferences: TablePreferences;
   tenant_members: TenantMembers;
   tenants: Tenants;
   thread_user_state: ThreadUserState;
   threads: Threads;
+  uploads: Uploads;
   user_preferences: UserPreferences;
   users: Users;
 }

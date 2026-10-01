@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+﻿import { useState, useRef } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { RefreshCw, MailOpen, Mail, FolderOpen } from 'lucide-react';
@@ -18,6 +18,8 @@ import { Pagination } from '@/components/data/pagination';
 import { ThreadListItem } from '@/components/mail/thread-list-item';
 import { ThreadView } from '@/components/mail/thread-view';
 import { MessageActions } from '@/components/mail/message-actions';
+import { Composer, type ComposerHandle } from '@/components/mail/composer';
+import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 export const Route = createFileRoute('/_app/mail/$mailboxId')({
   validateSearch: mailSearchSchema,
@@ -59,9 +61,16 @@ function MailPage() {
     }),
     selected = selection.context === context ? selection.ids : [];
   const [updating, setUpdating] = useState(false);
+  const composer = useRef<ComposerHandle>(null),
+    [composerSession, setComposerSession] = useState(0),
+    [pendingCompose, setPendingCompose] = useState<string | null>(null);
   const change = (patch: Partial<typeof search>) =>
     void navigate({ search: { ...search, ...patch } });
   const close = () => change({ thread: undefined });
+  const openComposer = (mode: string) => {
+    if (search.compose) setPendingCompose(mode);
+    else if (!search.compose) change({ compose: mode });
+  };
   const items = threads.data?.items ?? [],
     folder = flattenFolders(folders.data ?? []).find((f) =>
       search.folderId ? f.id === search.folderId : f.special_use === 'inbox',
@@ -208,6 +217,7 @@ function MailPage() {
       mailboxId={mailboxId}
       folders={folders.data ?? []}
       onClose={close}
+      onCompose={openComposer}
     />
   ) : (
     <EmptyState
@@ -226,7 +236,14 @@ function MailPage() {
             <span className="font-mono">{box.data.email_address}</span>
           </p>
         </div>
-        <MailboxStatusBadge status={box.data.status} />
+        <div className="flex items-center gap-2">
+          <MailboxStatusBadge status={box.data.status} />
+          {can(box.data.role, 'send') && (
+            <Button disabled={box.data.status !== 'active'} onClick={() => openComposer('new')}>
+              Novo e-mail
+            </Button>
+          )}
+        </div>
       </header>
       {box.data.status === 'error' && (
         <div
@@ -283,6 +300,31 @@ function MailPage() {
           list
         )}
       </div>
+      {search.compose && can(box.data.role, 'send') && (
+        <Composer
+          key={mailboxId + ':' + composerSession}
+          ref={composer}
+          mailboxId={mailboxId}
+          mode={search.compose}
+          threadId={search.thread}
+          onClose={() => change({ compose: undefined })}
+          onReopen={(id) => change({ compose: 'draft:' + id })}
+        />
+      )}
+      <ConfirmDialog
+        open={!!pendingCompose}
+        onOpenChange={(open) => {
+          if (!open) setPendingCompose(null);
+        }}
+        title="Abrir outro e-mail?"
+        description="O e-mail atual será salvo como rascunho antes de abrir o próximo."
+        onConfirm={async () => {
+          await composer.current?.saveDraft();
+          setComposerSession((n) => n + 1);
+          change({ compose: pendingCompose ?? undefined });
+          setPendingCompose(null);
+        }}
+      />
     </div>
   );
 }

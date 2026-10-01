@@ -20,6 +20,7 @@ export function MessageCard({
   organize,
   mailboxId,
   folders,
+  onCompose,
 }: {
   message: Message;
   expanded: boolean;
@@ -28,6 +29,7 @@ export function MessageCard({
   organize: boolean;
   mailboxId: string;
   folders: Folder[];
+  onCompose?: (mode: string) => void;
 }) {
   const [open, setOpen] = useState(expanded),
     [preview, setPreview] = useState<Attachment | null>(null);
@@ -144,6 +146,27 @@ export function MessageCard({
                 flagged={message.is_flagged}
               />
             )
+          )}
+          {onCompose && (
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => onCompose('reply:' + message.id)}>
+                Responder
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onCompose('reply_all:' + message.id)}
+              >
+                Responder a todos
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onCompose('forward:' + message.id)}
+              >
+                Encaminhar
+              </Button>
+            </div>
           )}
         </div>
       )}

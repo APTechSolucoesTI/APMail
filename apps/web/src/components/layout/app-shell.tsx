@@ -34,7 +34,7 @@ export function AppShell() {
       void client.invalidateQueries({ queryKey: ['mailboxes'] });
       void client.invalidateQueries({ queryKey: ['me'] });
       void client.invalidateQueries({ queryKey: ['notifications'] });
-      for (const key of ['threads', 'thread', 'folders', 'queue-counts'])
+      for (const key of ['threads', 'thread', 'folders', 'queue-counts', 'outbox'])
         void client.invalidateQueries({ queryKey: [key] });
     });
     socket.on('mailboxes:changed', () => {
@@ -61,6 +61,10 @@ export function AppShell() {
     );
     socket.on('folders:changed', () => invalidate('folders'));
     socket.on('mailbox:status', () => invalidate('mailboxes', 'mailbox'));
+    socket.on('outbox:changed', () =>
+      invalidate('outbox', 'outbox-detail', 'thread', 'threads', 'queue-counts'),
+    );
+    socket.on('notifications:changed', () => invalidate('notifications'));
     return () => {
       socket.removeAllListeners();
       socket.disconnect();
@@ -80,7 +84,10 @@ export function AppShell() {
   const tenant = me.data.tenants.find((t) => t.id === me.data!.current_tenant_id);
   const admin = tenant?.role !== 'member';
   const sidebar = (
-    <nav aria-label="Navegação principal" className="flex h-full flex-col gap-2 p-4">
+    <nav
+      aria-label="Navegação principal"
+      className="flex h-full flex-col gap-2 overflow-y-auto p-4"
+    >
       <Link
         to="/"
         className="mb-6 flex items-center gap-2 text-xl font-semibold text-primary"
@@ -90,6 +97,13 @@ export function AppShell() {
         APMail
       </Link>
       <p className="px-2 text-xs font-semibold text-muted-foreground">CAIXAS DE E-MAIL</p>
+      <a
+        href="/scheduled"
+        className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+      >
+        <Mail className="size-4" />
+        Envios
+      </a>
       {boxes.data?.map((b) => (
         <MailboxFolderNavigation key={b.id} box={b} onNavigate={() => setOpen(false)} />
       ))}
@@ -104,6 +118,7 @@ export function AppShell() {
         {[
           ['/settings/profile', 'Meu perfil'],
           ['/settings/preferences', 'Preferências'],
+          ['/settings/signatures', 'Assinaturas'],
           ...(admin
             ? [
                 ['/settings/users', 'Equipe e acessos'],

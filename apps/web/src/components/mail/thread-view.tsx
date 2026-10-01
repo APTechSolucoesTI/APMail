@@ -11,17 +11,20 @@ import { LoadingState, ErrorState } from '@/components/data/data-state';
 import { QueueStatusBadge } from '@/components/common/status-badge';
 import { MessageCard } from './message-card';
 import { MessageActions } from './message-actions';
+import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import type { ThreadDetail, Folder } from '@/lib/mail';
 export function ThreadView({
   threadId,
   mailboxId,
   folders,
   onClose,
+  onCompose,
 }: {
   threadId: string;
   mailboxId: string;
   folders: Folder[];
   onClose: () => void;
+  onCompose: (mode: string) => void;
 }) {
   const tenantId = useTenantId(),
     client = useQueryClient(),
@@ -91,6 +94,66 @@ export function ThreadView({
           <MessageActions mailboxId={mailboxId} folders={folders} threadIds={[threadId]} />
         )}
       </div>
+      {data.pending_outbox?.map((o) => (
+        <div key={o.id} className="rounded-md border bg-secondary p-3 text-sm">
+          <p>
+            {o.scheduled_at
+              ? `Resposta agendada por ${o.created_by_name} para ${new Date(o.scheduled_at).toLocaleString('pt-BR', { timeZone: me.data?.preferences.timezone, timeZoneName: 'short' })}`
+              : `Resposta ${o.status === 'sending' ? 'em envio' : 'na fila'} por ${o.created_by_name}`}
+          </p>
+
+          {o.status !== 'sending' &&
+            (o.created_by === me.data?.user.id ||
+              (o.status === 'scheduled' && can(data.my_role, 'cancel_any'))) && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {o.created_by === me.data?.user.id && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={acting}
+                      onClick={async () => {
+                        setActing(true);
+                        try {
+                          await api('/outbox/' + o.id + '/cancel', { method: 'POST' });
+                          onCompose('draft:' + o.id);
+                        } catch (e) {
+                          toast.error((e as Error).message);
+                        } finally {
+                          setActing(false);
+                        }
+                      }}
+                    >
+                      Editar
+                    </Button>
+                    {o.status === 'scheduled' && (
+                      <ConfirmDialog
+                        trigger={
+                          <Button variant="outline" size="sm">
+                            Enviar agora
+                          </Button>
+                        }
+                        title="Enviar agora?"
+                        description="A resposta será colocada imediatamente na fila."
+                        onConfirm={() => api('/outbox/' + o.id + '/send-now', { method: 'POST' })}
+                      />
+                    )}
+                  </>
+                )}
+                <ConfirmDialog
+                  trigger={
+                    <Button variant="outline" size="sm">
+                      Cancelar envio
+                    </Button>
+                  }
+                  title="Cancelar envio?"
+                  description="A resposta será retirada da fila antes do envio."
+                  onConfirm={() => api('/outbox/' + o.id + '/cancel', { method: 'POST' })}
+                />
+              </div>
+            )}
+        </div>
+      ))}
       {data.messages.map((m, i) => (
         <MessageCard
           key={m.id}
@@ -103,6 +166,7 @@ export function ThreadView({
           organize={organize}
           mailboxId={mailboxId}
           folders={folders}
+          onCompose={can(data.my_role, 'send') ? onCompose : undefined}
         />
       ))}
     </section>

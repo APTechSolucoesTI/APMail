@@ -68,7 +68,19 @@ CI: https://github.com/APTechSolucoesTI/APMail/actions/runs/36894254853 — apro
 
 ## Fase 3 — Composição e envio
 
-Não iniciada.
+Concluída. Tag `fase-3`. CI final [36902987267](https://github.com/APTechSolucoesTI/APMail/actions/runs/36902987267) aprovado.
+
+- [x] Migrations de uploads, assinaturas e outbox; tipos reais.
+- [x] API de rascunhos, anexos, assinaturas, submit/cancel/send-now/retry.
+- [x] Worker SMTP/MIME, cópia IMAP, deduplicação, sweep e limpeza.
+- [x] Testes de destinatários, citação e horários em UTC.
+- [x] Integração real de envio, resposta, anexos íntegros, cancelamento e retentativas.
+- [x] QA final do compositor, agendamento no horário e recuperação do Redis.
+- [x] Desktop, tablet e mobile nos dois temas; rascunho, upload, recarga, Desfazer e resposta de outro usuário.
+- [x] 24 testes unitários e 28 de integração, lint, typecheck e build locais.
+- [x] Revisão visual, checks completos, CI, merge e tag.
+
+Evidências: agendamento real entregue em 1.359 ms após o horário; perda do banco lógico exclusivo de desenvolvimento do Redis com job reconstruído antes do prazo e entrega em 1.550 ms. MIME do navegador confirmou assinatura pessoal e arquivo UTF-8. Painel desktop de 640 × 560 px com minimizar, maximizar, rodapé persistente e confirmação de troca validado nas seis combinações de tela e tema. Aliases editados pela interface e sugestões recentes de endereços conferidos. Linux: 24 testes unitários, 28 de integração, migrations do zero, build e encerramento gracioso aprovados.
 
 ## Fase 4 — Organização
 

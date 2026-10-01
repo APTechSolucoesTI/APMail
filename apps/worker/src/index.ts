@@ -7,6 +7,8 @@ import { Emitter } from '@socket.io/redis-emitter';
 import { handleMailboxConnection } from './handlers/mailbox-connection.js';
 import { handleMailboxSync } from './handlers/mailbox-sync.js';
 import { handleMailAction } from './handlers/mail-actions.js';
+import { handleOutboxSend } from './handlers/outbox-send.js';
+import { sweepOutbox, cleanupUploads } from './handlers/outbox-maintenance.js';
 import { ensureSchedulers } from './handlers/ensure-schedulers.js';
 import { closeImapConnections } from './imap/connect.js';
 import { createSystemEmailHandler } from './handlers/system-email.js';
@@ -38,6 +40,7 @@ const workers = QUEUE_NAMES.map(
         if (name === 'system-email') return sendSystemEmail(job.name, job.data);
         if (name === 'mailbox-connection') return handleMailboxConnection(r, job.data.mailbox_id);
         if (name === 'mailbox-sync') return handleMailboxSync(r, job.data.mailbox_id, job.id!);
+        if (name === 'outbox-send') return handleOutboxSend(r, job.data.outbox_id, job);
         if (name === 'mail-actions')
           return handleMailAction(
             r,
@@ -46,6 +49,8 @@ const workers = QUEUE_NAMES.map(
             job.attemptsMade + 1 >= (job.opts.attempts ?? 1),
           );
         if (name === 'maintenance' && job.name === 'ensure-schedulers') return ensureSchedulers(r);
+        if (name === 'maintenance' && job.name === 'sweep-outbox') return sweepOutbox(r);
+        if (name === 'maintenance' && job.name === 'cleanup-uploads') return cleanupUploads(r);
         if (name === 'maintenance' && job.name === 'cleanup-auth') {
           const now = new Date();
           await db.deleteFrom('sessions').where('expires_at', '<', now).execute();
@@ -65,6 +70,18 @@ const workers = QUEUE_NAMES.map(
       {
         connection,
         prefix: 'apmail',
+        settings: {
+          backoffStrategy: (attemptsMade) => {
+            const custom =
+              env.NODE_ENV !== 'production' && env.WORKER_SEND_BACKOFF_MS
+                ? env.WORKER_SEND_BACKOFF_MS.split(',')
+                    .map(Number)
+                    .filter((n) => Number.isFinite(n) && n > 0)
+                : [];
+            const delays = custom.length ? custom : [60000, 300000, 900000];
+            return delays[attemptsMade - 1] ?? delays.at(-1)!;
+          },
+        },
         concurrency:
           name === 'maintenance'
             ? 1
@@ -72,9 +89,11 @@ const workers = QUEUE_NAMES.map(
               ? 3
               : name === 'mailbox-sync'
                 ? env.WORKER_SYNC_CONCURRENCY
-                : name === 'mail-actions'
-                  ? env.WORKER_ACTIONS_CONCURRENCY
-                  : 2,
+                : name === 'outbox-send'
+                  ? env.WORKER_SEND_CONCURRENCY
+                  : name === 'mail-actions'
+                    ? env.WORKER_ACTIONS_CONCURRENCY
+                    : 2,
       },
     ),
 );
@@ -87,11 +106,25 @@ async function registerMaintenance() {
     ['cleanup-uploads', 3600000],
     ['cleanup-auth', 86400000],
   ] as const) {
-    await resources.queues.maintenance.upsertJobScheduler(name, { every }, { name, data: {} });
+    if (!(await resources.queues.maintenance.getJobScheduler(name)))
+      await resources.queues.maintenance.upsertJobScheduler(name, { every }, { name, data: {} });
   }
   await resources.queues.maintenance.add('ensure-schedulers', {});
 }
 await registerMaintenance();
+// FLUSHDB não fecha a conexão: um watchdog também recupera os schedulers
+// quando seus dados desaparecem sem gerar o evento ready.
+let watching = false;
+const watchdog = setInterval(() => {
+  if (watching || stopping) return;
+  watching = true;
+  void registerMaintenance()
+    .then(() => sweepOutbox(r))
+    .catch(() => log.warn('Aguardando recuperação das filas.'))
+    .finally(() => {
+      watching = false;
+    });
+}, 60000);
 // Restaura também os agendadores de manutenção após perda de dados do Redis.
 let restoring = false;
 connection.on('ready', () => {
@@ -123,6 +156,7 @@ for (const signal of ['SIGINT', 'SIGTERM'])
     if (stopping) return;
     stopping = true;
     clearInterval(timer);
+    clearInterval(watchdog);
     const timeout = setTimeout(() => process.exit(1), 30000);
     timeout.unref();
     await Promise.all(workers.map((worker) => worker.close()));

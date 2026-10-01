@@ -37,6 +37,7 @@ export type Message = {
   from_name: string;
   to_addresses: Address[];
   cc_addresses: Address[];
+  reply_to_addresses: Address[];
   message_at: string;
   snippet: string;
   body_html: string | null;
@@ -53,6 +54,13 @@ export type ThreadDetail = {
   is_pinned: boolean;
   last_read_at: string | null;
   my_role: MailboxRole;
+  pending_outbox: {
+    id: string;
+    status: string;
+    scheduled_at: string | null;
+    created_by: string;
+    created_by_name: string;
+  }[];
 };
 export const folderLabel = (f: Folder) =>
   ({

@@ -35,6 +35,7 @@ function MailboxSettings() {
         <TabsList>
           <TabsTrigger value="connection">Conexão</TabsTrigger>
           <TabsTrigger value="members">Membros</TabsTrigger>
+          <TabsTrigger value="send">Envio</TabsTrigger>
         </TabsList>
         <TabsContent value="connection" className="max-w-2xl rounded-lg border bg-card p-4">
           <SchemaForm
@@ -56,8 +57,6 @@ function MailboxSettings() {
                   ? { ...f, label: 'Alterar senha (preencha somente para trocar)' }
                   : f,
               ),
-              { name: 'from_name_template', label: 'Modelo do nome do remetente' },
-              { name: 'append_sent_copy', label: 'Salvar cópia em Enviados', type: 'checkbox' },
             ]}
             onSubmit={async (b) => {
               const body = { ...b };
@@ -70,6 +69,63 @@ function MailboxSettings() {
         </TabsContent>
         <TabsContent value="members">
           <MailboxMembersPanel mailboxId={mailboxId} />
+        </TabsContent>
+        <TabsContent value="send" className="max-w-2xl rounded-lg border bg-card p-4">
+          <SchemaForm
+            schema={mailboxSchema
+              .pick({ from_name_template: true, append_sent_copy: true })
+              .extend({
+                aliases_input: z.string().refine(
+                  (v) =>
+                    v
+                      .split(',')
+                      .map((a) => a.trim())
+                      .filter(Boolean)
+                      .every((a) => mailboxSchema.shape.email_address.safeParse(a).success),
+                  'Confira os endereços dos aliases.',
+                ),
+              })}
+            defaults={{ ...q.data, aliases_input: q.data.aliases.join(', ') }}
+            fields={[
+              {
+                name: 'aliases_input',
+                label: 'Aliases',
+                type: 'emails',
+                help: 'Separe os endereços adicionais por vírgula.',
+              },
+              {
+                name: 'from_name_template',
+                label: 'Modelo do nome do remetente',
+                type: 'select',
+                options: [
+                  '{mailbox_name}',
+                  '{user_name} | {mailbox_name}',
+                  '{user_name} - {tenant_name}',
+                ].map((value) => ({ value, label: value })),
+              },
+              {
+                name: 'append_sent_copy',
+                label: 'Salvar cópia em Enviados',
+                type: 'checkbox',
+                help: 'Desative se o provedor salva automaticamente e aparecem duplicados.',
+              },
+            ]}
+            onSubmit={async (body) => {
+              const { aliases_input, ...config } = body;
+              const aliases = mailboxSchema.shape.aliases.parse(
+                String(aliases_input ?? '')
+                  .split(',')
+                  .map((a) => a.trim())
+                  .filter(Boolean),
+              );
+              await api('/mailboxes/' + mailboxId, {
+                method: 'PATCH',
+                body: { ...config, aliases },
+              });
+              await client.invalidateQueries({ queryKey: ['mailbox'] });
+              toast.success('Configuração de envio atualizada.');
+            }}
+          />
         </TabsContent>
       </Tabs>
     </>

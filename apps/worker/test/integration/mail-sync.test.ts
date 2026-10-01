@@ -1,6 +1,11 @@
 import { beforeAll, afterAll, it, expect } from 'vitest';
 import { socketRedisKey } from '@apmail/shared';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, createHash } from 'node:crypto';
+import { ImapFlow } from 'imapflow';
+import { simpleParser } from 'mailparser';
+import { Worker } from 'bullmq';
+import { handleOutboxSend } from '../../src/handlers/outbox-send.js';
+import { sweepOutbox } from '../../src/handlers/outbox-maintenance.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -82,7 +87,12 @@ async function client() {
     .executeTakeFirstOrThrow();
   return transports(db, box, env);
 }
-const api = (method: 'GET' | 'POST', url: string, user = owner, payload?: unknown) =>
+const api = (
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  url: string,
+  user = owner,
+  payload?: unknown,
+) =>
   app.inject({
     method,
     url,
@@ -167,6 +177,7 @@ beforeAll(async () => {
     await t.imap.connect();
     for (const path of [sourcePath, targetPath, resetPath]) await t.imap.mailboxCreate(path);
     if (!(await t.imap.list()).some((f) => f.path === 'Trash')) await t.imap.mailboxCreate('Trash');
+    if (!(await t.imap.list()).some((f) => f.path === 'Sent')) await t.imap.mailboxCreate('Sent');
     const raw = (subject: string, id: string, reply?: string) =>
       `From: Cliente <cliente@cliente.local>\r\nTo: comercial@apmail.local\r\nSubject: ${subject}\r\nMessage-ID: <${id}-${suffix}@cliente.local>\r\n${reply ? `In-Reply-To: <${reply}-${suffix}@cliente.local>\r\nReferences: <${reply}-${suffix}@cliente.local>\r\n` : ''}Date: ${new Date().toUTCString()}\r\nContent-Type: text/plain; charset=utf-8\r\nX-APMail-QA: ${suffix}\r\n\r\nMensagem de teste.\r\n`;
     await t.imap.append(sourcePath, raw('Pedido ' + suffix, 'one'));
@@ -222,6 +233,13 @@ afterAll(async () => {
         try {
           const uids = await t.imap.search({ header: { 'X-APMail-QA': suffix } }, { uid: true });
           if (Array.isArray(uids) && uids.length) await t.imap.messageDelete(uids, { uid: true });
+          for (const id of outboxIds) {
+            const sent = await t.imap.search(
+              { header: { 'X-APMail-Outbox-Id': id } },
+              { uid: true },
+            );
+            if (Array.isArray(sent) && sent.length) await t.imap.messageDelete(sent, { uid: true });
+          }
         } finally {
           lock.release();
         }
@@ -530,3 +548,288 @@ it('anexos e CID exigem acesso à caixa e nunca expõem caminhos físicos', asyn
   expect(inline.headers['x-content-type-options']).toBe('nosniff');
   expect(inline.rawPayload.length).toBeGreaterThan(10);
 });
+
+const outboxIds: string[] = [];
+async function newDraft(user = editor, extra: Record<string, unknown> = {}) {
+  const res = await api('POST', '/api/outbox', user, {
+    mailbox_id: boxId,
+    subject: 'Envio QA ' + suffix,
+    to_addresses: [{ name: 'Cliente', address: 'cliente@cliente.local' }],
+    body_html: '<p>Mensagem QA</p>',
+    ...extra,
+  });
+  expect(res.statusCode, res.body).toBe(201);
+  outboxIds.push(res.json().id);
+  return res.json();
+}
+async function sendDraft(id: string, user = editor) {
+  const submitted = await api('POST', '/api/outbox/' + id + '/submit', user, {});
+  expect(submitted.statusCode, submitted.body).toBe(200);
+  await db
+    .updateTable('outbox')
+    .set({ send_after: new Date(Date.now() - 1000) })
+    .where('id', '=', id)
+    .execute();
+  await handleOutboxSend(r, id, {
+    id: submitted.json().job_id,
+    attemptsMade: 0,
+    opts: { attempts: 3 },
+  });
+  return db.selectFrom('outbox').selectAll().where('id', '=', id).executeTakeFirstOrThrow();
+}
+it('rascunhos são privados, viewer não envia e cancelamento impede job obsoleto', async () => {
+  expect((await api('POST', '/api/outbox', viewer, { mailbox_id: boxId })).statusCode).toBe(403);
+  const draft = await newDraft();
+  expect((await api('GET', '/api/outbox/' + draft.id, viewer)).statusCode).toBe(404);
+  expect(
+    (await api('PATCH', '/api/outbox/' + draft.id, owner, { subject: 'Alterar' })).statusCode,
+  ).toBe(403);
+  const submit = await api('POST', '/api/outbox/' + draft.id + '/submit', editor, {});
+  expect(submit.statusCode).toBe(200);
+  expect(new Date(submit.json().send_after).getTime() - Date.now()).toBeGreaterThan(9000);
+  expect((await api('POST', '/api/outbox/' + draft.id + '/cancel', editor)).statusCode).toBe(200);
+  await handleOutboxSend(r, draft.id, {
+    id: submit.json().job_id,
+    attemptsMade: 0,
+    opts: { attempts: 3 },
+  });
+  expect((await api('GET', '/api/outbox/' + draft.id, editor)).json().status).toBe('draft');
+});
+it('assinaturas são pessoais e o padrão é único por empresa e escopo', async () => {
+  for (const name of ['Primeira', 'Segunda'])
+    expect(
+      (
+        await api('POST', '/api/signatures', editor, {
+          name,
+          body_html: '<p>Editor QA</p><script>bad()</script>',
+          is_default: true,
+        })
+      ).statusCode,
+    ).toBe(201);
+  const rows = (await api('GET', '/api/signatures', editor)).json();
+  expect(rows.filter((s: { is_default: boolean }) => s.is_default)).toHaveLength(1);
+  expect(rows[0].body_html).not.toContain('script');
+  expect((await api('GET', '/api/signatures', owner)).json()).toHaveLength(0);
+  expect(
+    (await api('PATCH', '/api/signatures/' + rows[0].id, owner, { name: 'Outro' })).statusCode,
+  ).toBe(404);
+});
+it('SMTP entrega MIME real com assinatura pessoal, nome do remetente e cópia IMAP sem duplicar', async () => {
+  await db
+    .updateTable('mailboxes')
+    .set({ from_name_template: '{user_name} | {mailbox_name}' })
+    .where('id', '=', boxId)
+    .execute();
+  const signature = (await api('GET', '/api/signatures', editor))
+    .json()
+    .find((s: { is_default: boolean }) => s.is_default);
+  const draft = await newDraft(editor, {
+    signature_id: signature.id,
+    body_html:
+      '<p>Olá</p><div data-apmail-signature="' +
+      signature.id +
+      '">' +
+      signature.body_html +
+      '</div>',
+  });
+  const sent = await sendDraft(draft.id);
+  expect(sent.status).toBe('sent');
+  const recipient = new ImapFlow({
+    host: mailHost,
+    port: imapPort,
+    secure: false,
+    auth: { user: 'cliente@cliente.local', pass: 'Senha123' },
+    logger: false,
+  });
+  recipient.on('error', () => undefined);
+  try {
+    await recipient.connect();
+    await recipient.mailboxOpen('INBOX');
+    const ids = await recipient.search(
+      { header: { 'X-APMail-Outbox-Id': draft.id } },
+      { uid: true },
+    );
+    expect(Array.isArray(ids) && ids.length).toBeTruthy();
+    const m = await recipient.fetchOne((ids as number[])[0]!, { source: true }, { uid: true });
+    if (!m || !m.source) throw Error('MIME ausente');
+    const parsed = await simpleParser(m.source);
+    expect(parsed.from?.value[0]?.address).toBe('comercial@apmail.local');
+    expect(parsed.from?.value[0]?.name).toBe('Usuário QA | Caixa Sync QA');
+    expect(parsed.html).toContain('Editor QA');
+    expect(parsed.messageId).toBe(sent.message_id_header);
+    await recipient.messageDelete(ids as number[], { uid: true });
+    await recipient.mailboxClose();
+  } finally {
+    await recipient.logout().catch(() => recipient.close());
+  }
+  await sync();
+  expect(
+    await db
+      .selectFrom('messages')
+      .select('id')
+      .where('mailbox_id', '=', boxId)
+      .where('message_id_header', '=', sent.message_id_header)
+      .where('deleted_at', 'is', null)
+      .execute(),
+  ).toHaveLength(1);
+  const confirmed = await db
+    .selectFrom('messages')
+    .select('imap_uid')
+    .where('id', '=', sent.sent_message_id!)
+    .executeTakeFirstOrThrow();
+  expect(confirmed.imap_uid).not.toBeNull();
+}, 30000);
+it('resposta de outro usuário conserva a thread, referências e sua própria assinatura', async () => {
+  const original = await db
+    .selectFrom('messages')
+    .selectAll()
+    .where('mailbox_id', '=', boxId)
+    .where('message_id_header', '=', '<three-' + suffix + '@cliente.local>')
+    .executeTakeFirstOrThrow();
+  const sig = (
+    await api('POST', '/api/signatures', owner, {
+      name: 'Proprietário',
+      body_html: '<p>Assinatura do proprietário</p>',
+      is_default: true,
+    })
+  ).json();
+  const draft = await newDraft(owner, {
+    kind: 'reply',
+    thread_id: original.thread_id,
+    reply_to_message_id: original.id,
+    signature_id: sig.id,
+    subject: 'Re: ' + original.subject,
+    body_html:
+      '<p>Respondido</p><div data-apmail-signature="' + sig.id + '">' + sig.body_html + '</div>',
+  });
+  const sent = await sendDraft(draft.id, owner);
+  expect(sent.thread_id).toBe(original.thread_id);
+  const m = await db
+    .selectFrom('messages')
+    .selectAll()
+    .where('id', '=', sent.sent_message_id!)
+    .executeTakeFirstOrThrow();
+  expect(m.in_reply_to).toBe(original.message_id_header);
+  expect(m.references_headers).toContain(original.message_id_header);
+  expect(m.body_html).toContain('Assinatura do proprietário');
+  expect(m.body_html).not.toContain('Editor QA');
+  expect(m.sent_by_user_id).toBe(owner);
+}, 30000);
+it('encaminha anexos originais íntegros e rejeita referência alheia', async () => {
+  const attachments = await db
+    .selectFrom('attachments')
+    .selectAll()
+    .where('mailbox_id', '=', boxId)
+    .where('is_inline', '=', false)
+    .execute();
+  const file = attachments[0]!;
+  const draft = await newDraft(editor, {
+    kind: 'forward',
+    attachments: [{ source: 'message_attachment', attachment_id: file.id }],
+  });
+  const sent = await sendDraft(draft.id);
+  const copied = await db
+    .selectFrom('attachments')
+    .selectAll()
+    .where('message_id', '=', sent.sent_message_id!)
+    .executeTakeFirstOrThrow();
+  const hash = async (path: string) => {
+    const stream = await r.storage.openReadStream(path),
+      h = createHash('sha256');
+    for await (const chunk of stream) h.update(chunk);
+    return h.digest('hex');
+  };
+  expect(await hash(copied.storage_path)).toBe(await hash(file.storage_path));
+  expect(
+    (
+      await api('POST', '/api/outbox', editor, {
+        mailbox_id: boxId,
+        attachments: [{ source: 'upload', upload_id: randomUUID() }],
+      })
+    ).statusCode,
+  ).toBe(400);
+}, 30000);
+it('agendamento valida limites, cancelar remove job e sweep recupera perda de Redis', async () => {
+  const draft = await newDraft();
+  expect(
+    (
+      await api('POST', '/api/outbox/' + draft.id + '/submit', editor, {
+        scheduled_at: new Date(Date.now() + 60000).toISOString(),
+      })
+    ).statusCode,
+  ).toBe(400);
+  const res = await api('POST', '/api/outbox/' + draft.id + '/submit', editor, {
+    scheduled_at: new Date(Date.now() + 360000).toISOString(),
+  });
+  expect(res.statusCode, res.body).toBe(200);
+  expect(
+    (await api('GET', '/api/outbox?tab=scheduled', viewer))
+      .json()
+      .items.some((o: { id: string }) => o.id === draft.id),
+  ).toBe(true);
+  await r.queues['outbox-send'].remove(res.json().job_id);
+  await db
+    .updateTable('outbox')
+    .set({ send_after: new Date(Date.now() - 31000) })
+    .where('id', '=', draft.id)
+    .execute();
+  await sweepOutbox(r);
+  expect(await r.queues['outbox-send'].getJob(res.json().job_id)).toBeTruthy();
+  expect((await api('POST', '/api/outbox/' + draft.id + '/cancel', owner)).statusCode).toBe(200);
+  expect(await r.queues['outbox-send'].getJob(res.json().job_id)).toBeUndefined();
+  expect((await api('GET', '/api/outbox/' + draft.id, viewer)).json().status).toBe('canceled');
+});
+it('SMTP indisponível retenta três vezes, notifica e Tentar novamente entrega', async () => {
+  const draft = await newDraft();
+  await db.updateTable('mailboxes').set({ smtp_port: 1 }).where('id', '=', boxId).execute();
+  const submitted = await api('POST', '/api/outbox/' + draft.id + '/submit', editor, {});
+  expect(submitted.statusCode).toBe(200);
+  await db
+    .updateTable('outbox')
+    .set({ send_after: new Date(Date.now() - 1000) })
+    .where('id', '=', draft.id)
+    .execute();
+  const delayed = await r.queues['outbox-send'].getJob(submitted.json().job_id);
+  await delayed!.promote();
+  const worker = new Worker('outbox-send', (job) => handleOutboxSend(r, job.data.outbox_id, job), {
+    connection: redis,
+    prefix: 'apmail',
+    settings: { backoffStrategy: () => 25 },
+  });
+  worker.on('error', () => undefined);
+  try {
+    for (let i = 0; i < 100; i++) {
+      const row = await db
+        .selectFrom('outbox')
+        .select(['status', 'attempts'])
+        .where('id', '=', draft.id)
+        .executeTakeFirstOrThrow();
+      if (row.status === 'failed') {
+        expect(row.attempts).toBe(3);
+        break;
+      }
+      if (i === 99) throw Error('Falha não consolidada');
+      await delay(100);
+    }
+  } finally {
+    await worker.close();
+  }
+  expect(
+    await db
+      .selectFrom('notifications')
+      .select('id')
+      .where('tenant_id', '=', tenantId)
+      .where('user_id', '=', editor)
+      .where('type', '=', 'send_failed')
+      .execute(),
+  ).toHaveLength(1);
+  await db.updateTable('mailboxes').set({ smtp_port: smtpPort }).where('id', '=', boxId).execute();
+  const retry = await api('POST', '/api/outbox/' + draft.id + '/retry', editor);
+  expect(retry.statusCode, retry.body).toBe(200);
+  await handleOutboxSend(r, draft.id, {
+    id: retry.json().job_id,
+    attemptsMade: 0,
+    opts: { attempts: 3 },
+  });
+  expect((await api('GET', '/api/outbox/' + draft.id, editor)).json().status).toBe('sent');
+}, 30000);
