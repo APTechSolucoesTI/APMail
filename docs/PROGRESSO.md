@@ -22,7 +22,9 @@ Atualização: 01/10/2026. Não considerar uma fase concluída até todas as ver
 - [x] Temas e foco inspecionados em desktop, tablet e mobile.
 - [x] API e worker encerram graciosamente.
 - [x] Lint, typecheck, testes unitários, integração e build passam.
-- [ ] CI verde; merge, tag e push concluídos.
+- [x] CI verde; merge, tag e push concluídos.
+
+CI: https://github.com/APTechSolucoesTI/APMail/actions/runs/36860749036 — aprovado. Tag: `fase-0`.
 
 ## Fase 1 — Autenticação e permissões
 
