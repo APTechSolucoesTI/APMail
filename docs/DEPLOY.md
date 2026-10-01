@@ -73,6 +73,8 @@ sha256sum "backups/apmail-$stamp.dump" "backups/storage-$stamp.tar.gz" > "backup
 
 Agende no host ou no Dokploy, mantenha cópia fora do servidor e monitore falhas. Preserve os segredos usados nesse backup em cofre. Redis pode ser incluído por snapshot/AOF do volume; jobs de envio são reconstruídos do Postgres pelo watchdog, mas manter Redis também preserva seus estados operacionais.
 
+O script `scripts/backup-production.sh PROJETO_COMPOSE /diretorio/absoluto` automatiza o conjunto consistente: pausa API/worker, exporta banco e arquivos, salva snapshot Redis e as duas chaves em arquivo privado, calcula checksums e retoma os escritores mesmo se ocorrer falha. Usa os rótulos do projeto para encontrar exatamente seus serviços, sem acessar outros projetos; `flock` impede sobreposição. O diretório é privado e contém segredos. Leve uma cópia para armazenamento externo e guarde as chaves em cofre; backup no mesmo servidor não protege contra perda do host. Confira o log após cada execução.
+
 Restaure primeiro em uma stack com outro nome (`docker compose -p apmail-restore ...`), seus próprios volumes e a **mesma chave de credenciais**. A aplicação deve estar parada. Exemplos para a stack de destino, após conferir seu nome e arquivos de ambiente:
 
 ```sh
@@ -92,4 +94,16 @@ Use `docker compose logs --tail 100 api worker migrate` ou as telas de logs do D
 
 ## Situação da instalação local
 
-A validação da Fase 9 usa uma stack exclusiva `apmail-next-stage` em `192.168.3.106`, acessível por túnel em localhost:8080, com segredos novos e arquivos de ambiente privados. GreenMail/Mailpit são provedores de teste isolados; o worker confia em um certificado de QA de curta duração, mantendo a validação TLS ativa. Domínio final e SMTP externo ainda precisam ser informados para concluir a publicação HTTPS e a entrega externa de mensagens do sistema. Veja as evidências atualizadas em [PROGRESSO.md](PROGRESSO.md).
+A instalação gerenciada está no projeto **APMail**, ambiente **production**, serviço Compose **APMail** do Dokploy em `http://192.168.3.106:3000`. O nome Compose efetivo é `apmail-next-production-qrufqc`, com banco, Redis, arquivos e segredos exclusivos. Proprietário `sistema@aptechinfo.com.br`, empresa **APTech Soluções TI**, cadastro público desativado. Senha inicial e instruções de acesso estão no arquivo privado `.data/APMail-acesso-local.txt` do workspace; ambiente/chaves em `.data/qa/dokploy-production.env`. Guarde em cofre e troque a senha inicial. Não execute seed nessa instalação.
+
+Abra o túnel e acesse `http://localhost:8081`:
+
+```sh
+ssh -L 8081:127.0.0.1:8081 administrador@192.168.3.106
+```
+
+O comando temporário do serviço Dokploy adiciona o override local e usa `APMAIL_LOCAL_PORT=8081`. Para publicar: informe domínio/DNS e SMTP reais, ajuste `APP_URL=https://DOMINIO`, limpe o comando personalizado para voltar ao Compose principal, configure **Domains → web:80 → HTTPS** e faça redeploy. Valide convites, recuperação de senha e conecte as caixas reais. Nenhuma caixa de QA foi copiada para essa instalação.
+
+Backup diário às **03h, fuso do host -03**, no crontab do usuário administrador. Script: `/home/administrador/apmail-next/scripts/backup-production.sh`; destino: `/home/administrador/apmail-next/.data/backups/production`; log: `backup.log` nesse diretório. API/worker pausam brevemente para manter banco e arquivos consistentes. Primeiro backup e restauração do proprietário em banco separado aprovados; banco de restauração removido depois da conferência. Os conjuntos incluem chaves privadas: mantenha cópia fora do host/cofre, monitore o log e planeje retenção conforme o espaço disponível. Não foi configurado armazenamento externo.
+
+A validação completa de e-mail usa a stack exclusiva `apmail-next-stage`, localhost:8080 por túnel, com GreenMail/Mailpit isolados e certificado de QA de curta duração, mantendo TLS ativo. Esses provedores não fazem parte da instalação gerenciada. Domínio final e SMTP externo ainda precisam ser informados para concluir a publicação HTTPS e a entrega externa. Veja as evidências em [PROGRESSO.md](PROGRESSO.md).
