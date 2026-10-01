@@ -116,7 +116,14 @@ Evidências: `mail:test` criou e-mail em A responder; editor assumiu, agendou pe
 
 ## Fase 6 — Dashboard
 
-Não iniciada.
+Em validação.
+
+- [x] Seis consultas SQL, índices e isolamento por tenant/caixa administrada.
+- [x] Dados fixos conferem métricas, fuso, zeros, spam, automáticos e produtividade.
+- [x] Interface com oito indicadores, gráficos, tabelas e exportação CSV.
+- [x] QA de filtros, permissões e seis combinações de tela/tema.
+- [x] Linux: 37 testes unitários, 42 de integração, reset, tipos, lint, typecheck, build e SIGTERM.
+- [ ] CI, merge e tag.
 
 ## Fase 7 — Chat
 

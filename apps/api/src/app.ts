@@ -30,6 +30,7 @@ import { registerMailRoutes } from './modules/mail.js';
 import { registerOutboxRoutes } from './modules/outbox.js';
 import { registerOrganizationRoutes } from './modules/organization/routes.js';
 import { registerThreadOperations } from './modules/thread-operations/routes.js';
+import { registerDashboard } from './modules/dashboard/routes.js';
 import { ApiError } from './authz/context.js';
 
 export async function buildApp(config: ApiEnv = readEnv()) {
@@ -169,6 +170,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await registerOutboxRoutes(app, resources);
   await registerOrganizationRoutes(app, resources);
   registerThreadOperations(app, resources);
+  registerDashboard(app, resources);
   app.addHook('onClose', async () => {
     io.disconnectSockets(true);
     await sockets.drain();
