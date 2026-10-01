@@ -32,3 +32,11 @@ Conversas na Lixeira permanecem visíveis pela pasta, com agregados de fila calc
 GreenMail 2.1.0: removida a propriedade auth.disabled inteira, pois sua [presença desativa a autenticação mesmo com valor false](https://github.com/greenmail-mail-test/greenmail/blob/release-2.1.0/greenmail-core/src/main/java/com/icegreen/greenmail/configuration/PropertiesBasedGreenMailConfigurationBuilder.java). No desenvolvimento com host permitido, a pasta é fechada antes do logout para contornar listeners antigos do servidor ao testar exclusão e UIDVALIDITY.
 
 Socket.IO usa o prefixo apmail:socket:<banco Redis> nos adaptadores e no emitter. [Pub/Sub do Redis atravessa bancos lógicos](https://redis.io/docs/latest/develop/pubsub/#database--scoping); o prefixo evita interferência entre desenvolvimento e testes.
+
+Fase 3: índices de assinatura padrão incluem tenant_id para que a assinatura global de um usuário não afete outra empresa. FKs compostas protegem assinatura/criador, thread, mensagem original e envio na mesma empresa e caixa.
+
+Jobs outbox usam outbox~<id>~<contador>, pois BullMQ proíbe dois-pontos no jobId. Falhas definitivas usam [UnrecoverableError](https://docs.bullmq.io/patterns/stop-retrying-jobs), substituindo job.discard removido da versão instalada. SMTP aceito com falha posterior de confirmação local exige verificação de Enviados antes de retry; o worker evita retentativa automática nesse caso para reduzir duplicação.
+
+MIME usa [MailComposer](https://nodemailer.com/extras/mailcomposer) com envelope explícito, Bcc fora do cabeçalho e corpo final pronto pelo compositor. O worker nunca acrescenta uma assinatura compartilhada.
+
+Testes IMAP/SMTP usam uma instância GreenMail exclusiva de QA. Isso impede que a exclusão de pastas dos testes interfira na sincronização e nos agendamentos do ambiente interativo. Limpeza de Redis usa FLUSHDB apenas no banco lógico 0 da instância exclusiva de desenvolvimento; nunca FLUSHALL. Watchdog recupera schedulers mesmo sem reconexão e o sweep também recria jobs futuros ausentes, preservando seu prazo.

@@ -243,7 +243,21 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       labels: [],
       is_pinned: state?.is_pinned ?? false,
       last_read_at: state?.last_read_at ?? null,
-      pending_outbox: [],
+      pending_outbox: await r.db
+        .selectFrom('outbox as o')
+        .innerJoin('users as u', 'u.id', 'o.created_by')
+        .select([
+          'o.id',
+          'o.status',
+          'o.scheduled_at',
+          'o.created_by',
+          'u.full_name as created_by_name',
+        ])
+        .where('o.tenant_id', '=', c.tenantId)
+        .where('o.thread_id', '=', thread.id)
+        .where('o.status', 'in', ['queued', 'scheduled', 'sending'])
+        .orderBy('o.send_after')
+        .execute(),
       my_role: role,
     };
   });

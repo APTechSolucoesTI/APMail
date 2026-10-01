@@ -1,7 +1,7 @@
 import { sql, type Kysely, type Transaction } from 'kysely';
 import { externalParticipants, normalizeSubject, type Address } from '@apmail/shared';
 import type { DB, Json, QueueStatus } from '../types.js';
-type Database = Kysely<DB> | Transaction<DB>;
+export type Database = Kysely<DB> | Transaction<DB>;
 export type ThreadMessage = {
   tenant_id: string;
   mailbox_id: string;
@@ -150,7 +150,9 @@ export async function recomputeThreadStatus(
     .forUpdate()
     .executeTakeFirstOrThrow();
   let to: QueueStatus = 'none';
-  if (
+  const scheduled = await db.selectFrom('outbox').select('id').where('thread_id','=',threadId).where('status','in',['queued','scheduled','sending']).executeTakeFirst();
+  if (scheduled && !thread.queue_excluded) to = 'scheduled';
+  else if (
     !thread.queue_excluded &&
     thread.last_inbound_at &&
     (!thread.last_outbound_at || thread.last_inbound_at > thread.last_outbound_at)

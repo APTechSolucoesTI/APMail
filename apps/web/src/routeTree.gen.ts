@@ -17,12 +17,14 @@ import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
+import { Route as AppScheduledRouteImport } from './routes/_app.scheduled'
 import { Route as DevUiRouteImport } from './routes/[_]dev.ui'
 import { Route as AppMailMailboxIdRouteImport } from './routes/_app.mail.$mailboxId'
 import { Route as AppSettingsAuditRouteImport } from './routes/_app.settings.audit'
 import { Route as AppSettingsMailboxesRouteImport } from './routes/_app.settings.mailboxes'
 import { Route as AppSettingsPreferencesRouteImport } from './routes/_app.settings.preferences'
 import { Route as AppSettingsProfileRouteImport } from './routes/_app.settings.profile'
+import { Route as AppSettingsSignaturesRouteImport } from './routes/_app.settings.signatures'
 import { Route as AppSettingsTenantRouteImport } from './routes/_app.settings.tenant'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app.settings.users'
 import { Route as AppSettingsMailboxesMailboxIdRouteImport } from './routes/_app.settings.mailboxes_.$mailboxId'
@@ -66,6 +68,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppScheduledRoute = AppScheduledRouteImport.update({
+  id: '/scheduled',
+  path: '/scheduled',
+  getParentRoute: () => AppRoute,
+} as any)
 const DevUiRoute = DevUiRouteImport.update({
   id: '/_dev/ui',
   path: '/_dev/ui',
@@ -96,6 +103,11 @@ const AppSettingsProfileRoute = AppSettingsProfileRouteImport.update({
   path: '/settings/profile',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsSignaturesRoute = AppSettingsSignaturesRouteImport.update({
+  id: '/settings/signatures',
+  path: '/settings/signatures',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsTenantRoute = AppSettingsTenantRouteImport.update({
   id: '/settings/tenant',
   path: '/settings/tenant',
@@ -121,12 +133,14 @@ export interface FileRoutesByFullPath {
   '/onboarding': typeof OnboardingRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/mailboxes': typeof AppSettingsMailboxesRoute
   '/settings/preferences': typeof AppSettingsPreferencesRoute
   '/settings/profile': typeof AppSettingsProfileRoute
+  '/settings/signatures': typeof AppSettingsSignaturesRoute
   '/settings/tenant': typeof AppSettingsTenantRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/settings/mailboxes/$mailboxId': typeof AppSettingsMailboxesMailboxIdRoute
@@ -138,6 +152,7 @@ export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
   '/': typeof AppIndexRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
@@ -145,6 +160,7 @@ export interface FileRoutesByTo {
   '/settings/mailboxes': typeof AppSettingsMailboxesRoute
   '/settings/preferences': typeof AppSettingsPreferencesRoute
   '/settings/profile': typeof AppSettingsProfileRoute
+  '/settings/signatures': typeof AppSettingsSignaturesRoute
   '/settings/tenant': typeof AppSettingsTenantRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/settings/mailboxes/$mailboxId': typeof AppSettingsMailboxesMailboxIdRoute
@@ -158,6 +174,7 @@ export interface FileRoutesById {
   '/onboarding': typeof OnboardingRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/_app/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
   '/_app/': typeof AppIndexRoute
   '/_app/mail/$mailboxId': typeof AppMailMailboxIdRoute
@@ -165,6 +182,7 @@ export interface FileRoutesById {
   '/_app/settings/mailboxes': typeof AppSettingsMailboxesRoute
   '/_app/settings/preferences': typeof AppSettingsPreferencesRoute
   '/_app/settings/profile': typeof AppSettingsProfileRoute
+  '/_app/settings/signatures': typeof AppSettingsSignaturesRoute
   '/_app/settings/tenant': typeof AppSettingsTenantRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
   '/_app/settings/mailboxes_/$mailboxId': typeof AppSettingsMailboxesMailboxIdRoute
@@ -179,12 +197,14 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/reset-password'
     | '/signup'
+    | '/scheduled'
     | '/_dev/ui'
     | '/mail/$mailboxId'
     | '/settings/audit'
     | '/settings/mailboxes'
     | '/settings/preferences'
     | '/settings/profile'
+    | '/settings/signatures'
     | '/settings/tenant'
     | '/settings/users'
     | '/settings/mailboxes/$mailboxId'
@@ -196,6 +216,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/reset-password'
     | '/signup'
+    | '/scheduled'
     | '/_dev/ui'
     | '/'
     | '/mail/$mailboxId'
@@ -203,6 +224,7 @@ export interface FileRouteTypes {
     | '/settings/mailboxes'
     | '/settings/preferences'
     | '/settings/profile'
+    | '/settings/signatures'
     | '/settings/tenant'
     | '/settings/users'
     | '/settings/mailboxes/$mailboxId'
@@ -215,6 +237,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/reset-password'
     | '/signup'
+    | '/_app/scheduled'
     | '/_dev/ui'
     | '/_app/'
     | '/_app/mail/$mailboxId'
@@ -222,6 +245,7 @@ export interface FileRouteTypes {
     | '/_app/settings/mailboxes'
     | '/_app/settings/preferences'
     | '/_app/settings/profile'
+    | '/_app/settings/signatures'
     | '/_app/settings/tenant'
     | '/_app/settings/users'
     | '/_app/settings/mailboxes_/$mailboxId'
@@ -296,6 +320,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/scheduled': {
+      id: '/_app/scheduled'
+      path: '/scheduled'
+      fullPath: '/scheduled'
+      preLoaderRoute: typeof AppScheduledRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_dev/ui': {
       id: '/_dev/ui'
       path: '/_dev/ui'
@@ -338,6 +369,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsProfileRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/signatures': {
+      id: '/_app/settings/signatures'
+      path: '/settings/signatures'
+      fullPath: '/settings/signatures'
+      preLoaderRoute: typeof AppSettingsSignaturesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/tenant': {
       id: '/_app/settings/tenant'
       path: '/settings/tenant'
@@ -363,24 +401,28 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppScheduledRoute: typeof AppScheduledRoute
   AppIndexRoute: typeof AppIndexRoute
   AppMailMailboxIdRoute: typeof AppMailMailboxIdRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
   AppSettingsMailboxesRoute: typeof AppSettingsMailboxesRoute
   AppSettingsPreferencesRoute: typeof AppSettingsPreferencesRoute
   AppSettingsProfileRoute: typeof AppSettingsProfileRoute
+  AppSettingsSignaturesRoute: typeof AppSettingsSignaturesRoute
   AppSettingsTenantRoute: typeof AppSettingsTenantRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRoute
   AppSettingsMailboxesMailboxIdRoute: typeof AppSettingsMailboxesMailboxIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppScheduledRoute: AppScheduledRoute,
   AppIndexRoute: AppIndexRoute,
   AppMailMailboxIdRoute: AppMailMailboxIdRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
   AppSettingsMailboxesRoute: AppSettingsMailboxesRoute,
   AppSettingsPreferencesRoute: AppSettingsPreferencesRoute,
   AppSettingsProfileRoute: AppSettingsProfileRoute,
+  AppSettingsSignaturesRoute: AppSettingsSignaturesRoute,
   AppSettingsTenantRoute: AppSettingsTenantRoute,
   AppSettingsUsersRoute: AppSettingsUsersRoute,
   AppSettingsMailboxesMailboxIdRoute: AppSettingsMailboxesMailboxIdRoute,

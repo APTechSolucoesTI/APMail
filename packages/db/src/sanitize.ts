@@ -81,12 +81,14 @@ export function sanitizeEmailHtml(html: string, text = '', blockRemoteImages = t
         'bgcolor',
         'color',
         'style',
+        'data-apmail-signature',
+        'data-apmail-quote',
       ],
       a: ['href', 'target', 'rel'],
       img: ['src', 'alt', 'data-apmail-src', 'data-apmail-cid'],
     },
     allowedSchemes: ['http', 'https', 'mailto', 'tel'],
-    allowedSchemesByTag: { img: ['data'] },
+    allowedSchemesByTag: { img: blockRemoteImages ? ['data'] : ['https', 'data', 'cid'] },
     allowProtocolRelative: false,
     allowedStyles: { '*': styles },
     transformTags: {
@@ -96,14 +98,21 @@ export function sanitizeEmailHtml(html: string, text = '', blockRemoteImages = t
       }),
       img: (_, attribs) => {
         const attrs = { ...attribs },
-          src = attrs.src ?? '';
+          src =
+            attrs.src ??
+            (!blockRemoteImages && attrs['data-apmail-cid']
+              ? 'cid:' + attrs['data-apmail-cid']
+              : !blockRemoteImages
+                ? (attrs['data-apmail-src'] ?? '')
+                : '');
         delete attrs.src;
         if (/^https?:\/\//i.test(src)) {
           if (blockRemoteImages) attrs['data-apmail-src'] = src;
           else attrs.src = src;
-        } else if (/^cid:/i.test(src))
-          attrs['data-apmail-cid'] = src.slice(4).replace(/^<|>$/g, '');
-        else if (
+        } else if (/^cid:/i.test(src)) {
+          if (blockRemoteImages) attrs['data-apmail-cid'] = src.slice(4).replace(/^<|>$/g, '');
+          else attrs.src = src;
+        } else if (
           /^data:image\/(?:png|gif|jpeg|webp);base64,/i.test(src) &&
           Buffer.byteLength(src) <= 200 * 1024
         )

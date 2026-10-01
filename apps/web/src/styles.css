@@ -197,3 +197,28 @@
     @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring;
   }
 }
+
+@layer components {
+  .rich-text-editor .tiptap p {
+    @apply mb-2;
+  }
+  .rich-text-editor .tiptap ul {
+    @apply list-disc pl-6;
+  }
+  .rich-text-editor .tiptap ol {
+    @apply list-decimal pl-6;
+  }
+  .rich-text-editor .tiptap blockquote {
+    @apply border-l-2 pl-4 text-muted-foreground;
+  }
+  .rich-text-editor .tiptap a {
+    @apply text-primary underline;
+  }
+  .rich-text-editor .tiptap img {
+    @apply max-w-full;
+  }
+  .rich-text-editor .tiptap p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    @apply pointer-events-none float-left h-0 text-muted-foreground;
+  }
+}

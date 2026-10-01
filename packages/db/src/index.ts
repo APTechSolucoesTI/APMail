@@ -10,3 +10,4 @@ export * from './domain/audit.js';
 export * from './domain/credentials.js';
 export * from './domain/threads.js';
 export * from './sanitize.js';
+export * from './domain/outbox.js';

@@ -18,6 +18,7 @@ import { Pagination } from '@/components/data/pagination';
 import { ThreadListItem } from '@/components/mail/thread-list-item';
 import { ThreadView } from '@/components/mail/thread-view';
 import { MessageActions } from '@/components/mail/message-actions';
+import { Composer } from '@/components/mail/composer';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 export const Route = createFileRoute('/_app/mail/$mailboxId')({
   validateSearch: mailSearchSchema,
@@ -208,6 +209,7 @@ function MailPage() {
       mailboxId={mailboxId}
       folders={folders.data ?? []}
       onClose={close}
+      onCompose={(compose) => change({ compose })}
     />
   ) : (
     <EmptyState
@@ -226,7 +228,17 @@ function MailPage() {
             <span className="font-mono">{box.data.email_address}</span>
           </p>
         </div>
-        <MailboxStatusBadge status={box.data.status} />
+        <div className="flex items-center gap-2">
+          <MailboxStatusBadge status={box.data.status} />
+          {can(box.data.role, 'send') && (
+            <Button
+              disabled={box.data.status !== 'active'}
+              onClick={() => change({ compose: 'new' })}
+            >
+              Novo e-mail
+            </Button>
+          )}
+        </div>
       </header>
       {box.data.status === 'error' && (
         <div
@@ -283,6 +295,16 @@ function MailPage() {
           list
         )}
       </div>
+      {search.compose && can(box.data.role, 'send') && (
+        <Composer
+          key={mailboxId}
+          mailboxId={mailboxId}
+          mode={search.compose}
+          threadId={search.thread}
+          onClose={() => change({ compose: undefined })}
+          onReopen={(id) => change({ compose: 'draft:' + id })}
+        />
+      )}
     </div>
   );
 }
