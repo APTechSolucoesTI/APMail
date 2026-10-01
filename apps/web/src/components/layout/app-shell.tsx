@@ -5,6 +5,8 @@ import { io } from 'socket.io-client';
 import { toast } from 'sonner';
 import { SocketContext } from '@/hooks/use-socket-room';
 import { MailboxFolderNavigation } from '@/components/mail/mailbox-folder-navigation';
+import { ChatNavigation } from '@/components/chat/chat-navigation';
+import { useChatRealtime } from '@/hooks/use-chat';
 import { Mail, Menu, Settings, LogOut, LayoutDashboard } from 'lucide-react';
 import { can } from '@apmail/shared';
 import { api } from '@/lib/api';
@@ -25,6 +27,7 @@ export function AppShell() {
   });
   const [open, setOpen] = useState(false);
   const [socket] = useState(() => io({ withCredentials: true, autoConnect: false }));
+  useChatRealtime(socket, me.data?.current_tenant_id, me.data?.user.id);
   const { setTheme } = useTheme();
   const theme = me.data?.preferences.theme;
   useEffect(() => {
@@ -47,6 +50,9 @@ export function AppShell() {
         'thread-notes',
         'thread-history',
         'dashboard',
+        'chat-conversations',
+        'chat-messages',
+        'chat-presence',
       ])
         void client.invalidateQueries({ queryKey: [key] });
     });
@@ -169,6 +175,7 @@ export function AppShell() {
       {!boxes.data?.length && (
         <p className="px-2 py-4 text-sm text-muted-foreground">Sem caixas disponíveis</p>
       )}
+      <ChatNavigation onNavigate={() => setOpen(false)} />
       {(admin || boxes.data?.some((b) => can(b.role, 'dashboard'))) && (
         <Link
           to="/dashboard"

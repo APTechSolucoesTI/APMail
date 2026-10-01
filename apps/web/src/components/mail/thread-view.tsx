@@ -17,6 +17,7 @@ import { ThreadLabels } from './thread-labels';
 import { LabelBadge } from './label-badge';
 import { ThreadWorkflow } from './thread-workflow';
 import { ThreadNotes } from './thread-notes';
+import { ShareToChatDialog } from '@/components/chat/share-to-chat-dialog';
 export function ThreadView({
   threadId,
   mailboxId,
@@ -84,6 +85,7 @@ export function ThreadView({
         </div>
         <ThreadWorkflow thread={data.thread} mailboxId={mailboxId} role={data.my_role} />
         <div className="flex flex-wrap gap-1">
+          <ShareToChatDialog threadId={threadId} />
           <ThreadLabels threadIds={[threadId]} labels={data.labels} mailboxId={mailboxId} />
           <Button
             size="sm"

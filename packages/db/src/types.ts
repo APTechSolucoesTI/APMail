@@ -3,17 +3,20 @@
  * Please do not edit it manually.
  */
 
-import type { ColumnType } from "kysely";
+import type { ColumnType } from 'kysely';
 
-export type FolderSpecialUse = "archive" | "drafts" | "inbox" | "junk" | "sent" | "trash";
+export type ChatType = 'direct' | 'group';
 
-export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
-  ? ColumnType<S, I | undefined, U>
-  : ColumnType<T, T | undefined, T>;
+export type FolderSpecialUse = 'archive' | 'drafts' | 'inbox' | 'junk' | 'sent' | 'trash';
+
+export type Generated<T> =
+  T extends ColumnType<infer S, infer I, infer U>
+    ? ColumnType<S, I | undefined, U>
+    : ColumnType<T, T | undefined, T>;
 
 export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
 
-export type JobStatus = "done" | "failed" | "pending" | "processing";
+export type JobStatus = 'done' | 'failed' | 'pending' | 'processing';
 
 export type Json = JsonValue;
 
@@ -27,27 +30,31 @@ export type JsonPrimitive = boolean | number | string | null;
 
 export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
-export type MailActionType = "create_folder" | "delete" | "delete_folder" | "move" | "rename_folder" | "restore" | "set_flag";
+export type MailActionType =
+  'create_folder' | 'delete' | 'delete_folder' | 'move' | 'rename_folder' | 'restore' | 'set_flag';
 
-export type MailboxRole = "editor" | "mailbox_admin" | "viewer";
+export type MailboxRole = 'editor' | 'mailbox_admin' | 'viewer';
 
-export type MailboxStatus = "active" | "disabled" | "error" | "pending";
+export type MailboxStatus = 'active' | 'disabled' | 'error' | 'pending';
 
-export type MemberStatus = "active" | "disabled";
+export type MemberStatus = 'active' | 'disabled';
 
-export type MessageDirection = "inbound" | "outbound";
+export type MessageDirection = 'inbound' | 'outbound';
 
-export type NotificationType = "action_failed" | "assignment" | "chat_message" | "mailbox_error" | "mention" | "send_failed";
+export type NotificationType =
+  'action_failed' | 'assignment' | 'chat_message' | 'mailbox_error' | 'mention' | 'send_failed';
 
-export type OutboxKind = "forward" | "new" | "reply" | "reply_all";
+export type OutboxKind = 'forward' | 'new' | 'reply' | 'reply_all';
 
-export type OutboxStatus = "canceled" | "draft" | "failed" | "queued" | "scheduled" | "sending" | "sent";
+export type OutboxStatus =
+  'canceled' | 'draft' | 'failed' | 'queued' | 'scheduled' | 'sending' | 'sent';
 
-export type QueueStatus = "awaiting_reply" | "done" | "in_progress" | "none" | "scheduled" | "to_reply";
+export type QueueStatus =
+  'awaiting_reply' | 'done' | 'in_progress' | 'none' | 'scheduled' | 'to_reply';
 
-export type RuleScope = "mailbox" | "personal";
+export type RuleScope = 'mailbox' | 'personal';
 
-export type TenantRole = "admin" | "member" | "owner";
+export type TenantRole = 'admin' | 'member' | 'owner';
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
@@ -75,6 +82,41 @@ export interface AuditLogs {
   ip: string | null;
   metadata: Generated<Json>;
   tenant_id: string;
+}
+
+export interface ChatConversations {
+  created_at: Generated<Timestamp>;
+  created_by: string;
+  direct_key: string | null;
+  id: Generated<string>;
+  last_message_at: Timestamp | null;
+  name: string | null;
+  tenant_id: string;
+  type: ChatType;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface ChatMessages {
+  body: Generated<string>;
+  client_id: string | null;
+  conversation_id: string;
+  created_at: Generated<Timestamp>;
+  deleted_at: Timestamp | null;
+  edited_at: Timestamp | null;
+  id: Generated<string>;
+  sender_id: string;
+  shared_snapshot: Json | null;
+  shared_thread_id: string | null;
+  tenant_id: string;
+}
+
+export interface ChatParticipants {
+  conversation_id: string;
+  joined_at: Generated<Timestamp>;
+  last_read_at: Timestamp | null;
+  left_at: Timestamp | null;
+  tenant_id: string;
+  user_id: string;
 }
 
 export interface Folders {
@@ -450,6 +492,9 @@ export interface Users {
 export interface DB {
   attachments: Attachments;
   audit_logs: AuditLogs;
+  chat_conversations: ChatConversations;
+  chat_messages: ChatMessages;
+  chat_participants: ChatParticipants;
   folders: Folders;
   invitations: Invitations;
   mail_actions: MailActions;

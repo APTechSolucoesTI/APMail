@@ -129,7 +129,22 @@ Evidências: seis endpoints conferidos com dados fixos, incluindo mensagens impo
 
 ## Fase 7 — Chat
 
-Não iniciada.
+Concluída. Tag `fase-7`. CI [36932248897](https://github.com/APTechSolucoesTI/APMail/actions/runs/36932248897) aprovado.
+
+- [x] Migration, tipos de 31 tabelas e API de diretas, grupos e mensagens.
+- [x] Idempotência, cursor estável, leitura, edição/exclusão e compartilhamento autorizado.
+- [x] Eventos de salas, digitação e presença online com múltiplas abas.
+- [x] Seis testes de integração do chat aprovados com Postgres/Redis reais.
+- [x] Interface, envio otimista, compartilhamento e badge de não lidas.
+- [x] Duas sessões: entrega em 893 ms, digitação, leitura, edição, exclusão e saída de grupo.
+- [x] Desktop, tablet e mobile nos dois temas, sem overflow ou erros JS.
+- [x] Falha de rede e retry com o mesmo client_id sem duplicação; histórico de 70 mensagens e edição expirada.
+- [x] Enter/Shift+Enter, menus e diálogo de edição operados por teclado; conta temporária removida.
+- [x] QA com dois navegadores, seis layouts, checks completos, CI, merge e tag.
+
+Evidências: compartilhamento abre o e-mail para quem tem acesso e apresenta “Você não tem acesso a esta caixa” para participante sem permissão. A notificação do navegador foi conferida com a API instrumentada, permissão concedida e aba oculta; não representa um teste de popup do sistema operacional. Sair do grupo remove acesso HTTP e à sala; adicionar novamente restaura o acesso. Cursor preserva microssegundos do PostgreSQL e desempata por ID. Recarga do histórico conserva mensagens pendentes ou com falha até a confirmação do servidor.
+
+Linux final: 45 testes unitários e 48 de integração aprovados, reset exclusivo de TEST, tipos de 31 tabelas, lint, typecheck, build e SIGTERM. Checks locais e CI também aprovados.
 
 ## Fase 8 — Endurecimento
 
