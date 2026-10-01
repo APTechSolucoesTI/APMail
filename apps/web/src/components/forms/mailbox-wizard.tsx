@@ -31,6 +31,7 @@ export const connectionFields: FormField[] = [
   },
 ];
 export function MailboxWizard({ onDone }: { onDone: () => void }) {
+  const tenantId = useTenantId();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Record<string, unknown>>({
     imap_port: 993,
@@ -48,11 +49,11 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
   const client = useQueryClient();
   const me = useQuery(meQuery);
   const directory = useQuery({
-    queryKey: ['directory', useTenantId()],
+    queryKey: ['directory', tenantId],
     queryFn: () => api<{ id: string; full_name: string; email: string }[]>('/members/directory'),
   });
   const box = useQuery({
-    queryKey: ['mailbox', useTenantId(), boxId],
+    queryKey: ['mailbox', tenantId, boxId],
     queryFn: () => api<Mailbox>('/mailboxes/' + boxId),
     enabled: !!boxId,
     refetchInterval: boxId ? 5000 : false,
@@ -294,7 +295,7 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
             setBoxId(result.id);
             setDraft((prev) => ({ ...prev, password: undefined }));
             setStep(4);
-            await client.invalidateQueries({ queryKey: ['mailboxes', useTenantId()] });
+            await client.invalidateQueries({ queryKey: ['mailboxes', tenantId] });
           }}
         />
       )}
