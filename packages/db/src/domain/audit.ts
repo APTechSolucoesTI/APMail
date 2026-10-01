@@ -1,5 +1,15 @@
 import type { Kysely, Transaction } from 'kysely';
 import type { DB, Json } from '../types.js';
+export function safeAuditMetadata(value: Json): Json {
+  if (Array.isArray(value)) return value.map(safeAuditMetadata);
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !/password|token|secret|body|credential|authorization|cookie/i.test(key))
+        .map(([key, item]) => [key, safeAuditMetadata(item ?? null)]),
+    );
+  return value;
+}
 export function auditChanges(
   before: Record<string, unknown>,
   after: Record<string, unknown>,
@@ -36,7 +46,7 @@ export async function audit(
       action: value.action,
       entity_type: value.entityType,
       entity_id: value.entityId ?? null,
-      metadata: value.metadata ?? {},
+      metadata: safeAuditMetadata(value.metadata ?? {}),
       ip: value.ip ?? null,
     })
     .execute();

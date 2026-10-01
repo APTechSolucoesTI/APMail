@@ -13,3 +13,4 @@ export * from './schemas/outbox.js';
 export * from './thread-status.js';
 export * from './schemas/dashboard.js';
 export * from './schemas/chat.js';
+export * from './audit.js';

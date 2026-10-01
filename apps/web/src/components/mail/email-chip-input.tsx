@@ -46,10 +46,8 @@ export function EmailChipInput({
           address: (match?.[2] ?? t).toLowerCase(),
         };
       });
-    onChange([
-      ...value,
-      ...parsed.filter((p) => !value.some((v) => v.address.toLowerCase() === p.address)),
-    ]);
+    const seen=new Set(value.map(address=>address.address.toLowerCase()));
+    onChange([...value,...parsed.filter(address=>{if(seen.has(address.address))return false;seen.add(address.address);return true;})]);
     setInput('');
   };
   return (

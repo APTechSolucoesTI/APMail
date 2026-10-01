@@ -3,11 +3,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, MailOpen, Pin } from 'lucide-react';
 import { toast } from 'sonner';
 import { can } from '@apmail/shared';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { useTenantId, meQuery } from '@/lib/auth';
 import { useSocketRoom } from '@/hooks/use-socket-room';
 import { Button } from '@/components/ui/button';
-import { LoadingState, ErrorState } from '@/components/data/data-state';
+import { LoadingState, ErrorState, NoPermissionState } from '@/components/data/data-state';
 import { QueueStatusBadge, OverdueBadge } from '@/components/common/status-badge';
 import { MessageCard } from './message-card';
 import { MessageActions } from './message-actions';
@@ -65,6 +65,15 @@ export function ThreadView({
     }
   };
   if (q.isLoading) return <LoadingState />;
+  if (q.error instanceof ApiError && [403, 404].includes(q.error.status))
+    return (
+      <div className="space-y-3 p-4">
+        <NoPermissionState />
+        <Button variant="outline" onClick={onClose}>
+          Voltar à lista
+        </Button>
+      </div>
+    );
   if (!q.data) return <ErrorState onRetry={() => void q.refetch()} />;
   const data = q.data,
     organize = can(data.my_role, 'organize');

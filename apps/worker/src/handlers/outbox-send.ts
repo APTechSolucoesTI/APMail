@@ -8,6 +8,7 @@ import {
   htmlToText,
   messageSnippet,
   sanitizeEmailHtml,
+  userCanReadThread,
 } from '@apmail/db';
 import { can, type Address } from '@apmail/shared';
 import { UnrecoverableError, type Job } from 'bullmq';
@@ -62,6 +63,41 @@ export async function handleOutboxSend(
       (membership.role === 'member' && (!access || !can(access.role, 'send')))
     )
       throw new Error('send_permission_revoked');
+    if (
+      row.thread_id &&
+      !(await userCanReadThread(
+        r.db,
+        row.tenant_id,
+        box.id,
+        row.created_by,
+        row.thread_id,
+        row.reply_to_message_id ?? undefined,
+      ))
+    )
+      throw new Error('send_permission_revoked');
+    for (const ref of row.attachments as { source: string; attachment_id?: string }[]) {
+      if (ref.source !== 'message_attachment' || !ref.attachment_id) continue;
+      const file = await r.db
+        .selectFrom('attachments as a')
+        .innerJoin('messages as m', 'm.id', 'a.message_id')
+        .select(['m.thread_id', 'm.id'])
+        .where('a.id', '=', ref.attachment_id)
+        .where('a.tenant_id', '=', row.tenant_id)
+        .where('a.mailbox_id', '=', box.id)
+        .executeTakeFirst();
+      if (
+        !file ||
+        !(await userCanReadThread(
+          r.db,
+          row.tenant_id,
+          box.id,
+          row.created_by,
+          file.thread_id,
+          file.id,
+        ))
+      )
+        throw new Error('send_permission_revoked');
+    }
     const mime = await buildMime(r, row, box);
     await r.db
       .updateTable('outbox')

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { sql } from 'kysely';
 import { mailboxSchema, mailboxRoleSchema } from '@apmail/shared';
 import { audit, auditChanges, writeMailboxCredential } from '@apmail/db';
 import { requireTenant, requireTenantAdmin, type RequestContext } from '../authz/context.js';
@@ -212,7 +213,18 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
     return r.db
       .selectFrom('mailbox_members as m')
       .innerJoin('users as u', 'u.id', 'm.user_id')
-      .select(['m.user_id', 'u.full_name', 'u.email', 'm.role'])
+      .select([
+        'm.user_id',
+        'u.full_name',
+        'u.email',
+        'm.role',
+        'm.restrict_to_folders',
+        sql<
+          string[]
+        >`coalesce((select array_agg(p.folder_id) from folder_permissions p where p.tenant_id=m.tenant_id and p.mailbox_id=m.mailbox_id and p.user_id=m.user_id),'{}'::uuid[])`.as(
+          'folder_ids',
+        ),
+      ])
       .where('m.tenant_id', '=', c.tenantId)
       .where('m.mailbox_id', '=', id)
       .execute();
@@ -220,8 +232,14 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
   app.put('/api/mailboxes/:id/members/:userId', async (req) => {
     const c = requireTenantAdmin(req.ctx);
     const p = z.object({ id: z.uuid(), userId: z.uuid() }).parse(req.params);
-    const b = z.object({ role: mailboxRoleSchema.nullable() }).parse(req.body);
-    await setMailboxMember(c, r, p.id, p.userId, b.role);
+    const b = z
+      .object({
+        role: mailboxRoleSchema.nullable(),
+        restrict_to_folders: z.boolean().default(false),
+        folder_ids: z.array(z.uuid()).max(1000).default([]),
+      })
+      .parse(req.body);
+    await setMailboxMember(c, r, p.id, p.userId, b.role, b.restrict_to_folders, b.folder_ids);
     return { ok: true };
   });
 }

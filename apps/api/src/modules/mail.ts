@@ -2,11 +2,12 @@ import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { Storage, touchThreads, asJson } from '@apmail/db';
-import { toBullJobId, type MailboxPerm } from '@apmail/shared';
+import { toBullJobId, externalParticipants, type Address, type MailboxPerm } from '@apmail/shared';
 import { requireTenant, notFound, conflict, type RequestContext } from '../authz/context.js';
 import { requireMailboxPerm } from '../authz/guards.js';
+import { readableFolders, folderPredicate, requireFolder } from '../authz/folders.js';
 import type { Resources } from './resources.js';
-import { listThreads, queueCounts } from './mail-queries.js';
+import { listThreads, queueCounts } from './mail-visibility-queries.js';
 import { replaceLabels, validateLabelIds, labelIdsSchema } from './organization/service.js';
 import { bulkQueue } from './thread-operations/service.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
@@ -46,6 +47,18 @@ export async function requireThread(
     .executeTakeFirst();
   if (!thread) throw notFound();
   const role = await requireMailboxPerm(c, r.db, thread.mailbox_id, perm);
+  const folders = await readableFolders(c, r.db, thread.mailbox_id);
+  if (folders !== null) {
+    const visible = await r.db
+      .selectFrom('messages as m')
+      .select('m.id')
+      .where('m.tenant_id', '=', c.tenantId)
+      .where('m.thread_id', '=', thread.id)
+      .where('m.deleted_at', 'is', null)
+      .where(folderPredicate(folders))
+      .executeTakeFirst();
+    if (!visible) throw notFound();
+  }
   return { thread, role, c };
 }
 export function mailEvents(r: Resources, mailboxId: string, ids: string[], userId?: string) {
@@ -72,6 +85,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
     const id = idOf(req.params),
       c = requireTenant(req.ctx);
     await requireMailboxPerm(c, r.db, id, 'read');
+    const scope = await readableFolders(c, r.db, id);
     const rows = await r.db
       .selectFrom('folders as f')
       .select([
@@ -86,6 +100,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       .where('f.tenant_id', '=', c.tenantId)
       .where('f.mailbox_id', '=', id)
       .where('f.deleted_at', 'is', null)
+      .where(folderPredicate(scope, 'f.id'))
       .execute();
     const order = ['inbox', 'sent', 'drafts', 'archive', 'junk', 'trash'];
     const nodes = rows
@@ -119,6 +134,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
   });
   app.get('/api/threads/:id', async (req) => {
     const { thread, role, c } = await requireThread(req.ctx, r, idOf(req.params));
+    const scope = await readableFolders(c, r.db, thread.mailbox_id);
     const messages = await r.db
       .selectFrom('messages as m')
       .leftJoin('users as u', 'u.id', 'm.sent_by_user_id')
@@ -151,6 +167,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       .where('m.tenant_id', '=', c.tenantId)
       .where('m.thread_id', '=', thread.id)
       .where('m.deleted_at', 'is', null)
+      .where(folderPredicate(scope))
       .orderBy('m.message_at', 'asc')
       .execute();
     const attachments = messages.length
@@ -204,14 +221,53 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
     const sla = Number(
       (tenant.settings as { sla_first_response_hours?: number }).sla_first_response_hours ?? 24,
     );
+    const box = await r.db
+      .selectFrom('mailboxes')
+      .select(['email_address', 'aliases'])
+      .where('id', '=', thread.mailbox_id)
+      .executeTakeFirstOrThrow();
+    const latest = messages.at(-1),
+      inbound = messages.filter((m) => m.direction === 'inbound' && !m.is_automated),
+      outbound = messages.filter((m) => m.direction === 'outbound');
+    const visibleThread =
+      scope === null
+        ? thread
+        : {
+            ...thread,
+            subject: latest?.subject ?? '',
+            subject_normalized: '',
+            snippet: latest?.snippet ?? '',
+            participants: [
+              ...new Set(
+                messages.flatMap((m) =>
+                  externalParticipants(
+                    {
+                      ...m,
+                      to_addresses: m.to_addresses as Address[],
+                      cc_addresses: m.cc_addresses as Address[],
+                    },
+                    [box.email_address, ...box.aliases],
+                  ),
+                ),
+              ),
+            ],
+            message_count: messages.length,
+            has_attachments: messages.some((m) => m.has_attachments),
+            first_message_at: messages[0]?.message_at ?? null,
+            last_message_at: latest?.message_at ?? null,
+            first_inbound_at: inbound[0]?.message_at ?? null,
+            last_inbound_at: inbound.at(-1)?.message_at ?? null,
+            last_outbound_at: outbound.at(-1)?.message_at ?? null,
+            first_response_at: null,
+          };
     return {
       thread: {
-        ...thread,
+        ...visibleThread,
         assigned_to: assignee ?? null,
         is_overdue:
           ['to_reply', 'in_progress'].includes(thread.queue_status) &&
-          !!thread.last_inbound_at &&
-          thread.last_inbound_at.getTime() < Date.now() - sla * 3600000,
+          !!visibleThread.last_inbound_at &&
+          visibleThread.last_inbound_at.getTime() < Date.now() - sla * 3600000,
       },
       messages: messages.map((m) => ({
         ...m,
@@ -291,6 +347,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       })
       .parse(req.body);
     const ids = [...new Set(b.thread_ids)];
+    for (const threadId of ids) await requireThread(c, r, threadId);
     if (b.action === 'done' || b.action === 'reopen' || b.action === 'assign') {
       if (b.action === 'assign' && b.user_id === undefined)
         throw conflict('Escolha um responsável.');
@@ -442,6 +499,12 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         .executeTakeFirst();
       if (!a) throw notFound();
       await requireMailboxPerm(c, r.db, a.mailbox_id, 'read');
+      const message = await r.db
+        .selectFrom('messages')
+        .select('folder_id')
+        .where('id', '=', a.message_id)
+        .executeTakeFirstOrThrow();
+      await requireFolder(c, r.db, a.mailbox_id, message.folder_id);
       if (
         kind === 'inline' &&
         !/^(image\/(png|jpeg|gif|webp)|application\/pdf)$/.test(a.content_type)

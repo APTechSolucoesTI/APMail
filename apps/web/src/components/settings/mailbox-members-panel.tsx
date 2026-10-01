@@ -8,6 +8,14 @@ import { RoleBadge } from '@/components/common/status-badge';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { FolderAccessPicker, type FolderAccess } from '@/components/forms/folder-access-picker';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 type Member = {
   user_id: string;
   full_name: string;
@@ -20,6 +28,12 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
   const tenantId = useTenantId();
   const client = useQueryClient();
   const [query, setQuery] = useState(() => listQuerySchema.parse({}));
+  const [editing, setEditing] = useState<{
+    userId: string;
+    name: string;
+    role: MailboxRole;
+    access: FolderAccess;
+  } | null>(null);
   const users = useQuery({
     queryKey: ['members', tenantId],
     queryFn: () => api<{ members: Member[] }>('/members'),
@@ -27,14 +41,28 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
   const access = useQuery({
     queryKey: ['mailbox-members', tenantId, mailboxId],
     queryFn: () =>
-      api<{ user_id: string; role: MailboxRole }[]>('/mailboxes/' + mailboxId + '/members'),
+      api<({ user_id: string; role: MailboxRole } & FolderAccess)[]>(
+        '/mailboxes/' + mailboxId + '/members',
+      ),
   });
   const change = useMutation({
-    mutationFn: async ({ userId, role }: { userId: string; role: string | null }) =>
-      api('/mailboxes/' + mailboxId + '/members/' + userId, { method: 'PUT', body: { role } }),
+    mutationFn: async ({
+      userId,
+      role,
+      access,
+    }: {
+      userId: string;
+      role: string | null;
+      access?: FolderAccess;
+    }) =>
+      api('/mailboxes/' + mailboxId + '/members/' + userId, {
+        method: 'PUT',
+        body: { role, ...access },
+      }),
     onSuccess: async () => {
       await client.invalidateQueries();
       toast.success('Acesso atualizado.');
+      setEditing(null);
     },
     onError: (e) => toast.error(e.message),
   });
@@ -48,6 +76,10 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
         m.role !== 'member'
           ? 'mailbox_admin'
           : (access.data?.find((a) => a.user_id === m.user_id)?.role ?? 'none'),
+      folder_access: access.data?.find((a) => a.user_id === m.user_id) ?? {
+        restrict_to_folders: false,
+        folder_ids: [],
+      },
     }));
   return (
     <div className="space-y-4">
@@ -102,6 +134,31 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
                 </select>
               ),
           },
+          {
+            id: 'folder_access',
+            header: 'Pastas',
+            cell: (m) =>
+              !m.implicit && ['editor', 'viewer'].includes(m.mailbox_role) ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setEditing({
+                      userId: m.user_id,
+                      name: m.full_name,
+                      role: m.mailbox_role as MailboxRole,
+                      access: m.folder_access,
+                    })
+                  }
+                >
+                  {m.folder_access.restrict_to_folders
+                    ? 'Restrito · ' + m.folder_access.folder_ids.length
+                    : 'Todas as pastas'}
+                </Button>
+              ) : (
+                <span className="text-muted-foreground">Todas as pastas</span>
+              ),
+          },
         ]}
         isLoading={users.isLoading || access.isLoading}
         error={users.error || access.error}
@@ -122,6 +179,47 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
           ) : null
         }
       />
+      <Dialog
+        open={!!editing}
+        onOpenChange={(open) => {
+          if (!open && !change.isPending) setEditing(null);
+        }}
+      >
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Pastas de {editing?.name}</DialogTitle>
+            <DialogDescription>
+              Defina quais mensagens este usuário pode acessar nesta caixa.
+            </DialogDescription>
+          </DialogHeader>
+          {editing && (
+            <FolderAccessPicker
+              mailboxId={mailboxId}
+              value={editing.access}
+              disabled={change.isPending}
+              onChange={(value) => setEditing({ ...editing, access: value })}
+            />
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={change.isPending} onClick={() => setEditing(null)}>
+              Cancelar
+            </Button>
+            <Button
+              disabled={change.isPending}
+              onClick={() => {
+                if (editing)
+                  change.mutate({
+                    userId: editing.userId,
+                    role: editing.role,
+                    access: editing.access,
+                  });
+              }}
+            >
+              {change.isPending ? 'Salvando…' : 'Salvar pastas'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

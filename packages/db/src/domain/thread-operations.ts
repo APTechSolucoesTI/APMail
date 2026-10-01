@@ -3,6 +3,7 @@ import { can, type MailboxPerm, type QueueReason } from '@apmail/shared';
 import type { Database } from './threads.js';
 import { recomputeThreadStatus } from './threads.js';
 import { audit } from './audit.js';
+import { userCanReadThread } from './folder-access.js';
 export async function mailboxUserCan(
   db: Database,
   tenantId: string,
@@ -43,7 +44,7 @@ export async function threadNotification(
 ) {
   if (
     value.userId === value.actorId ||
-    !(await mailboxUserCan(db, value.tenantId, value.mailboxId, value.userId, 'read'))
+    !(await userCanReadThread(db, value.tenantId, value.mailboxId, value.userId, value.threadId))
   )
     return null;
   const prefs = await db
@@ -64,7 +65,10 @@ export async function threadNotification(
       user_id: value.userId,
       type: value.type,
       title: value.title,
-      body: value.body.slice(0, 200),
+      body:
+        value.type === 'assignment'
+          ? 'Uma conversa foi atribuída a você.'
+          : value.body.slice(0, 200),
       link: `/mail/${value.mailboxId}?thread=${value.threadId}`,
       payload: sql`${JSON.stringify({ thread_id: value.threadId, mailbox_id: value.mailboxId })}::jsonb`,
     })
@@ -85,7 +89,11 @@ export async function assignThread(
     .forUpdate()
     .executeTakeFirstOrThrow();
   if (thread.assigned_to === userId) return null;
-  if (userId && !(await mailboxUserCan(db, thread.tenant_id, thread.mailbox_id, userId, 'send')))
+  if (
+    userId &&
+    (!(await mailboxUserCan(db, thread.tenant_id, thread.mailbox_id, userId, 'send')) ||
+      !(await userCanReadThread(db, thread.tenant_id, thread.mailbox_id, userId, threadId)))
+  )
     throw new Error('invalid_assignee');
   await db
     .updateTable('threads')

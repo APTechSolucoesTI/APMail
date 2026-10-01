@@ -554,6 +554,72 @@ it('anexos e CID exigem acesso à caixa e nunca expõem caminhos físicos', asyn
 });
 
 const outboxIds: string[] = [];
+it('revogar pastas depois de agendar impede resposta e encaminhamento de anexo antes do SMTP', async () => {
+  const original = await db
+    .selectFrom('messages as m')
+    .innerJoin('folders as f', 'f.id', 'm.folder_id')
+    .select(['m.id', 'm.thread_id', 'm.subject'])
+    .where('m.mailbox_id', '=', boxId)
+    .where('m.deleted_at', 'is', null)
+    .where('f.deleted_at', 'is', null)
+    .executeTakeFirstOrThrow();
+  const attachment = await db
+    .selectFrom('attachments')
+    .select('id')
+    .where('mailbox_id', '=', boxId)
+    .where('is_inline', '=', false)
+    .executeTakeFirstOrThrow();
+  try {
+    for (const extra of [
+      { kind: 'reply', thread_id: original.thread_id, reply_to_message_id: original.id },
+      {
+        kind: 'forward',
+        attachments: [{ source: 'message_attachment', attachment_id: attachment.id }],
+      },
+    ]) {
+      await db
+        .updateTable('mailbox_members')
+        .set({ restrict_to_folders: false })
+        .where('mailbox_id', '=', boxId)
+        .where('user_id', '=', editor)
+        .execute();
+      const draft = await newDraft(editor, extra);
+      const submitted = await api('POST', '/api/outbox/' + draft.id + '/submit', editor, {});
+      expect(submitted.statusCode, submitted.body).toBe(200);
+      await db
+        .updateTable('outbox')
+        .set({ send_after: new Date(Date.now() - 1000) })
+        .where('id', '=', draft.id)
+        .execute();
+      await db
+        .updateTable('mailbox_members')
+        .set({ restrict_to_folders: true })
+        .where('mailbox_id', '=', boxId)
+        .where('user_id', '=', editor)
+        .execute();
+      await expect(
+        handleOutboxSend(r, draft.id, {
+          id: submitted.json().job_id,
+          attemptsMade: 0,
+          opts: { attempts: 3 },
+        }),
+      ).rejects.toThrow('O acesso de envio foi removido.');
+      const failed = await db
+        .selectFrom('outbox')
+        .select(['status', 'sent_message_id', 'message_id_header'])
+        .where('id', '=', draft.id)
+        .executeTakeFirstOrThrow();
+      expect(failed).toEqual({ status: 'failed', sent_message_id: null, message_id_header: null });
+    }
+  } finally {
+    await db
+      .updateTable('mailbox_members')
+      .set({ restrict_to_folders: false })
+      .where('mailbox_id', '=', boxId)
+      .where('user_id', '=', editor)
+      .execute();
+  }
+});
 async function newDraft(user = editor, extra: Record<string, unknown> = {}) {
   const res = await api('POST', '/api/outbox', user, {
     mailbox_id: boxId,
@@ -784,6 +850,7 @@ it('agendamento valida limites, cancelar remove job e sweep recupera perda de Re
   expect((await api('GET', '/api/outbox/' + draft.id, viewer)).json().status).toBe('canceled');
 });
 it('SMTP indisponível retenta três vezes, notifica e Tentar novamente entrega', async () => {
+  const startedAt = new Date();
   const draft = await newDraft();
   await db.updateTable('mailboxes').set({ smtp_port: 1 }).where('id', '=', boxId).execute();
   const submitted = await api('POST', '/api/outbox/' + draft.id + '/submit', editor, {});
@@ -825,6 +892,7 @@ it('SMTP indisponível retenta três vezes, notifica e Tentar novamente entrega'
       .where('tenant_id', '=', tenantId)
       .where('user_id', '=', editor)
       .where('type', '=', 'send_failed')
+      .where('created_at', '>=', startedAt)
       .execute(),
   ).toHaveLength(1);
   await db.updateTable('mailboxes').set({ smtp_port: smtpPort }).where('id', '=', boxId).execute();

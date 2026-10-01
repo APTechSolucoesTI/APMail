@@ -5,7 +5,13 @@ import { cn } from '@/lib/utils';
 
 function Table({ className, ...props }: React.ComponentProps<'table'>) {
   return (
-    <div data-slot="table-container" className="relative w-full overflow-x-auto">
+    <div
+      data-slot="table-container"
+      tabIndex={0}
+      role="region"
+      aria-label={props['aria-label'] ?? 'Tabela de dados'}
+      className="relative w-full overflow-x-auto focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2"
+    >
       <table
         data-slot="table"
         className={cn('w-full caption-bottom text-sm', className)}

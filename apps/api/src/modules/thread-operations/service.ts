@@ -3,6 +3,7 @@ import {
   assignThread,
   audit,
   mailboxUserCan,
+  userCanReadThread,
   recomputeThreadStatus,
   threadNotification,
 } from '@apmail/db';
@@ -27,6 +28,12 @@ export async function changeThread(
   const perm: MailboxPerm =
     action === 'assign' ? (value === ctx?.userId ? 'assign_self' : 'assign_others') : 'queue';
   const { thread, c } = await requireThread(ctx, r, id, perm);
+  if (
+    action === 'assign' &&
+    typeof value === 'string' &&
+    !(await userCanReadThread(r.db, c.tenantId, thread.mailbox_id, value, id))
+  )
+    throw conflict('Escolha um responsável com acesso às pastas desta conversa.');
   if (
     action === 'assign' &&
     value &&
@@ -70,6 +77,11 @@ export async function bulkQueue(
   userId: string | null,
 ) {
   const c = requireTenant(ctx);
+  for (const id of ids) await requireThread(c, r, id);
+  if (action === 'assign' && userId)
+    for (const id of ids)
+      if (!(await userCanReadThread(r.db, c.tenantId, mailboxId, userId, id)))
+        throw conflict('Escolha um responsável com acesso às pastas selecionadas.');
   await requireMailboxPerm(
     c,
     r.db,
@@ -202,7 +214,7 @@ export async function saveNote(
     mentions = [...new Set(noteMentions(b.body).map((m) => m.user_id))];
   const allowed: string[] = [];
   for (const userId of mentions)
-    if (await mailboxUserCan(r.db, c.tenantId, thread.mailbox_id, userId, 'read'))
+    if (await userCanReadThread(r.db, c.tenantId, thread.mailbox_id, userId, thread.id))
       allowed.push(userId);
   const result = await r.db.transaction().execute(async (tx) => {
     const previous = noteId

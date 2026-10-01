@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { NotificationBell } from './notification-bell';
+import { KeyboardHelp } from './keyboard-help';
 import { useTheme } from './theme-provider';
 import { TableUserContext } from '@/hooks/use-table-preferences';
 export function AppShell() {
@@ -57,8 +58,20 @@ export function AppShell() {
         void client.invalidateQueries({ queryKey: [key] });
     });
     socket.on('mailboxes:changed', () => {
-      for (const key of ['labels', 'threads', 'thread'])
-        void client.invalidateQueries({ queryKey: [key] });
+      for (const key of [
+        'labels',
+        'threads',
+        'thread',
+        'folders',
+        'queue-counts',
+        'thread-notes',
+        'thread-history',
+        'outbox',
+        'shared-thread-access',
+        'address-suggestions',
+        'dashboard',
+      ])
+        void client.resetQueries({ queryKey: [key] });
       void client.invalidateQueries({ queryKey: ['mailboxes'] });
       void client.invalidateQueries({ queryKey: ['mailbox'] });
       void client.invalidateQueries({ queryKey: ['me'] });
@@ -273,6 +286,7 @@ export function AppShell() {
                   </select>
                 </div>
                 <div className="flex items-center gap-2">
+                  <KeyboardHelp mailboxes={boxes.data ?? []} />
                   <NotificationBell />
                   <Link
                     to="/settings/profile"

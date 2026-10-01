@@ -17,6 +17,12 @@ O repositório remoto vazio exige um commit inicial sem arquivos para estabelece
 
 Correção de acessibilidade na Fase 0: `primary` claro e `ring` claro usam `#137A98`. Os valores originais têm contraste de 4,20:1 no botão branco e 2,21:1 no foco sobre branco. O ajuste fornece 4,92:1 e resolve a divergência entre a paleta e a exigência AA. Tema e especificação visual foram atualizados juntos; as cores institucionais são preservadas.
 
+Fase 8: a revisão encontrou os valores originais novamente no tema e restabeleceu o ajuste de contraste documentado acima. `muted-foreground` claro passa a `#626D80`, pois `#667085` sobre `muted` fornecia 4,47:1. Abas usam o token de texto secundário em vez de transparência. A exigência AA prevalece sobre os valores originais da paleta; tema e especificação foram corrigidos juntos.
+
+Fase 8: a instrução AGENTS.md mais recente prevalece sobre a exceção da Fase 0 para paginação. A interface de e-mail começa com 10 registros; opções 10/20/30/50/100 e preferências existentes permanecem disponíveis. A API conserva o padrão 50 quando o cliente omite `page_size`.
+
+Fase 8: permissões de pasta incluem descendentes e são verificadas novamente no servidor. Uma conversa com mensagens em várias pastas expõe somente mensagens, anexos e agregados legíveis. Nenhuma pasta selecionada nega a leitura; proprietários, administradores de empresa e administradores de caixa têm acesso integral. O worker revalida respostas e anexos originais antes do SMTP, mesmo quando a restrição mudou depois do agendamento. O fechamento de uma instância Socket.IO desconecta apenas seus sockets locais.
+
 TanStack Table 9: `useTable` e `tableFeatures` substituem a API v8, conforme [guia oficial](https://tanstack.com/table/latest/docs/framework/react/guide/migrating). O comportamento e o contrato de ConfigurableTable são preservados.
 
 Migrations normalizam CRLF para LF antes do checksum, preservando o mesmo SHA-256 em Windows e Linux; alterações no SQL continuam proibidas. Atributos Git fixam LF no repositório.

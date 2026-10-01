@@ -1,6 +1,6 @@
 ﻿import { useState, useRef } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { RefreshCw, MailOpen, Mail, FolderOpen, CheckCircle2, RotateCcw } from 'lucide-react';
 import { can, QUEUE_LABELS } from '@apmail/shared';
 import { toast } from 'sonner';
@@ -8,7 +8,14 @@ import type { PersonalLabel } from '@/lib/organization';
 import { api } from '@/lib/api';
 import { useTenantId, meQuery, type Mailbox } from '@/lib/auth';
 import { mailSearchSchema } from '@/lib/search-params/mail';
-import { folderLabel, flattenFolders, type Folder, type Thread } from '@/lib/mail';
+import {
+  folderLabel,
+  flattenFolders,
+  type Folder,
+  type Thread,
+  type ThreadDetail,
+} from '@/lib/mail';
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useSocketRoom } from '@/hooks/use-socket-room';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { MailboxStatusBadge } from '@/components/common/status-badge';
@@ -36,6 +43,7 @@ function MailPage() {
     tenantId = useTenantId(),
     desktop = useMediaQuery('(min-width: 1024px)');
   const me = useQuery(meQuery),
+    client = useQueryClient(),
     box = useQuery({
       queryKey: ['mailbox', tenantId, mailboxId],
       queryFn: () => api<Mailbox>('/mailboxes/' + mailboxId),
@@ -120,6 +128,50 @@ function MailPage() {
       setUpdating(false);
     }
   };
+  const move = (direction: number) => {
+    if (!items.length) return;
+    const current = items.findIndex((t) => t.id === search.thread),
+      next =
+        current < 0
+          ? direction > 0
+            ? 0
+            : items.length - 1
+          : Math.min(items.length - 1, Math.max(0, current + direction));
+    change({ thread: items[next]!.id });
+  };
+  const compose = (kind: string) => {
+    const message = client
+      .getQueryData<ThreadDetail>(['thread', tenantId, search.thread])
+      ?.messages.at(-1);
+    if (message && can(box.data?.role ?? null, 'send')) openComposer(kind + ':' + message.id);
+  };
+  useKeyboardShortcuts(
+    {
+      c: () => {
+        if (box.data?.status === 'active' && can(box.data.role, 'send')) openComposer('new');
+      },
+      '/': () =>
+        document
+          .querySelector<HTMLInputElement>('[aria-label="Lista de conversas"] input[type="search"]')
+          ?.focus(),
+      j: () => move(1),
+      k: () => move(-1),
+      r: () => compose('reply'),
+      a: () => compose('reply_all'),
+      f: () => compose('forward'),
+      Escape: close,
+      e: () => {
+        if (search.thread && !updating && can(box.data?.role ?? null, 'queue')) {
+          setUpdating(true);
+          void api('/threads/' + search.thread + '/done', { method: 'POST' })
+            .then(() => toast.success('Conversa concluída.'))
+            .catch((error: Error) => toast.error(error.message))
+            .finally(() => setUpdating(false));
+        }
+      },
+    },
+    !search.compose,
+  );
   if (box.isLoading) return <LoadingState />;
   if (!box.data) return <ErrorState onRetry={() => void box.refetch()} />;
   const admin = me.data?.tenants.find((t) => t.id === tenantId)?.role !== 'member';

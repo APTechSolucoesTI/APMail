@@ -12,7 +12,7 @@ import { ConfigurableTable } from '@/components/data/configurable-table';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { OutboxStatusBadge } from '@/components/common/status-badge';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { useSocketRoom } from '@/hooks/use-socket-room';
 function OutboxRoom({ id }: { id: string }) {
@@ -86,158 +86,166 @@ function Scheduled() {
           <TabsTrigger value="queued">Na fila</TabsTrigger>
           <TabsTrigger value="failed">Com falha</TabsTrigger>
         </TabsList>
-      </Tabs>
-      <div className="mb-4 max-w-sm space-y-1">
-        <Label htmlFor="outbox-mailbox">Caixa</Label>
-        <select
-          id="outbox-mailbox"
-          className="h-11 w-full rounded-md border border-input bg-card px-3 text-sm"
-          value={search.mailboxId ?? ''}
-          onChange={(e) =>
-            void navigate({
-              search: { ...search, mailboxId: e.target.value || undefined, page: 1 },
-            })
-          }
-        >
-          <option value="">Todas as caixas</option>
-          {boxes.data?.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      <ConfigurableTable
-        listKey={'outbox-' + search.tab}
-        mode="server"
-        data={q.data?.items ?? []}
-        total={q.data?.total ?? 0}
-        query={search}
-        onQueryChange={(query) => void navigate({ search: { ...search, ...query } })}
-        isLoading={q.isLoading}
-        isFetching={q.isFetching && !q.isLoading}
-        error={q.error}
-        onRetry={() => void q.refetch()}
-        columns={[
-          {
-            id: 'updated_at',
-            header: search.tab === 'scheduled' ? 'Agendado para' : 'Atualizado em',
-            cell: (o) =>
-              new Date(
-                (search.tab === 'scheduled' ? o.scheduled_at : null) ?? o.updated_at,
-              ).toLocaleString('pt-BR', {
-                timeZone: me.data?.preferences.timezone,
-                timeZoneName: 'short',
-              }),
-          },
-          { id: 'mailbox', header: 'Caixa', cell: (o) => o.mailbox?.name ?? '' },
-          {
-            id: 'subject',
-            header: 'Assunto',
-            hideable: false,
-            cell: (o) => <span title={o.subject}>{o.subject || '(Sem assunto)'}</span>,
-          },
-          {
-            id: 'to_addresses',
-            header: 'Para',
-            cell: (o) => (
-              <span title={o.to_addresses.map((a) => a.address).join(', ')}>
-                {o.to_addresses.map((a) => a.address).join(', ') || 'Sem destinatário'}
-              </span>
-            ),
-          },
-          {
-            id: 'created_by',
-            header: 'Criado por',
-            cell: (o) => (typeof o.created_by === 'string' ? '' : o.created_by.full_name),
-          },
-          {
-            id: 'kind',
-            header: 'Tipo',
-            cell: (o) =>
-              ({
-                new: 'Novo',
-                reply: 'Resposta',
-                reply_all: 'Resposta a todos',
-                forward: 'Encaminhamento',
-              })[o.kind],
-          },
-          {
-            id: 'status',
-            header: 'Status',
-            cell: (o) => (
-              <div>
-                <OutboxStatusBadge status={o.status} />
-                {o.last_error && <p className="mt-1 text-xs text-destructive">{o.last_error}</p>}
-              </div>
-            ),
-          },
-        ]}
-        rowActions={(o) => (
-          <>
-            {o.can_edit && (
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={'Editar ' + (o.subject || 'rascunho')}
-                onClick={() => void resume(o).catch((e) => toast.error(e.message))}
-              >
-                <Pencil />
-              </Button>
-            )}
-            {o.status === 'scheduled' && creator(o) === me.data?.user.id && (
-              <ConfirmDialog
-                trigger={
-                  <Button variant="ghost" size="icon" aria-label={'Enviar agora ' + o.subject}>
-                    <Send />
-                  </Button>
-                }
-                title="Enviar agora?"
-                description="O envio será colocado imediatamente na fila."
-                onConfirm={() => action(o, 'send-now')}
-              />
-            )}
-            {o.status === 'failed' && creator(o) === me.data?.user.id && (
-              <ConfirmDialog
-                trigger={
-                  <Button variant="ghost" size="icon" aria-label={'Tentar novamente ' + o.subject}>
-                    <RefreshCw />
-                  </Button>
-                }
-                title="Tentar enviar novamente?"
-                description="O envio voltará à fila."
-                onConfirm={() => action(o, 'retry')}
-              />
-            )}
-            {(o.can_cancel || o.status === 'draft') && (
-              <ConfirmDialog
-                trigger={
+        <TabsContent value={search.tab}>
+          <div className="mb-4 max-w-sm space-y-1">
+            <Label htmlFor="outbox-mailbox">Caixa</Label>
+            <select
+              id="outbox-mailbox"
+              className="h-11 w-full rounded-md border border-input bg-card px-3 text-sm"
+              value={search.mailboxId ?? ''}
+              onChange={(e) =>
+                void navigate({
+                  search: { ...search, mailboxId: e.target.value || undefined, page: 1 },
+                })
+              }
+            >
+              <option value="">Todas as caixas</option>
+              {boxes.data?.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <ConfigurableTable
+            listKey={'outbox-' + search.tab}
+            mode="server"
+            data={q.data?.items ?? []}
+            total={q.data?.total ?? 0}
+            query={search}
+            onQueryChange={(query) => void navigate({ search: { ...search, ...query } })}
+            isLoading={q.isLoading}
+            isFetching={q.isFetching && !q.isLoading}
+            error={q.error}
+            onRetry={() => void q.refetch()}
+            columns={[
+              {
+                id: 'updated_at',
+                header: search.tab === 'scheduled' ? 'Agendado para' : 'Atualizado em',
+                cell: (o) =>
+                  new Date(
+                    (search.tab === 'scheduled' ? o.scheduled_at : null) ?? o.updated_at,
+                  ).toLocaleString('pt-BR', {
+                    timeZone: me.data?.preferences.timezone,
+                    timeZoneName: 'short',
+                  }),
+              },
+              { id: 'mailbox', header: 'Caixa', cell: (o) => o.mailbox?.name ?? '' },
+              {
+                id: 'subject',
+                header: 'Assunto',
+                hideable: false,
+                cell: (o) => <span title={o.subject}>{o.subject || '(Sem assunto)'}</span>,
+              },
+              {
+                id: 'to_addresses',
+                header: 'Para',
+                cell: (o) => (
+                  <span title={o.to_addresses.map((a) => a.address).join(', ')}>
+                    {o.to_addresses.map((a) => a.address).join(', ') || 'Sem destinatário'}
+                  </span>
+                ),
+              },
+              {
+                id: 'created_by',
+                header: 'Criado por',
+                cell: (o) => (typeof o.created_by === 'string' ? '' : o.created_by.full_name),
+              },
+              {
+                id: 'kind',
+                header: 'Tipo',
+                cell: (o) =>
+                  ({
+                    new: 'Novo',
+                    reply: 'Resposta',
+                    reply_all: 'Resposta a todos',
+                    forward: 'Encaminhamento',
+                  })[o.kind],
+              },
+              {
+                id: 'status',
+                header: 'Status',
+                cell: (o) => (
+                  <div>
+                    <OutboxStatusBadge status={o.status} />
+                    {o.last_error && (
+                      <p className="mt-1 text-xs text-destructive">{o.last_error}</p>
+                    )}
+                  </div>
+                ),
+              },
+            ]}
+            rowActions={(o) => (
+              <>
+                {o.can_edit && (
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label={
-                      (o.status === 'draft' ? 'Excluir rascunho ' : 'Cancelar ') + o.subject
-                    }
+                    aria-label={'Editar ' + (o.subject || 'rascunho')}
+                    onClick={() => void resume(o).catch((e) => toast.error(e.message))}
                   >
-                    <Trash2 />
+                    <Pencil />
                   </Button>
-                }
-                title={o.status === 'draft' ? 'Excluir rascunho?' : 'Cancelar envio?'}
-                description={
-                  o.status === 'draft'
-                    ? 'O texto e os anexos deste rascunho serão removidos.'
-                    : 'A mensagem será retirada da fila antes do envio.'
-                }
-                onConfirm={async () => {
-                  if (o.status === 'draft') await api('/outbox/' + o.id, { method: 'DELETE' });
-                  else await api('/outbox/' + o.id + '/cancel', { method: 'POST' });
-                  await q.refetch();
-                }}
-              />
+                )}
+                {o.status === 'scheduled' && creator(o) === me.data?.user.id && (
+                  <ConfirmDialog
+                    trigger={
+                      <Button variant="ghost" size="icon" aria-label={'Enviar agora ' + o.subject}>
+                        <Send />
+                      </Button>
+                    }
+                    title="Enviar agora?"
+                    description="O envio será colocado imediatamente na fila."
+                    onConfirm={() => action(o, 'send-now')}
+                  />
+                )}
+                {o.status === 'failed' && creator(o) === me.data?.user.id && (
+                  <ConfirmDialog
+                    trigger={
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={'Tentar novamente ' + o.subject}
+                      >
+                        <RefreshCw />
+                      </Button>
+                    }
+                    title="Tentar enviar novamente?"
+                    description="O envio voltará à fila."
+                    onConfirm={() => action(o, 'retry')}
+                  />
+                )}
+                {(o.can_cancel || o.status === 'draft') && (
+                  <ConfirmDialog
+                    trigger={
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={
+                          (o.status === 'draft' ? 'Excluir rascunho ' : 'Cancelar ') + o.subject
+                        }
+                      >
+                        <Trash2 />
+                      </Button>
+                    }
+                    title={o.status === 'draft' ? 'Excluir rascunho?' : 'Cancelar envio?'}
+                    description={
+                      o.status === 'draft'
+                        ? 'O texto e os anexos deste rascunho serão removidos.'
+                        : 'A mensagem será retirada da fila antes do envio.'
+                    }
+                    onConfirm={async () => {
+                      if (o.status === 'draft') await api('/outbox/' + o.id, { method: 'DELETE' });
+                      else await api('/outbox/' + o.id + '/cancel', { method: 'POST' });
+                      await q.refetch();
+                    }}
+                  />
+                )}
+              </>
             )}
-          </>
-        )}
-      />
+          />
+        </TabsContent>
+      </Tabs>
     </>
   );
 }

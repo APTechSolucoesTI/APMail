@@ -8,5 +8,6 @@ coverage/
 *.log
 playwright-report/
 test-results/
+.tanstack/
 docker-compose.override.yml
 *.dump
