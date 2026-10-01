@@ -1,7 +1,95 @@
 # Publicação do APMail
 
-A stack de produção será concluída na Fase 9, conforme a seção 17 da especificação. A infraestrutura em execução nesta fase é exclusivamente de desenvolvimento.
+O Compose principal cria PostgreSQL 17, Redis 7 com AOF/noeviction, migration, API, worker e web/nginx. Banco, Redis e arquivos têm volumes exclusivos; API e worker compartilham `storage`. A migration deve terminar com código 0 antes da aplicação iniciar. Os cinco serviços permanentes têm healthcheck e executam sem root. O arquivo principal contém somente portas internas (`expose`); o Dokploy encaminha o tráfego ao serviço `web`, porta 80.
 
-Pré-requisitos de produção: domínio com DNS correto, HTTPS, SMTP para convites/redefinição, segredos de 32 bytes e backup de banco e anexos. Segredos nunca devem ser registrados no repositório.
+## Preparar o ambiente
 
-Será criado projeto APMail no Dokploy usando Docker Compose, branch main e serviço web na porta interna 80. Banco e Redis serão exclusivos, sem portas públicas no Compose principal.
+Requer Docker Engine com BuildKit, Docker Compose v2, espaço para imagens/volumes e acesso do servidor aos provedores IMAP/SMTP. Para publicação externa, configure domínio/DNS, HTTPS e SMTP do sistema para convites e recuperação de senha. O SMTP do sistema é independente das credenciais de cada caixa, informadas pela interface.
+
+Copie `.env.example` para `.env` e preencha:
+
+- `APP_URL`: URL exata de acesso, incluindo protocolo e porta quando houver. Em produção pública, use `https://seu-dominio`.
+- `POSTGRES_PASSWORD`: somente letras/números; gere com `openssl rand -hex 24`. O Compose monta a URL interna do banco automaticamente. Não reutilize a senha de desenvolvimento.
+- `SESSION_SECRET` e `CREDENTIALS_ENCRYPTION_KEY`: duas chaves diferentes de 32 bytes, cada uma gerada com `openssl rand -base64 32`.
+- `SYSTEM_SMTP_HOST`, `SYSTEM_SMTP_PORT`, `SYSTEM_SMTP_SECURE`, `SYSTEM_SMTP_USER`, `SYSTEM_SMTP_PASSWORD` e `SYSTEM_MAIL_FROM`. Use `true` para TLS implícito/465; em 587 use `false` e STARTTLS oferecido pelo servidor.
+- `ALLOW_PUBLIC_SIGNUP=true` somente durante a criação do proprietário; depois altere para `false`.
+
+Guarde `.env` com permissão 600, fora do Git, e as chaves em cofre de senhas. A perda da chave de criptografia exige redigitar as senhas das caixas. Variáveis `DATABASE_URL`/`REDIS_URL` do exemplo servem ao desenvolvimento e são substituídas pelos endereços internos no Compose de produção. `ALLOW_INSECURE_TLS_HOSTS` não desativa a validação TLS em produção.
+
+## Testar em um host com Docker
+
+```sh
+cp .env.example .env
+# Edite .env: segredos, APP_URL=http://localhost:8080 e SMTP.
+chmod 600 .env
+cp docker-compose.override.example.yml docker-compose.override.yml
+docker compose up -d --build --wait --wait-timeout 180
+docker compose ps -a
+curl -fsS http://localhost:8080/api/health
+docker compose logs migrate
+```
+
+O override publica somente `127.0.0.1:8080`; abra `http://localhost:8080/signup`. Cookies de produção são `Secure`; localhost serve para a validação local. Para acesso remoto normal, use HTTPS. Um túnel `ssh -L 8080:127.0.0.1:8080 usuario@servidor` permite revisar a instalação local a partir da estação.
+
+Verifique: migration `Exited (0)`, cinco serviços `healthy` e saúde `{status:"ok",db:"ok",redis:"ok"}`. Crie proprietário/empresa, conecte caixa por senha de aplicativo, aguarde importação, responda um e-mail e confira dashboard/chat. Não execute `seed:dev` em produção.
+
+```sh
+docker compose restart api
+curl -fsS http://localhost:8080/api/health
+docker compose down
+docker compose up -d --wait --wait-timeout 180
+```
+
+`down` sem `-v` preserva volumes. Nginx consulta o DNS interno do Docker a cada 10 segundos; API e Socket.IO podem se recuperar sem reiniciar web. `stop_grace_period=45s` permite encerrar conexões e jobs ativos.
+
+## Publicar no Dokploy
+
+1. Aponte o DNS do domínio para o servidor. Libere as portas necessárias para HTTPS e emissão do certificado; caixas precisam de saída IMAP/SMTP.
+2. Em **Projects → Create Project**, crie **APMail**, em um ambiente exclusivo. Não reutilize serviços/bancos de outros projetos.
+3. **Create Service → Compose**: Docker Compose, provedor GitHub, repositório `APTechSolucoesTI/APMail`, branch `main`, arquivo `./docker-compose.yml`. Autorize o repositório na instalação GitHub usada pelo Dokploy, se necessário.
+4. Em **Environment**, informe as variáveis de produção acima, `NODE_ENV=production`, `APP_URL=https://seu-dominio` e segredos exclusivos. Habilite a geração do arquivo de ambiente. Não adicione o override local ao deploy público.
+5. Em **Domains**, selecione domínio, **Service Name: web**, **Container Port: 80**, HTTPS e Let's Encrypt. Verifique que o DNS já resolve para o servidor.
+6. Faça **Deploy** e acompanhe os logs. `migrate` deve terminar com **Migrations aplicadas** e código 0; confira saúde de Postgres, Redis, API, worker e web.
+7. Acesse `/signup`, crie proprietário/empresa, altere `ALLOW_PUBLIC_SIGNUP=false` em Environment e faça redeploy. Novos membros entram por convite.
+8. Em **Configurações → Caixas de e-mail**, conecte caixas reais. Valide convites/recuperação pelo SMTP do sistema, entrada de e-mail, resposta, anexo, dashboard e chat com duas contas.
+9. Configure backup diário do banco, arquivos e chaves. Teste a restauração em banco e volume separados antes de depender do backup.
+
+O [guia oficial de Compose](https://docs.dokploy.com/docs/core/docker-compose) e a [referência da API](https://docs.dokploy.com/docs/api/compose) complementam as telas do Dokploy. Credenciais, tokens e chaves nunca entram no Compose versionado.
+
+## Backup e restauração
+
+Pare os escritores para obter um conjunto consistente de banco e arquivos. Os comandos executados dentro do serviço usam suas variáveis internas; não exigem colocar senha na linha de comando.
+
+```sh
+umask 077
+mkdir -p backups
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+docker compose stop api worker
+docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' > "backups/apmail-$stamp.dump"
+docker compose run --rm --no-deps --entrypoint tar api -C /data/storage -czf - . > "backups/storage-$stamp.tar.gz"
+docker compose start api worker
+sha256sum "backups/apmail-$stamp.dump" "backups/storage-$stamp.tar.gz" > "backups/checksums-$stamp.txt"
+```
+
+Agende no host ou no Dokploy, mantenha cópia fora do servidor e monitore falhas. Preserve os segredos usados nesse backup em cofre. Redis pode ser incluído por snapshot/AOF do volume; jobs de envio são reconstruídos do Postgres pelo watchdog, mas manter Redis também preserva seus estados operacionais.
+
+Restaure primeiro em uma stack com outro nome (`docker compose -p apmail-restore ...`), seus próprios volumes e a **mesma chave de credenciais**. A aplicação deve estar parada. Exemplos para a stack de destino, após conferir seu nome e arquivos de ambiente:
+
+```sh
+docker compose stop api worker
+docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --exit-on-error' < backups/apmail-DATA.dump
+docker compose run --rm --no-deps --entrypoint tar api -C /data/storage -xzf - < backups/storage-DATA.tar.gz
+docker compose up -d --wait --wait-timeout 180
+```
+
+Confira usuários, caixas, conversas, hash de anexo e autenticação antes de liberar acesso. Não use `db:reset` nem `down -v` em uma instalação com dados que precisam ser preservados.
+
+## Atualizar e diagnosticar
+
+Push na `main` e redeploy no Dokploy, manualmente ou por webhook. Migrations têm checksum e são imutáveis; o migrador aplica somente versões novas. Faça backup antes de atualizar. Ao reverter versão, verifique compatibilidade do código com o schema atual; não apague migrations já aplicadas.
+
+Use `docker compose logs --tail 100 api worker migrate` ou as telas de logs do Dokploy. API emite JSON com `request_id`, também retornado no header `X-Request-Id`; erros ao usuário não expõem segredos. `/api/health` é público e verifica banco/Redis; `/api/health/queues` exige administrador autenticado e mostra contagens e último heartbeat do worker. Examine estado da caixa e erro humano de conexão antes de mudar configurações do provedor.
+
+## Situação da instalação local
+
+A validação da Fase 9 usa uma stack exclusiva `apmail-next-stage` em `192.168.3.106`, acessível por túnel em localhost:8080, com segredos novos e arquivos de ambiente privados. GreenMail/Mailpit são provedores de teste isolados; o worker confia em um certificado de QA de curta duração, mantendo a validação TLS ativa. Domínio final e SMTP externo ainda precisam ser informados para concluir a publicação HTTPS e a entrega externa de mensagens do sistema. Veja as evidências atualizadas em [PROGRESSO.md](PROGRESSO.md).

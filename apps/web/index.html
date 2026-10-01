@@ -11,16 +11,7 @@
       rel="stylesheet"
     />
     <title>APMail — Gestão de e-mails compartilhados</title>
-    <script>
-      try {
-        const theme = localStorage.getItem('apmail-theme') || 'system';
-        document.documentElement.classList.toggle(
-          'dark',
-          theme === 'dark' ||
-            (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches),
-        );
-      } catch {}
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>
