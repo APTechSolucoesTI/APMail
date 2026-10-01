@@ -6,3 +6,5 @@ export * from './queues.js';
 export * from './migrate.js';
 export * from './reset.js';
 export * from './config.js';
+export * from './domain/audit.js';
+export * from './domain/credentials.js';

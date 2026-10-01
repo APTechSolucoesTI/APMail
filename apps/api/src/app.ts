@@ -18,6 +18,15 @@ import { sql } from 'kysely';
 import { Server } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { readEnv, type ApiEnv } from './env.js';
+import { ZodError } from 'zod';
+import { installAuth } from './plugins/auth.js';
+import { installSocket } from './plugins/socket.js';
+import { registerAuthRoutes } from './modules/auth.js';
+import { registerTenantRoutes } from './modules/tenants.js';
+import { registerMailboxRoutes } from './modules/mailboxes.js';
+import { registerInvitationRoutes } from './modules/invitations.js';
+import { registerAvatarRoutes } from './modules/avatars.js';
+import { ApiError } from './authz/context.js';
 
 export async function buildApp(config: ApiEnv = readEnv()) {
   const app = Fastify({
@@ -46,7 +55,13 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await app.register(helmet);
   await app.register(sensible);
   await app.register(cookie, { secret: config.SESSION_SECRET });
-  await app.register(rateLimit, { redis, max: 300, timeWindow: '1 minute' });
+  await app.register(rateLimit, {
+    redis,
+    max: 300,
+    timeWindow: '1 minute',
+    hook: 'preHandler',
+    keyGenerator: (req) => req.ctx?.userId ?? req.ip,
+  });
   if (config.NODE_ENV === 'development') {
     await app.register(swagger, {
       openapi: { info: { title: 'APMail', version: '0.0.0' } },
@@ -55,7 +70,37 @@ export async function buildApp(config: ApiEnv = readEnv()) {
     await app.register(swaggerUi, { routePrefix: '/api/docs' });
   }
   app.setErrorHandler((error, _request, reply) => {
-    const e = error as { validation?: unknown; statusCode?: number; message?: string };
+    const e = error as {
+      validation?: unknown;
+      statusCode?: number;
+      message?: string;
+      code?: string;
+    };
+    if (error instanceof ZodError) {
+      reply.code(400).send({
+        error: {
+          code: 'validation_error',
+          message: 'Confira os campos informados.',
+          details: error.flatten().fieldErrors,
+        },
+      });
+      return;
+    }
+    if (e.code === '23505') {
+      reply.code(409).send({
+        error: { code: 'conflict', message: 'Este e-mail ou identificador já está em uso.' },
+      });
+      return;
+    }
+    if (e.message === 'last_owner') {
+      reply.code(409).send({
+        error: {
+          code: 'conflict',
+          message: 'A empresa precisa de ao menos um proprietário ativo.',
+        },
+      });
+      return;
+    }
     const status = e.validation ? 400 : (e.statusCode ?? 500);
     if (status >= 500) app.log.error({ err: error }, 'Falha na requisição.');
     const code =
@@ -69,20 +114,18 @@ export async function buildApp(config: ApiEnv = readEnv()) {
           429: 'rate_limited',
         } as Record<number, string>
       )[status] ?? 'internal';
-    reply
-      .code(status)
-      .send({
-        error: {
-          code,
-          message:
-            status >= 500
-              ? 'Não foi possível concluir a operação. Tente novamente.'
-              : status === 429
-                ? 'Muitas tentativas. Aguarde alguns minutos.'
-                : (e.message ?? 'Requisição inválida.'),
-          ...(e.validation ? { details: e.validation } : {}),
-        },
-      });
+    reply.code(status).send({
+      error: {
+        code: error instanceof ApiError ? error.code : code,
+        message:
+          status >= 500
+            ? 'Não foi possível concluir a operação. Tente novamente.'
+            : status === 429
+              ? 'Muitas tentativas. Aguarde alguns minutos.'
+              : (e.message ?? 'Requisição inválida.'),
+        ...(e.validation ? { details: e.validation } : {}),
+      },
+    });
   });
   app.setNotFoundHandler((_request, reply) =>
     reply.code(404).send({ error: { code: 'not_found', message: 'Recurso não encontrado.' } }),
@@ -95,14 +138,12 @@ export async function buildApp(config: ApiEnv = readEnv()) {
       const dbStatus = checks[0]?.status === 'fulfilled' ? 'ok' : 'error';
       const redisStatus = checks[1]?.status === 'fulfilled' ? 'ok' : 'error';
       const healthy = dbStatus === 'ok' && redisStatus === 'ok';
-      return reply
-        .code(healthy ? 200 : 503)
-        .send({
-          status: healthy ? 'ok' : 'error',
-          db: dbStatus,
-          redis: redisStatus,
-          version: '0.0.0',
-        });
+      return reply.code(healthy ? 200 : 503).send({
+        status: healthy ? 'ok' : 'error',
+        db: dbStatus,
+        redis: redisStatus,
+        version: '0.0.0',
+      });
     },
   );
   const pub = new Redis(config.REDIS_URL, { maxRetriesPerRequest: null });
@@ -112,8 +153,14 @@ export async function buildApp(config: ApiEnv = readEnv()) {
     cors: { origin: config.APP_URL, credentials: true },
   });
   io.adapter(createAdapter(pub, sub));
-  // Nenhuma conexão anônima; a validação de sessão será adicionada na Fase 1.
-  io.use((_socket, next) => next(new Error('unauthenticated')));
+  const resources = { db, redis, io, queues: queueResources.queues, env: config };
+  await installAuth(app, db, redis, config);
+  installSocket(app, resources);
+  await registerAuthRoutes(app, resources);
+  await registerTenantRoutes(app, resources);
+  await registerMailboxRoutes(app, resources);
+  await registerInvitationRoutes(app, resources);
+  await registerAvatarRoutes(app, resources);
   app.addHook('onClose', async () => {
     io.disconnectSockets(true);
     await new Promise<void>((resolve) => io.close(() => resolve()));

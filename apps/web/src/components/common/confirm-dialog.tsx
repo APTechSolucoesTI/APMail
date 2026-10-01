@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,30 +18,61 @@ export function ConfirmDialog({
   onConfirm,
   pending = false,
   destructive = false,
+  open,
+  onOpenChange,
 }: {
-  trigger: ReactNode;
+  trigger?: ReactNode;
   title: string;
   description: string;
-  onConfirm: () => void;
+  onConfirm: () => unknown | Promise<unknown>;
   pending?: boolean;
   destructive?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const change = (value: boolean) => {
+    if (busy) return;
+    setInternalOpen(value);
+    onOpenChange?.(value);
+    setError('');
+  };
   return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
+    <AlertDialog open={open ?? internalOpen} onOpenChange={change}>
+      {trigger && <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>}
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={pending}>Cancelar</AlertDialogCancel>
+          <AlertDialogCancel disabled={pending || busy}>Cancelar</AlertDialogCancel>
           <AlertDialogAction
-            disabled={pending}
+            disabled={pending || busy}
             className={buttonVariants({ variant: destructive ? 'destructive' : 'default' })}
-            onClick={onConfirm}
+            onClick={async (event) => {
+              event.preventDefault();
+              setError('');
+              setBusy(true);
+              try {
+                await onConfirm();
+                setInternalOpen(false);
+                onOpenChange?.(false);
+              } catch (e) {
+                setError(e instanceof Error ? e.message : 'Não foi possível concluir a ação.');
+              } finally {
+                setBusy(false);
+              }
+            }}
           >
-            {pending ? 'Aguarde…' : 'Confirmar'}
+            {pending || busy ? 'Aguarde…' : 'Confirmar'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

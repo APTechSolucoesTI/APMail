@@ -18,3 +18,7 @@ O repositório remoto vazio exige um commit inicial sem arquivos para estabelece
 Correção de acessibilidade na Fase 0: `primary` claro e `ring` claro usam `#137A98`. Os valores originais têm contraste de 4,20:1 no botão branco e 2,21:1 no foco sobre branco. O ajuste fornece 4,92:1 e resolve a divergência entre a paleta e a exigência AA. Tema e especificação visual foram atualizados juntos; as cores institucionais são preservadas.
 
 TanStack Table 9: `useTable` e `tableFeatures` substituem a API v8, conforme [guia oficial](https://tanstack.com/table/latest/docs/framework/react/guide/migrating). O comportamento e o contrato de ConfigurableTable são preservados.
+
+Migrations normalizam CRLF para LF antes do checksum, preservando o mesmo SHA-256 em Windows e Linux; alterações no SQL continuam proibidas. Atributos Git fixam LF no repositório.
+
+Node mínimo atualizado para 22.22.2, exigido pelas dependências estáveis atuais de lint e testes. API e worker usam armazenamento relativo à raiz do workspace para compartilhar os mesmos arquivos.

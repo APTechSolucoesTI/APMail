@@ -1,4 +1,5 @@
 import { z } from 'zod';
+z.config(z.locales.ptBR());
 export const uuidSchema = z.uuid();
 export const emailSchema = z.email().trim().toLowerCase();
 export const pageSizeSchema = z.union([

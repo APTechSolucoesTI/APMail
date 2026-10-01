@@ -7,6 +7,7 @@ export default tseslint.config(
   {
     ignores: [
       '**/dist/**',
+      '.data/**',
       '**/node_modules/**',
       '**/coverage/**',
       '**/routeTree.gen.ts',

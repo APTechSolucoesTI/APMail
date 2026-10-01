@@ -2,10 +2,13 @@ import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { writeFile } from 'node:fs/promises';
 import pino from 'pino';
-import { createQueues } from '@apmail/db';
+import { createQueues, createDb } from '@apmail/db';
+import { createSystemEmailHandler } from './handlers/system-email.js';
 import { QUEUE_NAMES } from '@apmail/shared';
 import { readEnv } from './env.js';
 const env = readEnv();
+const db = createDb(env.DATABASE_URL);
+const sendSystemEmail = createSystemEmailHandler(env);
 const log = pino({
   level: env.LOG_LEVEL,
   redact: ['password', 'token', 'body', 'encrypted_password'],
@@ -17,6 +20,18 @@ const workers = QUEUE_NAMES.map(
     new Worker(
       name,
       async (job) => {
+        if (name === 'system-email') return sendSystemEmail(job.name, job.data);
+        if (name === 'maintenance' && job.name === 'cleanup-auth') {
+          const now = new Date();
+          await db.deleteFrom('sessions').where('expires_at', '<', now).execute();
+          await db.deleteFrom('password_reset_tokens').where('expires_at', '<', now).execute();
+          await db
+            .deleteFrom('invitations')
+            .where('expires_at', '<', now)
+            .where('accepted_at', 'is', null)
+            .execute();
+          return;
+        }
         log.info(
           { queue: name, job_id: job.id, name: job.name },
           'Handler reservado para a próxima fase.',
@@ -60,6 +75,7 @@ for (const signal of ['SIGINT', 'SIGTERM'])
     await Promise.all(workers.map((worker) => worker.close()));
     await resources.close();
     await connection.quit();
+    await db.destroy();
     clearTimeout(timeout);
     process.exit(0);
   });

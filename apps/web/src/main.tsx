@@ -1,18 +1,13 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { RouterProvider, createRouter } from '@tanstack/react-router';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './lib/query-client';
 import { Toaster } from 'sonner';
 import { routeTree } from './routeTree.gen';
 import { ThemeProvider } from './components/layout/theme-provider';
 import { TooltipProvider } from './components/ui/tooltip';
 import './styles.css';
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { staleTime: 30000, refetchOnWindowFocus: true, retry: 1 },
-    mutations: { retry: 0 },
-  },
-});
 const router = createRouter({ routeTree });
 declare module '@tanstack/react-router' {
   interface Register {

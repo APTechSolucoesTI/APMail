@@ -319,6 +319,9 @@ importers:
       '@types/sanitize-html':
         specifier: ^2.16.2
         version: 2.16.2
+      socket.io-client:
+        specifier: 4.8.4
+        version: 4.8.4(supports-color@7.2.0)
 
   apps/web:
     dependencies:

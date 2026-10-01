@@ -9,54 +9,292 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppRouteImport } from './routes/_app'
+import { Route as AcceptInviteRouteImport } from './routes/accept-invite'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as SignupRouteImport } from './routes/signup'
+import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as DevUiRouteImport } from './routes/[_]dev.ui'
+import { Route as AppMailMailboxIdRouteImport } from './routes/_app.mail.$mailboxId'
+import { Route as AppSettingsAuditRouteImport } from './routes/_app.settings.audit'
+import { Route as AppSettingsMailboxesRouteImport } from './routes/_app.settings.mailboxes'
+import { Route as AppSettingsPreferencesRouteImport } from './routes/_app.settings.preferences'
+import { Route as AppSettingsProfileRouteImport } from './routes/_app.settings.profile'
+import { Route as AppSettingsTenantRouteImport } from './routes/_app.settings.tenant'
+import { Route as AppSettingsUsersRouteImport } from './routes/_app.settings.users'
+import { Route as AppSettingsMailboxesMailboxIdRouteImport } from './routes/_app.settings.mailboxes_.$mailboxId'
 
-const IndexRoute = IndexRouteImport.update({
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AcceptInviteRoute = AcceptInviteRouteImport.update({
+  id: '/accept-invite',
+  path: '/accept-invite',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignupRoute = SignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
 const DevUiRoute = DevUiRouteImport.update({
   id: '/_dev/ui',
   path: '/_dev/ui',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppMailMailboxIdRoute = AppMailMailboxIdRouteImport.update({
+  id: '/mail/$mailboxId',
+  path: '/mail/$mailboxId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsAuditRoute = AppSettingsAuditRouteImport.update({
+  id: '/settings/audit',
+  path: '/settings/audit',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsMailboxesRoute = AppSettingsMailboxesRouteImport.update({
+  id: '/settings/mailboxes',
+  path: '/settings/mailboxes',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsPreferencesRoute = AppSettingsPreferencesRouteImport.update({
+  id: '/settings/preferences',
+  path: '/settings/preferences',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsProfileRoute = AppSettingsProfileRouteImport.update({
+  id: '/settings/profile',
+  path: '/settings/profile',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsTenantRoute = AppSettingsTenantRouteImport.update({
+  id: '/settings/tenant',
+  path: '/settings/tenant',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsUsersRoute = AppSettingsUsersRouteImport.update({
+  id: '/settings/users',
+  path: '/settings/users',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsMailboxesMailboxIdRoute =
+  AppSettingsMailboxesMailboxIdRouteImport.update({
+    id: '/settings/mailboxes_/$mailboxId',
+    path: '/settings/mailboxes/$mailboxId',
+    getParentRoute: () => AppRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
+  '/': typeof AppIndexRoute
+  '/accept-invite': typeof AcceptInviteRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/login': typeof LoginRoute
+  '/onboarding': typeof OnboardingRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/signup': typeof SignupRoute
   '/_dev/ui': typeof DevUiRoute
+  '/mail/$mailboxId': typeof AppMailMailboxIdRoute
+  '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/mailboxes': typeof AppSettingsMailboxesRoute
+  '/settings/preferences': typeof AppSettingsPreferencesRoute
+  '/settings/profile': typeof AppSettingsProfileRoute
+  '/settings/tenant': typeof AppSettingsTenantRoute
+  '/settings/users': typeof AppSettingsUsersRoute
+  '/settings/mailboxes/$mailboxId': typeof AppSettingsMailboxesMailboxIdRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
+  '/accept-invite': typeof AcceptInviteRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/login': typeof LoginRoute
+  '/onboarding': typeof OnboardingRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/signup': typeof SignupRoute
   '/_dev/ui': typeof DevUiRoute
+  '/': typeof AppIndexRoute
+  '/mail/$mailboxId': typeof AppMailMailboxIdRoute
+  '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/mailboxes': typeof AppSettingsMailboxesRoute
+  '/settings/preferences': typeof AppSettingsPreferencesRoute
+  '/settings/profile': typeof AppSettingsProfileRoute
+  '/settings/tenant': typeof AppSettingsTenantRoute
+  '/settings/users': typeof AppSettingsUsersRoute
+  '/settings/mailboxes/$mailboxId': typeof AppSettingsMailboxesMailboxIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
+  '/_app': typeof AppRouteWithChildren
+  '/accept-invite': typeof AcceptInviteRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/login': typeof LoginRoute
+  '/onboarding': typeof OnboardingRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/signup': typeof SignupRoute
   '/_dev/ui': typeof DevUiRoute
+  '/_app/': typeof AppIndexRoute
+  '/_app/mail/$mailboxId': typeof AppMailMailboxIdRoute
+  '/_app/settings/audit': typeof AppSettingsAuditRoute
+  '/_app/settings/mailboxes': typeof AppSettingsMailboxesRoute
+  '/_app/settings/preferences': typeof AppSettingsPreferencesRoute
+  '/_app/settings/profile': typeof AppSettingsProfileRoute
+  '/_app/settings/tenant': typeof AppSettingsTenantRoute
+  '/_app/settings/users': typeof AppSettingsUsersRoute
+  '/_app/settings/mailboxes_/$mailboxId': typeof AppSettingsMailboxesMailboxIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/_dev/ui'
+  fullPaths:
+    | '/'
+    | '/accept-invite'
+    | '/forgot-password'
+    | '/login'
+    | '/onboarding'
+    | '/reset-password'
+    | '/signup'
+    | '/_dev/ui'
+    | '/mail/$mailboxId'
+    | '/settings/audit'
+    | '/settings/mailboxes'
+    | '/settings/preferences'
+    | '/settings/profile'
+    | '/settings/tenant'
+    | '/settings/users'
+    | '/settings/mailboxes/$mailboxId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/_dev/ui'
-  id: '__root__' | '/' | '/_dev/ui'
+  to:
+    | '/accept-invite'
+    | '/forgot-password'
+    | '/login'
+    | '/onboarding'
+    | '/reset-password'
+    | '/signup'
+    | '/_dev/ui'
+    | '/'
+    | '/mail/$mailboxId'
+    | '/settings/audit'
+    | '/settings/mailboxes'
+    | '/settings/preferences'
+    | '/settings/profile'
+    | '/settings/tenant'
+    | '/settings/users'
+    | '/settings/mailboxes/$mailboxId'
+  id:
+    | '__root__'
+    | '/_app'
+    | '/accept-invite'
+    | '/forgot-password'
+    | '/login'
+    | '/onboarding'
+    | '/reset-password'
+    | '/signup'
+    | '/_dev/ui'
+    | '/_app/'
+    | '/_app/mail/$mailboxId'
+    | '/_app/settings/audit'
+    | '/_app/settings/mailboxes'
+    | '/_app/settings/preferences'
+    | '/_app/settings/profile'
+    | '/_app/settings/tenant'
+    | '/_app/settings/users'
+    | '/_app/settings/mailboxes_/$mailboxId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRouteWithChildren
+  AcceptInviteRoute: typeof AcceptInviteRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
+  LoginRoute: typeof LoginRoute
+  OnboardingRoute: typeof OnboardingRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
+  SignupRoute: typeof SignupRoute
   DevUiRoute: typeof DevUiRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/accept-invite': {
+      id: '/accept-invite'
+      path: '/accept-invite'
+      fullPath: '/accept-invite'
+      preLoaderRoute: typeof AcceptInviteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/signup': {
+      id: '/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof SignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/': {
+      id: '/_app/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_dev/ui': {
       id: '/_dev/ui'
@@ -65,11 +303,99 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DevUiRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/mail/$mailboxId': {
+      id: '/_app/mail/$mailboxId'
+      path: '/mail/$mailboxId'
+      fullPath: '/mail/$mailboxId'
+      preLoaderRoute: typeof AppMailMailboxIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/audit': {
+      id: '/_app/settings/audit'
+      path: '/settings/audit'
+      fullPath: '/settings/audit'
+      preLoaderRoute: typeof AppSettingsAuditRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/mailboxes': {
+      id: '/_app/settings/mailboxes'
+      path: '/settings/mailboxes'
+      fullPath: '/settings/mailboxes'
+      preLoaderRoute: typeof AppSettingsMailboxesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/preferences': {
+      id: '/_app/settings/preferences'
+      path: '/settings/preferences'
+      fullPath: '/settings/preferences'
+      preLoaderRoute: typeof AppSettingsPreferencesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/profile': {
+      id: '/_app/settings/profile'
+      path: '/settings/profile'
+      fullPath: '/settings/profile'
+      preLoaderRoute: typeof AppSettingsProfileRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/tenant': {
+      id: '/_app/settings/tenant'
+      path: '/settings/tenant'
+      fullPath: '/settings/tenant'
+      preLoaderRoute: typeof AppSettingsTenantRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/users': {
+      id: '/_app/settings/users'
+      path: '/settings/users'
+      fullPath: '/settings/users'
+      preLoaderRoute: typeof AppSettingsUsersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/mailboxes_/$mailboxId': {
+      id: '/_app/settings/mailboxes_/$mailboxId'
+      path: '/settings/mailboxes/$mailboxId'
+      fullPath: '/settings/mailboxes/$mailboxId'
+      preLoaderRoute: typeof AppSettingsMailboxesMailboxIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
+interface AppRouteChildren {
+  AppIndexRoute: typeof AppIndexRoute
+  AppMailMailboxIdRoute: typeof AppMailMailboxIdRoute
+  AppSettingsAuditRoute: typeof AppSettingsAuditRoute
+  AppSettingsMailboxesRoute: typeof AppSettingsMailboxesRoute
+  AppSettingsPreferencesRoute: typeof AppSettingsPreferencesRoute
+  AppSettingsProfileRoute: typeof AppSettingsProfileRoute
+  AppSettingsTenantRoute: typeof AppSettingsTenantRoute
+  AppSettingsUsersRoute: typeof AppSettingsUsersRoute
+  AppSettingsMailboxesMailboxIdRoute: typeof AppSettingsMailboxesMailboxIdRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppIndexRoute: AppIndexRoute,
+  AppMailMailboxIdRoute: AppMailMailboxIdRoute,
+  AppSettingsAuditRoute: AppSettingsAuditRoute,
+  AppSettingsMailboxesRoute: AppSettingsMailboxesRoute,
+  AppSettingsPreferencesRoute: AppSettingsPreferencesRoute,
+  AppSettingsProfileRoute: AppSettingsProfileRoute,
+  AppSettingsTenantRoute: AppSettingsTenantRoute,
+  AppSettingsUsersRoute: AppSettingsUsersRoute,
+  AppSettingsMailboxesMailboxIdRoute: AppSettingsMailboxesMailboxIdRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
+  AppRoute: AppRouteWithChildren,
+  AcceptInviteRoute: AcceptInviteRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
+  LoginRoute: LoginRoute,
+  OnboardingRoute: OnboardingRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
+  SignupRoute: SignupRoute,
   DevUiRoute: DevUiRoute,
 }
 export const routeTree = rootRouteImport
