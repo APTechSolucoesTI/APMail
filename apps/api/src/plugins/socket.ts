@@ -4,6 +4,8 @@ import { contextForToken } from './auth.js';
 import { requireMailboxPerm } from '../authz/guards.js';
 import type { Resources } from '../modules/resources.js';
 import { installThreadPresence } from './thread-presence.js';
+import { installChatSocket } from './chat-socket.js';
+import { installTenantPresence } from './tenant-presence.js';
 export function installSocket(app: FastifyInstance, r: Resources) {
   const pending = new Set<Promise<void>>();
   const track = (task: Promise<void>) => {
@@ -61,44 +63,13 @@ export function installSocket(app: FastifyInstance, r: Resources) {
       track(task);
     };
     installThreadPresence(socket, r, freshContext, track, ordered);
+    installChatSocket(socket, r, freshContext, ordered);
     void socket.join([
       'user:' + c.userId,
       'session:' + c.sessionHash,
       ...(c.tenantId ? ['tenant:' + c.tenantId] : []),
     ]);
-    const presenceKey = c.tenantId ? `presence:${c.tenantId}:${c.userId}` : null;
-    async function presence(connected: boolean) {
-      if (!presenceKey) return;
-      if (connected) {
-        await r.redis.zadd(presenceKey, Date.now() + 70000, socket.id);
-        await r.redis.expire(presenceKey, 90);
-      } else await r.redis.zrem(presenceKey, socket.id);
-      await r.redis.zremrangebyscore(presenceKey, 0, Date.now());
-      r.io.to('tenant:' + c!.tenantId).emit('presence:changed', {
-        user_id: c!.userId,
-        online: (await r.redis.zcard(presenceKey)) > 0,
-      });
-    }
-    track(presence(true));
-    const timer = setInterval(
-      () =>
-        void (async () => {
-          const fresh = await contextForToken(
-            r.db,
-            r.redis,
-            socket.data.token as string,
-            socket.handshake.address,
-            socket.id,
-          );
-          if (!fresh || fresh.tenantId !== c.tenantId) {
-            socket.disconnect(true);
-            return;
-          }
-          socket.data.ctx = fresh;
-          await presence(true);
-        })().catch(() => socket.disconnect(true)),
-      30000,
-    );
+    installTenantPresence(socket, r, c, freshContext, track);
     for (const event of ['mailbox:subscribe', 'mailbox:join'])
       socket.on(
         event,
@@ -122,10 +93,6 @@ export function installSocket(app: FastifyInstance, r: Resources) {
             }
           }),
       );
-    socket.on('disconnect', () => {
-      clearInterval(timer);
-      track(presence(false));
-    });
     socket.on('thread:subscribe', (payload: unknown, ack?: (response: { ok: boolean }) => void) =>
       ordered(async () => {
         try {

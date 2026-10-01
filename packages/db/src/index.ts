@@ -12,3 +12,4 @@ export * from './domain/threads.js';
 export * from './sanitize.js';
 export * from './domain/outbox.js';
 export * from './domain/thread-operations.js';
+export * from './domain/notifications.js';

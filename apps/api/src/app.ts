@@ -31,6 +31,7 @@ import { registerOutboxRoutes } from './modules/outbox.js';
 import { registerOrganizationRoutes } from './modules/organization/routes.js';
 import { registerThreadOperations } from './modules/thread-operations/routes.js';
 import { registerDashboard } from './modules/dashboard/routes.js';
+import { registerChat } from './modules/chat/routes.js';
 import { ApiError } from './authz/context.js';
 
 export async function buildApp(config: ApiEnv = readEnv()) {
@@ -171,6 +172,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await registerOrganizationRoutes(app, resources);
   registerThreadOperations(app, resources);
   registerDashboard(app, resources);
+  registerChat(app, resources);
   app.addHook('onClose', async () => {
     io.disconnectSockets(true);
     await sockets.drain();

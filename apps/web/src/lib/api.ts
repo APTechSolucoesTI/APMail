@@ -19,8 +19,26 @@ export async function api<T>(
     ...(options.body !== undefined
       ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(options.body) }
       : {}),
+  }).catch((error: unknown) => {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'name' in error &&
+      error.name === 'AbortError'
+    )
+      throw error;
+    throw new ApiError(0, 'network_error', 'Não foi possível conectar. Tente novamente.');
   });
-  const data: unknown = await response.json();
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    throw new ApiError(
+      response.status,
+      'unavailable',
+      'O servidor está indisponível. Tente novamente.',
+    );
+  }
   if (!response.ok) {
     const error = (
       data as { error?: { code?: string; message?: string; details?: Record<string, string[]> } }
