@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useImperativeHandle, type Ref } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import DOMPurify from 'dompurify';
 import { toast } from 'sonner';
@@ -13,7 +13,9 @@ import {
   type ReplyKind,
   type ReplyMessage,
 } from '@apmail/shared';
-import { Send, Clock, Paperclip, X, Trash2 } from 'lucide-react';
+import { Send, Clock, Paperclip, X, Trash2, Minus, Maximize2, Minimize2 } from 'lucide-react';
+import { useMediaQuery } from '@/hooks/use-media-query';
+import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { meQuery, useTenantId, type Mailbox } from '@/lib/auth';
 import type { Outbox, Signature } from '@/lib/outbox';
@@ -43,6 +45,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
 type Attached = { ref: OutboxAttachment; filename: string; size_bytes: number };
+export type ComposerHandle = { saveDraft: () => Promise<void> };
 const blank = (id: string): OutboxInput => ({
   mailbox_id: id,
   kind: 'new',
@@ -60,13 +63,18 @@ export function Composer({
   threadId,
   onClose,
   onReopen,
+  ref,
 }: {
   mailboxId: string;
   mode: string;
   threadId?: string;
   onClose: () => void;
   onReopen: (id: string) => void;
+  ref?: Ref<ComposerHandle>;
 }) {
+  const desktop = useMediaQuery('(min-width: 1024px)'),
+    [minimized, setMinimized] = useState(false),
+    [maximized, setMaximized] = useState(false);
   const tenant = useTenantId(),
     client = useQueryClient(),
     me = useQuery(meQuery);
@@ -176,6 +184,7 @@ export function Composer({
         setSavedAt(
           new Intl.DateTimeFormat('pt-BR', {
             timeZone: me.data?.preferences.timezone ?? 'America/Sao_Paulo',
+            timeZoneName: 'short',
             hour: '2-digit',
             minute: '2-digit',
           }).format(new Date(draft.data.updated_at)),
@@ -262,6 +271,7 @@ export function Composer({
       setSavedAt(
         new Intl.DateTimeFormat('pt-BR', {
           timeZone: me.data?.preferences.timezone ?? 'America/Sao_Paulo',
+          timeZoneName: 'short',
           hour: '2-digit',
           minute: '2-digit',
         }).format(new Date()),
@@ -275,6 +285,12 @@ export function Composer({
     }
   };
   const fingerprint = JSON.stringify(combined);
+  useImperativeHandle(ref, () => ({
+    saveDraft: async () => {
+      if (uploads.length) throw Error('Aguarde o envio dos anexos.');
+      if (ready && edited && JSON.stringify(current.current) !== savedJson.current) await save();
+    },
+  }));
   useEffect(() => {
     if (!ready || !edited || busy || uploads.length || fingerprint === savedJson.current) return;
     const timer = setTimeout(() => {
@@ -317,6 +333,7 @@ export function Composer({
           'Envio agendado para ' +
             new Date(scheduled_at).toLocaleString('pt-BR', {
               timeZone: me.data?.preferences.timezone,
+              timeZoneName: 'short',
             }),
         );
       else
@@ -392,258 +409,313 @@ export function Composer({
     max = company.data?.settings.max_attachment_mb ?? 25;
   const readonly = !!draft.data && draft.data.status !== 'draft';
   return (
-    <Dialog
-      open
-      onOpenChange={(v) => {
-        if (!v) void close();
-      }}
-    >
-      <DialogContent
-        className="max-h-[95dvh] overflow-y-auto sm:max-w-3xl"
-        onKeyDown={(e) => {
-          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-            e.preventDefault();
-            void submit();
-          }
+    <>
+      {minimized && (
+        <div className="fixed bottom-4 right-4 z-50 flex max-w-[calc(100vw-2rem)] items-center gap-2 rounded-lg border bg-card p-2 shadow-card">
+          <Button variant="ghost" onClick={() => setMinimized(false)}>
+            {data.subject || 'Restaurar rascunho'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Fechar compositor"
+            onClick={() => void close()}
+          >
+            <X />
+          </Button>
+        </div>
+      )}
+      <Dialog
+        open={!minimized}
+        modal={!desktop || maximized}
+        onOpenChange={(v) => {
+          if (!v) void close();
         }}
       >
-        <DialogHeader>
-          <DialogTitle>
-            {draftId
-              ? 'Editar rascunho'
-              : mode === 'new'
-                ? 'Novo e-mail'
-                : mode.startsWith('forward')
-                  ? 'Encaminhar e-mail'
-                  : 'Responder e-mail'}
-          </DialogTitle>
-          <DialogDescription>
-            O rascunho é salvo automaticamente enquanto você escreve.
-          </DialogDescription>
-        </DialogHeader>
-        {!ready ? (
-          draft.error || conversation.error || boxes.error || signatures.error ? (
-            <ErrorState
-              onRetry={() => {
-                void draft.refetch();
-                void conversation.refetch();
-                void boxes.refetch();
-                void signatures.refetch();
-              }}
-            />
-          ) : (
-            <LoadingState />
-          )
-        ) : readonly ? (
-          <p role="alert">Este envio já saiu dos rascunhos. Cancele antes de editar.</p>
-        ) : (
-          <div
-            className="space-y-3"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
+        <DialogContent
+          className={cn(
+            'flex flex-col overflow-hidden',
+            desktop && !maximized
+              ? 'fixed bottom-4 right-4 left-auto top-auto h-[560px] max-h-[calc(100dvh-2rem)] w-[640px] max-w-[calc(100vw-2rem)] translate-x-0 translate-y-0 sm:max-w-[640px]'
+              : 'fixed left-0 top-0 h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 rounded-none sm:max-w-none',
+          )}
+          onInteractOutside={(e) => {
+            if (desktop && !maximized) e.preventDefault();
+          }}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
               e.preventDefault();
-              if (!busy) for (const f of e.dataTransfer.files) void upload(f);
-            }}
-          >
-            <Label htmlFor="compose-from">De</Label>
-            <select
-              id="compose-from"
-              className="h-11 w-full rounded-md border border-input bg-card px-3 text-sm"
-              value={data.mailbox_id}
-              disabled={data.kind !== 'new' || busy}
-              onChange={(e) => {
-                const id = e.target.value,
-                  s =
-                    signatures.data?.find((s) => s.is_default && s.mailbox_id === id) ??
-                    signatures.data?.find((s) => s.is_default && !s.mailbox_id);
-                setEdited(true);
-                setData((d) => ({ ...d, mailbox_id: id, signature_id: s?.id ?? null }));
-                setSignatureHtml(s?.body_html ?? '');
-              }}
-            >
-              {boxes.data
-                ?.filter((b) => can(b.role, 'send'))
-                .map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name} &lt;{b.email_address}&gt;
-                  </option>
-                ))}
-            </select>
-            <EmailChipInput
-              label="Para"
-              value={data.to_addresses}
-              mailboxId={data.mailbox_id}
-              onChange={(v) => {
-                setEdited(true);
-                setData((d) => ({ ...d, to_addresses: v }));
-              }}
-            />
-            <div className="flex gap-2">
-              {!cc && (
-                <Button type="button" size="sm" variant="ghost" onClick={() => setCc(true)}>
-                  Adicionar Cc
-                </Button>
-              )}
-              {!bcc && (
-                <Button type="button" size="sm" variant="ghost" onClick={() => setBcc(true)}>
-                  Adicionar Cco
-                </Button>
-              )}
-            </div>
-            {cc && (
-              <EmailChipInput
-                label="Cc"
-                value={data.cc_addresses}
-                mailboxId={data.mailbox_id}
-                onChange={(v) => {
-                  setEdited(true);
-                  setData((d) => ({ ...d, cc_addresses: v }));
-                }}
-              />
-            )}
-            {bcc && (
-              <EmailChipInput
-                label="Cco"
-                value={data.bcc_addresses}
-                mailboxId={data.mailbox_id}
-                onChange={(v) => {
-                  setEdited(true);
-                  setData((d) => ({ ...d, bcc_addresses: v }));
-                }}
-              />
-            )}
-            <Label htmlFor="compose-subject">Assunto</Label>
-            <Input
-              id="compose-subject"
-              value={data.subject}
-              onChange={(e) => {
-                const subject = e.target.value;
-                setEdited(true);
-                setData((d) => ({ ...d, subject }));
-              }}
-            />
-            <Label>Mensagem</Label>
-            <RichTextEditor
-              value={body}
-              onChange={(value) => {
-                setEdited(true);
-                setBody(value);
-              }}
-            />
-            <Label htmlFor="compose-signature">Assinatura</Label>
-            <select
-              id="compose-signature"
-              className="h-11 w-full rounded-md border border-input bg-card px-3 text-sm"
-              value={data.signature_id ?? ''}
-              onChange={(e) => {
-                const s = signatures.data?.find((s) => s.id === e.target.value);
-                setEdited(true);
-                setData((d) => ({ ...d, signature_id: s?.id ?? null }));
-                setSignatureHtml(s?.body_html ?? '');
-              }}
-            >
-              <option value="">Sem assinatura</option>
-              {signatures.data
-                ?.filter((s) => !s.mailbox_id || s.mailbox_id === data.mailbox_id)
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-            </select>
-            {data.signature_id && (
-              <div
-                className="rounded-md border p-3 text-sm"
-                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(signatureHtml) }}
-              />
-            )}
-            {quote && (
-              <div>
+              void submit();
+            }
+          }}
+        >
+          <DialogHeader className="shrink-0">
+            {desktop && (
+              <div className="mr-6 flex justify-end gap-1">
                 <Button
                   variant="ghost"
-                  size="sm"
-                  aria-label="Expandir mensagem citada"
-                  aria-expanded={expandedQuote}
-                  onClick={() => setExpandedQuote((v) => !v)}
+                  size="icon"
+                  aria-label="Minimizar compositor"
+                  disabled={busy}
+                  onClick={() => setMinimized(true)}
                 >
-                  …
+                  <Minus />
                 </Button>
-                {expandedQuote && (
-                  <div
-                    className="max-h-60 overflow-auto rounded-md border p-3 text-sm"
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(quote) }}
-                  />
-                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={
+                    maximized ? 'Restaurar tamanho do compositor' : 'Maximizar compositor'
+                  }
+                  onClick={() => setMaximized((v) => !v)}
+                >
+                  {maximized ? <Minimize2 /> : <Maximize2 />}
+                </Button>
               </div>
             )}
-            <input
-              ref={fileInput}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                for (const f of e.target.files ?? []) void upload(f);
-                e.target.value = '';
+            <DialogTitle>
+              {draftId
+                ? 'Editar rascunho'
+                : mode === 'new'
+                  ? 'Novo e-mail'
+                  : mode.startsWith('forward')
+                    ? 'Encaminhar e-mail'
+                    : 'Responder e-mail'}
+            </DialogTitle>
+            <DialogDescription>
+              O rascunho é salvo automaticamente enquanto você escreve.
+            </DialogDescription>
+          </DialogHeader>
+          {!ready ? (
+            draft.error || conversation.error || boxes.error || signatures.error ? (
+              <ErrorState
+                onRetry={() => {
+                  void draft.refetch();
+                  void conversation.refetch();
+                  void boxes.refetch();
+                  void signatures.refetch();
+                }}
+              />
+            ) : (
+              <LoadingState />
+            )
+          ) : readonly ? (
+            <p role="alert">Este envio já saiu dos rascunhos. Cancele antes de editar.</p>
+          ) : (
+            <div
+              className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (!busy) for (const f of e.dataTransfer.files) void upload(f);
               }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() => fileInput.current?.click()}
             >
-              <Paperclip />
-              Adicionar anexos
-            </Button>
-            <ul className="space-y-1">
-              {files.map((f, i) => (
-                <li
-                  key={i}
-                  className="flex min-h-11 items-center gap-2 rounded-md border px-3 text-sm"
-                >
-                  <span className="min-w-0 flex-1 break-all">
-                    {f.filename} ({Math.ceil(f.size_bytes / 1024)} KB)
-                  </span>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    aria-label={'Remover anexo ' + f.filename}
-                    disabled={busy}
-                    onClick={() => {
-                      setEdited(true);
-                      setFiles((prev) => prev.filter((_, j) => j !== i));
-                    }}
-                  >
-                    <X />
+              <Label htmlFor="compose-from">De</Label>
+              <select
+                id="compose-from"
+                className="h-11 w-full rounded-md border border-input bg-card px-3 text-sm"
+                value={data.mailbox_id}
+                disabled={data.kind !== 'new' || busy}
+                onChange={(e) => {
+                  const id = e.target.value,
+                    s =
+                      signatures.data?.find((s) => s.is_default && s.mailbox_id === id) ??
+                      signatures.data?.find((s) => s.is_default && !s.mailbox_id);
+                  setEdited(true);
+                  setData((d) => ({ ...d, mailbox_id: id, signature_id: s?.id ?? null }));
+                  setSignatureHtml(s?.body_html ?? '');
+                }}
+              >
+                {boxes.data
+                  ?.filter((b) => can(b.role, 'send'))
+                  .map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} &lt;{b.email_address}&gt;
+                    </option>
+                  ))}
+              </select>
+              <EmailChipInput
+                label="Para"
+                value={data.to_addresses}
+                mailboxId={data.mailbox_id}
+                onChange={(v) => {
+                  setEdited(true);
+                  setData((d) => ({ ...d, to_addresses: v }));
+                }}
+              />
+              <div className="flex gap-2">
+                {!cc && (
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setCc(true)}>
+                    Adicionar Cc
                   </Button>
-                </li>
-              ))}
-              {uploads.map((u) => (
-                <li key={u.id} role="status" className="text-sm">
-                  {u.name}: {u.progress}%
-                  <progress
-                    aria-label={'Envio de ' + u.name}
-                    max={100}
-                    value={u.progress}
-                    className="w-full"
-                  />
-                </li>
-              ))}
-            </ul>
-            {total > max * 1024 * 1024 && (
-              <p role="alert" className="text-sm text-destructive">
-                Os anexos excedem o limite de {max} MB.
-              </p>
-            )}
-            {error && (
-              <p role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-            )}
-            <div role="status" className="text-xs text-muted-foreground">
-              {saving ? 'Salvando…' : savedAt ? 'Salvo às ' + savedAt : 'Rascunho ainda não salvo'}
+                )}
+                {!bcc && (
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setBcc(true)}>
+                    Adicionar Cco
+                  </Button>
+                )}
+              </div>
+              {cc && (
+                <EmailChipInput
+                  label="Cc"
+                  value={data.cc_addresses}
+                  mailboxId={data.mailbox_id}
+                  onChange={(v) => {
+                    setEdited(true);
+                    setData((d) => ({ ...d, cc_addresses: v }));
+                  }}
+                />
+              )}
+              {bcc && (
+                <EmailChipInput
+                  label="Cco"
+                  value={data.bcc_addresses}
+                  mailboxId={data.mailbox_id}
+                  onChange={(v) => {
+                    setEdited(true);
+                    setData((d) => ({ ...d, bcc_addresses: v }));
+                  }}
+                />
+              )}
+              <Label htmlFor="compose-subject">Assunto</Label>
+              <Input
+                id="compose-subject"
+                value={data.subject}
+                onChange={(e) => {
+                  const subject = e.target.value;
+                  setEdited(true);
+                  setData((d) => ({ ...d, subject }));
+                }}
+              />
+              <Label>Mensagem</Label>
+              <RichTextEditor
+                value={body}
+                onChange={(value) => {
+                  setEdited(true);
+                  setBody(value);
+                }}
+              />
+              <Label htmlFor="compose-signature">Assinatura</Label>
+              <select
+                id="compose-signature"
+                className="h-11 w-full rounded-md border border-input bg-card px-3 text-sm"
+                value={data.signature_id ?? ''}
+                onChange={(e) => {
+                  const s = signatures.data?.find((s) => s.id === e.target.value);
+                  setEdited(true);
+                  setData((d) => ({ ...d, signature_id: s?.id ?? null }));
+                  setSignatureHtml(s?.body_html ?? '');
+                }}
+              >
+                <option value="">Sem assinatura</option>
+                {signatures.data
+                  ?.filter((s) => !s.mailbox_id || s.mailbox_id === data.mailbox_id)
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+              </select>
+              {data.signature_id && (
+                <div
+                  className="rounded-md border p-3 text-sm"
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(signatureHtml) }}
+                />
+              )}
+              {quote && (
+                <div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label="Expandir mensagem citada"
+                    aria-expanded={expandedQuote}
+                    onClick={() => setExpandedQuote((v) => !v)}
+                  >
+                    …
+                  </Button>
+                  {expandedQuote && (
+                    <div
+                      className="max-h-60 overflow-auto rounded-md border p-3 text-sm"
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(quote) }}
+                    />
+                  )}
+                </div>
+              )}
+              <input
+                ref={fileInput}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  for (const f of e.target.files ?? []) void upload(f);
+                  e.target.value = '';
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => fileInput.current?.click()}
+              >
+                <Paperclip />
+                Adicionar anexos
+              </Button>
+              <ul className="space-y-1">
+                {files.map((f, i) => (
+                  <li
+                    key={i}
+                    className="flex min-h-11 items-center gap-2 rounded-md border px-3 text-sm"
+                  >
+                    <span className="min-w-0 flex-1 break-all">
+                      {f.filename} ({Math.ceil(f.size_bytes / 1024)} KB)
+                    </span>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={'Remover anexo ' + f.filename}
+                      disabled={busy}
+                      onClick={() => {
+                        setEdited(true);
+                        setFiles((prev) => prev.filter((_, j) => j !== i));
+                      }}
+                    >
+                      <X />
+                    </Button>
+                  </li>
+                ))}
+                {uploads.map((u) => (
+                  <li key={u.id} role="status" className="text-sm">
+                    {u.name}: {u.progress}%
+                    <progress
+                      aria-label={'Envio de ' + u.name}
+                      max={100}
+                      value={u.progress}
+                      className="w-full"
+                    />
+                  </li>
+                ))}
+              </ul>
+              {total > max * 1024 * 1024 && (
+                <p role="alert" className="text-sm text-destructive">
+                  Os anexos excedem o limite de {max} MB.
+                </p>
+              )}
+              {error && (
+                <p role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
+              )}
+              <div role="status" className="text-xs text-muted-foreground">
+                {saving
+                  ? 'Salvando…'
+                  : savedAt
+                    ? 'Salvo às ' + savedAt
+                    : 'Rascunho ainda não salvo'}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
+          )}
+          {ready && !readonly && (
+            <div className="flex shrink-0 flex-wrap gap-2 border-t pt-3">
               <Button
                 disabled={busy || !!uploads.length || total > max * 1024 * 1024}
                 onClick={() => void submit()}
@@ -668,64 +740,64 @@ export function Composer({
                 Descartar
               </Button>
             </div>
-          </div>
-        )}
-        <ScheduleDialog
-          open={schedule}
-          onClose={() => setSchedule(false)}
-          onSchedule={(v) => void submit(v)}
-          timezone={me.data?.preferences.timezone ?? 'America/Sao_Paulo'}
-          busy={busy}
-        />
-        <AlertDialog
-          open={!!confirm}
-          onOpenChange={(v) => {
-            if (!v) setConfirm(null);
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                {confirm === 'subject' ? 'Enviar sem assunto?' : 'Descartar rascunho?'}
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                {confirm === 'subject'
-                  ? 'A mensagem será enviada com o assunto vazio.'
-                  : 'O texto e os anexos deste rascunho serão removidos.'}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Voltar</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => {
-                  const action = confirm;
-                  setConfirm(null);
-                  if (action === 'subject') void submit(pendingSchedule.current, true);
-                  else {
-                    setBusy(true);
-                    void (async () => {
-                      if (savePromise.current) await savePromise.current;
-                      if (idRef.current)
-                        await api('/outbox/' + idRef.current, { method: 'DELETE' });
-                      else
-                        for (const f of files)
-                          if (f.ref.source === 'upload')
-                            await api('/uploads/' + f.ref.upload_id, { method: 'DELETE' });
-                      await client.invalidateQueries({ queryKey: ['outbox', tenant] });
-                      onClose();
-                    })().catch((e) => {
-                      setError(e.message);
-                      setBusy(false);
-                    });
-                  }
-                }}
-              >
-                {confirm === 'subject' ? 'Enviar sem assunto' : 'Descartar'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </DialogContent>
-    </Dialog>
+          )}
+          <ScheduleDialog
+            open={schedule}
+            onClose={() => setSchedule(false)}
+            onSchedule={(v) => void submit(v)}
+            timezone={me.data?.preferences.timezone ?? 'America/Sao_Paulo'}
+            busy={busy}
+          />
+          <AlertDialog
+            open={!!confirm}
+            onOpenChange={(v) => {
+              if (!v) setConfirm(null);
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {confirm === 'subject' ? 'Enviar sem assunto?' : 'Descartar rascunho?'}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {confirm === 'subject'
+                    ? 'A mensagem será enviada com o assunto vazio.'
+                    : 'O texto e os anexos deste rascunho serão removidos.'}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Voltar</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    const action = confirm;
+                    setConfirm(null);
+                    if (action === 'subject') void submit(pendingSchedule.current, true);
+                    else {
+                      setBusy(true);
+                      void (async () => {
+                        if (savePromise.current) await savePromise.current;
+                        if (idRef.current)
+                          await api('/outbox/' + idRef.current, { method: 'DELETE' });
+                        else
+                          for (const f of files)
+                            if (f.ref.source === 'upload')
+                              await api('/uploads/' + f.ref.upload_id, { method: 'DELETE' });
+                        await client.invalidateQueries({ queryKey: ['outbox', tenant] });
+                        onClose();
+                      })().catch((e) => {
+                        setError(e.message);
+                        setBusy(false);
+                      });
+                    }
+                  }}
+                >
+                  {confirm === 'subject' ? 'Enviar sem assunto' : 'Descartar'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

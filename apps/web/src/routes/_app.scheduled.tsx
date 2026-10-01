@@ -125,7 +125,10 @@ function Scheduled() {
             cell: (o) =>
               new Date(
                 (search.tab === 'scheduled' ? o.scheduled_at : null) ?? o.updated_at,
-              ).toLocaleString('pt-BR', { timeZone: me.data?.preferences.timezone }),
+              ).toLocaleString('pt-BR', {
+                timeZone: me.data?.preferences.timezone,
+                timeZoneName: 'short',
+              }),
           },
           { id: 'mailbox', header: 'Caixa', cell: (o) => o.mailbox?.name ?? '' },
           {

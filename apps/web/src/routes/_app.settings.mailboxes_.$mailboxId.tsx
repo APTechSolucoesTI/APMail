@@ -72,9 +72,27 @@ function MailboxSettings() {
         </TabsContent>
         <TabsContent value="send" className="max-w-2xl rounded-lg border bg-card p-4">
           <SchemaForm
-            schema={mailboxSchema.pick({ from_name_template: true, append_sent_copy: true })}
-            defaults={q.data}
+            schema={mailboxSchema
+              .pick({ from_name_template: true, append_sent_copy: true })
+              .extend({
+                aliases_input: z.string().refine(
+                  (v) =>
+                    v
+                      .split(',')
+                      .map((a) => a.trim())
+                      .filter(Boolean)
+                      .every((a) => mailboxSchema.shape.email_address.safeParse(a).success),
+                  'Confira os endereços dos aliases.',
+                ),
+              })}
+            defaults={{ ...q.data, aliases_input: q.data.aliases.join(', ') }}
             fields={[
+              {
+                name: 'aliases_input',
+                label: 'Aliases',
+                type: 'emails',
+                help: 'Separe os endereços adicionais por vírgula.',
+              },
               {
                 name: 'from_name_template',
                 label: 'Modelo do nome do remetente',
@@ -93,7 +111,17 @@ function MailboxSettings() {
               },
             ]}
             onSubmit={async (body) => {
-              await api('/mailboxes/' + mailboxId, { method: 'PATCH', body });
+              const { aliases_input, ...config } = body;
+              const aliases = mailboxSchema.shape.aliases.parse(
+                String(aliases_input ?? '')
+                  .split(',')
+                  .map((a) => a.trim())
+                  .filter(Boolean),
+              );
+              await api('/mailboxes/' + mailboxId, {
+                method: 'PATCH',
+                body: { ...config, aliases },
+              });
               await client.invalidateQueries({ queryKey: ['mailbox'] });
               toast.success('Configuração de envio atualizada.');
             }}

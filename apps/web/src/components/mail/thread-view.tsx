@@ -98,7 +98,7 @@ export function ThreadView({
         <div key={o.id} className="rounded-md border bg-secondary p-3 text-sm">
           <p>
             {o.scheduled_at
-              ? `Resposta agendada por ${o.created_by_name} para ${new Date(o.scheduled_at).toLocaleString('pt-BR', { timeZone: me.data?.preferences.timezone })}`
+              ? `Resposta agendada por ${o.created_by_name} para ${new Date(o.scheduled_at).toLocaleString('pt-BR', { timeZone: me.data?.preferences.timezone, timeZoneName: 'short' })}`
               : `Resposta ${o.status === 'sending' ? 'em envio' : 'na fila'} por ${o.created_by_name}`}
           </p>
 

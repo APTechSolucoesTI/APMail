@@ -466,7 +466,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     const { q } = z.object({ q: z.string().trim().max(100).default('') }).parse(req.query);
     if (!q) return [];
     const result =
-      await sql<Address>`select distinct address,name from (select from_address as address,from_name as name,message_at from messages where tenant_id=${c.tenantId} and mailbox_id=${id} and deleted_at is null union all select a->>'address',a->>'name',m.message_at from messages m cross join lateral jsonb_array_elements(m.to_addresses||m.cc_addresses) a where m.tenant_id=${c.tenantId} and m.mailbox_id=${id} and m.deleted_at is null) contacts where address ilike ${'%' + q + '%'} or name ilike ${'%' + q + '%'} order by address,name limit 10`.execute(
+      await sql<Address>`select address,coalesce((array_agg(name order by message_at desc))[1],'') as name from (select from_address as address,from_name as name,message_at from messages where tenant_id=${c.tenantId} and mailbox_id=${id} and deleted_at is null union all select a->>'address',a->>'name',m.message_at from messages m cross join lateral jsonb_array_elements(m.to_addresses||m.cc_addresses) a where m.tenant_id=${c.tenantId} and m.mailbox_id=${id} and m.deleted_at is null) contacts where unaccent(address) ilike unaccent(${'%' + q + '%'}) or unaccent(name) ilike unaccent(${'%' + q + '%'}) group by address order by max(message_at) desc,address limit 8`.execute(
         r.db,
       );
     return result.rows;
