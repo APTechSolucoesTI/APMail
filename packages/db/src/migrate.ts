@@ -20,7 +20,7 @@ export async function migrate(
     const versions = new Map(applied.rows.map((row) => [row.version, row.checksum]));
     const files = (await readdir(directory)).filter((file) => /^\d{4}_.+\.sql$/.test(file)).sort();
     for (const file of files) {
-      const contents = await readFile(new URL(file, directory), 'utf8');
+      const contents = (await readFile(new URL(file, directory), 'utf8')).replaceAll('\r\n', '\n');
       const checksum = createHash('sha256').update(contents).digest('hex');
       if (versions.has(file)) {
         if (versions.get(file) !== checksum)

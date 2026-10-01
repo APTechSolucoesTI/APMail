@@ -10,7 +10,123 @@ export type Generated<T> =
     ? ColumnType<S, I | undefined, U>
     : ColumnType<T, T | undefined, T>;
 
+export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
+
+export type Json = JsonValue;
+
+export type JsonArray = JsonValue[];
+
+export type JsonObject = {
+  [x: string]: JsonValue | undefined;
+};
+
+export type JsonPrimitive = boolean | number | string | null;
+
+export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
+
+export type MailboxRole = 'editor' | 'mailbox_admin' | 'viewer';
+
+export type MailboxStatus = 'active' | 'disabled' | 'error' | 'pending';
+
+export type MemberStatus = 'active' | 'disabled';
+
+export type NotificationType =
+  'action_failed' | 'assignment' | 'chat_message' | 'mailbox_error' | 'mention' | 'send_failed';
+
+export type TenantRole = 'admin' | 'member' | 'owner';
+
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
+
+export interface AuditLogs {
+  action: string;
+  actor_id: string | null;
+  created_at: Generated<Timestamp>;
+  entity_id: string | null;
+  entity_type: string;
+  id: Generated<Int8>;
+  ip: string | null;
+  metadata: Generated<Json>;
+  tenant_id: string;
+}
+
+export interface Invitations {
+  accepted_at: Timestamp | null;
+  created_at: Generated<Timestamp>;
+  email: string;
+  expires_at: Timestamp;
+  id: Generated<string>;
+  invited_by: string;
+  mailbox_roles: Generated<Json>;
+  revoked_at: Timestamp | null;
+  tenant_id: string;
+  tenant_role: Generated<TenantRole>;
+  token_hash: string;
+}
+
+export interface MailboxCredentials {
+  encrypted_password: string;
+  mailbox_id: string;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface Mailboxes {
+  aliases: Generated<string[]>;
+  append_sent_copy: Generated<boolean>;
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  deleted_at: Timestamp | null;
+  email_address: string;
+  from_name_template: Generated<string>;
+  id: Generated<string>;
+  imap_host: string;
+  imap_port: Generated<number>;
+  imap_secure: Generated<boolean>;
+  last_error: string | null;
+  last_reconciled_at: Timestamp | null;
+  last_synced_at: Timestamp | null;
+  name: string;
+  smtp_host: string;
+  smtp_port: Generated<number>;
+  smtp_secure: Generated<boolean>;
+  status: Generated<MailboxStatus>;
+  sync_since: Generated<Timestamp>;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+  username: string;
+}
+
+export interface MailboxMembers {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  mailbox_id: string;
+  role: MailboxRole;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
+export interface Notifications {
+  body: Generated<string>;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  link: string | null;
+  payload: Generated<Json>;
+  read_at: Timestamp | null;
+  tenant_id: string;
+  title: string;
+  type: NotificationType;
+  user_id: string;
+}
+
+export interface PasswordResetTokens {
+  created_at: Generated<Timestamp>;
+  expires_at: Timestamp;
+  id: Generated<string>;
+  token_hash: string;
+  used_at: Timestamp | null;
+  user_id: string;
+}
 
 export interface SchemaMigrations {
   applied_at: Generated<Timestamp>;
@@ -18,6 +134,83 @@ export interface SchemaMigrations {
   version: string;
 }
 
+export interface Sessions {
+  created_at: Generated<Timestamp>;
+  expires_at: Timestamp;
+  id: Generated<string>;
+  ip: string | null;
+  last_seen_at: Generated<Timestamp>;
+  token_hash: string;
+  user_agent: string | null;
+  user_id: string;
+}
+
+export interface TablePreferences {
+  config: Json;
+  list_key: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
+export interface TenantMembers {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  role: Generated<TenantRole>;
+  status: Generated<MemberStatus>;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
+export interface Tenants {
+  created_at: Generated<Timestamp>;
+  deleted_at: Timestamp | null;
+  id: Generated<string>;
+  name: string;
+  settings: Generated<Json>;
+  slug: string;
+  timezone: Generated<string>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface UserPreferences {
+  density: Generated<string>;
+  desktop_notifications: Generated<boolean>;
+  load_remote_images: Generated<boolean>;
+  notify_assignments: Generated<boolean>;
+  notify_chat: Generated<boolean>;
+  notify_mentions: Generated<boolean>;
+  theme: Generated<string>;
+  timezone: Generated<string>;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
+export interface Users {
+  avatar_path: string | null;
+  created_at: Generated<Timestamp>;
+  current_tenant_id: string | null;
+  email: string;
+  full_name: string;
+  id: Generated<string>;
+  last_login_at: Timestamp | null;
+  password_hash: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface DB {
+  audit_logs: AuditLogs;
+  invitations: Invitations;
+  mailbox_credentials: MailboxCredentials;
+  mailbox_members: MailboxMembers;
+  mailboxes: Mailboxes;
+  notifications: Notifications;
+  password_reset_tokens: PasswordResetTokens;
   schema_migrations: SchemaMigrations;
+  sessions: Sessions;
+  table_preferences: TablePreferences;
+  tenant_members: TenantMembers;
+  tenants: Tenants;
+  user_preferences: UserPreferences;
+  users: Users;
 }

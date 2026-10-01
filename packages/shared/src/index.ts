@@ -8,3 +8,4 @@ export * from './schemas/common.js';
 export * from './rules.js';
 export * from './reply.js';
 export * from './schedule.js';
+export * from './schemas/auth.js';

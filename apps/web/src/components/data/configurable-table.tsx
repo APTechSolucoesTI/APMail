@@ -386,7 +386,28 @@ export function ConfigurableTable<T extends { id: string }>(props: ConfigurableT
                   ))}
                 </dl>
                 {props.rowActions && (
-                  <div className="mt-3 flex justify-end border-t pt-2"><Popover><PopoverTrigger asChild><Button variant="outline" size="icon" aria-label={`Mais ações do registro ${row.id}`}><Ellipsis /></Button></PopoverTrigger><PopoverContent align="end" className="w-auto"><div className="flex flex-wrap items-center gap-2" role="group" aria-label="Ações do registro">{props.rowActions(row)}</div></PopoverContent></Popover></div>
+                  <div className="mt-3 flex justify-end border-t pt-2">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          aria-label={`Mais ações do registro ${row.id}`}
+                        >
+                          <Ellipsis />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-auto">
+                        <div
+                          className="flex flex-wrap items-center gap-2"
+                          role="group"
+                          aria-label="Ações do registro"
+                        >
+                          {props.rowActions(row)}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
                 )}
               </article>
             ))}

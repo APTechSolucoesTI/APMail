@@ -1,4 +1,4 @@
-import { loadRootEnv } from '@apmail/db';
+import { loadRootEnv, resolveWorkspacePath } from '@apmail/db';
 import { z } from 'zod';
 loadRootEnv();
 const key = z
@@ -22,7 +22,7 @@ export const envSchema = z.object({
     .default('false')
     .transform((value) => value === 'true'),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
-  STORAGE_DIR: z.string().default('./.data/storage'),
+  STORAGE_DIR: z.string().default('./.data/storage').transform(resolveWorkspacePath),
   MAX_UPLOAD_MB: z.coerce.number().min(1).max(25).default(25),
 });
 export type ApiEnv = z.infer<typeof envSchema>;

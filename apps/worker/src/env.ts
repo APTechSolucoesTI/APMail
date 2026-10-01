@@ -1,4 +1,4 @@
-import { loadRootEnv } from '@apmail/db';
+import { loadRootEnv, resolveWorkspacePath } from '@apmail/db';
 import { z } from 'zod';
 loadRootEnv();
 export const envSchema = z.object({
@@ -7,7 +7,7 @@ export const envSchema = z.object({
   REDIS_URL: z.url(),
   APP_URL: z.url(),
   LOG_LEVEL: z.string().default('info'),
-  STORAGE_DIR: z.string().default('./.data/storage'),
+  STORAGE_DIR: z.string().default('./.data/storage').transform(resolveWorkspacePath),
   SESSION_SECRET: z.string().refine((value) => Buffer.from(value, 'base64').length === 32),
   CREDENTIALS_ENCRYPTION_KEY: z
     .string()
