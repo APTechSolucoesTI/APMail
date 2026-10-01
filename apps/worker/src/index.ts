@@ -2,9 +2,15 @@ import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { writeFile } from 'node:fs/promises';
 import pino from 'pino';
-import { createQueues, createDb } from '@apmail/db';
+import { createQueues, createDb, Storage } from '@apmail/db';
+import { Emitter } from '@socket.io/redis-emitter';
+import { handleMailboxConnection } from './handlers/mailbox-connection.js';
+import { handleMailboxSync } from './handlers/mailbox-sync.js';
+import { handleMailAction } from './handlers/mail-actions.js';
+import { ensureSchedulers } from './handlers/ensure-schedulers.js';
+import { closeImapConnections } from './imap/connect.js';
 import { createSystemEmailHandler } from './handlers/system-email.js';
-import { QUEUE_NAMES } from '@apmail/shared';
+import { QUEUE_NAMES, socketRedisKey } from '@apmail/shared';
 import { readEnv } from './env.js';
 const env = readEnv();
 const db = createDb(env.DATABASE_URL);
@@ -15,12 +21,31 @@ const log = pino({
 });
 const resources = createQueues(env.REDIS_URL);
 const connection = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
+const r = {
+  db,
+  redis: connection,
+  queues: resources.queues,
+  io: new Emitter(connection, { key: socketRedisKey(env.REDIS_URL) }),
+  log,
+  env,
+  storage: new Storage(env.STORAGE_DIR),
+};
 const workers = QUEUE_NAMES.map(
   (name) =>
     new Worker(
       name,
       async (job) => {
         if (name === 'system-email') return sendSystemEmail(job.name, job.data);
+        if (name === 'mailbox-connection') return handleMailboxConnection(r, job.data.mailbox_id);
+        if (name === 'mailbox-sync') return handleMailboxSync(r, job.data.mailbox_id, job.id!);
+        if (name === 'mail-actions')
+          return handleMailAction(
+            r,
+            job.data.action_id,
+            job.id!,
+            job.attemptsMade + 1 >= (job.opts.attempts ?? 1),
+          );
+        if (name === 'maintenance' && job.name === 'ensure-schedulers') return ensureSchedulers(r);
         if (name === 'maintenance' && job.name === 'cleanup-auth') {
           const now = new Date();
           await db.deleteFrom('sessions').where('expires_at', '<', now).execute();
@@ -37,20 +62,48 @@ const workers = QUEUE_NAMES.map(
           'Handler reservado para a próxima fase.',
         );
       },
-      { connection, prefix: 'apmail', concurrency: name === 'maintenance' ? 1 : 2 },
+      {
+        connection,
+        prefix: 'apmail',
+        concurrency:
+          name === 'maintenance'
+            ? 1
+            : name === 'mailbox-connection'
+              ? 3
+              : name === 'mailbox-sync'
+                ? env.WORKER_SYNC_CONCURRENCY
+                : name === 'mail-actions'
+                  ? env.WORKER_ACTIONS_CONCURRENCY
+                  : 2,
+      },
     ),
 );
 for (const worker of workers)
   worker.on('error', (error) => log.error({ err: error, queue: worker.name }, 'Falha no worker.'));
-for (const [name, every] of [
-  ['sweep-outbox', 60000],
-  ['ensure-schedulers', 300000],
-  ['cleanup-uploads', 3600000],
-  ['cleanup-auth', 86400000],
-] as const) {
-  await resources.queues.maintenance.upsertJobScheduler(name, { every }, { name, data: {} });
+async function registerMaintenance() {
+  for (const [name, every] of [
+    ['sweep-outbox', 60000],
+    ['ensure-schedulers', 300000],
+    ['cleanup-uploads', 3600000],
+    ['cleanup-auth', 86400000],
+  ] as const) {
+    await resources.queues.maintenance.upsertJobScheduler(name, { every }, { name, data: {} });
+  }
+  await resources.queues.maintenance.add('ensure-schedulers', {});
 }
-await resources.queues.maintenance.add('ensure-schedulers', {});
+await registerMaintenance();
+// Restaura também os agendadores de manutenção após perda de dados do Redis.
+let restoring = false;
+connection.on('ready', () => {
+  if (restoring) return;
+  restoring = true;
+  void registerMaintenance()
+    .then(() => ensureSchedulers(r))
+    .catch(() => log.warn('Aguardando restauração do Redis.'))
+    .finally(() => {
+      restoring = false;
+    });
+});
 async function heartbeat(): Promise<void> {
   await connection.set('worker:heartbeat', new Date().toISOString(), 'EX', 90);
   await writeFile(
@@ -73,6 +126,7 @@ for (const signal of ['SIGINT', 'SIGTERM'])
     const timeout = setTimeout(() => process.exit(1), 30000);
     timeout.unref();
     await Promise.all(workers.map((worker) => worker.close()));
+    closeImapConnections();
     await resources.close();
     await connection.quit();
     await db.destroy();

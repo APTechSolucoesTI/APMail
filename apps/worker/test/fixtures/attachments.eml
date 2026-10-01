@@ -1,0 +1,26 @@
+From: Cliente <cliente@cliente.local>
+To: comercial@apmail.local
+Subject: Anexos e imagem interna
+Message-ID: <fixture-attachments@cliente.local>
+Date: Thu, 01 Oct 2026 10:02:00 -0300
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="apmail-fixture"
+
+--apmail-fixture
+Content-Type: text/html; charset=utf-8
+
+<p>Documento e imagem da solicitação.</p><img src="cid:imagem-interna" alt="Imagem interna">
+--apmail-fixture
+Content-Type: image/png
+Content-Disposition: inline; filename="imagem.png"
+Content-ID: <imagem-interna>
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6cJcAAAAASUVORK5CYII=
+--apmail-fixture
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="documento.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJSVFT0Y=
+--apmail-fixture--

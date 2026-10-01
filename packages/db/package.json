@@ -13,15 +13,19 @@
     "test:integration": "vitest run test/integration"
   },
   "dependencies": {
-    "pg": "^8.23.1",
-    "kysely": "^0.29.6",
+    "@apmail/shared": "workspace:*",
     "bullmq": "^6.3.11",
-    "ioredis": "^6.0.0",
     "dotenv": "^18.0.5",
-    "@apmail/shared": "workspace:*"
+    "html-to-text": "^10.0.1",
+    "ioredis": "^6.0.0",
+    "kysely": "^0.29.6",
+    "pg": "^8.23.1",
+    "sanitize-html": "^2.18.0"
   },
   "devDependencies": {
+    "@types/html-to-text": "^9.0.4",
     "@types/pg": "^8.23.1",
+    "@types/sanitize-html": "^2.16.2",
     "kysely-codegen": "^0.20.0"
   },
   "exports": {

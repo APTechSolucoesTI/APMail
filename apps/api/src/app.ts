@@ -13,7 +13,7 @@ import {
 } from 'fastify-type-provider-zod';
 import { Redis } from 'ioredis';
 import { createDb, createQueues } from '@apmail/db';
-import { healthSchema } from '@apmail/shared';
+import { healthSchema, socketRedisKey } from '@apmail/shared';
 import { sql } from 'kysely';
 import { Server } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
@@ -26,6 +26,7 @@ import { registerTenantRoutes } from './modules/tenants.js';
 import { registerMailboxRoutes } from './modules/mailboxes.js';
 import { registerInvitationRoutes } from './modules/invitations.js';
 import { registerAvatarRoutes } from './modules/avatars.js';
+import { registerMailRoutes } from './modules/mail.js';
 import { ApiError } from './authz/context.js';
 
 export async function buildApp(config: ApiEnv = readEnv()) {
@@ -152,7 +153,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
     path: '/socket.io',
     cors: { origin: config.APP_URL, credentials: true },
   });
-  io.adapter(createAdapter(pub, sub));
+  io.adapter(createAdapter(pub, sub, { key: socketRedisKey(config.REDIS_URL) }));
   const resources = { db, redis, io, queues: queueResources.queues, env: config };
   await installAuth(app, db, redis, config);
   installSocket(app, resources);
@@ -161,6 +162,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await registerMailboxRoutes(app, resources);
   await registerInvitationRoutes(app, resources);
   await registerAvatarRoutes(app, resources);
+  await registerMailRoutes(app, resources);
   app.addHook('onClose', async () => {
     io.disconnectSockets(true);
     await new Promise<void>((resolve) => io.close(() => resolve()));

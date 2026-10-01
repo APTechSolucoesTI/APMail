@@ -24,3 +24,11 @@ Migrations normalizam CRLF para LF antes do checksum, preservando o mesmo SHA-25
 Node mínimo atualizado para 22.22.2, exigido pelas dependências estáveis atuais de lint e testes. API e worker usam armazenamento relativo à raiz do workspace para compartilhar os mesmos arquivos.
 
 Consultas de domínio no SPA incluem a empresa atual na chave de cache. Alteração e reconexão de Socket.IO invalidam os dados acessíveis; cookies e associações são verificados novamente no servidor.
+
+Fase 2: destinatários em JSONB usam serialização explícita com cast; arrays JavaScript do driver pg são arrays PostgreSQL. Movimentos otimistas limpam o UID no destino e preservam o UID de origem no payload para evitar colisões entre pastas. A confirmação IMAP fornece o novo UID.
+
+Conversas na Lixeira permanecem visíveis pela pasta, com agregados de fila calculados apenas sobre mensagens fora de Lixeira/Spam. Isso resolve o conflito entre exclusão das filas e restauração pelo usuário.
+
+GreenMail 2.1.0: removida a propriedade auth.disabled inteira, pois sua [presença desativa a autenticação mesmo com valor false](https://github.com/greenmail-mail-test/greenmail/blob/release-2.1.0/greenmail-core/src/main/java/com/icegreen/greenmail/configuration/PropertiesBasedGreenMailConfigurationBuilder.java). No desenvolvimento com host permitido, a pasta é fechada antes do logout para contornar listeners antigos do servidor ao testar exclusão e UIDVALIDITY.
+
+Socket.IO usa o prefixo apmail:socket:<banco Redis> nos adaptadores e no emitter. [Pub/Sub do Redis atravessa bancos lógicos](https://redis.io/docs/latest/develop/pubsub/#database--scoping); o prefixo evita interferência entre desenvolvimento e testes.

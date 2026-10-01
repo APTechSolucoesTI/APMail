@@ -33,7 +33,8 @@ export async function requireMember(ctx: RequestContext, r: Resources, userId: s
 export async function emitAccessChanged(r: Resources, userId: string) {
   const sockets = await r.io.in('user:' + userId).fetchSockets();
   for (const s of sockets) {
-    for (const room of s.rooms) if (room.startsWith('mailbox:')) await s.leave(room);
+    for (const room of s.rooms)
+      if (room.startsWith('mailbox:') || room.startsWith('thread:')) await s.leave(room);
   }
   r.io.to('user:' + userId).emit('mailboxes:changed', {});
 }

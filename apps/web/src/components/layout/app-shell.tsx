@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, Outlet, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
+import { SocketContext } from '@/hooks/use-socket-room';
+import { MailboxFolderNavigation } from '@/components/mail/mailbox-folder-navigation';
 import { Mail, Menu, Settings, LogOut } from 'lucide-react';
 import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox } from '@/lib/auth';
@@ -20,17 +22,20 @@ export function AppShell() {
     queryFn: () => api<Mailbox[]>('/mailboxes'),
   });
   const [open, setOpen] = useState(false);
+  const [socket] = useState(() => io({ withCredentials: true, autoConnect: false }));
   const { setTheme } = useTheme();
   const theme = me.data?.preferences.theme;
   useEffect(() => {
     if (theme) setTheme(theme);
   }, [theme, setTheme]);
   useEffect(() => {
-    const socket = io({ withCredentials: true });
+    socket.connect();
     socket.on('connect', () => {
       void client.invalidateQueries({ queryKey: ['mailboxes'] });
       void client.invalidateQueries({ queryKey: ['me'] });
       void client.invalidateQueries({ queryKey: ['notifications'] });
+      for (const key of ['threads', 'thread', 'folders', 'queue-counts'])
+        void client.invalidateQueries({ queryKey: [key] });
     });
     socket.on('mailboxes:changed', () => {
       void client.invalidateQueries({ queryKey: ['mailboxes'] });
@@ -42,10 +47,25 @@ export function AppShell() {
       () => void client.invalidateQueries({ queryKey: ['notifications'] }),
     );
     socket.on('disconnect', () => void client.invalidateQueries({ queryKey: ['me'] }));
+    const invalidate = (...keys: string[]) => {
+      for (const key of keys) void client.invalidateQueries({ queryKey: [key] });
+    };
+    socket.on('threads:changed', () => invalidate('threads'));
+    socket.on('queue-counts:changed', () => invalidate('folders', 'queue-counts'));
+    socket.on(
+      'thread:messages-changed',
+      ({ thread_id }: { thread_id: string }) =>
+        void client.invalidateQueries({
+          queryKey: ['thread', me.data?.current_tenant_id, thread_id],
+        }),
+    );
+    socket.on('folders:changed', () => invalidate('folders'));
+    socket.on('mailbox:status', () => invalidate('mailboxes', 'mailbox'));
     return () => {
+      socket.removeAllListeners();
       socket.disconnect();
     };
-  }, [client, me.data?.current_tenant_id]);
+  }, [client, socket, me.data?.current_tenant_id]);
   useEffect(() => {
     if (me.error && 'status' in me.error && me.error.status === 401)
       void navigate({ to: '/login' });
@@ -71,19 +91,7 @@ export function AppShell() {
       </Link>
       <p className="px-2 text-xs font-semibold text-muted-foreground">CAIXAS DE E-MAIL</p>
       {boxes.data?.map((b) => (
-        <Link
-          to="/mail/$mailboxId"
-          params={{ mailboxId: b.id }}
-          key={b.id}
-          className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-          activeProps={{ className: 'bg-secondary text-secondary-foreground' }}
-          onClick={() => setOpen(false)}
-        >
-          <Mail className="size-4 shrink-0" aria-hidden />
-          <span className="truncate" title={b.name}>
-            {b.name}
-          </span>
-        </Link>
+        <MailboxFolderNavigation key={b.id} box={b} onNavigate={() => setOpen(false)} />
       ))}
       {!boxes.data?.length && (
         <p className="px-2 py-4 text-sm text-muted-foreground">Sem caixas disponíveis</p>
@@ -118,90 +126,92 @@ export function AppShell() {
     </nav>
   );
   return (
-    <TenantContext.Provider value={me.data.current_tenant_id}>
-      <TableUserContext.Provider value={me.data.user.id}>
-        <div
-          data-density={me.data.preferences.density}
-          className="flex min-h-dvh data-[density=comfortable]:[&_td]:py-2 data-[density=compact]:[&_td]:py-1.5"
-        >
-          <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 border-r bg-sidebar text-sidebar-foreground lg:block">
-            {sidebar}
-          </aside>
-          <div className="min-w-0 flex-1">
-            <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-2 border-b bg-card px-4">
-              <div className="flex min-w-0 items-center gap-2">
-                <Sheet open={open} onOpenChange={setOpen}>
-                  <SheetTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Abrir navegação"
-                      className="lg:hidden"
-                    >
-                      <Menu />
-                    </Button>
-                  </SheetTrigger>
-                  <SheetContent side="left" className="p-0">
-                    <SheetTitle className="sr-only">Navegação APMail</SheetTitle>
-                    {sidebar}
-                  </SheetContent>
-                </Sheet>
-                <label htmlFor="company" className="sr-only">
-                  Empresa atual
-                </label>
-                <select
-                  id="company"
-                  className="h-11 max-w-36 rounded-md sm:max-w-48 border border-input bg-card px-2 text-sm"
-                  value={me.data.current_tenant_id ?? ''}
-                  onChange={async (e) => {
-                    await api('/me/current-tenant', {
-                      method: 'PUT',
-                      body: { tenant_id: e.target.value },
-                    });
-                    client.clear();
-                    await navigate({ to: '/' });
-                    location.reload();
-                  }}
-                >
-                  {me.data.tenants.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <NotificationBell />
-                <Link
-                  to="/settings/profile"
-                  aria-label="Meu perfil"
-                  className="inline-flex min-h-11 min-w-11 items-center justify-center"
-                >
-                  <UserAvatar
-                    name={me.data.user.full_name}
-                    src={me.data.user.avatar_url ?? undefined}
-                  />
-                </Link>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Sair"
-                  onClick={async () => {
-                    await api('/auth/logout', { method: 'POST' });
-                    client.clear();
-                    await navigate({ to: '/login' });
-                  }}
-                >
-                  <LogOut />
-                </Button>
-              </div>
-            </header>
-            <main className="mx-auto max-w-screen-2xl p-4 sm:p-6">
-              <Outlet />
-            </main>
+    <SocketContext.Provider value={socket}>
+      <TenantContext.Provider value={me.data.current_tenant_id}>
+        <TableUserContext.Provider value={me.data.user.id}>
+          <div
+            data-density={me.data.preferences.density}
+            className="flex min-h-dvh data-[density=comfortable]:[&_td]:py-2 data-[density=compact]:[&_td]:py-1.5"
+          >
+            <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 border-r bg-sidebar text-sidebar-foreground lg:block">
+              {sidebar}
+            </aside>
+            <div className="min-w-0 flex-1">
+              <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-2 border-b bg-card px-4">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Sheet open={open} onOpenChange={setOpen}>
+                    <SheetTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Abrir navegação"
+                        className="lg:hidden"
+                      >
+                        <Menu />
+                      </Button>
+                    </SheetTrigger>
+                    <SheetContent side="left" className="p-0">
+                      <SheetTitle className="sr-only">Navegação APMail</SheetTitle>
+                      {sidebar}
+                    </SheetContent>
+                  </Sheet>
+                  <label htmlFor="company" className="sr-only">
+                    Empresa atual
+                  </label>
+                  <select
+                    id="company"
+                    className="h-11 max-w-36 rounded-md sm:max-w-48 border border-input bg-card px-2 text-sm"
+                    value={me.data.current_tenant_id ?? ''}
+                    onChange={async (e) => {
+                      await api('/me/current-tenant', {
+                        method: 'PUT',
+                        body: { tenant_id: e.target.value },
+                      });
+                      client.clear();
+                      await navigate({ to: '/' });
+                      location.reload();
+                    }}
+                  >
+                    {me.data.tenants.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <NotificationBell />
+                  <Link
+                    to="/settings/profile"
+                    aria-label="Meu perfil"
+                    className="inline-flex min-h-11 min-w-11 items-center justify-center"
+                  >
+                    <UserAvatar
+                      name={me.data.user.full_name}
+                      src={me.data.user.avatar_url ?? undefined}
+                    />
+                  </Link>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Sair"
+                    onClick={async () => {
+                      await api('/auth/logout', { method: 'POST' });
+                      client.clear();
+                      await navigate({ to: '/login' });
+                    }}
+                  >
+                    <LogOut />
+                  </Button>
+                </div>
+              </header>
+              <main className="mx-auto max-w-screen-2xl p-4 sm:p-6">
+                <Outlet />
+              </main>
+            </div>
           </div>
-        </div>
-      </TableUserContext.Provider>
-    </TenantContext.Provider>
+        </TableUserContext.Provider>
+      </TenantContext.Provider>
+    </SocketContext.Provider>
   );
 }

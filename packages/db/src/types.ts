@@ -3,14 +3,17 @@
  * Please do not edit it manually.
  */
 
-import type { ColumnType } from 'kysely';
+import type { ColumnType } from "kysely";
 
-export type Generated<T> =
-  T extends ColumnType<infer S, infer I, infer U>
-    ? ColumnType<S, I | undefined, U>
-    : ColumnType<T, T | undefined, T>;
+export type FolderSpecialUse = "archive" | "drafts" | "inbox" | "junk" | "sent" | "trash";
+
+export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
+  ? ColumnType<S, I | undefined, U>
+  : ColumnType<T, T | undefined, T>;
 
 export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
+
+export type JobStatus = "done" | "failed" | "pending" | "processing";
 
 export type Json = JsonValue;
 
@@ -24,18 +27,37 @@ export type JsonPrimitive = boolean | number | string | null;
 
 export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
-export type MailboxRole = 'editor' | 'mailbox_admin' | 'viewer';
+export type MailActionType = "create_folder" | "delete" | "delete_folder" | "move" | "rename_folder" | "restore" | "set_flag";
 
-export type MailboxStatus = 'active' | 'disabled' | 'error' | 'pending';
+export type MailboxRole = "editor" | "mailbox_admin" | "viewer";
 
-export type MemberStatus = 'active' | 'disabled';
+export type MailboxStatus = "active" | "disabled" | "error" | "pending";
 
-export type NotificationType =
-  'action_failed' | 'assignment' | 'chat_message' | 'mailbox_error' | 'mention' | 'send_failed';
+export type MemberStatus = "active" | "disabled";
 
-export type TenantRole = 'admin' | 'member' | 'owner';
+export type MessageDirection = "inbound" | "outbound";
+
+export type NotificationType = "action_failed" | "assignment" | "chat_message" | "mailbox_error" | "mention" | "send_failed";
+
+export type QueueStatus = "awaiting_reply" | "done" | "in_progress" | "none" | "scheduled" | "to_reply";
+
+export type TenantRole = "admin" | "member" | "owner";
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
+
+export interface Attachments {
+  content_id: string | null;
+  content_type: Generated<string>;
+  created_at: Generated<Timestamp>;
+  filename: string;
+  id: Generated<string>;
+  is_inline: Generated<boolean>;
+  mailbox_id: string;
+  message_id: string;
+  size_bytes: Generated<number>;
+  storage_path: string;
+  tenant_id: string;
+}
 
 export interface AuditLogs {
   action: string;
@@ -47,6 +69,23 @@ export interface AuditLogs {
   ip: string | null;
   metadata: Generated<Json>;
   tenant_id: string;
+}
+
+export interface Folders {
+  created_at: Generated<Timestamp>;
+  deleted_at: Timestamp | null;
+  delimiter: Generated<string>;
+  id: Generated<string>;
+  imap_path: string;
+  last_uid: Generated<Int8>;
+  mailbox_id: string;
+  name: string;
+  parent_id: string | null;
+  sort_order: Generated<number>;
+  special_use: FolderSpecialUse | null;
+  tenant_id: string;
+  uidvalidity: Int8 | null;
+  updated_at: Generated<Timestamp>;
 }
 
 export interface Invitations {
@@ -61,6 +100,20 @@ export interface Invitations {
   tenant_id: string;
   tenant_role: Generated<TenantRole>;
   token_hash: string;
+}
+
+export interface MailActions {
+  attempts: Generated<number>;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  last_error: string | null;
+  mailbox_id: string;
+  payload: Json;
+  processed_at: Timestamp | null;
+  requested_by: string | null;
+  status: Generated<JobStatus>;
+  tenant_id: string;
+  type: MailActionType;
 }
 
 export interface MailboxCredentials {
@@ -104,6 +157,41 @@ export interface MailboxMembers {
   tenant_id: string;
   updated_at: Generated<Timestamp>;
   user_id: string;
+}
+
+export interface Messages {
+  bcc_addresses: Generated<Json>;
+  body_html: string | null;
+  body_text: Generated<string>;
+  cc_addresses: Generated<Json>;
+  created_at: Generated<Timestamp>;
+  deleted_at: Timestamp | null;
+  direction: MessageDirection;
+  folder_id: string | null;
+  from_address: Generated<string>;
+  from_name: Generated<string>;
+  has_attachments: Generated<boolean>;
+  id: Generated<string>;
+  imap_uid: Int8 | null;
+  in_reply_to: string | null;
+  is_automated: Generated<boolean>;
+  is_flagged: Generated<boolean>;
+  mailbox_id: string;
+  message_at: Timestamp;
+  message_id_header: string;
+  outbox_id: string | null;
+  pending_action: Generated<boolean>;
+  references_headers: Generated<string[]>;
+  reply_to_addresses: Generated<Json>;
+  search_vector: string | null;
+  sent_by_user_id: string | null;
+  size_bytes: Generated<number>;
+  snippet: Generated<string>;
+  subject: Generated<string>;
+  tenant_id: string;
+  thread_id: string;
+  to_addresses: Generated<Json>;
+  updated_at: Generated<Timestamp>;
 }
 
 export interface Notifications {
@@ -173,6 +261,42 @@ export interface Tenants {
   updated_at: Generated<Timestamp>;
 }
 
+export interface Threads {
+  assigned_at: Timestamp | null;
+  assigned_to: string | null;
+  created_at: Generated<Timestamp>;
+  deleted_at: Timestamp | null;
+  first_inbound_at: Timestamp | null;
+  first_message_at: Timestamp | null;
+  first_response_at: Timestamp | null;
+  has_attachments: Generated<boolean>;
+  id: Generated<string>;
+  last_inbound_at: Timestamp | null;
+  last_message_at: Timestamp | null;
+  last_outbound_at: Timestamp | null;
+  mailbox_id: string;
+  manual_done_at: Timestamp | null;
+  message_count: Generated<number>;
+  participants: Generated<string[]>;
+  queue_excluded: Generated<boolean>;
+  queue_status: Generated<QueueStatus>;
+  queue_status_changed_at: Generated<Timestamp>;
+  snippet: Generated<string>;
+  subject: Generated<string>;
+  subject_normalized: Generated<string>;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface ThreadUserState {
+  is_pinned: Generated<boolean>;
+  last_read_at: Timestamp | null;
+  tenant_id: string;
+  thread_id: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
 export interface UserPreferences {
   density: Generated<string>;
   desktop_notifications: Generated<boolean>;
@@ -199,11 +323,15 @@ export interface Users {
 }
 
 export interface DB {
+  attachments: Attachments;
   audit_logs: AuditLogs;
+  folders: Folders;
   invitations: Invitations;
+  mail_actions: MailActions;
   mailbox_credentials: MailboxCredentials;
   mailbox_members: MailboxMembers;
   mailboxes: Mailboxes;
+  messages: Messages;
   notifications: Notifications;
   password_reset_tokens: PasswordResetTokens;
   schema_migrations: SchemaMigrations;
@@ -211,6 +339,8 @@ export interface DB {
   table_preferences: TablePreferences;
   tenant_members: TenantMembers;
   tenants: Tenants;
+  thread_user_state: ThreadUserState;
+  threads: Threads;
   user_preferences: UserPreferences;
   users: Users;
 }
