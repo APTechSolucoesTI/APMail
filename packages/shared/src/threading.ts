@@ -32,10 +32,10 @@ export function externalParticipants(
 }
 export function isAutomated(from: string, headers: Record<string, string>): boolean {
   const h = Object.fromEntries(
-    Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value.toLowerCase()]),
+    Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value.trim().toLowerCase()]),
   );
   return (
-    (!!h['auto-submitted'] && h['auto-submitted'] !== 'no') ||
+    ('auto-submitted' in h && h['auto-submitted'] !== 'no') ||
     ['bulk', 'list', 'junk'].includes(h.precedence ?? '') ||
     'list-unsubscribe' in h ||
     'list-id' in h ||

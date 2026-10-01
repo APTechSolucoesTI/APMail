@@ -23,6 +23,7 @@ export class ApiError extends Error {
   }
 }
 export const notFound = () => new ApiError(404, 'not_found', 'Recurso não encontrado.');
+export const conflict = (message: string) => new ApiError(409, 'conflict', message);
 export const forbidden = () =>
   new ApiError(403, 'forbidden', 'Você não tem permissão para esta ação.');
 export function requireAuth(ctx: RequestContext | null): RequestContext {

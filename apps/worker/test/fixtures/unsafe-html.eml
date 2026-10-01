@@ -1,0 +1,9 @@
+From: Cliente <cliente@cliente.local>
+To: Comercial <comercial@apmail.local>
+Subject: HTML e privacidade
+Message-ID: <fixture-html@cliente.local>
+Date: Thu, 01 Oct 2026 10:00:00 -0300
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<p style="color: navy; background-image: url(https://example.com/pixel)">Conteúdo seguro.</p><script>alert('xss')</script><iframe src="https://example.com"></iframe><form><input></form><img src="https://example.com/pixel.png" onerror="alert(1)"><img src="cid:imagem-interna"><a href="javascript:alert(1)">Link</a><a href="https://example.com">Site</a>

@@ -27,7 +27,7 @@ services:
     environment:
       GREENMAIL_OPTS: >-
         -Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0
-        -Dgreenmail.auth.disabled=false
+        
         -Dgreenmail.users=comercial:Senha123@apmail.local,suporte:Senha123@apmail.local,cliente:Senha123@cliente.local
         -Dgreenmail.users.login=email
     ports:

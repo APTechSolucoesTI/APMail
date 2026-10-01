@@ -97,5 +97,40 @@ export function installSocket(app: FastifyInstance, r: Resources) {
       clearInterval(timer);
       void presence(false).catch(() => undefined);
     });
+    socket.on(
+      'thread:subscribe',
+      async (payload: unknown, ack?: (response: { ok: boolean }) => void) => {
+        try {
+          const { thread_id } = z.object({ thread_id: z.uuid() }).parse(payload);
+          const fresh = await contextForToken(
+            r.db,
+            r.redis,
+            socket.data.token as string,
+            socket.handshake.address,
+            socket.id,
+          );
+          if (!fresh?.tenantId) throw new Error();
+          const thread = await r.db
+            .selectFrom('threads')
+            .select('mailbox_id')
+            .where('id', '=', thread_id)
+            .where('tenant_id', '=', fresh.tenantId)
+            .where('deleted_at', 'is', null)
+            .executeTakeFirst();
+          if (!thread) throw new Error();
+          await requireMailboxPerm(fresh, r.db, thread.mailbox_id, 'read');
+          await socket.join('thread:' + thread_id);
+          ack?.({ ok: true });
+        } catch {
+          ack?.({ ok: false });
+        }
+      },
+    );
+    socket.on('room:unsubscribe', (payload: unknown) => {
+      const result = z
+        .object({ type: z.enum(['mailbox', 'thread']), id: z.uuid() })
+        .safeParse(payload);
+      if (result.success) void socket.leave(result.data.type + ':' + result.data.id);
+    });
   });
 }

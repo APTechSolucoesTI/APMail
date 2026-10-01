@@ -26,15 +26,17 @@
   "dependencies": {},
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.3",
+    "@types/nodemailer": "^8.0.2",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^10.11.0",
-    "typescript-eslint": "^8.71.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.13.0",
+    "nodemailer": "^10.0.13",
     "prettier": "^3.9.9",
     "tsx": "^4.23.15",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "vitest": "^5.0.3",
-    "@types/node": "^26.6.3",
-    "@typescript/native": "npm:typescript@^7.0.2"
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^5.0.3"
   }
 }
