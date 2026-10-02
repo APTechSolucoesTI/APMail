@@ -1,13 +1,13 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 type Theme = 'light' | 'dark' | 'system';
 const ThemeContext = createContext<{ theme: Theme; setTheme: (theme: Theme) => void }>({
-  theme: 'system',
+  theme: 'light',
   setTheme: () => undefined,
 });
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem('apmail-theme');
-    return saved === 'dark' || saved === 'light' ? saved : 'system';
+    return saved === 'dark' ? 'dark' : 'light';
   });
   useEffect(() => {
     const media = matchMedia('(prefers-color-scheme: dark)');

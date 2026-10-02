@@ -18,7 +18,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
-import { requireAdmin } from '@/lib/settings';
+import { requireSettingsCapability } from '@/lib/settings';
 type Entry = {
   id: string;
   action: string;
@@ -39,7 +39,7 @@ const entities: Record<string, string> = {
   thread: 'Conversa',
 };
 export const Route = createFileRoute('/_app/settings/audit')({
-  beforeLoad: requireAdmin,
+  beforeLoad: () => requireSettingsCapability('audit'),
   validateSearch: listQuerySchema.extend({
     from: z.iso.date().optional(),
     to: z.iso.date().optional(),

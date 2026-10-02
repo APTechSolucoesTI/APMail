@@ -4,7 +4,6 @@ import { useForm, useFieldArray, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
-  can,
   mailRuleSchema,
   type MailRuleInput,
   type RuleCondition,
@@ -13,7 +12,7 @@ import {
 import { Plus, Pencil, Trash2, ArrowUp, ArrowDown, Play, Ellipsis } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { useTenantId, type Mailbox } from '@/lib/auth';
+import { useTenantId, canMailbox, type Mailbox } from '@/lib/auth';
 import type { MailRule, PersonalLabel } from '@/lib/organization';
 import { folderLabel, type Folder } from '@/lib/mail';
 import { ConfigurableTable } from '@/components/data/configurable-table';
@@ -97,7 +96,7 @@ export function RuleManagement({
       api<MailRule[]>('/rules?scope=' + scope + (mailboxId ? '&mailbox_id=' + mailboxId : '')),
   });
   const available = (boxes.data ?? [])
-    .filter((b) => scope === 'personal' || can(b.role, 'rules'))
+    .filter((b) => scope === 'personal' || canMailbox(b, 'rules'))
     .filter((b) => !mailboxId || b.id === mailboxId);
   const mutate = async (id: string, body: unknown) => {
     setBusy(true);
@@ -225,11 +224,18 @@ export function RuleManagement({
         >
           <TabsList>
             <TabsTrigger value="personal">Minhas regras</TabsTrigger>
-            {boxes.data?.some((b) => can(b.role, 'rules')) && (
+            {boxes.data?.some((b) => canMailbox(b, 'rules')) && (
               <TabsTrigger value="mailbox">Regras da caixa</TabsTrigger>
             )}
           </TabsList>
-          <TabsContent value={scope}>{table}</TabsContent>
+          <TabsContent value={scope}>
+            <p className="mb-4 text-sm text-muted-foreground">
+              {scope === 'personal'
+                ? 'Minhas regras aplicam etiquetas e fixações somente para você.'
+                : 'Regras da caixa alteram a organização compartilhada. Somente administradores ou supervisores autorizados podem configurá-las.'}
+            </p>
+            {table}
+          </TabsContent>
         </Tabs>
       )}
       <Sheet
@@ -285,6 +291,12 @@ function RuleEditor({
     actions = useFieldArray({ control: form.control, name: 'actions' }),
     values = useWatch({ control: form.control }),
     [error, setError] = useState('');
+  const [previewMessage, setPreviewMessage] = useState(''),
+    [previewResult, setPreviewResult] = useState<{
+      matches: boolean;
+      conditions: boolean[];
+    } | null>(null),
+    [previewBusy, setPreviewBusy] = useState(false);
   const mailboxId = values.mailbox_id ?? '',
     folders = useQuery({
       queryKey: ['folders', tenant, mailboxId],
@@ -306,6 +318,14 @@ function RuleEditor({
       queryFn: () => api<{ settings: { allow_external_auto_forward?: boolean } }>('/tenant'),
     }),
     allowForward = !!company.data?.settings.allow_external_auto_forward;
+  const previewMessages = useQuery({
+    queryKey: ['rule-preview-messages', tenant, mailboxId],
+    queryFn: () =>
+      api<{ items: { id: string; subject: string }[] }>(
+        '/mailboxes/' + mailboxId + '/threads?page_size=10&view=search',
+      ),
+    enabled: !!mailboxId,
+  });
   const allActions =
     rule.scope === 'personal'
       ? (['add_label', 'pin'] as const)
@@ -403,11 +423,75 @@ function RuleEditor({
       </div>
       <fieldset className="space-y-3 rounded-lg border p-3">
         <legend className="px-1 text-sm font-semibold">Condições</legend>
+        <p className="text-sm text-muted-foreground">
+          Textos ignoram acentos, maiúsculas e espaços excedentes. E-mails são comparados por
+          endereço. “É igual a” exige o valor completo.
+        </p>
         <Label htmlFor="rule-mode">Quando corresponder a</Label>
         <select id="rule-mode" className={selectClass} {...form.register('match_mode')}>
           <option value="all">Todas as condições</option>
           <option value="any">Qualquer uma das condições</option>
         </select>
+        <div className="space-y-2 rounded-md border p-3">
+          <Label htmlFor="rule-preview-thread">Testar em uma conversa recente</Label>
+          <select
+            id="rule-preview-thread"
+            className={selectClass}
+            value={previewMessage}
+            onChange={(e) => {
+              setPreviewMessage(e.target.value);
+              setPreviewResult(null);
+            }}
+          >
+            <option value="">Selecione uma conversa</option>
+            {previewMessages.data?.items.map((thread) => (
+              <option key={thread.id} value={thread.id}>
+                {thread.subject || '(Sem assunto)'}
+              </option>
+            ))}
+          </select>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!previewMessage || previewBusy}
+            onClick={async () => {
+              setPreviewBusy(true);
+              try {
+                const detail = await api<{ messages: { id: string }[] }>(
+                  '/threads/' + previewMessage,
+                );
+                const message = detail.messages.at(-1);
+                if (!message) throw new Error('Esta conversa não tem mensagens disponíveis.');
+                const result = await api<{ matches: boolean; conditions: boolean[] }>(
+                  '/rules/preview',
+                  {
+                    method: 'POST',
+                    body: { rule: mailRuleSchema.parse(form.getValues()), message_id: message.id },
+                  },
+                );
+                setPreviewResult(result);
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'Não foi possível testar.');
+              } finally {
+                setPreviewBusy(false);
+              }
+            }}
+          >
+            {previewBusy ? 'Testando…' : 'Testar condições'}
+          </Button>
+          {previewResult && (
+            <p role="status" className="text-sm">
+              {previewResult.matches
+                ? 'A mensagem corresponde à regra.'
+                : 'A mensagem não corresponde à regra.'}{' '}
+              Condições:{' '}
+              {previewResult.conditions
+                .map((ok, i) => `${i + 1}: ${ok ? 'sim' : 'não'}`)
+                .join(' · ')}
+              . Nenhuma ação foi executada.
+            </p>
+          )}
+        </div>
         {conditions.fields.map((item, i) => {
           const field = values.conditions?.[i]?.field ?? 'from',
             bool = field === 'has_attachment';

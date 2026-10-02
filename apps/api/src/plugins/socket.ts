@@ -33,6 +33,7 @@ export function installSocket(app: FastifyInstance, r: Resources) {
         socket.id,
       );
       if (!ctx) throw new Error('unauthenticated');
+      if (ctx.support) throw new Error('support_read_only');
       socket.data.ctx = ctx;
       socket.data.token = unsigned.value;
       next();

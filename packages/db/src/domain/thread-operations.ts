@@ -1,3 +1,4 @@
+import { isTenantAdmin } from '@apmail/shared';
 import { sql } from 'kysely';
 import { can, type MailboxPerm, type QueueReason } from '@apmail/shared';
 import type { Database } from './threads.js';
@@ -19,7 +20,7 @@ export async function mailboxUserCan(
     .where('status', '=', 'active')
     .executeTakeFirst();
   if (!member) return false;
-  if (member.role !== 'member') return true;
+  if (isTenantAdmin(member.role)) return true;
   const boxMember = await db
     .selectFrom('mailbox_members')
     .select('role')

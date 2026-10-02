@@ -28,6 +28,14 @@ export async function handleMailAction(
     .where('status', 'in', ['pending', 'processing'])
     .executeTakeFirst();
   if (!initial) return;
+  const tenant = await r.db
+    .selectFrom('tenants')
+    .select('id')
+    .where('id', '=', initial.tenant_id)
+    .where('deleted_at', 'is', null)
+    .where('suspended_at', 'is', null)
+    .executeTakeFirst();
+  if (!tenant) return;
   if (['create_folder', 'rename_folder', 'delete_folder'].includes(initial.type))
     return handleFolderAction(r, initial, jobId, lastAttempt);
   const result = await withMailboxLock(

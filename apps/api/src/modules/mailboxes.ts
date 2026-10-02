@@ -1,3 +1,5 @@
+import { isTenantAdmin } from '@apmail/shared';
+import { MAILBOX_PERMS, can, canDelegate } from '@apmail/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sql } from 'kysely';
@@ -17,6 +19,8 @@ const publicColumns = [
   'from_name_template',
   'append_sent_copy',
   'sync_since',
+  'history_classify_days',
+  'import_started_at',
   'status',
   'last_error',
   'last_synced_at',
@@ -40,9 +44,16 @@ async function details(ctx: RequestContext, r: Resources, id: string) {
     .select(publicColumns)
     .where('tenant_id', '=', c.tenantId)
     .where('id', '=', id);
-  if (c.tenantRole !== 'member') q = q.select(serverColumns);
+  if (isTenantAdmin(c.tenantRole)) q = q.select(serverColumns);
   const row = await q.executeTakeFirstOrThrow();
-  return { ...row, last_error: c.tenantRole === 'member' ? null : row.last_error, role };
+  return {
+    ...row,
+    last_error: !isTenantAdmin(c.tenantRole) ? null : row.last_error,
+    role,
+    permissions: MAILBOX_PERMS.filter(
+      (p) => can(role, p) || canDelegate(c.tenantRole, c.capabilities, p),
+    ),
+  };
 }
 export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) {
   app.get('/api/mailboxes', async (req) => {
@@ -60,8 +71,11 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
       if (role)
         result.push({
           ...box,
-          last_error: c.tenantRole === 'member' ? null : box.last_error,
+          last_error: !isTenantAdmin(c.tenantRole) ? null : box.last_error,
           role,
+          permissions: MAILBOX_PERMS.filter(
+            (p) => can(role, p) || canDelegate(c.tenantRole, c.capabilities, p),
+          ),
         });
     }
     return result;

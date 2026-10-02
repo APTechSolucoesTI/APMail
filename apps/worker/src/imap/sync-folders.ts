@@ -41,6 +41,7 @@ export async function syncFolders(r: WorkerResources, box: Mailbox, client: Imap
         ? 'inbox'
         : (uses[f.specialUse ?? ''] ?? names[f.name.toLowerCase()] ?? null);
     const old = existing.find((e) => e.imap_path === f.path);
+    const special_use_official = f.path.toUpperCase() === 'INBOX' || !!uses[f.specialUse ?? ''];
     if (!old) {
       await r.db
         .insertInto('folders')
@@ -51,15 +52,22 @@ export async function syncFolders(r: WorkerResources, box: Mailbox, client: Imap
           imap_path: f.path,
           delimiter: f.delimiter ?? '/',
           special_use,
+          special_use_official,
         })
         .execute();
       changed = true;
-    } else if (old.deleted_at || old.name !== f.name || old.special_use !== special_use) {
+    } else if (
+      old.deleted_at ||
+      old.name !== f.name ||
+      old.special_use !== special_use ||
+      old.special_use_official !== special_use_official
+    ) {
       await r.db
         .updateTable('folders')
         .set({
           name: f.name,
           special_use,
+          special_use_official,
           delimiter: f.delimiter ?? '/',
           deleted_at: null,
           ...(old.deleted_at ? { last_uid: 0, uidvalidity: null } : {}),

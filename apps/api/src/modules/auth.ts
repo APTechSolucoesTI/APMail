@@ -42,11 +42,26 @@ export async function me(ctx: RequestContext, r: Resources) {
   const tenants = await r.db
     .selectFrom('tenant_members')
     .innerJoin('tenants', 'tenants.id', 'tenant_members.tenant_id')
-    .select(['tenants.id', 'tenants.name', 'tenants.slug', 'tenant_members.role'])
+    .select([
+      'tenants.id',
+      'tenants.name',
+      'tenants.slug',
+      'tenant_members.role',
+      'tenant_members.capabilities',
+    ])
     .where('tenant_members.user_id', '=', ctx.userId)
     .where('tenant_members.status', '=', 'active')
     .where('tenants.deleted_at', 'is', null)
+    .where('tenants.suspended_at', 'is', null)
     .execute();
+  if (ctx.support && ctx.tenantId && !tenants.some((t) => t.id === ctx.tenantId)) {
+    const supported = await r.db
+      .selectFrom('tenants')
+      .select(['id', 'name', 'slug'])
+      .where('id', '=', ctx.tenantId)
+      .executeTakeFirstOrThrow();
+    tenants.push({ ...supported, role: 'admin', capabilities: [] });
+  }
   const preferences = await r.db
     .selectFrom('user_preferences')
     .selectAll()
@@ -60,6 +75,8 @@ export async function me(ctx: RequestContext, r: Resources) {
       avatar_url: avatarUrl(user),
     },
     tenants,
+    platform_admin: !!ctx.platformAdmin,
+    support: ctx.support ?? null,
     current_tenant_id: ctx.tenantId,
     preferences,
   };

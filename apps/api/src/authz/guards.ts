@@ -1,6 +1,7 @@
+import { isTenantAdmin } from '@apmail/shared';
 import type { Kysely } from 'kysely';
 import type { DB } from '@apmail/db';
-import { can, type MailboxPerm, type MailboxRole } from '@apmail/shared';
+import { can, canDelegate, type MailboxPerm, type MailboxRole } from '@apmail/shared';
 import { requireTenant, notFound, forbidden, type RequestContext } from './context.js';
 export async function getMailboxRole(
   ctx: RequestContext,
@@ -18,7 +19,7 @@ export async function getMailboxRole(
     .executeTakeFirst();
   let role: MailboxRole | null = null;
   if (mailbox) {
-    if (c.tenantRole !== 'member') role = 'mailbox_admin';
+    if (isTenantAdmin(c.tenantRole)) role = 'mailbox_admin';
     else
       role =
         (
@@ -42,6 +43,6 @@ export async function requireMailboxPerm(
 ) {
   const role = await getMailboxRole(ctx, db, id);
   if (!role) throw notFound();
-  if (!can(role, perm)) throw forbidden();
+  if (!can(role, perm) && !canDelegate(ctx.tenantRole, ctx.capabilities, perm)) throw forbidden();
   return role;
 }

@@ -18,7 +18,8 @@ import {
 import { AccessEditor } from '@/components/forms/access-editor';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { api } from '@/lib/api';
-import { requireAdmin } from '@/lib/settings';
+import { requireSettingsCapability } from '@/lib/settings';
+import { isTenantAdmin } from '@apmail/shared';
 import { Pencil, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { meQuery } from '@/lib/auth';
@@ -31,15 +32,24 @@ type Member = {
   status: 'active' | 'disabled';
   mailbox_count: number;
 };
-type Invite = { id: string; email: string; tenant_role: TenantRole };
+type Invite = {
+  id: string;
+  email: string;
+  tenant_role: TenantRole;
+  delivery_status: 'pending' | 'sent' | 'failed';
+  delivery_error: string | null;
+};
 export const Route = createFileRoute('/_app/settings/users')({
-  beforeLoad: requireAdmin,
+  beforeLoad: () => requireSettingsCapability('members'),
   validateSearch: listQuerySchema,
   component: Users,
 });
 function Users() {
   const me = useQuery(meQuery);
   const owner = me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id)?.role === 'owner';
+  const admin = isTenantAdmin(
+    me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id)?.role,
+  );
   const query = Route.useSearch();
   const navigate = useNavigate();
   const client = useQueryClient();
@@ -55,6 +65,8 @@ function Users() {
       ...m,
       id: m.user_id,
       invitation_id: null,
+      delivery_status: null,
+      delivery_error: null,
     })),
     ...(q.data?.invitations ?? []).map((i) => ({
       id: i.id,
@@ -66,6 +78,8 @@ function Users() {
       role: i.tenant_role,
       status: 'invited' as const,
       mailbox_count: null,
+      delivery_status: i.delivery_status,
+      delivery_error: i.delivery_error,
     })),
   ];
   const refresh = async () => {
@@ -77,10 +91,12 @@ function Users() {
         title="Equipe e acessos"
         description="Convide pessoas e defina suas permissões."
         actions={
-          <Button onClick={() => setEditing(null)}>
-            <UserPlus />
-            Convidar usuário
-          </Button>
+          admin ? (
+            <Button onClick={() => setEditing(null)}>
+              <UserPlus />
+              Convidar usuário
+            </Button>
+          ) : undefined
         }
       />
       <ConfigurableTable
@@ -126,9 +142,23 @@ function Users() {
             ),
           },
           { id: 'mailbox_count', header: 'Caixas', align: 'right' },
+          {
+            id: 'delivery_status',
+            header: 'Entrega do convite',
+            cell: (m) =>
+              m.delivery_status ? (
+                <span title={m.delivery_error ?? undefined} className="text-sm">
+                  {m.delivery_status === 'sent'
+                    ? 'Enviado'
+                    : m.delivery_status === 'failed'
+                      ? 'Falha de entrega — reenviar'
+                      : 'Aguardando envio'}
+                </span>
+              ) : null,
+          },
         ]}
         rowActions={(m) =>
-          m.invitation_id !== null ? (
+          !admin ? null : m.invitation_id !== null ? (
             <div className="flex gap-2">
               {' '}
               <Button

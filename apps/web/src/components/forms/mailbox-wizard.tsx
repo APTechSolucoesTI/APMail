@@ -39,6 +39,7 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
     smtp_port: 465,
     smtp_secure: true,
     sync_days: 90,
+    history_classify_days: 0,
     append_sent_copy: true,
     from_name_template: '{mailbox_name}',
   });
@@ -246,6 +247,7 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
         <SchemaForm
           schema={mailboxSchema.pick({
             sync_days: true,
+            history_classify_days: true,
             append_sent_copy: true,
             from_name_template: true,
           })}
@@ -256,6 +258,12 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
               label: 'Importar e-mails dos últimos (dias)',
               type: 'number',
               help: 'Opções: 30, 90, 180 ou 365.',
+            },
+            {
+              name: 'history_classify_days',
+              label: 'Classificar filas do histórico dos últimos (dias)',
+              type: 'number',
+              help: 'De 0 a 90. Com 0, todo o histórico fica sem fila. Esta escolha vale somente para a importação inicial; novos e-mails são classificados normalmente.',
             },
             {
               name: 'append_sent_copy',

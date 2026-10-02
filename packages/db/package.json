@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --exclude \"**/integration/**\"",
     "migrate": "tsx src/migrate.ts",
+    "bootstrap:superadmin": "tsx src/bootstrap-superadmin.ts",
     "reset": "tsx src/reset.ts",
     "codegen": "tsx src/codegen.ts",
     "test:integration": "vitest run test/integration"

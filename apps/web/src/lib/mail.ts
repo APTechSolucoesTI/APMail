@@ -5,6 +5,8 @@ export type Folder = {
   name: string;
   parent_id: string | null;
   special_use: string | null;
+  imap_path?: string;
+  special_use_official?: boolean;
   unread_count: number;
   children: Folder[];
 };
@@ -70,13 +72,15 @@ export type ThreadDetail = {
   }[];
 };
 export const folderLabel = (f: Folder) =>
-  ({
-    inbox: 'Caixa de entrada',
-    sent: 'Enviados',
-    drafts: 'Rascunhos',
-    archive: 'Arquivo',
-    junk: 'Spam',
-    trash: 'Lixeira',
-  })[f.special_use ?? ''] ?? f.name;
+  f.special_use === 'junk' && !f.special_use_official
+    ? `Spam (${f.imap_path ?? f.name})`
+    : ({
+        inbox: 'Caixa de entrada',
+        sent: 'Enviados',
+        drafts: 'Rascunhos',
+        archive: 'Arquivo',
+        junk: 'Spam',
+        trash: 'Lixeira',
+      }[f.special_use ?? ''] ?? f.name);
 export const flattenFolders = (folders: Folder[]): Folder[] =>
   folders.flatMap((f) => [f, ...flattenFolders(f.children)]);

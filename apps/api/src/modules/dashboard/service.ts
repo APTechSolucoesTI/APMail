@@ -1,3 +1,6 @@
+import { isTenantAdmin } from '@apmail/shared';
+import { canDelegate } from '@apmail/shared';
+import { readableFolders } from '../../authz/folders.js';
 import { z } from 'zod';
 import { dashboardQuerySchema } from '@apmail/shared';
 import { requireTenant, forbidden, type RequestContext } from '../../authz/context.js';
@@ -12,6 +15,7 @@ export type DashboardScope = {
   filtered: boolean;
   sla: number;
   limit: number;
+  folderScopes: { mailboxId: string; folders: string[] | null }[];
 };
 export async function dashboardScope(
   r: Resources,
@@ -32,7 +36,7 @@ export async function dashboardScope(
     .where('b.tenant_id', '=', c.tenantId)
     .where('b.deleted_at', 'is', null);
   if (q.mailbox_id) boxes = boxes.where('b.id', '=', q.mailbox_id);
-  else if (c.tenantRole === 'member')
+  else if (!isTenantAdmin(c.tenantRole))
     boxes = boxes.where((eb) =>
       eb.exists(
         eb
@@ -41,11 +45,21 @@ export async function dashboardScope(
           .whereRef('mm.mailbox_id', '=', 'b.id')
           .where('mm.tenant_id', '=', c.tenantId)
           .where('mm.user_id', '=', c.userId)
-          .where('mm.role', '=', 'mailbox_admin'),
+          .where((eb) =>
+            canDelegate(c.tenantRole, c.capabilities, 'dashboard')
+              ? eb.val(true)
+              : eb('mm.role', '=', 'mailbox_admin'),
+          ),
       ),
     );
   const ids = (await boxes.execute()).map((b) => b.id);
   if (!ids.length) throw forbidden();
+  const folderScopes = await Promise.all(
+    ids.map(async (mailboxId) => ({
+      mailboxId,
+      folders: await readableFolders(c, r.db, mailboxId),
+    })),
+  );
   const today = new Intl.DateTimeFormat('en-CA', {
     timeZone: tenant.timezone,
     year: 'numeric',
@@ -77,5 +91,6 @@ export async function dashboardScope(
       (tenant.settings as { sla_first_response_hours?: number }).sla_first_response_hours ?? 24,
     ),
     limit: q.limit,
+    folderScopes,
   };
 }

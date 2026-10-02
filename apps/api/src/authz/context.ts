@@ -1,4 +1,5 @@
-import type { TenantRole } from '@apmail/shared';
+import { isTenantAdmin } from '@apmail/shared';
+import { canDelegate, type TenantRole } from '@apmail/shared';
 export type RequestContext = {
   userId: string;
   tenantId: string | null;
@@ -7,6 +8,9 @@ export type RequestContext = {
   ip: string;
   sessionHash: string;
   mailboxRoles: Map<string, import('@apmail/shared').MailboxRole | null>;
+  capabilities?: string[];
+  platformAdmin?: boolean;
+  support?: { id: string; expires_at: string; reason: string };
 };
 declare module 'fastify' {
   interface FastifyRequest {
@@ -40,11 +44,22 @@ export function requireTenant(
 }
 export function requireTenantAdmin(ctx: RequestContext | null) {
   const c = requireTenant(ctx);
-  if (c.tenantRole === 'member') throw forbidden();
+  if (!isTenantAdmin(c.tenantRole)) throw forbidden();
   return c;
 }
 export function requireTenantOwner(ctx: RequestContext | null) {
   const c = requireTenant(ctx);
   if (c.tenantRole !== 'owner') throw forbidden();
+  return c;
+}
+export function requireCapability(ctx: RequestContext | null, capability: string) {
+  const c = requireTenant(ctx);
+  if (!isTenantAdmin(c.tenantRole) && !canDelegate(c.tenantRole, c.capabilities, capability))
+    throw forbidden();
+  return c;
+}
+export function requireSuperAdmin(ctx: RequestContext | null) {
+  const c = requireAuth(ctx);
+  if (!c.platformAdmin) throw forbidden();
   return c;
 }

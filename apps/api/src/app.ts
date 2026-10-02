@@ -1,4 +1,4 @@
-import Fastify, {LogController} from 'fastify';
+import Fastify, { LogController } from 'fastify';
 import helmet from '@fastify/helmet';
 import sensible from '@fastify/sensible';
 import cookie from '@fastify/cookie';
@@ -12,7 +12,7 @@ import {
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod';
 import { Redis } from 'ioredis';
-import { createDb, createQueues } from '@apmail/db';
+import { createDb, createQueues, audit, asJson } from '@apmail/db';
 import { healthSchema, healthQueuesSchema, socketRedisKey } from '@apmail/shared';
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
@@ -33,13 +33,15 @@ import { registerOrganizationRoutes } from './modules/organization/routes.js';
 import { registerThreadOperations } from './modules/thread-operations/routes.js';
 import { registerDashboard } from './modules/dashboard/routes.js';
 import { registerChat } from './modules/chat/routes.js';
+import { registerSuperAdmin } from './modules/superadmin.js';
+import { registerContacts } from './modules/contacts.js';
 import { ApiError, requireTenantAdmin } from './authz/context.js';
 
 export async function buildApp(config: ApiEnv = readEnv()) {
   const app = Fastify({
     trustProxy: true,
     genReqId: () => randomUUID(),
-    logController:new LogController({requestIdLogLabel:'request_id'}),
+    logController: new LogController({ requestIdLogLabel: 'request_id' }),
     logger:
       config.NODE_ENV === 'test'
         ? false
@@ -183,7 +185,54 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   );
   app.addHook('onSend', async (request, reply, payload) => {
     reply.header('X-Request-Id', request.id);
+    const c = request.ctx;
+    if (
+      c?.support &&
+      c.tenantId &&
+      request.method === 'GET' &&
+      !request.url.startsWith('/api/superadmin/')
+    ) {
+      const route = request.routeOptions.url ?? 'unknown';
+      await audit(db, {
+        tenantId: c.tenantId,
+        actorId: c.userId,
+        action: 'platform.support_read',
+        entityType: 'support',
+        entityId: c.support.id,
+        metadata: { route, status: reply.statusCode, request_id: request.id },
+        ip: c.ip,
+      });
+      await db
+        .insertInto('platform_audit')
+        .values({
+          actor_id: c.userId,
+          tenant_id: c.tenantId,
+          action: 'platform.support_read',
+          request_id: request.id,
+          metadata: asJson({ route, status: reply.statusCode, support_id: c.support.id }),
+        })
+        .execute();
+    }
     return payload;
+  });
+  app.addHook('onResponse', async (request, reply) => {
+    const c = request.ctx;
+    if (reply.statusCode >= 500)
+      await db
+        .insertInto('operational_logs')
+        .values({
+          tenant_id: c?.tenantId ?? null,
+          service: 'api',
+          level: 'error',
+          message: 'Falha ao concluir requisição.',
+          request_id: request.id,
+          metadata: asJson({
+            route: request.routeOptions.url ?? 'unknown',
+            status: reply.statusCode,
+          }),
+        })
+        .execute()
+        .catch(() => undefined);
   });
   const sockets = installSocket(app, resources);
   await registerAuthRoutes(app, resources);
@@ -197,6 +246,8 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   registerThreadOperations(app, resources);
   registerDashboard(app, resources);
   registerChat(app, resources);
+  await registerSuperAdmin(app, resources);
+  await registerContacts(app, resources);
   app.addHook('onClose', async () => {
     io.local.disconnectSockets(true);
     await sockets.drain();

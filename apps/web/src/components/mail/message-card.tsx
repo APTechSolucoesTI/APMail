@@ -12,6 +12,7 @@ import {
 import type { Message, Folder, Attachment } from '@/lib/mail';
 import { EmailBodyFrame } from './email-body-frame';
 import { MessageActions } from './message-actions';
+import { ContactSenderAction } from '@/components/contacts/contact-editor';
 export function MessageCard({
   message,
   expanded,
@@ -64,6 +65,9 @@ export function MessageCard({
           {date}
         </time>
       </button>
+      <div className="flex justify-end border-t px-3">
+        <ContactSenderAction email={message.from_address} name={message.from_name} />
+      </div>
       {open && (
         <div className="space-y-3 border-t p-4">
           <details className="text-xs text-muted-foreground">

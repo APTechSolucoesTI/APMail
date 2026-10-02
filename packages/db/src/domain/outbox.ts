@@ -35,7 +35,18 @@ export async function resolveOutboxAttachments(
         .where('consumed_at', 'is', null)
         .executeTakeFirst();
       if (!file) throw new Error('Um dos anexos não está disponível.');
-      files.push({ ...file, is_inline: false, content_id: null, upload_id: file.id });
+      if (
+        ref.inline &&
+        (!['image/png', 'image/jpeg', 'image/webp'].includes(file.content_type) ||
+          file.size_bytes > 5 * 1024 * 1024)
+      )
+        throw new Error('Imagem incorporada inválida. Use JPEG, PNG ou WebP de até 5 MB.');
+      files.push({
+        ...file,
+        is_inline: !!ref.inline,
+        content_id: ref.inline ? `${file.id}@apmail.local` : null,
+        upload_id: file.id,
+      });
     } else {
       const file = await db
         .selectFrom('attachments')

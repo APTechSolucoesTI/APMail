@@ -1,4 +1,5 @@
 import { useTenantId } from '@/lib/auth';
+import type { Mailbox } from '@/lib/auth';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
@@ -14,6 +15,10 @@ export const Route = createFileRoute('/_app/settings/tenant')({
   component: Tenant,
 });
 function Tenant() {
+  const boxes = useQuery({
+    queryKey: ['mailboxes', useTenantId()],
+    queryFn: () => api<Mailbox[]>('/mailboxes'),
+  });
   const client = useQueryClient();
   const q = useQuery({
     queryKey: ['tenant', useTenantId()],
@@ -54,6 +59,17 @@ function Tenant() {
                 name: 'settings.default_sync_days',
                 label: 'Dias de importação inicial',
                 type: 'number',
+              },
+              {
+                name: 'settings.default_invitation_mailbox_id',
+                label: 'Caixa padrão para convites',
+                type: 'select',
+                options: [
+                  { value: '', label: 'Primeira caixa ativa' },
+                  ...(boxes.data ?? [])
+                    .filter((b) => b.status === 'active')
+                    .map((b) => ({ value: b.id, label: `${b.name} (${b.email_address})` })),
+                ],
               },
               {
                 name: 'settings.allow_external_auto_forward',

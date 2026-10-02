@@ -98,39 +98,56 @@ export const normalizeRuleText = (s: string) =>
   s
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/gu, ' ')
+    .trim()
     .toLocaleLowerCase('pt-BR');
+export const normalizeRuleEmail = (s: string) => s.normalize('NFC').trim().toLowerCase();
 export function evaluateConditions(
   rule: Pick<MailRuleInput, 'conditions' | 'match_mode'>,
   msg: RuleMessage,
 ): boolean {
-  const addressList = (items: Address[]) => items.map((a) => `${a.name} <${a.address}>`).join(', ');
   const fields = {
-    from: `${msg.from_name} <${msg.from_address}>`,
-    to: addressList(msg.to_addresses),
-    cc: addressList(msg.cc_addresses),
-    any_recipient: addressList([...msg.to_addresses, ...msg.cc_addresses]),
-    subject: msg.subject,
-    body: msg.body_text.slice(0, 100000),
+    from: [{ name: msg.from_name, address: msg.from_address }],
+    to: msg.to_addresses,
+    cc: msg.cc_addresses,
+    any_recipient: [...msg.to_addresses, ...msg.cc_addresses],
+    subject: [msg.subject],
+    body: [msg.body_text.slice(0, 100000)],
   };
   const matches = rule.conditions.map((c) => {
     if (c.field === 'has_attachment')
       return c.operator === 'is_true' ? msg.has_attachments : !msg.has_attachments;
-    const text = normalizeRuleText(fields[c.field]),
-      value = normalizeRuleText(c.value ?? '');
-    switch (c.operator) {
-      case 'contains':
-        return text.includes(value);
-      case 'not_contains':
-        return !text.includes(value);
-      case 'equals':
-        return text === value;
-      case 'starts_with':
-        return text.startsWith(value);
-      case 'ends_with':
-        return text.endsWith(value);
-      default:
-        return false;
-    }
+    const rawValue = c.value ?? '';
+    const emailValue = /^[^\s<>]+@[^\s<>]+$/.test(rawValue.trim());
+    const value = emailValue ? normalizeRuleEmail(rawValue) : normalizeRuleText(rawValue);
+    const candidates = fields[c.field].flatMap((item) =>
+      typeof item === 'string'
+        ? [normalizeRuleText(item)]
+        : emailValue
+          ? [normalizeRuleEmail(item.address)]
+          : [
+              normalizeRuleText(item.name),
+              normalizeRuleText(item.address),
+              normalizeRuleText(`${item.name} <${item.address}>`),
+            ],
+    );
+    const match = (text: string) => {
+      switch (c.operator) {
+        case 'contains':
+        case 'not_contains':
+          return text.includes(value);
+        case 'equals':
+          return text === value;
+        case 'starts_with':
+          return text.startsWith(value);
+        case 'ends_with':
+          return text.endsWith(value);
+        default:
+          return false;
+      }
+    };
+    return c.operator === 'not_contains' ? !candidates.some(match) : candidates.some(match);
   });
   return (
     matches.length > 0 &&

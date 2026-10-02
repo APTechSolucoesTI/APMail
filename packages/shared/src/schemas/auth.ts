@@ -6,6 +6,8 @@ export const passwordSchema = z
   .regex(/[\p{L}]/u, 'Inclua uma letra.')
   .regex(/[0-9]/, 'Inclua um número.');
 import { emailSchema } from './common.js';
+import { SUPERVISOR_CAPABILITIES } from '../permissions.js';
+export const capabilitiesSchema = z.array(z.enum(SUPERVISOR_CAPABILITIES)).max(6).default([]);
 export const fullNameSchema = z.string().trim().min(2).max(120);
 export const loginSchema = z.object({ email: emailSchema, password: z.string().min(1).max(256) });
 export const signupSchema = z.object({
@@ -31,11 +33,16 @@ export const tenantSettingsSchema = z
     sla_first_response_hours: z.number().int().min(1).max(720),
     default_sync_days: z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)]),
     allow_external_auto_forward: z.boolean(),
+    default_invitation_mailbox_id: z.union([
+      z.uuid(),
+      z.literal('').transform(() => null),
+      z.null(),
+    ]),
   })
   .partial();
 export const preferencesSchema = z
   .object({
-    theme: z.enum(['system', 'light', 'dark']),
+    theme: z.enum(['light', 'dark']),
     density: z.enum(['comfortable', 'compact']),
     timezone: timezoneSchema,
     notify_mentions: z.boolean(),
@@ -58,12 +65,15 @@ export const mailboxAccessSchema = z.object({
   folder_ids: z.array(z.uuid()).max(1000).default([]),
 });
 export const memberAccessSchema = z.object({
-  tenant_role: z.enum(['owner', 'admin', 'member']),
+  tenant_role: z.enum(['owner', 'admin', 'member', 'supervisor']),
+  capabilities: capabilitiesSchema,
   mailbox_roles: z.array(mailboxAccessSchema).max(100),
 });
 export const invitationSchema = z.object({
   email: emailSchema,
-  tenant_role: z.enum(['admin', 'member']),
+  tenant_role: z.enum(['admin', 'member', 'supervisor']),
+  capabilities: capabilitiesSchema,
+  sender_mailbox_id: z.uuid().optional(),
   mailbox_roles: z.array(z.object({ mailbox_id: z.uuid(), role: mailboxRoleSchema })).max(100),
 });
 export const mailboxSchema = z.object({
@@ -84,6 +94,7 @@ export const mailboxSchema = z.object({
   username: z.string().min(1).max(254),
   password: z.string().min(1).max(256),
   sync_days: z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)]).default(90),
+  history_classify_days: z.number().int().min(0).max(90).default(0),
   append_sent_copy: z.boolean().default(true),
   members: z
     .array(z.object({ user_id: z.uuid(), role: mailboxRoleSchema }))

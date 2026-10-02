@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronsUpDown, Check, UserCheck } from 'lucide-react';
-import { can, type MailboxRole } from '@apmail/shared';
+import { can, canDelegate, type MailboxRole } from '@apmail/shared';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { meQuery, useTenantId } from '@/lib/auth';
@@ -37,7 +37,13 @@ export function ThreadAssignee({
     users = useQuery({
       queryKey: ['assignable', tenant, mailboxId],
       queryFn: () => api<User[]>('/mailboxes/' + mailboxId + '/assignable'),
-      enabled: can(role, 'assign_others'),
+      enabled:
+        can(role, 'assign_others') ||
+        canDelegate(
+          me.data?.tenants.find((t) => t.id === tenant)?.role ?? null,
+          me.data?.tenants.find((t) => t.id === tenant)?.capabilities,
+          'assign_others',
+        ),
     });
   const assign = async (userId: string | null) => {
     setBusy(true);
@@ -84,7 +90,12 @@ export function ThreadAssignee({
           {busy ? 'Atribuindo…' : 'Assumir'}
         </Button>
       )}
-      {can(role, 'assign_others') && (
+      {(can(role, 'assign_others') ||
+        canDelegate(
+          me.data?.tenants.find((t) => t.id === tenant)?.role ?? null,
+          me.data?.tenants.find((t) => t.id === tenant)?.capabilities,
+          'assign_others',
+        )) && (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button

@@ -35,6 +35,7 @@ import { withMailboxLock } from '../../src/lib/mailbox-lock.js';
 import { buildApp } from '../../../api/src/app.js';
 import { envSchema as apiEnvSchema } from '../../../api/src/env.js';
 import { hashToken } from '../../../api/src/plugins/auth.js';
+import { createSystemEmailHandler } from '../../src/handlers/system-email.js';
 const databaseUrl = process.env.DATABASE_URL_TEST!,
   redisUrl = process.env.REDIS_URL_TEST!;
 if (!databaseUrl || !new URL(databaseUrl).pathname.endsWith('_test'))
@@ -161,6 +162,7 @@ beforeAll(async () => {
       username: 'comercial@apmail.local',
       created_by: owner,
       sync_since: new Date('2020-01-01'),
+      history_classify_days: 90,
     })
     .execute();
   await writeMailboxCredential(db, tenantId, boxId, 'Senha123', key);
@@ -647,6 +649,179 @@ async function sendDraft(id: string, user = editor) {
   });
   return db.selectFrom('outbox').selectAll().where('id', '=', id).executeTakeFirstOrThrow();
 }
+it('preserva fontes, cores, tabelas e imagem CID em MIME real, com upload privado', async () => {
+  const image = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5QAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  const boundary = 'inline-' + suffix;
+  const uploaded = await app.inject({
+    method: 'POST',
+    url: '/api/uploads',
+    headers: {
+      cookie: cookies.get(editor)!,
+      origin,
+      'content-type': 'multipart/form-data; boundary=' + boundary,
+    },
+    payload: Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="imagem.png"\r\nContent-Type: image/png\r\n\r\n`,
+      ),
+      image,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]),
+  });
+  expect(uploaded.statusCode, uploaded.body).toBe(201);
+  const uploadId = uploaded.json().id,
+    cid = uploadId + '@apmail.local';
+  expect((await api('GET', '/api/uploads/' + uploadId + '/image', editor)).statusCode).toBe(200);
+  expect((await api('GET', '/api/uploads/' + uploadId + '/image', owner)).statusCode).toBe(404);
+  expect((await app.inject({ url: '/api/uploads/' + uploadId + '/image' })).statusCode).toBe(401);
+  const draft = await newDraft(editor, {
+    body_html: `<p style="text-align: center"><span style="font-family: Georgia; font-size: 24px; color: #1686a7; background-color: #e9f6f9">Texto formatado</span></p><table><tbody><tr><td><p>Célula</p></td></tr></tbody></table><img src="cid:${cid}" data-apmail-upload="${uploadId}" alt="Imagem QA">`,
+    attachments: [{ source: 'upload', upload_id: uploadId, inline: true }],
+  });
+  const saved = (await api('GET', '/api/outbox/' + draft.id, editor)).json();
+  expect(saved.body_html).toContain('font-size:24px');
+  expect(saved.body_html).toContain('cid:' + cid);
+  expect((await sendDraft(draft.id)).status).toBe('sent');
+  const recipient = new ImapFlow({
+    host: mailHost,
+    port: imapPort,
+    secure: false,
+    auth: { user: 'cliente@cliente.local', pass: 'Senha123' },
+    logger: false,
+  });
+  recipient.on('error', () => undefined);
+  try {
+    await recipient.connect();
+    await recipient.mailboxOpen('INBOX');
+    const ids = await recipient.search(
+      { header: { 'X-APMail-Outbox-Id': draft.id } },
+      { uid: true },
+    );
+    expect(Array.isArray(ids) && ids.length).toBeTruthy();
+    const message = await recipient.fetchOne(
+      (ids as number[])[0]!,
+      { source: true },
+      { uid: true },
+    );
+    if (!message || !message.source) throw Error('MIME ausente');
+    const parsed = await simpleParser(message.source, { keepCidLinks: true });
+    expect(parsed.html).toContain('font-family:Georgia');
+    expect(parsed.html).toContain('color:#1686a7');
+    expect(parsed.html).toContain('<table>');
+    expect(parsed.html).toContain('cid:' + cid);
+    const inline = parsed.attachments.find((file) => file.cid === cid)!;
+    expect(inline.contentDisposition).toBe('inline');
+    expect(inline.content.equals(image)).toBe(true);
+    await recipient.messageDelete(ids as number[], { uid: true });
+  } finally {
+    await recipient.logout().catch(() => recipient.close());
+  }
+});
+it('convites da empresa usam sua caixa; plataforma usa SMTP global e rejeita token substituído', async () => {
+  await db
+    .insertInto('platform_admins')
+    .values({ user_id: owner })
+    .onConflict((oc) => oc.column('user_id').doNothing())
+    .execute();
+  const handler = createSystemEmailHandler(
+    {
+      ...env,
+      SYSTEM_SMTP_HOST: mailHost,
+      SYSTEM_SMTP_PORT: smtpPort,
+      SYSTEM_SMTP_USER: '',
+      SYSTEM_SMTP_PASSWORD: '',
+      SYSTEM_MAIL_FROM: 'Plataforma <plataforma@apmail.local>',
+    },
+    db,
+  );
+  const recipient = new ImapFlow({
+    host: mailHost,
+    port: imapPort,
+    secure: false,
+    auth: { user: 'cliente@cliente.local', pass: 'Senha123' },
+    logger: false,
+  });
+  recipient.on('error', () => undefined);
+  try {
+    await recipient.connect();
+    await recipient.mailboxOpen('INBOX');
+    for (const context of ['tenant', 'platform'] as const) {
+      const token = randomBytes(32).toString('base64url'),
+        title = context + '-' + suffix;
+      const invite = await db
+        .insertInto('invitations')
+        .values({
+          tenant_id: tenantId,
+          email: 'cliente@cliente.local',
+          tenant_role: 'member',
+          mailbox_roles: [],
+          sender_mailbox_id: context === 'tenant' ? boxId : null,
+          sender_context: context,
+          invited_by: owner,
+          token_hash: hashToken(token),
+          expires_at: new Date(Date.now() + 3600000),
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      const payload = {
+        to: 'cliente@cliente.local',
+        invitation_id: invite.id,
+        data: {
+          link: origin + '/accept-invite?token=' + token,
+          tenant_name: title,
+          inviter_name: 'QA',
+        },
+      };
+      await handler('invite', payload);
+      const delivered = await db
+        .selectFrom('invitations')
+        .select('delivery_status')
+        .where('id', '=', invite.id)
+        .executeTakeFirstOrThrow();
+      expect(delivered.delivery_status).toBe('sent');
+      const ids = await recipient.search(
+        { header: { Subject: 'Convite para ' + title } },
+        { uid: true },
+      );
+      expect(Array.isArray(ids) && ids.length).toBeTruthy();
+      const message = await recipient.fetchOne(
+        (ids as number[])[0]!,
+        { source: true },
+        { uid: true },
+      );
+      if (!message || !message.source) throw Error('Convite ausente');
+      expect((await simpleParser(message.source)).from?.value[0]?.address).toBe(
+        context === 'tenant' ? 'comercial@apmail.local' : 'plataforma@apmail.local',
+      );
+      await recipient.messageDelete(ids as number[], { uid: true });
+      await db
+        .updateTable('invitations')
+        .set({ token_hash: hashToken(randomUUID()), delivery_status: 'pending' })
+        .where('id', '=', invite.id)
+        .execute();
+      await expect(handler('invite', payload)).rejects.toThrow('invitation_token_replaced');
+      expect(
+        (
+          await db
+            .selectFrom('invitations')
+            .select('delivery_status')
+            .where('id', '=', invite.id)
+            .executeTakeFirstOrThrow()
+        ).delivery_status,
+      ).toBe('pending');
+      await db
+        .updateTable('invitations')
+        .set({ revoked_at: new Date() })
+        .where('id', '=', invite.id)
+        .execute();
+    }
+  } finally {
+    await recipient.logout().catch(() => recipient.close());
+  }
+});
 it('rascunhos são privados, viewer não envia e cancelamento impede job obsoleto', async () => {
   expect((await api('POST', '/api/outbox', viewer, { mailbox_id: boxId })).statusCode).toBe(403);
   const draft = await newDraft();
@@ -1281,3 +1456,108 @@ it('isola etiquetas, regras e pastas de outra empresa e aplica permissões no se
   ).toBe(false);
   expect((await api('GET', '/api/mailboxes/' + otherBox + '/threads', owner)).statusCode).toBe(404);
 });
+it('empresa suspensa bloqueia envio pendente e exige nova tentativa após reativação', async () => {
+  const draft = await newDraft();
+  const submit = await api('POST', '/api/outbox/' + draft.id + '/submit', editor, {});
+  expect(submit.statusCode).toBe(200);
+  await db
+    .updateTable('outbox')
+    .set({ send_after: new Date(Date.now() - 1000) })
+    .where('id', '=', draft.id)
+    .execute();
+  await db
+    .updateTable('tenants')
+    .set({ suspended_at: new Date() })
+    .where('id', '=', tenantId)
+    .execute();
+  try {
+    await expect(
+      handleOutboxSend(r, draft.id, {
+        id: submit.json().job_id,
+        attemptsMade: 0,
+        opts: { attempts: 3 },
+      }),
+    ).rejects.toThrow('empresa está suspensa');
+    const row = await db
+      .selectFrom('outbox')
+      .select(['status', 'message_id_header'])
+      .where('id', '=', draft.id)
+      .executeTakeFirstOrThrow();
+    expect(row.status).toBe('failed');
+    expect(row.message_id_header).toBeNull();
+  } finally {
+    await db
+      .updateTable('tenants')
+      .set({ suspended_at: null })
+      .where('id', '=', tenantId)
+      .execute();
+  }
+});
+it('histórico com janela zero fica sem fila, mantém origem em movimentos e uma resposta nova ativa a fila', async () => {
+  const start = new Date(Date.now() - 3600000),
+    oldDate = new Date(Date.now() - 30 * 86400000),
+    newPath = sourcePath + '-Nova';
+  await db
+    .updateTable('mailboxes')
+    .set({ history_classify_days: 0, import_started_at: start })
+    .where('id', '=', boxId)
+    .execute();
+  const raw = (id: string, date: Date, reply?: string) =>
+    `From: Cliente <cliente@cliente.local>\r\nTo: comercial@apmail.local\r\nSubject: Historico ${suffix}\r\nMessage-ID: <${id}-${suffix}@cliente.local>\r\n${reply ? `In-Reply-To: <${reply}-${suffix}@cliente.local>\r\nReferences: <${reply}-${suffix}@cliente.local>\r\n` : ''}Date: ${date.toUTCString()}\r\nX-APMail-QA: ${suffix}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nMensagem QA.\r\n`;
+  const t = await client();
+  try {
+    await t.imap.connect();
+    await t.imap.append(sourcePath, raw('history', oldDate), [], oldDate);
+    await sync();
+    const old = await db
+      .selectFrom('messages')
+      .select(['id', 'thread_id', 'is_historical', 'imap_uid'])
+      .where('mailbox_id', '=', boxId)
+      .where('message_id_header', '=', '<history-' + suffix + '@cliente.local>')
+      .where('deleted_at', 'is', null)
+      .executeTakeFirstOrThrow();
+    expect(old.is_historical).toBe(true);
+    const thread = () =>
+      db
+        .selectFrom('threads')
+        .select('queue_status')
+        .where('id', '=', old.thread_id)
+        .executeTakeFirstOrThrow();
+    expect((await thread()).queue_status).toBe('none');
+    const lock = await t.imap.getMailboxLock(sourcePath);
+    try {
+      await t.imap.messageMove([Number(old.imap_uid)], targetPath, { uid: true });
+    } finally {
+      lock.release();
+    }
+    await sync();
+    expect((await thread()).queue_status).toBe('none');
+    const moved = await db
+      .selectFrom('messages')
+      .select('is_historical')
+      .where('mailbox_id', '=', boxId)
+      .where('message_id_header', '=', '<history-' + suffix + '@cliente.local>')
+      .where('deleted_at', 'is', null)
+      .executeTakeFirstOrThrow();
+    expect(moved.is_historical).toBe(true);
+    await t.imap.mailboxCreate(newPath);
+    await t.imap.append(newPath, raw('live', new Date(), 'history'), [], new Date());
+    await sync();
+    expect((await thread()).queue_status).toBe('to_reply');
+    const live = await db
+      .selectFrom('messages')
+      .select('is_historical')
+      .where('mailbox_id', '=', boxId)
+      .where('message_id_header', '=', '<live-' + suffix + '@cliente.local>')
+      .executeTakeFirstOrThrow();
+    expect(live.is_historical).toBe(false);
+  } finally {
+    await t.imap.mailboxDelete(newPath).catch(() => undefined);
+    await t.close();
+    await db
+      .updateTable('mailboxes')
+      .set({ history_classify_days: 90 })
+      .where('id', '=', boxId)
+      .execute();
+  }
+}, 60000);

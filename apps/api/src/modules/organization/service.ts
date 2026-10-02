@@ -1,3 +1,4 @@
+import { isTenantAdmin } from '@apmail/shared';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { asJson, type Database } from '@apmail/db';
@@ -16,6 +17,7 @@ import {
   type RequestContext,
 } from '../../authz/context.js';
 import { requireMailboxPerm } from '../../authz/guards.js';
+import { requireFolder } from '../../authz/folders.js';
 import { requireThread, mailEvents } from '../mail.js';
 import type { Resources } from '../resources.js';
 export const labelIdsSchema = z.object({ label_ids: z.array(z.uuid()).max(100) });
@@ -118,6 +120,7 @@ export function organizationService(r: Resources) {
           .where('deleted_at', 'is', null)
           .executeTakeFirst();
         if (!f) throw notFound();
+        await requireFolder(c, r.db, b.mailbox_id, f.id);
       } else if (a.type === 'add_label') await validateLabelIds(r, c, [a.label_id]);
       else if (a.type === 'assign_to') {
         const target = await r.db
@@ -133,7 +136,7 @@ export function organizationService(r: Resources) {
           .where('tm.tenant_id', '=', c.tenantId)
           .where('tm.status', '=', 'active')
           .executeTakeFirst();
-        if (!target || (target.role === 'member' && !can(target.mailbox_role, 'send')))
+        if (!target || (!isTenantAdmin(target.role) && !can(target.mailbox_role, 'send')))
           throw conflict('O responsável precisa poder enviar nesta caixa.');
       } else if (a.type === 'forward_to') {
         const tenant = await r.db
@@ -288,7 +291,7 @@ export function organizationService(r: Resources) {
         .selectFrom('personal_labels as l')
         .selectAll('l')
         .select(
-          sql<number>`(select count(*)::int from thread_personal_labels tl join threads t on t.id=tl.thread_id where tl.label_id=l.id and tl.tenant_id=${c.tenantId} and tl.user_id=${c.userId} and t.deleted_at is null and (exists(select 1 from mailbox_members mm where mm.mailbox_id=t.mailbox_id and mm.user_id=${c.userId}) or ${c.tenantRole !== 'member'}))`.as(
+          sql<number>`(select count(*)::int from thread_personal_labels tl join threads t on t.id=tl.thread_id where tl.label_id=l.id and tl.tenant_id=${c.tenantId} and tl.user_id=${c.userId} and t.deleted_at is null and (exists(select 1 from mailbox_members mm where mm.mailbox_id=t.mailbox_id and mm.user_id=${c.userId}) or ${isTenantAdmin(c.tenantRole)}))`.as(
             'thread_count',
           ),
         )

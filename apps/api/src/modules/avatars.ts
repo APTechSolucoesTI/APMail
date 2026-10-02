@@ -13,6 +13,70 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
     limits: { fileSize: r.env.MAX_UPLOAD_MB * 1024 * 1024, files: 1 },
   });
   const storage = new Storage(r.env.STORAGE_DIR);
+  app.post('/api/signatures/images', async (req) => {
+    const c = requireTenant(req.ctx);
+    if (r.env.NODE_ENV === 'production' && !r.env.APP_URL.startsWith('https://'))
+      throw new ApiError(
+        409,
+        'https_required',
+        'Configure o endereço HTTPS da aplicação para publicar imagens.',
+      );
+    const file = await req.file();
+    if (!file) throw new ApiError(400, 'validation_error', 'Escolha uma imagem.');
+    const input = await file.toBuffer();
+    const detected = await fileTypeFromBuffer(input);
+    if (
+      input.length > 5 * 1024 * 1024 ||
+      !detected ||
+      !['image/jpeg', 'image/png', 'image/webp'].includes(detected.mime)
+    )
+      throw new ApiError(400, 'validation_error', 'Escolha JPEG, PNG ou WebP de até 5 MB.');
+    try {
+      const normalized = await sharp(input, { limitInputPixels: 25000000 })
+        .rotate()
+        .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+        .png()
+        .toBuffer({ resolveWithObject: true });
+      const id = randomUUID(),
+        path = `public/signatures/${id}.png`;
+      await storage.writeFile(path, normalized.data);
+      await r.db
+        .insertInto('signature_images')
+        .values({
+          id,
+          tenant_id: c.tenantId,
+          user_id: c.userId,
+          storage_path: path,
+          content_type: 'image/png',
+          width: normalized.info.width,
+          height: normalized.info.height,
+          size_bytes: normalized.data.length,
+        })
+        .execute();
+      return {
+        url: `${r.env.APP_URL}/api/public/signature-images/${id}`,
+        width: normalized.info.width,
+        height: normalized.info.height,
+      };
+    } catch {
+      throw new ApiError(400, 'validation_error', 'Não foi possível processar esta imagem.');
+    }
+  });
+  app.get('/api/public/signature-images/:id', async (req, reply) => {
+    const { id } = z.object({ id: z.uuid() }).parse(req.params);
+    const row = await r.db
+      .selectFrom('signature_images')
+      .select(['storage_path', 'content_type'])
+      .where('id', '=', id)
+      .executeTakeFirst();
+    if (!row) throw notFound();
+    return reply
+      .type(row.content_type)
+      .header('Cache-Control', 'public, max-age=31536000, immutable')
+      .header('X-Content-Type-Options', 'nosniff')
+      .header('Cross-Origin-Resource-Policy', 'cross-origin')
+      .send(await storage.openReadStream(row.storage_path));
+  });
   app.post('/api/me/avatar', async (req) => {
     const c = requireAuth(req.ctx);
     const file = await req.file();

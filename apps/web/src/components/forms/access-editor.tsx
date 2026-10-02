@@ -1,3 +1,6 @@
+import { isTenantAdmin } from '@apmail/shared';
+import { SUPERVISOR_CAPABILITIES, CAPABILITY_LABELS } from '@apmail/shared';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useTenantId } from '@/lib/auth';
 import { useState } from 'react';
 import { z } from 'zod';
@@ -13,12 +16,27 @@ import { toast } from 'sonner';
 import { FolderAccessPicker, type FolderAccess } from './folder-access-picker';
 type Access = {
   tenant_role: TenantRole;
+  capabilities?: string[];
   mailbox_roles: ({ mailbox_id: string; role: MailboxRole | null } & FolderAccess)[];
 };
-export function AccessEditor({ userId, onDone }: { userId?: string; onDone: () => void }) {
+export function AccessEditor({
+  userId,
+  onDone,
+  platformTenantId,
+}: {
+  userId?: string;
+  onDone: () => void;
+  platformTenantId?: string;
+}) {
+  const tenantId = useTenantId();
   const q = useQuery({
-    queryKey: ['access', useTenantId(), userId],
-    queryFn: () => api<Access>('/members/' + userId + '/access'),
+    queryKey: ['access', platformTenantId ?? tenantId, userId],
+    queryFn: () =>
+      api<Access>(
+        platformTenantId
+          ? '/superadmin/users/' + userId + '/access?tenant_id=' + platformTenantId
+          : '/members/' + userId + '/access',
+      ),
     enabled: !!userId,
   });
   if (userId && q.isLoading) return <LoadingState />;
@@ -26,6 +44,7 @@ export function AccessEditor({ userId, onDone }: { userId?: string; onDone: () =
   return (
     <AccessForm
       userId={userId}
+      platformTenantId={platformTenantId}
       initial={q.data ?? { tenant_role: 'member', mailbox_roles: [] }}
       onDone={onDone}
     />
@@ -35,34 +54,68 @@ function AccessForm({
   userId,
   initial,
   onDone,
+  platformTenantId,
 }: {
   userId?: string;
   initial: Access;
   onDone: () => void;
+  platformTenantId?: string;
 }) {
   const client = useQueryClient();
+  const tenantId = useTenantId();
   const me = useQuery(meQuery);
   const boxes = useQuery({
-    queryKey: ['mailboxes', useTenantId()],
-    queryFn: () => api<Mailbox[]>('/mailboxes'),
+    queryKey: ['mailboxes', platformTenantId ?? tenantId, !!platformTenantId],
+    queryFn: () =>
+      api<Mailbox[]>(
+        platformTenantId ? '/superadmin/tenants/' + platformTenantId + '/mailboxes' : '/mailboxes',
+      ),
   });
   const [roles, setRoles] = useState(initial.mailbox_roles);
-  const owner = me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id)?.role === 'owner';
+  const [capabilities, setCapabilities] = useState(initial.capabilities ?? []);
+  const owner =
+    !!platformTenantId ||
+    me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id)?.role === 'owner';
+  const tenantSettings = useQuery({
+    queryKey: ['tenant', useTenantId()],
+    queryFn: () => api<{ settings: { default_invitation_mailbox_id?: string } }>('/tenant'),
+    enabled: !userId,
+  });
+  if (boxes.isLoading || (!userId && tenantSettings.isLoading)) return <LoadingState />;
   return (
     <SchemaForm
       schema={z.object({
-        tenant_role: z.enum(['owner', 'admin', 'member']),
-        ...(userId ? {} : { email: emailSchema }),
+        tenant_role: z.enum(['owner', 'admin', 'member', 'supervisor']),
+        ...(userId ? {} : { email: emailSchema, sender_mailbox_id: z.uuid() }),
       })}
-      defaults={{ tenant_role: initial.tenant_role }}
+      defaults={{
+        tenant_role: initial.tenant_role,
+        sender_mailbox_id:
+          tenantSettings.data?.settings.default_invitation_mailbox_id ??
+          boxes.data?.find((b) => b.status === 'active')?.id,
+      }}
       fields={[
-        ...(userId ? [] : [{ name: 'email', label: 'E-mail', type: 'email' as const }]),
+        ...(userId
+          ? []
+          : [
+              { name: 'email', label: 'E-mail', type: 'email' as const },
+              {
+                name: 'sender_mailbox_id',
+                label: 'Enviar convite pela caixa',
+                type: 'select' as const,
+                options: (boxes.data ?? [])
+                  .filter((b) => b.status === 'active')
+                  .map((b) => ({ value: b.id, label: `${b.name} (${b.email_address})` })),
+                help: 'É necessário ter uma caixa conectada. O convite usa o SMTP dessa caixa.',
+              },
+            ]),
         {
           name: 'tenant_role',
           label: 'Papel na empresa',
           type: 'select',
           options: [
             { value: 'member', label: 'Membro' },
+            { value: 'supervisor', label: 'Supervisor' },
             ...(owner
               ? [
                   { value: 'admin', label: 'Administrador' },
@@ -80,24 +133,52 @@ function AccessForm({
           mailbox_id: box.id,
           role: roles.find((r) => r.mailbox_id === box.id)?.role ?? null,
           restrict_to_folders:
-            (b.tenant_role === 'member' &&
+            (!isTenantAdmin(String(b.tenant_role)) &&
               roles.find((r) => r.mailbox_id === box.id)?.restrict_to_folders) ||
             false,
           folder_ids: roles.find((r) => r.mailbox_id === box.id)?.folder_ids ?? [],
         }));
-        await api(userId ? '/members/' + userId + '/access' : '/invitations', {
-          method: userId ? 'PUT' : 'POST',
-          body: {
-            ...b,
-            mailbox_roles: userId ? mailbox_roles : mailbox_roles.filter((b) => b.role),
+        await api(
+          platformTenantId
+            ? '/superadmin/users/' + userId + '/access'
+            : userId
+              ? '/members/' + userId + '/access'
+              : '/invitations',
+          {
+            method: userId ? 'PUT' : 'POST',
+            body: {
+              ...b,
+              ...(platformTenantId ? { tenant_id: platformTenantId } : {}),
+              capabilities: b.tenant_role === 'supervisor' ? capabilities : [],
+              mailbox_roles: userId ? mailbox_roles : mailbox_roles.filter((b) => b.role),
+            },
           },
-        });
+        );
         await client.invalidateQueries();
-        toast.success(userId ? 'Permissões atualizadas.' : 'Convite enviado.');
+        toast.success(userId ? 'Permissões atualizadas.' : 'Convite registrado para envio.');
         onDone();
       }}
       renderPreview={(values) => (
         <div className="space-y-4">
+          {values.tenant_role === 'supervisor' && (
+            <fieldset className="rounded-md border p-3 space-y-2">
+              <legend>Permissões adicionais do supervisor</legend>
+              {SUPERVISOR_CAPABILITIES.map((cap) => (
+                <div key={cap} className="flex min-h-11 gap-2 items-center">
+                  <Checkbox
+                    id={'cap-' + cap}
+                    checked={capabilities.includes(cap)}
+                    onCheckedChange={(checked) =>
+                      setCapabilities((prev) =>
+                        checked ? [...prev, cap] : prev.filter((c) => c !== cap),
+                      )
+                    }
+                  />
+                  <Label htmlFor={'cap-' + cap}>{CAPABILITY_LABELS[cap]}</Label>
+                </div>
+              ))}
+            </fieldset>
+          )}
           {boxes.data?.map((box) => {
             const current = roles.find((r) => r.mailbox_id === box.id),
               role = current?.role ?? null;
@@ -129,9 +210,10 @@ function AccessForm({
                   ))}
                 </RadioGroup>
                 {userId &&
-                  values.tenant_role === 'member' &&
+                  !isTenantAdmin(String(values.tenant_role)) &&
                   (role === 'editor' || role === 'viewer') && (
                     <FolderAccessPicker
+                      platformTenantId={platformTenantId}
                       mailboxId={box.id}
                       value={current ?? { restrict_to_folders: false, folder_ids: [] }}
                       onChange={(access) =>

@@ -65,6 +65,14 @@ export async function handleMailboxConnection(r: WorkerResources, mailboxId: str
     .where('status', '=', 'pending')
     .executeTakeFirst();
   if (!box) return;
+  const tenant = await r.db
+    .selectFrom('tenants')
+    .select('id')
+    .where('id', '=', box.tenant_id)
+    .where('deleted_at', 'is', null)
+    .where('suspended_at', 'is', null)
+    .executeTakeFirst();
+  if (!tenant) return;
   const t = await transports(r.db, box, r.env);
   let smtp = false;
   try {

@@ -94,7 +94,7 @@ Use `docker compose logs --tail 100 api worker migrate` ou as telas de logs do D
 
 ## Situação da instalação local
 
-A instalação gerenciada está no projeto **APMail**, ambiente **production**, serviço Compose **APMail** do Dokploy em `http://192.168.3.106:3000`. O nome Compose efetivo é `apmail-next-production-qrufqc`, com banco, Redis, arquivos e segredos exclusivos. Proprietário `sistema@aptechinfo.com.br`, empresa **APTech Soluções TI**, cadastro público desativado. Senha inicial e instruções de acesso estão no arquivo privado `.data/APMail-acesso-local.txt` do workspace; ambiente/chaves em `.data/qa/dokploy-production.env`. Guarde em cofre e troque a senha inicial. Não execute seed nessa instalação.
+A instalação gerenciada está no projeto **APMail**, ambiente **production**, serviço Compose **APMail** do Dokploy em `http://192.168.3.106:3000`. O nome Compose efetivo é `apmail-next-production-qrufqc`, com banco, Redis, arquivos e segredos exclusivos. Endereço público: **https://apmail.aptechinfo.com.br:75**. Proprietário `sistema@aptechinfo.com.br`, empresa **APTech Soluções TI**, cadastro público desativado. Domínio, SMTP global e caixa real estão configurados. O ambiente atual do Dokploy é a fonte de verdade; `.data/qa/dokploy-production.env` é uma cópia antiga e não deve ser reaplicada. Não execute seed nessa instalação.
 
 Abra o túnel e acesse `http://localhost:8081`:
 
@@ -102,8 +102,24 @@ Abra o túnel e acesse `http://localhost:8081`:
 ssh -L 8081:127.0.0.1:8081 administrador@192.168.3.106
 ```
 
-O comando temporário do serviço Dokploy adiciona o override local e usa `APMAIL_LOCAL_PORT=8081`. Para publicar: informe domínio/DNS e SMTP reais, ajuste `APP_URL=https://DOMINIO`, limpe o comando personalizado para voltar ao Compose principal, configure **Domains → web:80 → HTTPS** e faça redeploy. Valide convites, recuperação de senha e conecte as caixas reais. Nenhuma caixa de QA foi copiada para essa instalação.
+O túnel local é opcional para diagnóstico. Na atualização, preserve os valores atuais de `APP_URL`, SMTP, segredos, volumes e configuração de domínio no Dokploy. Nenhuma caixa de QA deve ser copiada para produção.
 
 Backup diário às **03h, fuso do host -03**, no crontab do usuário administrador. Script: `/home/administrador/apmail-next/scripts/backup-production.sh`; destino: `/home/administrador/apmail-next/.data/backups/production`; log: `backup.log` nesse diretório. API/worker pausam brevemente para manter banco e arquivos consistentes. Primeiro backup e restauração do proprietário em banco separado aprovados; banco de restauração removido depois da conferência. Os conjuntos incluem chaves privadas: mantenha cópia fora do host/cofre, monitore o log e planeje retenção conforme o espaço disponível. Não foi configurado armazenamento externo.
 
-A validação completa de e-mail usa a stack exclusiva `apmail-next-stage`, localhost:8080 por túnel, com GreenMail/Mailpit isolados e certificado de QA de curta duração, mantendo TLS ativo. Esses provedores não fazem parte da instalação gerenciada. Domínio final e SMTP externo ainda precisam ser informados para concluir a publicação HTTPS e a entrega externa. Veja as evidências em [PROGRESSO.md](PROGRESSO.md).
+A validação completa de e-mail usa provedores GreenMail/Mailpit isolados. Esses provedores não fazem parte da instalação gerenciada. Veja as evidências em [PROGRESSO.md](PROGRESSO.md).
+
+## Super admin e novas configurações
+
+Após aplicar as migrations, conceda o acesso global a uma conta existente, pelo servidor:
+
+```sh
+docker compose exec -T api node node_modules/@apmail/db/dist/bootstrap-superadmin.js sistema@aptechinfo.com.br
+```
+
+O comando registra a concessão na auditoria global. A conta mantém a senha existente; `/superadmin` não possui cadastro público nem senha separada. Proprietários e administradores de empresas não recebem automaticamente o papel global. O painel gerencia empresas, usuários/vínculos/capacidades, caixas, auditoria, logs e saúde. O suporte exige motivo e expira em 30 minutos, permite somente leitura e registra entrada, leituras e saída nas duas auditorias.
+
+Convites da empresa usam sua caixa principal ativa, configurável em **Configurações → Empresa** e no próprio convite. Sem caixa ativa, conectar uma antes de convidar. Convites do super admin e recuperação de senha usam `SYSTEM_SMTP_*` e `SYSTEM_MAIL_FROM` globais. Falhas de entrega ficam no convite e podem ser reenviadas.
+
+Importação inicial: `history_classify_days` entre 0 e 90; padrão 0 mantém histórico sem fila. Conversas existentes preservam elegibilidade; mensagens novas seguem classificação normal. A origem histórica permanece em movimentos e ressincronizações. Preferências migram uma única vez para claro/escuro, densidade fixa, notificações internas e imagens ativadas; notificação do navegador desativada. Escolhas posteriores são preservadas.
+
+Contatos são exclusivos por e-mail normalizado dentro da empresa. Por padrão, todas as caixas atuais e futuras podem exibi-los. Restrição por caixas é administrativa; um usuário com acesso a qualquer caixa autorizada vê o contato completo. Consultas públicas de CEP/CNPJ têm timeout, cache e preenchimento manual. Imagens de assinatura requerem `APP_URL` HTTPS em produção e armazenamento persistente; não remover imagens antigas usadas em mensagens enviadas.

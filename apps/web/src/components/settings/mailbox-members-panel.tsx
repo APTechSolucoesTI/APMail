@@ -1,3 +1,4 @@
+import { isTenantAdmin } from '@apmail/shared';
 import { useState } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { listQuerySchema, ROLE_LABELS, type MailboxRole, type TenantRole } from '@apmail/shared';
@@ -71,11 +72,10 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
     .map((m) => ({
       ...m,
       id: m.user_id,
-      implicit: m.role !== 'member',
-      mailbox_role:
-        m.role !== 'member'
-          ? 'mailbox_admin'
-          : (access.data?.find((a) => a.user_id === m.user_id)?.role ?? 'none'),
+      implicit: isTenantAdmin(m.role),
+      mailbox_role: isTenantAdmin(m.role)
+        ? 'mailbox_admin'
+        : (access.data?.find((a) => a.user_id === m.user_id)?.role ?? 'none'),
       folder_access: access.data?.find((a) => a.user_id === m.user_id) ?? {
         restrict_to_folders: false,
         folder_ids: [],

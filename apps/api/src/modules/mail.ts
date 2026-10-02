@@ -93,6 +93,8 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         'f.name',
         'f.parent_id',
         'f.special_use',
+        'f.imap_path',
+        'f.special_use_official',
         sql<number>`(select count(distinct t.id)::int from messages m join threads t on t.id=m.thread_id left join thread_user_state us on us.thread_id=t.id and us.user_id=${c.userId} where m.folder_id=f.id and m.deleted_at is null and t.last_inbound_at > coalesce(us.last_read_at,'-infinity'::timestamptz))`.as(
           'unread_count',
         ),

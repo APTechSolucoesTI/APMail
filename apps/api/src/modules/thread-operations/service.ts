@@ -48,7 +48,7 @@ export async function changeThread(
         action === 'done'
           ? { manual_done_at: new Date() }
           : action === 'reopen'
-            ? { manual_done_at: null, queue_excluded: false }
+            ? { manual_done_at: null, queue_excluded: false, history_queue_eligible: true }
             : { queue_excluded: value as boolean },
       )
       .where('id', '=', id)
@@ -117,7 +117,7 @@ export async function bulkQueue(
           .set(
             action === 'done'
               ? { manual_done_at: new Date() }
-              : { manual_done_at: null, queue_excluded: false },
+              : { manual_done_at: null, queue_excluded: false, history_queue_eligible: true },
           )
           .where('id', '=', row.id)
           .execute();

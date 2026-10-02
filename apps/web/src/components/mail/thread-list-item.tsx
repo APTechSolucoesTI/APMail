@@ -6,6 +6,8 @@ import { cn } from '@/lib/utils';
 import type { Thread } from '@/lib/mail';
 import { LabelBadge } from './label-badge';
 import { SearchHighlight } from './search-highlight';
+import { useQuery } from '@tanstack/react-query';
+import { meQuery } from '@/lib/auth';
 export function ThreadListItem({
   thread,
   selected,
@@ -22,6 +24,8 @@ export function ThreadListItem({
   query?: string;
 }) {
   const date = thread.last_message_at ? new Date(thread.last_message_at) : null;
+  const timeZone = useQuery(meQuery).data?.preferences.timezone ?? 'America/Sao_Paulo';
+  const fullTime = date?.toLocaleString('pt-BR', { timeZone });
   return (
     <article
       className={cn(
@@ -61,10 +65,20 @@ export function ThreadListItem({
           )}
           <time
             dateTime={thread.last_message_at ?? undefined}
-            title={date?.toLocaleString('pt-BR')}
+            title={fullTime}
+            aria-label={fullTime}
             className="shrink-0 text-xs tabular-nums text-muted-foreground"
           >
-            {date?.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+            {date
+              ?.toLocaleString('pt-BR', {
+                timeZone,
+                day: '2-digit',
+                month: '2-digit',
+                ...(date.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}),
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+              .replace(',', '')}
           </time>
         </div>
         <p

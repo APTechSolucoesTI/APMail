@@ -1,3 +1,4 @@
+import { isTenantAdmin } from '@apmail/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sql, type Kysely } from 'kysely';
@@ -12,19 +13,21 @@ import {
 import {
   requireTenant,
   requireTenantAdmin,
+  requireCapability,
   forbidden,
   notFound,
   ApiError,
   type RequestContext,
 } from '../authz/context.js';
 import { getMailboxRole, requireMailboxPerm } from '../authz/guards.js';
+import { readableFolders, folderPredicate } from '../authz/folders.js';
 import { avatarUrl } from './auth.js';
 import type { Resources } from './resources.js';
 export async function requireMember(ctx: RequestContext, r: Resources, userId: string) {
   const c = requireTenant(ctx);
   const row = await r.db
     .selectFrom('tenant_members')
-    .select(['id', 'role', 'status'])
+    .select(['id', 'role', 'status', 'capabilities'])
     .where('tenant_id', '=', c.tenantId)
     .where('user_id', '=', userId)
     .executeTakeFirst();
@@ -157,6 +160,18 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         settings: tenantSettingsSchema.optional(),
       })
       .parse(req.body);
+    if (b.settings?.default_invitation_mailbox_id) {
+      const sender = await r.db
+        .selectFrom('mailboxes')
+        .select('id')
+        .where('tenant_id', '=', c.tenantId)
+        .where('id', '=', b.settings.default_invitation_mailbox_id)
+        .where('status', '=', 'active')
+        .where('deleted_at', 'is', null)
+        .executeTakeFirst();
+      if (!sender)
+        throw new ApiError(400, 'validation_error', 'Escolha uma caixa ativa da empresa.');
+    }
     const old = await r.db
       .selectFrom('tenants')
       .selectAll()
@@ -210,7 +225,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
     }));
   });
   app.get('/api/members', async (req) => {
-    const c = requireTenantAdmin(req.ctx);
+    const c = requireCapability(req.ctx, 'members');
     const members = await r.db
       .selectFrom('tenant_members as m')
       .innerJoin('users as u', 'u.id', 'm.user_id')
@@ -239,6 +254,8 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         'i.email',
         'i.tenant_role',
         'i.expires_at',
+        'i.delivery_status',
+        'i.delivery_error',
         'u.full_name as invited_by_name',
       ])
       .where('i.tenant_id', '=', c.tenantId)
@@ -256,7 +273,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         mailbox_count: u.mailbox_count,
         avatar_url: avatarUrl(u),
       })),
-      invitations,
+      invitations: isTenantAdmin(c.tenantRole) ? invitations : [],
     };
   });
   app.get('/api/members/:userId/access', async (req) => {
@@ -287,6 +304,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       .execute();
     return {
       tenant_role: member.role,
+      capabilities: member.capabilities,
       mailbox_roles: boxes.map((b) => ({
         ...b,
         restrict_to_folders: b.restrict_to_folders ?? false,
@@ -300,14 +318,17 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
     const member = await requireMember(c, r, userId);
     if (
       c.tenantRole !== 'owner' &&
-      (member.role === 'owner' || (member.role !== b.tenant_role && b.tenant_role !== 'member'))
+      (member.role === 'owner' || (member.role !== b.tenant_role && isTenantAdmin(b.tenant_role)))
     )
       throw forbidden();
     for (const box of b.mailbox_roles) await requireMailboxPerm(c, r.db, box.mailbox_id, 'read');
     await r.db.transaction().execute(async (tx) => {
       await tx
         .updateTable('tenant_members')
-        .set({ role: b.tenant_role })
+        .set({
+          role: b.tenant_role,
+          capabilities: b.tenant_role === 'supervisor' ? b.capabilities : [],
+        })
         .where('tenant_id', '=', c.tenantId)
         .where('user_id', '=', userId)
         .execute();
@@ -413,7 +434,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       return result;
     });
   app.get('/api/audit-logs', async (req) => {
-    const c = requireTenantAdmin(req.ctx);
+    const c = requireCapability(req.ctx, 'audit');
     const q = z
       .object({
         page: z.coerce.number().int().min(1).default(1),
@@ -441,6 +462,28 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       .selectFrom('audit_logs as a')
       .leftJoin('users as u', 'u.id', 'a.actor_id')
       .where('a.tenant_id', '=', c.tenantId);
+    if (!isTenantAdmin(c.tenantRole)) {
+      const memberships = await r.db
+        .selectFrom('mailbox_members as mm')
+        .innerJoin('mailboxes as b', 'b.id', 'mm.mailbox_id')
+        .select('b.id')
+        .where('mm.tenant_id', '=', c.tenantId)
+        .where('mm.user_id', '=', c.userId)
+        .where('b.deleted_at', 'is', null)
+        .execute();
+      const scopes = await Promise.all(
+        memberships.map(
+          async (box) =>
+            sql`(m.mailbox_id=${box.id} and ${folderPredicate(await readableFolders(c, r.db, box.id))})`,
+        ),
+      );
+      const allowed = scopes.length ? sql`(${sql.join(scopes, sql` or `)})` : sql`false`;
+      query = query.where(sql<boolean>`(
+        (a.entity_type='mailbox' and a.entity_id in (select b.id from mailboxes b join mailbox_members mm on mm.mailbox_id=b.id where mm.tenant_id=${c.tenantId} and mm.user_id=${c.userId} and b.deleted_at is null)) or
+        (a.entity_type='thread' and exists(select 1 from messages m where m.thread_id=a.entity_id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${allowed})) or
+        (a.entity_type='message' and exists(select 1 from messages m where m.id=a.entity_id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${allowed}))
+      )`);
+    }
     if (q.from) query = query.where('a.created_at', '>=', new Date(q.from));
     if (q.to) query = query.where('a.created_at', '<=', new Date(q.to));
     if (q.actor_id) query = query.where('a.actor_id', '=', q.actor_id);

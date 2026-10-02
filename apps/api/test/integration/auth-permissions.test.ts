@@ -246,6 +246,7 @@ it('valida origem e limita tentativas por e-mail', async () => {
   ).toBe(429);
 });
 it('aceita convites novos e existentes, revoga e esconde tokens', async () => {
+  await db.updateTable('mailboxes').set({ status: 'active' }).where('id', '=', mailboxA).execute();
   const email = 'invite-' + suffix + '@apmail.local';
   const invite = await call('POST', '/api/invitations', cookieA, {
     email,

@@ -85,7 +85,7 @@ export function sanitizeEmailHtml(html: string, text = '', blockRemoteImages = t
         'data-apmail-quote',
       ],
       a: ['href', 'target', 'rel'],
-      img: ['src', 'alt', 'data-apmail-src', 'data-apmail-cid'],
+      img: ['src', 'alt', 'data-apmail-src', 'data-apmail-cid', 'data-apmail-upload'],
     },
     allowedSchemes: ['http', 'https', 'mailto', 'tel'],
     allowedSchemesByTag: { img: blockRemoteImages ? ['data'] : ['https', 'data', 'cid'] },

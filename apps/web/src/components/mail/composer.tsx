@@ -363,7 +363,13 @@ export function Composer({
       setBusy(false);
     }
   };
-  const upload = async (file: File) => {
+  const upload = async (file: File, inline = false) => {
+    if (
+      inline &&
+      (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) ||
+        file.size > 5 * 1024 * 1024)
+    )
+      throw new Error('Use JPEG, PNG ou WebP de até 5 MB.');
     setEdited(true);
     const id = crypto.randomUUID();
     setUploads((u) => [...u, { id, name: file.name, progress: 0 }]);
@@ -401,13 +407,15 @@ export function Composer({
       setFiles((prev) => [
         ...prev,
         {
-          ref: { source: 'upload', upload_id: response.id },
+          ref: { source: 'upload', upload_id: response.id, ...(inline ? { inline: true } : {}) },
           filename: response.filename,
           size_bytes: response.size_bytes,
         },
       ]);
+      return response.id;
     } catch (e) {
       setError((e as Error).message);
+      if (inline) throw e;
     } finally {
       setUploads((u) => u.filter((x) => x.id !== id));
     }
@@ -597,6 +605,11 @@ export function Composer({
               <Label>Mensagem</Label>
               <RichTextEditor
                 value={body}
+                onImageUpload={async (file) => {
+                  const uploadId = await upload(file, true);
+                  if (!uploadId) throw new Error('Não foi possível incorporar a imagem.');
+                  return { src: `cid:${uploadId}@apmail.local`, uploadId };
+                }}
                 onChange={(value) => {
                   setEdited(true);
                   setBody(value);
@@ -684,6 +697,15 @@ export function Composer({
                       onClick={() => {
                         setEdited(true);
                         setFiles((prev) => prev.filter((_, j) => j !== i));
+                        if (f.ref.source === 'upload' && f.ref.inline) {
+                          const uploadId = f.ref.upload_id;
+                          const document = new DOMParser().parseFromString(body, 'text/html');
+                          document.querySelectorAll('img').forEach((image) => {
+                            if (image.getAttribute('data-apmail-upload') === uploadId)
+                              image.remove();
+                          });
+                          setBody(document.body.innerHTML);
+                        }
                       }}
                     >
                       <X />

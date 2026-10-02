@@ -18,11 +18,13 @@ export function computeThreadStatus(t: {
   last_inbound_at: Date | null;
   last_outbound_at: Date | null;
   assigned_to: string | null;
+  history_queue_eligible?: boolean;
 }): ThreadQueueStatus {
   if (t.queue_excluded) return 'none';
   if (t.has_pending_outbox) return 'scheduled';
   if (t.manual_done_at && (!t.last_inbound_at || t.last_inbound_at <= t.manual_done_at))
     return 'done';
+  if (t.history_queue_eligible === false && !t.assigned_to) return 'none';
   if (t.last_inbound_at && (!t.last_outbound_at || t.last_inbound_at > t.last_outbound_at))
     return t.assigned_to ? 'in_progress' : 'to_reply';
   if (t.last_outbound_at) return 'awaiting_reply';

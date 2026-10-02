@@ -1,3 +1,4 @@
+import { isTenantAdmin } from '@apmail/shared';
 import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import { z } from 'zod';
@@ -236,6 +237,25 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     await r.db.deleteFrom('uploads').where('id', '=', id).execute();
     return { ok: true };
   });
+  app.get('/api/uploads/:id/image', async (req, reply) => {
+    const c = requireTenant(req.ctx),
+      id = idOf(req.params);
+    const file = await r.db
+      .selectFrom('uploads')
+      .select(['storage_path', 'content_type'])
+      .where('id', '=', id)
+      .where('tenant_id', '=', c.tenantId)
+      .where('user_id', '=', c.userId)
+      .where('consumed_at', 'is', null)
+      .executeTakeFirst();
+    if (!file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.content_type))
+      throw notFound();
+    return reply
+      .type(file.content_type)
+      .header('Cache-Control', 'private, max-age=300')
+      .header('X-Content-Type-Options', 'nosniff')
+      .send(await storage.openReadStream(file.storage_path));
+  });
   app.post('/api/outbox', async (req, reply) => {
     const c = requireTenant(req.ctx),
       body = outboxSchema.parse(req.body);
@@ -328,7 +348,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       .select('mailboxes.id')
       .where('mailboxes.tenant_id', '=', c.tenantId)
       .where('mailboxes.deleted_at', 'is', null)
-      .$if(c.tenantRole === 'member', (query) =>
+      .$if(!isTenantAdmin(c.tenantRole), (query) =>
         query.where('mailbox_members.user_id', '=', c.userId),
       )
       .execute();

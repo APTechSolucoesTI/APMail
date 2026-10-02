@@ -18,6 +18,22 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
       .where('deleted_at', 'is', null)
       .executeTakeFirst();
     if (!box) return;
+    const tenant = await r.db
+      .selectFrom('tenants')
+      .select('id')
+      .where('id', '=', box.tenant_id)
+      .where('suspended_at', 'is', null)
+      .where('deleted_at', 'is', null)
+      .executeTakeFirst();
+    if (!tenant) return;
+    if (!box.import_started_at) {
+      box.import_started_at = new Date();
+      await r.db
+        .updateTable('mailboxes')
+        .set({ import_started_at: box.import_started_at })
+        .where('id', '=', box.id)
+        .execute();
+    }
     const t = await transports(r.db, box, r.env),
       affected = new Set<string>();
     const reconcile =
@@ -31,6 +47,14 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
         try {
           if (!t.imap.mailbox) continue;
           const validity = String(t.imap.mailbox.uidValidity);
+          if (folder.initial_uid_end === null) {
+            folder.initial_uid_end = String(Math.max(0, (t.imap.mailbox.uidNext ?? 1) - 1));
+            await r.db
+              .updateTable('folders')
+              .set({ initial_uid_end: folder.initial_uid_end })
+              .where('id', '=', folder.id)
+              .execute();
+          }
           if (folder.uidvalidity !== validity) {
             const removed = await r.db
               .updateTable('messages')

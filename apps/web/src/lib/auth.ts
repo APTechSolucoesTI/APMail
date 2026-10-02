@@ -1,12 +1,12 @@
 import { api } from './api';
 import { queryClient } from './query-client';
 import { redirect } from '@tanstack/react-router';
-import type { MailboxRole, TenantRole } from '@apmail/shared';
+import { can, type MailboxRole, type TenantRole, type MailboxPerm } from '@apmail/shared';
 import { createContext, useContext } from 'react';
 export const TenantContext = createContext<string | null>(null);
 export const useTenantId = () => useContext(TenantContext);
 export type Preferences = {
-  theme: 'system' | 'light' | 'dark';
+  theme: 'light' | 'dark';
   density: 'comfortable' | 'compact';
   timezone: string;
   notify_mentions: boolean;
@@ -17,7 +17,9 @@ export type Preferences = {
 };
 export type Me = {
   user: { id: string; email: string; full_name: string; avatar_url: string | null };
-  tenants: { id: string; name: string; slug: string; role: TenantRole }[];
+  tenants: { id: string; name: string; slug: string; role: TenantRole; capabilities: string[] }[];
+  platform_admin: boolean;
+  support: { id: string; expires_at: string; reason: string } | null;
   current_tenant_id: string | null;
   preferences: Preferences;
 };
@@ -29,6 +31,7 @@ export type Mailbox = {
   last_error: string | null;
   last_synced_at: string | null;
   role: MailboxRole;
+  permissions?: MailboxPerm[];
   imap_host?: string;
   imap_port?: number;
   imap_secure?: boolean;
@@ -40,6 +43,8 @@ export type Mailbox = {
   from_name_template: string;
   append_sent_copy: boolean;
 };
+export const canMailbox = (box: Pick<Mailbox, 'role' | 'permissions'>, permission: MailboxPerm) =>
+  box.permissions?.includes(permission) ?? can(box.role, permission);
 export const meQuery = { queryKey: ['me'], queryFn: () => api<Me>('/auth/me'), retry: false };
 export async function requireUser() {
   try {
@@ -52,6 +57,7 @@ export async function requireUser() {
 }
 export async function requireCompany() {
   const me = await requireUser();
-  if (!me.current_tenant_id) throw redirect({ to: '/onboarding' });
+  if (!me.current_tenant_id)
+    throw redirect({ to: me.platform_admin ? '/superadmin' : '/onboarding' });
   return me;
 }

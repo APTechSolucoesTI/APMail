@@ -34,6 +34,7 @@ export const ROLE_LABELS = {
   owner: 'Proprietário',
   admin: 'Administrador',
   member: 'Membro',
+  supervisor: 'Supervisor',
   mailbox_admin: 'Admin da caixa',
   editor: 'Editor',
   viewer: 'Somente leitura',

@@ -9,7 +9,13 @@ import { hashToken, newToken, createSession } from '../plugins/auth.js';
 import { hashPassword } from './auth.js';
 import type { Resources } from './resources.js';
 export async function registerInvitationRoutes(app: FastifyInstance, r: Resources) {
-  async function send(to: string, token: string, tenantName: string, inviterId: string) {
+  async function send(
+    to: string,
+    token: string,
+    tenantName: string,
+    inviterId: string,
+    invitationId: string,
+  ) {
     const inviter = await r.db
       .selectFrom('users')
       .select('full_name')
@@ -19,6 +25,7 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
       'invite',
       {
         to,
+        invitation_id: invitationId,
         data: {
           link: r.env.APP_URL + '/accept-invite?token=' + token,
           tenant_name: tenantName,
@@ -33,6 +40,29 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
     const b = invitationSchema.parse(req.body);
     if (b.tenant_role === 'admin' && c.tenantRole !== 'owner') throw forbidden();
     for (const box of b.mailbox_roles) await requireMailboxPerm(c, r.db, box.mailbox_id, 'read');
+    const settings = await r.db
+      .selectFrom('tenants')
+      .select('settings')
+      .where('id', '=', c.tenantId)
+      .executeTakeFirstOrThrow();
+    const preferred =
+      b.sender_mailbox_id ??
+      (settings.settings as { default_invitation_mailbox_id?: string })
+        .default_invitation_mailbox_id;
+    let sender = r.db
+      .selectFrom('mailboxes')
+      .select('id')
+      .where('tenant_id', '=', c.tenantId)
+      .where('deleted_at', 'is', null)
+      .where('status', '=', 'active');
+    if (preferred) sender = sender.where('id', '=', preferred);
+    const selected = await sender.orderBy('created_at').executeTakeFirst();
+    if (!selected)
+      throw new ApiError(
+        409,
+        'mailbox_unavailable',
+        'Conecte uma caixa ativa para enviar convites.',
+      );
     const exists = await r.db
       .selectFrom('tenant_members')
       .innerJoin('users', 'users.id', 'tenant_members.user_id')
@@ -47,6 +77,9 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
       .insertInto('invitations')
       .values({
         ...b,
+        sender_mailbox_id: selected.id,
+        sender_context: 'tenant',
+        capabilities: b.tenant_role === 'supervisor' ? b.capabilities : [],
         mailbox_roles: sql`${JSON.stringify(b.mailbox_roles)}::jsonb`,
         tenant_id: c.tenantId,
         invited_by: c.userId,
@@ -60,7 +93,7 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
       .select('name')
       .where('id', '=', c.tenantId)
       .executeTakeFirstOrThrow();
-    await send(b.email, token, tenant.name, c.userId);
+    await send(b.email, token, tenant.name, c.userId, invite.id);
     await audit(r.db, {
       tenantId: c.tenantId,
       actorId: c.userId,
@@ -77,18 +110,40 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
     const { id } = z.object({ id: z.uuid() }).parse(req.params);
     const inv = await r.db
       .selectFrom('invitations')
-      .select(['email', 'tenant_role', 'invited_by'])
+      .select(['email', 'tenant_role', 'invited_by', 'sender_mailbox_id'])
       .where('tenant_id', '=', c.tenantId)
       .where('id', '=', id)
       .where('accepted_at', 'is', null)
       .where('revoked_at', 'is', null)
       .executeTakeFirst();
     if (!inv) throw notFound();
+    let sender = r.db
+      .selectFrom('mailboxes')
+      .select('id')
+      .where('tenant_id', '=', c.tenantId)
+      .where('status', '=', 'active')
+      .where('deleted_at', 'is', null);
+    if (inv.sender_mailbox_id) sender = sender.where('id', '=', inv.sender_mailbox_id);
+    const selected = await sender.orderBy('created_at').executeTakeFirst();
+    if (!selected)
+      throw new ApiError(
+        409,
+        'mailbox_unavailable',
+        'Reconecte a caixa remetente para reenviar o convite.',
+      );
     if (inv.tenant_role === 'admin' && c.tenantRole !== 'owner') throw forbidden();
     const token = newToken();
     await r.db
       .updateTable('invitations')
-      .set({ token_hash: hashToken(token), expires_at: new Date(Date.now() + 7 * 86400000) })
+      .set({
+        token_hash: hashToken(token),
+        expires_at: new Date(Date.now() + 7 * 86400000),
+        delivery_status: 'pending',
+        delivery_error: null,
+        sender_mailbox_id: selected.id,
+        sender_context: 'tenant',
+        invited_by: c.userId,
+      })
       .where('tenant_id', '=', c.tenantId)
       .where('id', '=', id)
       .execute();
@@ -97,7 +152,7 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
       .select('name')
       .where('id', '=', c.tenantId)
       .executeTakeFirstOrThrow();
-    await send(inv.email, token, tenant.name, inv.invited_by);
+    await send(inv.email, token, tenant.name, c.userId, id);
     await audit(r.db, {
       tenantId: c.tenantId,
       actorId: c.userId,
@@ -176,7 +231,7 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
     const userId = await r.db.transaction().execute(async (tx) => {
       const i = await tx
         .selectFrom('invitations')
-        .select(['id', 'tenant_id', 'email', 'tenant_role', 'mailbox_roles'])
+        .select(['id', 'tenant_id', 'email', 'tenant_role', 'mailbox_roles', 'capabilities'])
         .where('token_hash', '=', hashToken(token))
         .where('accepted_at', 'is', null)
         .where('revoked_at', 'is', null)
@@ -184,6 +239,20 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
         .forUpdate()
         .executeTakeFirst();
       if (!i) throw new ApiError(409, 'conflict', 'Convite expirado ou já utilizado.');
+      const tenant = await tx
+        .selectFrom('tenants')
+        .select('id')
+        .where('id', '=', i.tenant_id)
+        .where('deleted_at', 'is', null)
+        .where('suspended_at', 'is', null)
+        .forShare()
+        .executeTakeFirst();
+      if (!tenant)
+        throw new ApiError(
+          409,
+          'conflict',
+          'Esta empresa não está disponível para aceitar convites.',
+        );
       let u = await tx
         .selectFrom('users')
         .select('id')
@@ -208,11 +277,17 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
       }
       await tx
         .insertInto('tenant_members')
-        .values({ tenant_id: i.tenant_id, user_id: u.id, role: i.tenant_role, status: 'active' })
+        .values({
+          tenant_id: i.tenant_id,
+          user_id: u.id,
+          role: i.tenant_role,
+          status: 'active',
+          capabilities: i.capabilities,
+        })
         .onConflict((oc) =>
           oc
             .columns(['tenant_id', 'user_id'])
-            .doUpdateSet({ role: i.tenant_role, status: 'active' }),
+            .doUpdateSet({ role: i.tenant_role, status: 'active', capabilities: i.capabilities }),
         )
         .execute();
       const boxes = invitationSchema.shape.mailbox_roles.parse(i.mailbox_roles);

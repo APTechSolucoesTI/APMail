@@ -65,8 +65,34 @@ export async function ingestMessage(
     ? (parsed.text ?? htmlToText(parsed.html || ''))
     : '(Mensagem muito grande para ser exibida no APMail. Abra no provedor de e-mail.)';
   const own = [box.email_address, ...box.aliases].map((a) => a.toLowerCase());
-  const date = parsed?.date ?? env?.date ?? msg.internalDate;
-  const message_at = date instanceof Date && !isNaN(date.getTime()) ? date : new Date();
+  const date = [parsed?.date, env?.date, msg.internalDate].find(
+    (value) => value instanceof Date && !isNaN(value.getTime()),
+  );
+  const message_at = date instanceof Date ? date : new Date();
+  const prior = await r.db
+    .selectFrom('messages')
+    .select('is_historical')
+    .where('tenant_id', '=', box.tenant_id)
+    .where('mailbox_id', '=', box.id)
+    .where('message_id_header', '=', header)
+    .executeTakeFirst();
+  // INTERNALDATE survives moves; a folder first discovered later must not turn new mail into history.
+  const internalDate =
+    msg.internalDate instanceof Date && !isNaN(msg.internalDate.getTime())
+      ? msg.internalDate
+      : null;
+  const isHistorical =
+    prior?.is_historical ??
+    (!!box.import_started_at &&
+      (internalDate
+        ? internalDate <= box.import_started_at
+        : folder.initial_uid_end !== null && msg.uid <= Number(folder.initial_uid_end)));
+  const eligible =
+    !isHistorical ||
+    (!!box.import_started_at &&
+      box.history_classify_days > 0 &&
+      message_at.getTime() >=
+        box.import_started_at.getTime() - box.history_classify_days * 86400000);
   const metadata = {
     tenant_id: box.tenant_id,
     mailbox_id: box.id,
@@ -93,6 +119,17 @@ export async function ingestMessage(
   try {
     return await r.db.transaction().execute(async (trx) => {
       const threadId = await resolveThread(trx, metadata, own);
+      const hasMessage = await trx
+        .selectFrom('messages')
+        .select('id')
+        .where('thread_id', '=', threadId)
+        .executeTakeFirst();
+      if (!hasMessage || eligible)
+        await trx
+          .updateTable('threads')
+          .set({ history_queue_eligible: eligible })
+          .where('id', '=', threadId)
+          .execute();
       await trx
         .insertInto('messages')
         .values({
@@ -100,6 +137,7 @@ export async function ingestMessage(
           to_addresses: asJson(metadata.to_addresses),
           cc_addresses: asJson(metadata.cc_addresses),
           id,
+          is_historical: isHistorical,
           folder_id: folder.id,
           rules_inbox: folder.special_use === 'inbox',
           thread_id: threadId,
@@ -144,7 +182,12 @@ export async function ingestMessage(
           })
           .execute();
       }
-      await touchThreads(trx, [threadId], own.includes(from.address) ? 'outbound' : 'inbound', null);
+      await touchThreads(
+        trx,
+        [threadId],
+        own.includes(from.address) ? 'outbound' : 'inbound',
+        null,
+      );
       return threadId;
     });
   } catch (error) {

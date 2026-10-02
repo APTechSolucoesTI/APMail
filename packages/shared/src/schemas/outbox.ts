@@ -6,7 +6,7 @@ export const addressSchema = z.object({
   address: emailSchema,
 });
 export const outboxAttachmentSchema = z.discriminatedUnion('source', [
-  z.object({ source: z.literal('upload'), upload_id: z.uuid() }),
+  z.object({ source: z.literal('upload'), upload_id: z.uuid(), inline: z.boolean().optional() }),
   z.object({ source: z.literal('message_attachment'), attachment_id: z.uuid() }),
 ]);
 // Rascunhos podem estar incompletos; destinatários são obrigatórios apenas no submit.

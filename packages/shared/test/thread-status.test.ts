@@ -50,3 +50,18 @@ it('extrai somente menções com UUID válido, preservando texto e posição', (
     },
   ]);
 });
+it('mantém histórico sem fila e preserva intervenções operacionais', () => {
+  const history = {
+    queue_excluded: false,
+    has_pending_outbox: false,
+    manual_done_at: null,
+    last_inbound_at: new Date(),
+    last_outbound_at: null,
+    assigned_to: null,
+    history_queue_eligible: false,
+  };
+  expect(computeThreadStatus(history)).toBe('none');
+  expect(computeThreadStatus({ ...history, history_queue_eligible: true })).toBe('to_reply');
+  expect(computeThreadStatus({ ...history, has_pending_outbox: true })).toBe('scheduled');
+  expect(computeThreadStatus({ ...history, assigned_to: 'user' })).toBe('in_progress');
+});

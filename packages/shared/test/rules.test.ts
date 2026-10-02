@@ -16,6 +16,76 @@ const msg: RuleMessage = {
   has_attachments: true,
 };
 describe('regras de e-mail', () => {
+  it('igualdade compara cada endereço, sem nome de exibição ou junção de destinatários', () => {
+    for (const field of ['from', 'to', 'cc', 'any_recipient'] as const) {
+      const value =
+        field === 'from'
+          ? msg.from_address
+          : field === 'to'
+            ? msg.to_addresses[0]!.address
+            : msg.cc_addresses[0]!.address;
+      expect(
+        evaluateConditions(
+          {
+            match_mode: 'all',
+            conditions: [{ field, operator: 'equals', value: ' ' + value.toUpperCase() + ' ' }],
+          },
+          msg,
+        ),
+      ).toBe(true);
+    }
+    const multiple = {
+      ...msg,
+      to_addresses: [...msg.to_addresses, { name: 'Outro', address: 'outro@apmail.local' }],
+    };
+    expect(
+      evaluateConditions(
+        {
+          match_mode: 'all',
+          conditions: [{ field: 'to', operator: 'equals', value: 'outro@apmail.local' }],
+        },
+        multiple,
+      ),
+    ).toBe(true);
+    expect(
+      evaluateConditions(
+        {
+          match_mode: 'all',
+          conditions: [{ field: 'to', operator: 'not_contains', value: 'outro@apmail.local' }],
+        },
+        multiple,
+      ),
+    ).toBe(false);
+  });
+  it('normaliza Unicode, espaços invisíveis, NBSP e espaços repetidos sem aproximar igualdade', () => {
+    expect(
+      evaluateConditions(
+        {
+          match_mode: 'all',
+          conditions: [{ field: 'subject', operator: 'equals', value: '  ORCAMENTO  APROVADO  ' }],
+        },
+        { ...msg, subject: 'Orça\u200Bmento\u00A0 aprovado' },
+      ),
+    ).toBe(true);
+    expect(
+      evaluateConditions(
+        {
+          match_mode: 'all',
+          conditions: [{ field: 'from', operator: 'equals', value: 'jose@apmail.local' }],
+        },
+        { ...msg, from_address: 'josé@apmail.local' },
+      ),
+    ).toBe(false);
+    expect(
+      evaluateConditions(
+        {
+          match_mode: 'all',
+          conditions: [{ field: 'from', operator: 'equals', value: 'cliente@cliente.local' }],
+        },
+        { ...msg, from_address: 'cliente+tag@cliente.local' },
+      ),
+    ).toBe(false);
+  });
   it.each([
     ['contains', 'ORCAMENTO', true],
     ['not_contains', 'urgente', true],

@@ -54,7 +54,7 @@ export type QueueStatus =
 
 export type RuleScope = 'mailbox' | 'personal';
 
-export type TenantRole = 'admin' | 'member' | 'owner';
+export type TenantRole = 'admin' | 'member' | 'owner' | 'supervisor';
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
@@ -119,6 +119,64 @@ export interface ChatParticipants {
   user_id: string;
 }
 
+export interface ContactAddresses {
+  cep: Generated<string>;
+  city: Generated<string>;
+  complement: Generated<string>;
+  country: Generated<string>;
+  district: Generated<string>;
+  id: Generated<string>;
+  number: Generated<string>;
+  state: Generated<string>;
+  street: Generated<string>;
+  tenant_id: string;
+}
+
+export interface ContactCompanies {
+  cnpj: string | null;
+  id: Generated<string>;
+  name: string;
+  queried_at: Timestamp | null;
+  source: string | null;
+  tenant_id: string;
+  trade_name: Generated<string>;
+}
+
+export interface ContactEmailLinks {
+  address_id: string | null;
+  company_id: string | null;
+  email_id: string;
+  id: Generated<string>;
+  label: Generated<string>;
+  tenant_id: string;
+}
+
+export interface ContactEmails {
+  contact_id: string;
+  email: string;
+  id: Generated<string>;
+  label: Generated<string>;
+  tenant_id: string;
+}
+
+export interface ContactMailboxes {
+  contact_id: string;
+  mailbox_id: string;
+  tenant_id: string;
+}
+
+export interface Contacts {
+  created_at: Generated<Timestamp>;
+  created_by: string;
+  id: Generated<string>;
+  name: string;
+  notes: Generated<string>;
+  phone: Generated<string>;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+  visibility: Generated<string>;
+}
+
 export interface FolderPermissions {
   folder_id: string;
   mailbox_id: string;
@@ -132,12 +190,14 @@ export interface Folders {
   delimiter: Generated<string>;
   id: Generated<string>;
   imap_path: string;
+  initial_uid_end: Int8 | null;
   last_uid: Generated<Int8>;
   mailbox_id: string;
   name: string;
   parent_id: string | null;
   sort_order: Generated<number>;
   special_use: FolderSpecialUse | null;
+  special_use_official: Generated<boolean>;
   tenant_id: string;
   uidvalidity: Int8 | null;
   updated_at: Generated<Timestamp>;
@@ -145,13 +205,18 @@ export interface Folders {
 
 export interface Invitations {
   accepted_at: Timestamp | null;
+  capabilities: Generated<string[]>;
   created_at: Generated<Timestamp>;
+  delivery_error: string | null;
+  delivery_status: Generated<string>;
   email: string;
   expires_at: Timestamp;
   id: Generated<string>;
   invited_by: string;
   mailbox_roles: Generated<Json>;
   revoked_at: Timestamp | null;
+  sender_context: Generated<string>;
+  sender_mailbox_id: string | null;
   tenant_id: string;
   tenant_role: Generated<TenantRole>;
   token_hash: string;
@@ -186,10 +251,12 @@ export interface Mailboxes {
   deleted_at: Timestamp | null;
   email_address: string;
   from_name_template: Generated<string>;
+  history_classify_days: Generated<number>;
   id: Generated<string>;
   imap_host: string;
   imap_port: Generated<number>;
   imap_secure: Generated<boolean>;
+  import_started_at: Timestamp | null;
   last_error: string | null;
   last_reconciled_at: Timestamp | null;
   last_synced_at: Timestamp | null;
@@ -251,6 +318,7 @@ export interface Messages {
   in_reply_to: string | null;
   is_automated: Generated<boolean>;
   is_flagged: Generated<boolean>;
+  is_historical: Generated<boolean>;
   mailbox_id: string;
   message_at: Timestamp;
   message_id_header: string;
@@ -282,6 +350,17 @@ export interface Notifications {
   title: string;
   type: NotificationType;
   user_id: string;
+}
+
+export interface OperationalLogs {
+  created_at: Generated<Timestamp>;
+  id: Generated<Int8>;
+  level: string;
+  message: string;
+  metadata: Generated<Json>;
+  request_id: string | null;
+  service: string;
+  tenant_id: string | null;
 }
 
 export interface Outbox {
@@ -333,6 +412,21 @@ export interface PersonalLabels {
   user_id: string;
 }
 
+export interface PlatformAdmins {
+  created_at: Generated<Timestamp>;
+  user_id: string;
+}
+
+export interface PlatformAudit {
+  action: string;
+  actor_id: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  metadata: Generated<Json>;
+  request_id: string | null;
+  tenant_id: string | null;
+}
+
 export interface SchemaMigrations {
   applied_at: Generated<Timestamp>;
   checksum: string;
@@ -350,6 +444,18 @@ export interface Sessions {
   user_id: string;
 }
 
+export interface SignatureImages {
+  content_type: string;
+  created_at: Generated<Timestamp>;
+  height: number;
+  id: Generated<string>;
+  size_bytes: number;
+  storage_path: string;
+  tenant_id: string;
+  user_id: string;
+  width: number;
+}
+
 export interface Signatures {
   body_html: string;
   created_at: Generated<Timestamp>;
@@ -363,6 +469,17 @@ export interface Signatures {
   user_id: string;
 }
 
+export interface SupportSessions {
+  created_at: Generated<Timestamp>;
+  ended_at: Timestamp | null;
+  expires_at: Timestamp;
+  id: Generated<string>;
+  reason: string;
+  session_hash: string;
+  tenant_id: string;
+  user_id: string;
+}
+
 export interface TablePreferences {
   config: Json;
   list_key: string;
@@ -371,6 +488,7 @@ export interface TablePreferences {
 }
 
 export interface TenantMembers {
+  capabilities: Generated<string[]>;
   created_at: Generated<Timestamp>;
   id: Generated<string>;
   role: Generated<TenantRole>;
@@ -387,6 +505,7 @@ export interface Tenants {
   name: string;
   settings: Generated<Json>;
   slug: string;
+  suspended_at: Timestamp | null;
   timezone: Generated<string>;
   updated_at: Generated<Timestamp>;
 }
@@ -421,6 +540,7 @@ export interface Threads {
   first_message_at: Timestamp | null;
   first_response_at: Timestamp | null;
   has_attachments: Generated<boolean>;
+  history_queue_eligible: Generated<boolean>;
   id: Generated<string>;
   last_inbound_at: Timestamp | null;
   last_message_at: Timestamp | null;
@@ -503,6 +623,12 @@ export interface DB {
   chat_conversations: ChatConversations;
   chat_messages: ChatMessages;
   chat_participants: ChatParticipants;
+  contact_addresses: ContactAddresses;
+  contact_companies: ContactCompanies;
+  contact_email_links: ContactEmailLinks;
+  contact_emails: ContactEmails;
+  contact_mailboxes: ContactMailboxes;
+  contacts: Contacts;
   folder_permissions: FolderPermissions;
   folders: Folders;
   invitations: Invitations;
@@ -513,12 +639,17 @@ export interface DB {
   mailboxes: Mailboxes;
   messages: Messages;
   notifications: Notifications;
+  operational_logs: OperationalLogs;
   outbox: Outbox;
   password_reset_tokens: PasswordResetTokens;
   personal_labels: PersonalLabels;
+  platform_admins: PlatformAdmins;
+  platform_audit: PlatformAudit;
   schema_migrations: SchemaMigrations;
   sessions: Sessions;
+  signature_images: SignatureImages;
   signatures: Signatures;
+  support_sessions: SupportSessions;
   table_preferences: TablePreferences;
   tenant_members: TenantMembers;
   tenants: Tenants;

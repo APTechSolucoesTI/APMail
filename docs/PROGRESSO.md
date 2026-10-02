@@ -1,6 +1,6 @@
 # Progresso do APMail
 
-Atualização: 01/10/2026. Não considerar uma fase concluída até todas as verificações estarem comprovadas.
+Atualização: 02/10/2026. Não considerar uma fase concluída até todas as verificações estarem comprovadas.
 
 ## Pré-implementação
 
@@ -218,3 +218,32 @@ Inicialização local com imagens construídas: **34 segundos**. A aplicação n
 Dokploy: projeto `A0UfmHWgOBSv7SYUsbKgx`, ambiente `j8pFJm-Vkn6mTSijFpA2f`, Compose `R5nlKL0Qt47g_a4sxCeSc`, appName `apmail-next-production-qrufqc`. Deploy inicial `0xzjpQD43e0acSpq_9k-J` e redeploy `Wx5UPWC4OSVmz-SnPjjJq` concluídos. A prévia usa somente loopback 8081, acessível por túnel SSH. Credenciais de acesso em `.data/APMail-acesso-local.txt` e ambiente em `.data/qa/dokploy-production.env`, ambos fora do Git. O backup inclui banco, arquivos, snapshot Redis, chaves e checksums; diretório privado `/home/administrador/apmail-next/.data/backups/production`. Cron preserva os agendamentos preexistentes. Cópia externa/cofre e monitoramento dos backups ficam sob responsabilidade operacional da equipe; não há serviço externo configurado.
 
 Evidências da fase 0: 14 testes unitários e 2 testes de integração aprovados; seis combinações de viewport e tema inspecionadas; SIGTERM validado no Linux com Node 22.
+
+## Atualização do ambiente — 02/10/2026
+
+As pendências de publicação registradas no fechamento da Fase 9 refletem aquele momento. Nesta análise, o `.env` atual do Compose no Dokploy e os ambientes efetivos de API/worker têm host, usuário, senha e remetente de SMTP global configurados, porta 587 e TLS implícito desativado. Autenticação com STARTTLS obrigatório foi verificada com sucesso, sem envio de e-mail. A URL HTTPS configurada respondeu HTTP 200 e saúde ok. Há uma caixa ativa conectada e os cinco serviços permanentes estão saudáveis. Entrega de convites/recuperação ao destinatário não foi testada nesta etapa.
+
+Não foram alterados ambiente, containers, banco ou caixa durante essa conferência. As cópias locais antigas de configuração não devem sobrescrever o ambiente atual do servidor.
+
+## Evolução — implementação autorizada em 02/10/2026
+
+Especificação em [SPEC-EVOLUCAO-APMAIL.md](SPEC-EVOLUCAO-APMAIL.md). O usuário autorizou todos os módulos e `/superadmin`, com publicação conjunta.
+
+- [x] Diagnóstico de navegação, editor, assinaturas, preferências, histórico e permissões.
+- [x] Falhas de igualdade de e-mail/destinatário e espaços reproduzidas no avaliador atual.
+- [x] Decisões confirmadas para contatos, histórico, densidade, suporte global e remetente dos convites.
+- [x] Requisitos, dependências, modelo de dados, critérios de aceite e estratégia de publicação documentados.
+- [x] Editor conforme controles solicitados por texto; print não disponível nesta conversa.
+- [x] Editor HTML com fontes, tamanhos, cores, alinhamento, listas, links, tabelas, desfazer/refazer e imagens CID privadas; autosave e reabertura validados.
+- [x] Upload de assinatura PNG/JPEG/WebP, normalização PNG e URL pública imutável; HTTPS usa domínio configurado.
+- [x] Menu recolhível, agrupamento de pastas/configurações, navegação SPA e data/hora nas listagens.
+- [x] Regras com comparação normalizada e prévia sem ações; guard de pasta também no destino de regra e worker.
+- [x] Preferências simplificadas; histórico 0–90 dias com origem preservada em movimento e resposta nova ativando fila.
+- [x] Contatos por empresa, vários e-mails e vínculos, unicidade concorrente, visibilidade por caixa, CNPJ/CEP com edição manual.
+- [x] Supervisor com seis capacidades explícitas e isolamento de caixas/pastas.
+- [x] SMTP da empresa e plataforma em contextos separados, sem credenciais no Redis; token substituído invalida jobs antigos e estado de entrega visível.
+- [x] `/superadmin`, bootstrap, empresas/usuários/acessos/caixas, auditoria/logs/saúde, suporte de leitura auditado por 30 minutos.
+- [x] Migrations 0009/0010 aplicadas em desenvolvimento, testes e restauração isolada, sem reset de produção.
+- [x] Lint, typecheck, 51 testes unitários, 69 integrações e build aprovados. Navegador: contatos com CNPJ/CEP, SPA, editor/CID/reabertura, seis seções globais e suporte. 18 telas (3 rotas × 3 tamanhos × 2 temas), sem overflow, erros de JavaScript ou violações graves/críticas WCAG A/AA na verificação automatizada.
+- [x] Backup consistente `20261002T195751Z`, checksums verificados; restauração preservou 1 usuário, 1 empresa, 1 caixa ativa, 717 mensagens e 556 conversas/filas. Ambiente atual: HTTPS e SMTP globais configurados, preservados para atualização.
+- [ ] CI remoto, publicação conjunta e validação pós-deploy.

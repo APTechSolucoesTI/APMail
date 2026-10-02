@@ -3,7 +3,6 @@ import { createFileRoute } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   dashboardSearchSchema,
-  can,
   type DashboardKpis,
   type DailyVolume,
   type FolderVolume,
@@ -22,7 +21,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import { meQuery, useTenantId, type Mailbox } from '@/lib/auth';
+import { meQuery, useTenantId, canMailbox, type Mailbox } from '@/lib/auth';
 import { dashboardDates, durationLabel } from '@/lib/dashboard';
 import { PageHeader } from '@/components/layout/page-header';
 import { Button } from '@/components/ui/button';
@@ -160,7 +159,7 @@ function Dashboard() {
     queryKey: ['tenant', tenantId],
     queryFn: () => api<{ timezone: string }>('/tenant'),
   });
-  const allowedBoxes = (boxes.data ?? []).filter((box) => can(box.role, 'dashboard'));
+  const allowedBoxes = (boxes.data ?? []).filter((box) => canMailbox(box, 'dashboard'));
   const tenantRole = me.data?.tenants.find((t) => t.id === tenantId)?.role;
   const tenantAdmin = tenantRole === 'owner' || tenantRole === 'admin';
   const allowed = !!me.data && (tenantAdmin || allowedBoxes.length > 0);

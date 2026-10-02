@@ -229,6 +229,16 @@
   .rich-text-editor .tiptap img {
     @apply max-w-full;
   }
+  .rich-text-editor .tiptap table {
+    @apply w-full border-collapse;
+  }
+  .rich-text-editor .tiptap td,
+  .rich-text-editor .tiptap th {
+    @apply border border-border p-2 align-top;
+  }
+  .rich-text-editor .tiptap th {
+    @apply bg-muted font-semibold;
+  }
   .rich-text-editor .tiptap p.is-editor-empty:first-child::before {
     content: attr(data-placeholder);
     @apply pointer-events-none float-left h-0 text-muted-foreground;

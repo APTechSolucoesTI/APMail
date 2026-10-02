@@ -12,17 +12,25 @@ export function FolderAccessPicker({
   value,
   onChange,
   disabled = false,
+  platformTenantId,
 }: {
   mailboxId: string;
   value: FolderAccess;
   onChange: (value: FolderAccess) => void;
   disabled?: boolean;
+  platformTenantId?: string;
 }) {
   const id = useId(),
     tenant = useTenantId(),
     folders = useQuery({
-      queryKey: ['folders', tenant, mailboxId],
-      queryFn: ({ signal }) => api<Folder[]>('/mailboxes/' + mailboxId + '/folders', { signal }),
+      queryKey: ['folders', platformTenantId ?? tenant, mailboxId, !!platformTenantId],
+      queryFn: ({ signal }) =>
+        api<Folder[]>(
+          platformTenantId
+            ? '/superadmin/tenants/' + platformTenantId + '/folders/' + mailboxId
+            : '/mailboxes/' + mailboxId + '/folders',
+          { signal },
+        ),
       enabled: value.restrict_to_folders,
     });
   const tree = (nodes: Folder[]) => (

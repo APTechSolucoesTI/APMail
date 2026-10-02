@@ -2,7 +2,7 @@ import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { writeFile } from 'node:fs/promises';
 import pino from 'pino';
-import { createQueues, createDb, Storage } from '@apmail/db';
+import { createQueues, createDb, Storage, audit, asJson } from '@apmail/db';
 import { Emitter } from '@socket.io/redis-emitter';
 import { handleMailboxConnection } from './handlers/mailbox-connection.js';
 import { handleMailboxSync } from './handlers/mailbox-sync.js';
@@ -19,7 +19,7 @@ import { readEnv } from './env.js';
 const env = readEnv();
 let stopping = false;
 const db = createDb(env.DATABASE_URL);
-const sendSystemEmail = createSystemEmailHandler(env);
+const sendSystemEmail = createSystemEmailHandler(env, db);
 const log = pino({
   level: env.LOG_LEVEL,
   redact: ['password', 'token', 'body', 'encrypted_password'],
@@ -64,6 +64,35 @@ const workers = QUEUE_NAMES.map(
         if (name === 'maintenance' && job.name === 'recompute-all') return recomputeAll(r);
         if (name === 'maintenance' && job.name === 'cleanup-auth') {
           const now = new Date();
+          const expired = await db
+            .updateTable('support_sessions')
+            .set({ ended_at: now })
+            .where('ended_at', 'is', null)
+            .where('expires_at', '<=', now)
+            .returning(['id', 'tenant_id', 'user_id'])
+            .execute();
+          for (const support of expired) {
+            await db
+              .insertInto('platform_audit')
+              .values({
+                actor_id: support.user_id,
+                tenant_id: support.tenant_id,
+                action: 'platform.support_expired',
+                metadata: asJson({ support_id: support.id }),
+              })
+              .execute();
+            await audit(db, {
+              tenantId: support.tenant_id,
+              actorId: support.user_id,
+              action: 'platform.support_expired',
+              entityType: 'support',
+              entityId: support.id,
+            });
+          }
+          await db
+            .deleteFrom('operational_logs')
+            .where('created_at', '<', new Date(Date.now() - 30 * 86400000))
+            .execute();
           await db.deleteFrom('sessions').where('expires_at', '<', now).execute();
           await db.deleteFrom('password_reset_tokens').where('expires_at', '<', now).execute();
           await db
@@ -112,6 +141,20 @@ const workers = QUEUE_NAMES.map(
 );
 for (const worker of workers)
   worker.on('error', (error) => log.error({ err: error, queue: worker.name }, 'Falha no worker.'));
+for (const worker of workers)
+  worker.on('failed', (job) => {
+    void db
+      .insertInto('operational_logs')
+      .values({
+        service: 'worker',
+        level: 'error',
+        message: 'Tarefa não concluída.',
+        request_id: job?.id ?? null,
+        metadata: asJson({ queue: worker.name, attempts: job?.attemptsMade ?? 0 }),
+      })
+      .execute()
+      .catch(() => undefined);
+  });
 async function registerMaintenance() {
   if (!(await connection.exists('apmail:recompute:v5'))) {
     const previous = await resources.queues.maintenance.getJob('recompute-v5');

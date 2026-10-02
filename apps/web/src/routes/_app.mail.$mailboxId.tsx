@@ -174,7 +174,9 @@ function MailPage() {
   );
   if (box.isLoading) return <LoadingState />;
   if (!box.data) return <ErrorState onRetry={() => void box.refetch()} />;
-  const admin = me.data?.tenants.find((t) => t.id === tenantId)?.role !== 'member';
+  const admin = ['owner', 'admin'].includes(
+    me.data?.tenants.find((t) => t.id === tenantId)?.role ?? '',
+  );
   const list = (
     <section aria-label="Lista de conversas" className="flex h-full min-w-0 flex-col bg-card">
       <div className="space-y-2 border-b p-3">

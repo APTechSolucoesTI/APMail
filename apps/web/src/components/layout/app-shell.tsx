@@ -1,3 +1,6 @@
+import { isTenantAdmin } from '@apmail/shared';
+import { canDelegate } from '@apmail/shared';
+import { NavigationGroup } from './navigation-group';
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -7,7 +10,7 @@ import { SocketContext } from '@/hooks/use-socket-room';
 import { MailboxFolderNavigation } from '@/components/mail/mailbox-folder-navigation';
 import { ChatNavigation } from '@/components/chat/chat-navigation';
 import { useChatRealtime } from '@/hooks/use-chat';
-import { Mail, Menu, Settings, LogOut, LayoutDashboard } from 'lucide-react';
+import { Mail, Menu, LogOut, LayoutDashboard } from 'lucide-react';
 import { can } from '@apmail/shared';
 import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
@@ -27,6 +30,9 @@ export function AppShell() {
     queryFn: () => api<Mailbox[]>('/mailboxes'),
   });
   const [open, setOpen] = useState(false);
+  const [sidebarVisible, setSidebarVisible] = useState(
+    () => localStorage.getItem('apmail-sidebar') !== 'hidden',
+  );
   const [socket] = useState(() => io({ withCredentials: true, autoConnect: false }));
   useChatRealtime(socket, me.data?.current_tenant_id, me.data?.user.id);
   const { setTheme } = useTheme();
@@ -35,6 +41,7 @@ export function AppShell() {
     if (theme) setTheme(theme);
   }, [theme, setTheme]);
   useEffect(() => {
+    if (me.data?.support) return;
     socket.connect();
     socket.on('connect', () => {
       void client.invalidateQueries({ queryKey: ['mailboxes'] });
@@ -111,7 +118,7 @@ export function AppShell() {
           notice.onclick = () => {
             window.focus();
             if (notification.link?.startsWith('/') && !notification.link.startsWith('//'))
-              window.location.assign(notification.link);
+              void navigate({ to: notification.link });
             notice.close();
           };
         }
@@ -147,11 +154,12 @@ export function AppShell() {
       socket.removeAllListeners();
       socket.disconnect();
     };
-  }, [client, socket, me.data?.current_tenant_id]);
+  }, [client, socket, me.data?.current_tenant_id, me.data?.support, navigate]);
   useEffect(() => {
     if (me.error && 'status' in me.error && me.error.status === 401)
       void navigate({ to: '/login' });
-    else if (me.data && !me.data.current_tenant_id) void navigate({ to: '/onboarding' });
+    else if (me.data && !me.data.current_tenant_id)
+      void navigate({ to: me.data.platform_admin ? '/superadmin' : '/onboarding' });
   }, [me.error, me.data, navigate]);
   if (!me.data)
     return (
@@ -160,7 +168,7 @@ export function AppShell() {
       </div>
     );
   const tenant = me.data.tenants.find((t) => t.id === me.data!.current_tenant_id);
-  const admin = tenant?.role !== 'member';
+  const admin = isTenantAdmin(tenant?.role);
   const sidebar = (
     <nav
       aria-label="Navegação principal"
@@ -174,22 +182,18 @@ export function AppShell() {
         <Mail aria-hidden />
         APMail
       </Link>
-      <p className="px-2 text-xs font-semibold text-muted-foreground">CAIXAS DE E-MAIL</p>
-      <a
-        href="/scheduled"
+      <Link
+        to="/scheduled"
+        onClick={() => setOpen(false)}
         className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
       >
         <Mail className="size-4" />
         Envios
-      </a>
-      {boxes.data?.map((b) => (
-        <MailboxFolderNavigation key={b.id} box={b} onNavigate={() => setOpen(false)} />
-      ))}
-      {!boxes.data?.length && (
-        <p className="px-2 py-4 text-sm text-muted-foreground">Sem caixas disponíveis</p>
-      )}
+      </Link>
       <ChatNavigation onNavigate={() => setOpen(false)} />
-      {(admin || boxes.data?.some((b) => can(b.role, 'dashboard'))) && (
+      {(admin ||
+        canDelegate(tenant?.role ?? null, tenant?.capabilities, 'dashboard') ||
+        boxes.data?.some((b) => can(b.role, 'dashboard'))) && (
         <Link
           to="/dashboard"
           onClick={() => setOpen(false)}
@@ -199,35 +203,62 @@ export function AppShell() {
           Dashboard
         </Link>
       )}
-      <div className="mt-auto border-t pt-4">
-        <p className="mb-2 flex items-center gap-2 px-2 text-xs font-semibold text-muted-foreground">
-          <Settings className="size-4" />
-          CONFIGURAÇÕES
-        </p>
-        {[
-          ['/settings/profile', 'Meu perfil'],
-          ['/settings/preferences', 'Preferências'],
-          ['/settings/signatures', 'Assinaturas'],
-          ['/settings/labels', 'Etiquetas'],
-          ['/settings/rules', 'Regras'],
-          ...(admin
-            ? [
-                ['/settings/users', 'Equipe e acessos'],
-                ['/settings/mailboxes', 'Caixas de e-mail'],
-                ['/settings/tenant', 'Empresa'],
-                ['/settings/audit', 'Auditoria'],
-              ]
-            : []),
-        ].map(([to, label]) => (
-          <a
-            key={to}
-            href={to}
-            className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
-            onClick={() => setOpen(false)}
-          >
-            {label}
-          </a>
+      <Link
+        to="/contacts"
+        className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
+        onClick={() => setOpen(false)}
+      >
+        Contatos
+      </Link>
+      <NavigationGroup id="mailboxes" label="Caixas de e-mail">
+        {boxes.data?.map((b) => (
+          <MailboxFolderNavigation key={b.id} box={b} onNavigate={() => setOpen(false)} />
         ))}
+        {!boxes.data?.length && (
+          <p className="px-2 py-4 text-sm text-muted-foreground">Sem caixas disponíveis</p>
+        )}
+      </NavigationGroup>
+      <div className="mt-auto border-t pt-4">
+        <NavigationGroup id="settings" label="Configurações">
+          {[
+            ['/settings/profile', 'Meu perfil'],
+            ['/settings/preferences', 'Preferências'],
+            ['/settings/signatures', 'Assinaturas'],
+            ['/settings/labels', 'Etiquetas'],
+            ['/settings/rules', 'Regras'],
+            ...(!admin && canDelegate(tenant?.role ?? null, tenant?.capabilities, 'members')
+              ? [['/settings/users', 'Equipe']]
+              : []),
+            ...(!admin && canDelegate(tenant?.role ?? null, tenant?.capabilities, 'audit')
+              ? [['/settings/audit', 'Auditoria']]
+              : []),
+            ...(admin
+              ? [
+                  ['/settings/users', 'Equipe e acessos'],
+                  ['/settings/mailboxes', 'Caixas de e-mail'],
+                  ['/settings/tenant', 'Empresa'],
+                  ['/settings/audit', 'Auditoria'],
+                ]
+              : []),
+          ].map(([to, label]) => (
+            <Link
+              key={to}
+              to={to}
+              className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
+              onClick={() => setOpen(false)}
+            >
+              {label}
+            </Link>
+          ))}
+        </NavigationGroup>
+        {me.data.platform_admin && (
+          <Link
+            to="/superadmin"
+            className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
+          >
+            Gestão da plataforma
+          </Link>
+        )}
       </div>
     </nav>
   );
@@ -236,15 +267,33 @@ export function AppShell() {
       <TenantContext.Provider value={me.data.current_tenant_id}>
         <TableUserContext.Provider value={me.data.user.id}>
           <div
-            data-density={me.data.preferences.density}
+            data-density="compact"
             className="flex min-h-dvh data-[density=comfortable]:[&_td]:py-2 data-[density=compact]:[&_td]:py-1.5"
           >
-            <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 border-r bg-sidebar text-sidebar-foreground lg:block">
+            <aside
+              className={
+                'sticky top-0 hidden h-dvh w-60 shrink-0 border-r bg-sidebar text-sidebar-foreground ' +
+                (sidebarVisible ? 'lg:block' : '')
+              }
+            >
               {sidebar}
             </aside>
             <div className="min-w-0 flex-1">
               <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-2 border-b bg-card px-4">
                 <div className="flex min-w-0 items-center gap-2">
+                  <Button
+                    className="hidden lg:inline-flex"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={sidebarVisible ? 'Ocultar navegação' : 'Exibir navegação'}
+                    aria-expanded={sidebarVisible}
+                    onClick={() => {
+                      setSidebarVisible(!sidebarVisible);
+                      localStorage.setItem('apmail-sidebar', sidebarVisible ? 'hidden' : 'visible');
+                    }}
+                  >
+                    <Menu />
+                  </Button>
                   <Sheet open={open} onOpenChange={setOpen}>
                     <SheetTrigger asChild>
                       <Button
@@ -273,9 +322,10 @@ export function AppShell() {
                         method: 'PUT',
                         body: { tenant_id: e.target.value },
                       });
-                      client.clear();
+                      await client.cancelQueries();
+                      client.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
+                      await client.invalidateQueries({ queryKey: ['me'] });
                       await navigate({ to: '/' });
-                      location.reload();
                     }}
                   >
                     {me.data.tenants.map((t) => (
@@ -312,6 +362,29 @@ export function AppShell() {
                   </Button>
                 </div>
               </header>
+              {me.data.support && (
+                <div
+                  role="status"
+                  className="flex flex-wrap items-center justify-between gap-2 border-b bg-secondary p-3 text-sm"
+                >
+                  <span>
+                    Suporte somente leitura até{' '}
+                    {new Date(me.data.support.expires_at).toLocaleTimeString('pt-BR')}:{' '}
+                    {me.data.support.reason}
+                  </span>
+                  <Button
+                    variant="outline"
+                    onClick={async () => {
+                      await api('/superadmin/support', { method: 'DELETE' });
+                      await client.cancelQueries();
+                      client.clear();
+                      await navigate({ to: '/superadmin' });
+                    }}
+                  >
+                    Encerrar suporte
+                  </Button>
+                </div>
+              )}
               <main className="mx-auto max-w-screen-2xl p-4 sm:p-6">
                 <Outlet />
               </main>

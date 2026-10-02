@@ -1,3 +1,5 @@
+import { isTenantAdmin } from '@apmail/shared';
+import { canDelegate } from '@apmail/shared';
 import { sql, type Selectable } from 'kysely';
 import type { ImapFlow } from 'imapflow';
 import { randomUUID } from 'node:crypto';
@@ -9,6 +11,8 @@ import {
   sendJobOptions,
   assignThread,
   type DB,
+  userCanReadThread,
+  userCanReadFolder,
 } from '@apmail/db';
 import {
   can,
@@ -38,12 +42,20 @@ export async function userCanMailbox(
         .onRef('mm.user_id', '=', 'tm.user_id')
         .on('mm.mailbox_id', '=', box.id),
     )
-    .select(['tm.role', 'mm.role as mailbox_role'])
+    .innerJoin('tenants as tenant', 'tenant.id', 'tm.tenant_id')
+    .select(['tm.role', 'tm.capabilities', 'mm.role as mailbox_role'])
     .where('tm.tenant_id', '=', box.tenant_id)
     .where('tm.user_id', '=', userId)
     .where('tm.status', '=', 'active')
+    .where('tenant.suspended_at', 'is', null)
+    .where('tenant.deleted_at', 'is', null)
     .executeTakeFirst();
-  return !!access && (access.role !== 'member' || can(access.mailbox_role, perm));
+  return (
+    !!access &&
+    (isTenantAdmin(access.role) ||
+      can(access.mailbox_role, perm) ||
+      (!!access.mailbox_role && canDelegate(access.role, access.capabilities, perm)))
+  );
 }
 type RuleRow = Selectable<DB['mail_rules']>;
 async function applyRule(
@@ -79,6 +91,19 @@ async function applyRule(
     .where('deleted_at', 'is', null)
     .executeTakeFirst();
   if (!initialMessage) return false;
+  const actor = row.scope === 'personal' ? row.owner_user_id : row.created_by;
+  if (
+    !actor ||
+    !(await userCanReadThread(
+      r.db,
+      box.tenant_id,
+      box.id,
+      actor,
+      initialMessage.thread_id,
+      initialMessage.id,
+    ))
+  )
+    return false;
   let msg: Selectable<DB['messages']> = initialMessage;
   const sourceFolder = msg.folder_id
     ? await r.db
@@ -169,6 +194,11 @@ async function applyRule(
               .executeTakeFirst()
           : null;
       if (action.type === 'move_to_folder' && (!destination || destination.id === folder?.id))
+        continue;
+      if (
+        destination &&
+        !(await userCanReadFolder(r.db, box.tenant_id, box.id, actor, destination.id))
+      )
         continue;
       if (!folder || !msg.imap_uid || msg.pending_action)
         throw Error('A mensagem está aguardando sincronização antes de aplicar a regra.');
@@ -356,6 +386,14 @@ export async function handleRulesApply(
     .where('deleted_at', 'is', null)
     .executeTakeFirst();
   if (!rule) return;
+  const tenant = await r.db
+    .selectFrom('tenants')
+    .select('id')
+    .where('id', '=', rule.tenant_id)
+    .where('deleted_at', 'is', null)
+    .where('suspended_at', 'is', null)
+    .executeTakeFirst();
+  if (!tenant) return;
   const result = await withMailboxLock(
     r.redis,
     rule.mailbox_id,

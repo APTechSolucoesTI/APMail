@@ -28,18 +28,8 @@ function Preferences() {
               label: 'Tema',
               type: 'select',
               options: [
-                { value: 'system', label: 'Seguir o sistema' },
                 { value: 'light', label: 'Claro' },
                 { value: 'dark', label: 'Escuro' },
-              ],
-            },
-            {
-              name: 'density',
-              label: 'Densidade',
-              type: 'select',
-              options: [
-                { value: 'comfortable', label: 'Confortável' },
-                { value: 'compact', label: 'Compacta' },
               ],
             },
             {
@@ -77,7 +67,7 @@ function Preferences() {
               if ((await Notification.requestPermission()) !== 'granted')
                 throw new Error('Permita notificações no navegador para ativar esta opção.');
             }
-            await api('/preferences', { method: 'PUT', body: b });
+            await api('/preferences', { method: 'PUT', body: { ...b, density: 'compact' } });
             await client.invalidateQueries({ queryKey: ['me'] });
             toast.success('Preferências salvas.');
           }}

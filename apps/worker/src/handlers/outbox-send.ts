@@ -1,3 +1,4 @@
+import { isTenantAdmin } from '@apmail/shared';
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
 import {
@@ -37,6 +38,14 @@ export async function handleOutboxSend(
   let transport: Awaited<ReturnType<typeof transports>> | undefined;
   let delivered = false;
   try {
+    const tenant = await r.db
+      .selectFrom('tenants')
+      .select('id')
+      .where('id', '=', row.tenant_id)
+      .where('deleted_at', 'is', null)
+      .where('suspended_at', 'is', null)
+      .executeTakeFirst();
+    if (!tenant) throw new Error('tenant_unavailable');
     const box = await r.db
       .selectFrom('mailboxes')
       .selectAll()
@@ -60,7 +69,7 @@ export async function handleOutboxSend(
     if (
       !membership ||
       membership.status !== 'active' ||
-      (membership.role === 'member' && (!access || !can(access.role, 'send')))
+      (!isTenantAdmin(membership.role) && (!access || !can(access.role, 'send')))
     )
       throw new Error('send_permission_revoked');
     if (
@@ -147,6 +156,11 @@ export async function handleOutboxSend(
             const threadId =
               row.thread_id ??
               (await resolveThread(tx, metadata, [box.email_address, ...box.aliases]));
+            await tx
+              .updateTable('threads')
+              .set({ history_queue_eligible: true })
+              .where('id', '=', threadId)
+              .execute();
             await tx
               .insertInto('messages')
               .values({
@@ -247,14 +261,18 @@ export async function handleOutboxSend(
       auth ||
       delivered ||
       job.attemptsMade + 1 >= (job.opts.attempts ?? 1) ||
-      ['mailbox_unavailable', 'send_permission_revoked'].includes((error as Error).message);
+      ['mailbox_unavailable', 'send_permission_revoked', 'tenant_unavailable'].includes(
+        (error as Error).message,
+      );
     const message = delivered
       ? 'O SMTP aceitou o envio, mas a confirmação local falhou. Verifique Enviados antes de tentar novamente.'
-      : (error as Error).message === 'mailbox_unavailable'
-        ? 'A caixa está indisponível.'
-        : (error as Error).message === 'send_permission_revoked'
-          ? 'O acesso de envio foi removido.'
-          : connectionError(error, 'SMTP', 0);
+      : (error as Error).message === 'tenant_unavailable'
+        ? 'A empresa está suspensa ou indisponível. Retome o acesso antes de tentar novamente.'
+        : (error as Error).message === 'mailbox_unavailable'
+          ? 'A caixa está indisponível.'
+          : (error as Error).message === 'send_permission_revoked'
+            ? 'O acesso de envio foi removido.'
+            : connectionError(error, 'SMTP', 0);
     await r.db.transaction().execute(async (tx) => {
       await tx
         .updateTable('outbox')

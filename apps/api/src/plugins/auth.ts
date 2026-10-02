@@ -35,17 +35,40 @@ export async function contextForToken(
     ? await db
         .selectFrom('tenant_members')
         .innerJoin('tenants', 'tenants.id', 'tenant_members.tenant_id')
-        .select(['tenant_members.tenant_id', 'tenant_members.role'])
+        .select(['tenant_members.tenant_id', 'tenant_members.role', 'tenant_members.capabilities'])
         .where('tenant_members.user_id', '=', session.user_id)
         .where('tenant_members.tenant_id', '=', session.current_tenant_id)
         .where('tenant_members.status', '=', 'active')
         .where('tenants.deleted_at', 'is', null)
+        .where('tenants.suspended_at', 'is', null)
+        .executeTakeFirst()
+    : null;
+  const platform = await db
+    .selectFrom('platform_admins')
+    .select('user_id')
+    .where('user_id', '=', session.user_id)
+    .executeTakeFirst();
+  const support = platform
+    ? await db
+        .selectFrom('support_sessions as s')
+        .innerJoin('tenants as t', 't.id', 's.tenant_id')
+        .select(['s.id', 's.tenant_id', 's.reason', 's.expires_at'])
+        .where('s.session_hash', '=', hash)
+        .where('s.ended_at', 'is', null)
+        .where('s.expires_at', '>', new Date())
+        .where('t.suspended_at', 'is', null)
+        .where('t.deleted_at', 'is', null)
         .executeTakeFirst()
     : null;
   return {
     userId: session.user_id,
-    tenantId: member?.tenant_id ?? null,
-    tenantRole: member?.role ?? null,
+    tenantId: support?.tenant_id ?? member?.tenant_id ?? null,
+    tenantRole: support ? 'admin' : (member?.role ?? null),
+    capabilities: member?.capabilities ?? [],
+    platformAdmin: !!platform,
+    support: support
+      ? { id: support.id, expires_at: support.expires_at.toISOString(), reason: support.reason }
+      : undefined,
     ip,
     requestId,
     sessionHash: hash,
@@ -75,6 +98,19 @@ export async function installAuth(app: FastifyInstance, db: Kysely<DB>, redis: R
       if (unsigned.valid && unsigned.value)
         req.ctx = await contextForToken(db, redis, unsigned.value, req.ip, req.id);
     }
+  });
+  app.addHook('preHandler', async (req) => {
+    if (
+      req.ctx?.support &&
+      ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) &&
+      !req.url.startsWith('/api/superadmin/') &&
+      !req.url.startsWith('/api/auth/')
+    )
+      throw new ApiError(
+        403,
+        'forbidden',
+        'O modo suporte permite somente leitura. Encerre o suporte para operar na sua empresa.',
+      );
   });
 }
 export async function createSession(
