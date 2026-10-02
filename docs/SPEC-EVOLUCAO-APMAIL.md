@@ -1,6 +1,6 @@
 # Evolução do APMail — especificação e plano de ação
 
-Data: 02/10/2026. Base: entrega `fase-9`. Status: **implementado e em validação para publicação conjunta**. Implementação autorizada pelo usuário, inclusive `/superadmin`. As etapas abaixo compõem uma única entrega.
+Data: 02/10/2026. Base: entrega `fase-9`. Status: **implementado, validado e publicado**. Implementação autorizada pelo usuário, inclusive `/superadmin`. Entrega conjunta `d48682c`, publicada em https://apmail.aptechinfo.com.br:75.
 
 ## 1. Decisões confirmadas
 
