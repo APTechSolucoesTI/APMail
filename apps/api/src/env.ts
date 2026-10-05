@@ -25,6 +25,10 @@ export const envSchema = z.object({
   STORAGE_DIR: z.string().default('./.data/storage').transform(resolveWorkspacePath),
   MAX_UPLOAD_MB: z.coerce.number().min(1).max(25).default(25),
   ALLOW_INSECURE_TLS_HOSTS: z.string().default(''),
+  DISK_WARNING_PERCENT: z.coerce.number().min(1).max(99).default(80),
+  DISK_CRITICAL_PERCENT: z.coerce.number().min(1).max(100).default(90),
+  SYNC_DELAY_MINUTES: z.coerce.number().int().positive().default(10),
+  WORKER_HEARTBEAT_SECONDS: z.coerce.number().int().positive().default(90),
 });
 export type ApiEnv = z.infer<typeof envSchema>;
 export function readEnv(): ApiEnv {

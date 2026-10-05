@@ -20,10 +20,10 @@ export function NavigationGroup({
   const saved = localStorage.getItem(key);
   const open = stored[key] ?? (saved === null ? defaultOpen : saved === 'true');
   return (
-    <section>
+    <section className="min-w-0">
       <button
         type="button"
-        className="flex min-h-11 w-full items-center justify-between gap-2 rounded-md px-2 text-sm font-semibold hover:bg-muted"
+        className="flex min-h-11 w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 text-sm font-semibold hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-expanded={open}
         aria-controls={controlsId}
         onClick={() => {
@@ -31,10 +31,16 @@ export function NavigationGroup({
           setStored((prev) => ({ ...prev, [key]: !open }));
         }}
       >
-        <span className="truncate">{label}</span>
+        <span className="min-w-0 truncate" title={label}>
+          {label}
+        </span>
         <ChevronDown aria-hidden className={'size-4 shrink-0 ' + (open ? '' : '-rotate-90')} />
       </button>
-      {open && <div id={controlsId}>{children}</div>}
+      {open && (
+        <div id={controlsId} className="min-w-0">
+          {children}
+        </div>
+      )}
     </section>
   );
 }

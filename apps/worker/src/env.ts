@@ -28,6 +28,15 @@ export const envSchema = z.object({
   SYSTEM_MAIL_FROM: z.string().default('APMail <nao-responda@apmail.local>'),
   ALLOW_INSECURE_TLS_HOSTS: z.string().default('localhost,127.0.0.1'),
   WORKER_SEND_BACKOFF_MS: z.string().default(''),
+  STORAGE_SCAN_BATCH: z.coerce.number().int().min(100).max(10000).default(5000),
+  STORAGE_SCAN_BUDGET_MS: z.coerce.number().int().min(1000).max(30000).default(20000),
+  STORAGE_PUBLISH_SECONDS: z.coerce.number().int().min(60).default(60),
+  STORAGE_HISTORY_HOURLY_DAYS: z.coerce.number().int().min(1).max(365).default(90),
+  STORAGE_HISTORY_DAILY_MONTHS: z.coerce.number().int().min(12).max(120).default(24),
+  BACKUP_METRICS_DIR: z.string().optional(),
+  LOG_METRICS_DIR: z.string().optional(),
+  REDIS_METRICS_DIR: z.string().optional(),
+  INFRA_METRICS_FILE: z.string().optional(),
 });
 export type WorkerEnv = z.infer<typeof envSchema>;
 export function readEnv(): WorkerEnv {

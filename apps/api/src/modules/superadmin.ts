@@ -22,6 +22,7 @@ import { newToken, hashToken } from '../plugins/auth.js';
 import type { Resources } from './resources.js';
 import { registerPlatformStorage } from './platform-storage.js';
 import { registerPlatformManagement } from './platform-management.js';
+import { registerPlatformMetering } from './platform-metering.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 const pageSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -34,6 +35,7 @@ const pageSchema = z.object({
   tenant_id: z.uuid().optional(),
 });
 export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
+  await registerPlatformMetering(app, r);
   await registerPlatformStorage(app, r);
   await registerPlatformManagement(app, r, record);
   app.get('/api/superadmin/users/:id/access', async (req) => {

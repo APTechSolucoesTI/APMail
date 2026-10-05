@@ -21,12 +21,14 @@ export function ThreadAssignee({
   threadIds,
   role,
   assigned,
+  showAssigned = true,
   onComplete,
 }: {
   mailboxId: string;
   threadIds: string[];
   role: MailboxRole;
   assigned?: User | null;
+  showAssigned?: boolean;
   onComplete?: () => void;
 }) {
   const tenant = useTenantId(),
@@ -71,7 +73,7 @@ export function ThreadAssignee({
   };
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
-      {assigned && (
+      {assigned && showAssigned && (
         <span className="inline-flex min-w-0 items-center gap-2 text-sm">
           <UserAvatar name={assigned.full_name} src={assigned.avatar_url} size={24} />
           <span className="truncate" title={assigned.full_name}>

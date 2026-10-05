@@ -12,7 +12,7 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
   await app.register(multipart, {
     limits: { fileSize: r.env.MAX_UPLOAD_MB * 1024 * 1024, files: 1 },
   });
-  const storage = new Storage(r.env.STORAGE_DIR);
+  const storage = new Storage(r.env.STORAGE_DIR, r.db);
   app.post('/api/signatures/images', async (req) => {
     const c = requireTenant(req.ctx);
     if (r.env.NODE_ENV === 'production' && !r.env.APP_URL.startsWith('https://'))
@@ -31,6 +31,7 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
       !['image/jpeg', 'image/png', 'image/webp'].includes(detected.mime)
     )
       throw new ApiError(400, 'validation_error', 'Escolha JPEG, PNG ou WebP de até 5 MB.');
+    let storedPath: string | undefined;
     try {
       const normalized = await sharp(input, { limitInputPixels: 25000000 })
         .rotate()
@@ -38,8 +39,9 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
         .png()
         .toBuffer({ resolveWithObject: true });
       const id = randomUUID(),
-        path = `public/signatures/${id}.png`;
+        path = `signatures/${c.tenantId}/${c.userId}/${id}.png`;
       await storage.writeFile(path, normalized.data);
+      storedPath = path;
       await r.db
         .insertInto('signature_images')
         .values({
@@ -51,17 +53,39 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
           width: normalized.info.width,
           height: normalized.info.height,
           size_bytes: normalized.data.length,
+          legacy_public: false,
         })
         .execute();
       return {
         id,
-        url: `${r.env.APP_URL}/api/public/signature-images/${id}`,
+        url: `${r.env.APP_URL}/api/signatures/images/${id}`,
         width: normalized.info.width,
         height: normalized.info.height,
       };
     } catch {
+      if (storedPath)
+        await storage
+          .removeFile(storedPath)
+          .catch(() => app.log.warn('Limpeza de imagem pendente de reconciliação.'));
       throw new ApiError(400, 'validation_error', 'Não foi possível processar esta imagem.');
     }
+  });
+  app.get('/api/signatures/images/:id', async (req, reply) => {
+    const c = requireTenant(req.ctx);
+    const { id } = z.object({ id: z.uuid() }).parse(req.params);
+    const row = await r.db
+      .selectFrom('signature_images')
+      .select(['storage_path', 'content_type'])
+      .where('id', '=', id)
+      .where('tenant_id', '=', c.tenantId)
+      .where('user_id', '=', c.userId)
+      .executeTakeFirst();
+    if (!row) throw notFound();
+    return reply
+      .type(row.content_type)
+      .header('Cache-Control', 'private, no-store')
+      .header('X-Content-Type-Options', 'nosniff')
+      .send(await storage.openReadStream(row.storage_path));
   });
   app.get('/api/public/signature-images/:id', async (req, reply) => {
     const { id } = z.object({ id: z.uuid() }).parse(req.params);
@@ -69,6 +93,7 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
       .selectFrom('signature_images')
       .select(['storage_path', 'content_type'])
       .where('id', '=', id)
+      .where('legacy_public', '=', true)
       .executeTakeFirst();
     if (!row) throw notFound();
     return reply
@@ -101,13 +126,24 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
       .where('id', '=', c.userId)
       .executeTakeFirstOrThrow();
     await storage.writeFile(path, output);
-    const user = await r.db
-      .updateTable('users')
-      .set({ avatar_path: path })
-      .where('id', '=', c.userId)
-      .returning(['id', 'avatar_path', 'updated_at'])
-      .executeTakeFirstOrThrow();
-    if (old.avatar_path) await storage.removeFile(old.avatar_path);
+    let user;
+    try {
+      user = await r.db
+        .updateTable('users')
+        .set({ avatar_path: path })
+        .where('id', '=', c.userId)
+        .returning(['id', 'avatar_path', 'updated_at'])
+        .executeTakeFirstOrThrow();
+    } catch (error) {
+      await storage
+        .removeFile(path)
+        .catch(() => app.log.warn('Limpeza de avatar pendente de reconciliação.'));
+      throw error;
+    }
+    if (old.avatar_path)
+      await storage
+        .removeFile(old.avatar_path)
+        .catch(() => app.log.warn('Limpeza de avatar anterior pendente de reconciliação.'));
     return { avatar_url: avatarUrl(user) };
   });
   app.delete('/api/me/avatar', async (req) => {

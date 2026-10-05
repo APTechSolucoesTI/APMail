@@ -4,12 +4,22 @@ import { dirname, isAbsolute, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import type { Kysely } from 'kysely';
+import type { DB } from './types.js';
+import {
+  beginStorageOperation,
+  observeStorageFile,
+  failStorageOperation,
+} from './metering-files.js';
 export class Storage {
   readonly root: string;
-  constructor(root: string) {
+  constructor(
+    root: string,
+    private readonly db?: Kysely<DB>,
+  ) {
     this.root = resolve(root);
   }
-  private async path(relativePath: string): Promise<string> {
+  private async path(relativePath: string, create = true): Promise<string> {
     if (
       !relativePath ||
       isAbsolute(relativePath) ||
@@ -19,7 +29,7 @@ export class Storage {
       throw new Error('Caminho de arquivo inválido.');
     const target = resolve(this.root, relativePath);
     if (!target.startsWith(this.root + sep)) throw new Error('Caminho de arquivo inválido.');
-    await mkdir(this.root, { recursive: true });
+    if (create) await mkdir(this.root, { recursive: true });
     let directory = dirname(target);
     while (directory !== this.root) {
       try {
@@ -30,12 +40,16 @@ export class Storage {
       }
       directory = dirname(directory);
     }
-    await mkdir(dirname(target), { recursive: true });
-    const canonicalRoot = await realpath(this.root);
-    if (
-      !(await realpath(dirname(target))).startsWith(canonicalRoot + sep) &&
-      dirname(target) !== this.root
-    )
+    if (create) await mkdir(dirname(target), { recursive: true });
+    let canonicalRoot: string, canonicalParent: string;
+    try {
+      canonicalRoot = await realpath(this.root);
+      canonicalParent = await realpath(dirname(target));
+    } catch (error) {
+      if (!create && (error as NodeJS.ErrnoException).code === 'ENOENT') return target;
+      throw error;
+    }
+    if (!canonicalParent.startsWith(canonicalRoot + sep) && dirname(target) !== this.root)
       throw new Error('Caminho de arquivo inválido.');
     try {
       if ((await lstat(target)).isSymbolicLink())
@@ -47,6 +61,9 @@ export class Storage {
   }
   async writeFile(relativePath: string, source: Buffer | Readable): Promise<void> {
     const destination = await this.path(relativePath);
+    const operation = this.db
+      ? await beginStorageOperation(this.db, relativePath, 'write')
+      : undefined;
     const temporary = `${destination}.${randomUUID()}.tmp`;
     try {
       await pipeline(
@@ -54,20 +71,68 @@ export class Storage {
         createWriteStream(temporary, { flags: 'wx', mode: 0o600 }),
       );
       await rename(temporary, destination);
+      if (this.db)
+        await observeStorageFile(
+          this.db,
+          relativePath,
+          await lstat(destination, { bigint: true }),
+          operation,
+        );
     } catch (error) {
+      if (this.db && operation)
+        await failStorageOperation(this.db, operation).catch(() => undefined);
       await unlink(temporary).catch(() => undefined);
       throw error;
     }
   }
   async openReadStream(relativePath: string): Promise<ReturnType<typeof createReadStream>> {
-    return createReadStream(await this.path(relativePath));
+    return createReadStream(await this.path(relativePath, false));
   }
   async removeFile(relativePath: string): Promise<void> {
-    await unlink(await this.path(relativePath)).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== 'ENOENT') throw error;
-    });
+    const destination = await this.path(relativePath, false);
+    const operation = this.db
+      ? await beginStorageOperation(this.db, relativePath, 'delete')
+      : undefined;
+    try {
+      await unlink(destination).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ENOENT') throw error;
+      });
+      if (this.db) await observeStorageFile(this.db, relativePath, null, operation);
+    } catch (error) {
+      if (this.db && operation)
+        await failStorageOperation(this.db, operation).catch(() => undefined);
+      throw error;
+    }
   }
   async copyFile(from: string, to: string): Promise<void> {
-    await copyFile(await this.path(from), await this.path(to));
+    const source = await this.path(from, false),
+      destination = await this.path(to);
+    const operation = this.db ? await beginStorageOperation(this.db, to, 'copy') : undefined;
+    const temporary = `${destination}.${randomUUID()}.tmp`;
+    try {
+      await copyFile(source, temporary);
+      await rename(temporary, destination);
+      if (this.db)
+        await observeStorageFile(
+          this.db,
+          to,
+          await lstat(destination, { bigint: true }),
+          operation,
+        );
+    } catch (error) {
+      await unlink(temporary).catch(() => undefined);
+      if (this.db && operation)
+        await failStorageOperation(this.db, operation).catch(() => undefined);
+      throw error;
+    }
+  }
+  /** Safe metadata-only observation; the scanner never follows symbolic links. */
+  async inspect(relativePath: string) {
+    try {
+      return await lstat(await this.path(relativePath, false), { bigint: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
   }
 }

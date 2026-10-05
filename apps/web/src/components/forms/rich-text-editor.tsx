@@ -72,7 +72,7 @@ const EmailImage = Node.create({
     return ({ node }) => {
       const dom = document.createElement('img');
       dom.src = node.attrs.signatureImageId
-        ? `/api/public/signature-images/${node.attrs.signatureImageId}`
+        ? `/api/signatures/images/${node.attrs.signatureImageId}`
         : node.attrs.uploadId
           ? `/api/uploads/${node.attrs.uploadId}/image`
           : node.attrs.src;

@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, MailOpen, Pin } from 'lucide-react';
+import { ArrowLeft, Ellipsis, MailOpen, Pin } from 'lucide-react';
 import { toast } from 'sonner';
 import { can } from '@apmail/shared';
 import { api, ApiError } from '@/lib/api';
 import { useTenantId, meQuery } from '@/lib/auth';
 import { useSocketRoom } from '@/hooks/use-socket-room';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 import { LoadingState, ErrorState, NoPermissionState } from '@/components/data/data-state';
 import { QueueStatusBadge, OverdueBadge } from '@/components/common/status-badge';
 import { MessageCard } from './message-card';
@@ -78,10 +84,16 @@ export function ThreadView({
   const data = q.data,
     organize = can(data.my_role, 'organize');
   return (
-    <section aria-label="Conversa" className="h-full space-y-4 overflow-y-auto p-4">
+    <section aria-label="Conversa" className="h-full min-w-0 space-y-4 overflow-y-auto p-3 sm:p-4">
       <div className="space-y-3 border-b pb-4">
         <div className="flex items-start gap-2">
-          <Button variant="ghost" size="icon" aria-label="Voltar à lista" onClick={onClose}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0"
+            aria-label="Voltar à lista"
+            onClick={onClose}
+          >
             <ArrowLeft />
           </Button>
           <h2 className="min-w-0 flex-1 break-words text-xl font-semibold">
@@ -92,33 +104,42 @@ export function ThreadView({
           <QueueStatusBadge status={data.thread.queue_status} />
           {data.thread.is_overdue && <OverdueBadge />}
         </div>
-        <ThreadWorkflow thread={data.thread} mailboxId={mailboxId} role={data.my_role} />
-        <div className="flex flex-wrap gap-1">
+        <ThreadWorkflow thread={data.thread} mailboxId={mailboxId} role={data.my_role}>
           <ShareToChatDialog threadId={threadId} />
           <ThreadLabels threadIds={[threadId]} labels={data.labels} mailboxId={mailboxId} />
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={acting}
-            onClick={() => void action('unread')}
-          >
-            <MailOpen />
-            Marcar como não lida
-          </Button>
-          <Button size="sm" variant="outline" disabled={acting} onClick={() => void action('pin')}>
-            <Pin />
-            {data.is_pinned ? 'Desafixar' : 'Fixar'}
-          </Button>
-        </div>
+          {organize && (
+            <MessageActions
+              mailboxId={mailboxId}
+              folders={folders}
+              threadIds={[threadId]}
+              compact
+            />
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline" disabled={acting}>
+                <Ellipsis />
+                Mais ações
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => void action('unread')}>
+                <MailOpen />
+                Marcar como não lida
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void action('pin')}>
+                <Pin />
+                {data.is_pinned ? 'Desafixar' : 'Fixar'}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </ThreadWorkflow>
         {!!data.labels.length && (
           <div className="flex flex-wrap gap-1">
             {data.labels.map((label) => (
               <LabelBadge key={label.id} label={label} />
             ))}
           </div>
-        )}
-        {organize && (
-          <MessageActions mailboxId={mailboxId} folders={folders} threadIds={[threadId]} />
         )}
       </div>
       {data.pending_outbox?.map((o) => (

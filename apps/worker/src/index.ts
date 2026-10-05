@@ -16,6 +16,7 @@ import { closeImapConnections } from './imap/connect.js';
 import { createSystemEmailHandler } from './handlers/system-email.js';
 import { QUEUE_NAMES, socketRedisKey } from '@apmail/shared';
 import { readEnv } from './env.js';
+import { requestStorageScan, reconcileStorage, collectPlatformResources } from '@apmail/db';
 const env = readEnv();
 let stopping = false;
 const db = createDb(env.DATABASE_URL);
@@ -33,13 +34,44 @@ const r = {
   io: new Emitter(connection, { key: socketRedisKey(env.REDIS_URL) }),
   log,
   env,
-  storage: new Storage(env.STORAGE_DIR),
+  storage: new Storage(env.STORAGE_DIR, db),
 };
 const workers = QUEUE_NAMES.map(
   (name) =>
     new Worker(
       name,
       async (job) => {
+        if (name === 'storage-metering') {
+          const mode = job.data.mode ?? 'changed';
+          const runId = job.data.run_id ?? (await requestStorageScan(db, mode));
+          // Save the run identifier before doing I/O, so retries resume the same measurement.
+          if (!job.data.run_id) await job.updateData({ ...job.data, run_id: runId });
+          const done = await reconcileStorage(
+            db,
+            env.STORAGE_DIR,
+            runId,
+            env.STORAGE_SCAN_BATCH,
+            env.STORAGE_SCAN_BUDGET_MS,
+            {
+              hourlyDays: env.STORAGE_HISTORY_HOURLY_DAYS,
+              dailyMonths: env.STORAGE_HISTORY_DAILY_MONTHS,
+            },
+          );
+          if (!done)
+            await resources.queues['storage-metering'].add(
+              'continue',
+              { mode, run_id: runId },
+              { delay: 1000, attempts: 3 },
+            );
+          if (done)
+            await collectPlatformResources(db, connection, env.STORAGE_DIR, {
+              backupDir: env.BACKUP_METRICS_DIR,
+              logDir: env.LOG_METRICS_DIR,
+              redisDir: env.REDIS_METRICS_DIR,
+              hostMetricsFile: env.INFRA_METRICS_FILE,
+            });
+          return;
+        }
         if (name === 'system-email') return sendSystemEmail(job.name, job.data);
         if (name === 'mailbox-connection') return handleMailboxConnection(r, job.data.mailbox_id);
         if (name === 'mailbox-sync') return handleMailboxSync(r, job.data.mailbox_id, job.id!);
@@ -123,7 +155,7 @@ const workers = QUEUE_NAMES.map(
           },
         },
         concurrency:
-          name === 'maintenance'
+          name === 'maintenance' || name === 'storage-metering'
             ? 1
             : name === 'mailbox-connection'
               ? 3
@@ -143,6 +175,18 @@ for (const worker of workers)
   worker.on('error', (error) => log.error({ err: error, queue: worker.name }, 'Falha no worker.'));
 for (const worker of workers)
   worker.on('failed', (job) => {
+    if (
+      worker.name === 'storage-metering' &&
+      job?.data.run_id &&
+      job.attemptsMade >= (job.opts.attempts ?? 1)
+    )
+      void db
+        .updateTable('storage_scan_runs')
+        .set({ state: 'failed', error_code: 'job_failed', finished_at: new Date() })
+        .where('id', '=', job.data.run_id)
+        .where('state', 'in', ['queued', 'running'])
+        .execute()
+        .catch(() => undefined);
     void db
       .insertInto('operational_logs')
       .values({
@@ -156,6 +200,35 @@ for (const worker of workers)
       .catch(() => undefined);
   });
 async function registerMaintenance() {
+  const metering = resources.queues['storage-metering'];
+  await metering.upsertJobScheduler(
+    'storage-publish',
+    { every: env.STORAGE_PUBLISH_SECONDS * 1000 },
+    { name: 'publish', data: { mode: 'publish' } },
+  );
+  await metering.upsertJobScheduler(
+    'storage-changed',
+    { every: 900000 },
+    { name: 'changed', data: { mode: 'changed' } },
+  );
+  await metering.upsertJobScheduler(
+    'storage-full',
+    { pattern: '30 4 * * *', tz: 'America/Sao_Paulo' },
+    { name: 'full', data: { mode: 'full' } },
+  );
+  if (
+    !(await db
+      .selectFrom('storage_scan_runs')
+      .select('id')
+      .where('mode', '=', 'full')
+      .limit(1)
+      .executeTakeFirst())
+  )
+    await metering.add(
+      'initial-inventory',
+      { mode: 'full' },
+      { jobId: 'storage-initial', attempts: 3 },
+    );
   if (!(await connection.exists('apmail:recompute:v5'))) {
     const previous = await resources.queues.maintenance.getJob('recompute-v5');
     if (previous && ['completed', 'failed'].includes(await previous.getState()))

@@ -14,7 +14,7 @@ export function LabelBadge({ label }: { label: PersonalLabel }) {
   return (
     <span
       className={cn(
-        'inline-flex max-w-full items-center rounded-sm border px-2 text-xs font-medium',
+        'inline-flex min-w-0 max-w-full items-center rounded-sm border px-2 text-xs font-medium',
         colors[label.color],
       )}
     >

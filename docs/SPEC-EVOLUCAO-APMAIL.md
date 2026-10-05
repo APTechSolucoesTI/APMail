@@ -4,6 +4,8 @@ Atualização: 05/10/2026. Base original: entrega `fase-9`. Status: **implementa
 
 ## 1. Decisões confirmadas
 
+Novo trabalho de 05/10/2026: [Armazenamento e dashboard do superadmin — plano de ação](PLANO-ARMAZENAMENTO-DASHBOARD-SUPERADMIN.md). **Planejado, ainda não implementado**; o status de publicação acima refere-se às entregas anteriores. Sem planos comerciais ou cotas por cliente. O plano estabelece medição verificável por empresa/caixa, infraestrutura separada e visão geral da plataforma.
+
 | Assunto                | Decisão do usuário                                                                                                                                                                |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Contatos               | Por padrão, visíveis em todas as caixas da empresa. Ao ter acesso a pelo menos uma caixa autorizada, o usuário vê o contato completo, incluindo todos os seus e-mails e vínculos. |
@@ -334,3 +336,20 @@ O painel /superadmin inicia na lista de empresas. Depois de selecionar uma, mant
 - Menu lateral: ScrollArea existente com indicador vertical fino, neutro e exibido durante interação; mesma solução no painel lateral de desktop e no menu móvel. Roda do mouse, toque e foco por teclado continuam funcionais nos dois temas.
 
 Entrega local, sem commit/push/deploy e sem migração adicional. A stack existente foi preservada; as diretrizes visuais e de acessibilidade do AGENTS.md orientam os componentes reutilizados.
+
+## Plano de 05/10/2026: consumo verificável e dashboard da plataforma
+
+Especificação completa em [PLANO-ARMAZENAMENTO-DASHBOARD-SUPERADMIN.md](PLANO-ARMAZENAMENTO-DASHBOARD-SUPERADMIN.md). Status: **fases 0–6 implementadas no workspace**, com publicação pelo usuário. Contratos efetivos, fontes de coleta e comandos em [OPERACAO-ARMAZENAMENTO.md](OPERACAO-ARMAZENAMENTO.md). Limpeza de produção e evidências em [PROGRESSO.md](PROGRESSO.md).
+
+O objetivo é conferir arquivos existentes no disco e atribuir seu uso à empresa/caixa correta, ampliar o catálogo de dados lógicos, registrar retenção/divergências e manter histórico de crescimento. Arquivos compartilhados ficam separados; avatares globais e componentes de infraestrutura não são atribuídos arbitrariamente a clientes. Banco físico compartilhado, índices/WAL, backups, logs, Redis e capacidade dos volumes aparecem como infraestrutura, sem somá-los novamente ao conteúdo lógico ou apresentar rateio como consumo físico exato.
+
+O dashboard terá visão geral de consumo/crescimento, empresas/caixas/usuários, saúde/fila/sincronização/envios, capacidade, integridade e atividade administrativa. Detalhes por empresa e caixa preservam contexto e permissões. A visão global mostra somente metadados e indicadores; gerenciar usuários/caixas continua exigindo selecionar a empresa. Superadmin não recebe acesso a mensagens ou anexos.
+
+Sequência concluída: inventário/contrato → cadastro central e preenchimento legado → ciclo de vida dos arquivos → reconciliação/histórico → infraestrutura/APIs → dashboard → homologação. Bytes exatos, fórmulas versionadas, metadados exclusivos da plataforma, fontes indisponíveis e limites físicos do banco compartilhado são apresentados explicitamente. Imagens novas de assinatura são privadas com prévia autenticada e envio CID; imagens públicas antigas permanecem marcadas como legado. A entrada de /superadmin passa a ser a visão geral, mantendo a escolha da empresa antes da gestão de usuários/caixas. Não há planos, preços, cotas comerciais, bloqueios por consumo ou limpeza automática nova. Commit e deploy continuam com o usuário.
+
+## Complemento de 05/10/2026: limites do menu e barras operacionais
+
+- O conteúdo do menu lateral fica limitado à largura do painel, inclusive no menu móvel. Texto longo pode ser abreviado visualmente, com nome completo disponível, sem empurrar setas, contadores ou opções para fora da área visível. Grupos continuam recolhíveis, e a navegação completa pode ser ocultada/restaurada.
+- Na caixa, busca e atualização compartilham uma linha; responsável e ordenação usam campos alinhados com rótulos acima. Seleção da página e filtro de não lidas aparecem juntos; limpar filtros informa a quantidade e preserva o contexto da pasta/fila/etiqueta e a navegação sem recarga.
+- Na conversa, status, atribuição, compartilhamento e etiquetas compõem a mesma barra, com altura consistente e distribuição adaptada à largura do painel. Organizar reúne mover/restaurar/excluir; Mais ações reúne marcar como não lida e fixar/desafixar. A identificação do responsável não se repete.
+- Diálogos preservam confirmação de exclusão e retorno de foco ao botão de origem. As barras usam tokens de tema, rótulos acessíveis, foco visível e controles de 44 px em celulares. Mantidos os contratos de dados e as permissões existentes; publicação a cargo do usuário.

@@ -39,6 +39,9 @@ docker cp "$redis:/data/dump.rdb" "$target/redis.rdb"
 chmod 600 "$target"/*
 printf '%s\n' "$project" > "$target/project.txt"
 (cd "$target" && sha256sum apmail.dump storage.tar.gz redis.rdb secrets.env project.txt > checksums.sha256)
-resume
+(cd "$target" && sha256sum -c checksums.sha256 >/dev/null)
+printf '{"status":"completed","completed_at":"%s","checksum_verified":true,"restored_at":null}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$backup_root/backup-report.json.tmp"
+mv "$backup_root/backup-report.json.tmp" "$backup_root/backup-report.json"
+if [[ "${APMAIL_BACKUP_LEAVE_STOPPED:-false}" != true ]]; then resume; fi
 trap - EXIT
 printf 'Backup concluído: %s\n' "$target"

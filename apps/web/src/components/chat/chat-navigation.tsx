@@ -8,13 +8,13 @@ export function ChatNavigation({ onNavigate }: { onNavigate: () => void }) {
     <Link
       to="/chat"
       onClick={onNavigate}
-      className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+      className="flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
     >
-      <MessageSquare className="size-4" aria-hidden />
-      <span className="flex-1">Chat</span>
+      <MessageSquare className="size-4 shrink-0" aria-hidden />
+      <span className="min-w-0 flex-1">Chat</span>
       {count > 0 && (
         <span
-          className="rounded-sm bg-primary px-2 text-xs font-semibold text-primary-foreground"
+          className="shrink-0 rounded-sm bg-primary px-2 text-xs font-semibold text-primary-foreground"
           aria-label={`${count} mensagens não lidas no chat`}
         >
           {count}

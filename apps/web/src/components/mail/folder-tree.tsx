@@ -33,7 +33,7 @@ export function FolderTree({
   organize?: boolean;
 }) {
   return (
-    <ul className="space-y-1">
+    <ul className="min-w-0 space-y-1">
       {folders.map((f) => {
         const Icon = icons[f.special_use as keyof typeof icons] ?? FolderIcon;
         return (
@@ -47,17 +47,17 @@ export function FolderTree({
                   search={{ folderId: f.id }}
                   onClick={onNavigate}
                   className={cn(
-                    'flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted',
+                    'flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted',
                     activeId === f.id && 'bg-secondary text-secondary-foreground',
                   )}
                 >
                   <Icon className="size-4 shrink-0" aria-hidden />
-                  <span className="truncate" title={folderLabel(f)}>
+                  <span className="min-w-0 flex-1 truncate" title={folderLabel(f)}>
                     {folderLabel(f)}
                   </span>
                   {f.unread_count > 0 && (
                     <span
-                      className="ml-auto font-mono text-xs"
+                      className="shrink-0 font-mono text-xs tabular-nums"
                       aria-label={f.unread_count + ' não lidas'}
                     >
                       {f.unread_count}
@@ -72,17 +72,17 @@ export function FolderTree({
                 search={{ folderId: f.id }}
                 onClick={onNavigate}
                 className={cn(
-                  'flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted',
+                  'flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted',
                   activeId === f.id && 'bg-secondary text-secondary-foreground',
                 )}
               >
                 <Icon className="size-4 shrink-0" aria-hidden />
-                <span className="truncate" title={folderLabel(f)}>
+                <span className="min-w-0 flex-1 truncate" title={folderLabel(f)}>
                   {folderLabel(f)}
                 </span>
                 {f.unread_count > 0 && (
                   <span
-                    className="ml-auto font-mono text-xs"
+                    className="shrink-0 font-mono text-xs tabular-nums"
                     aria-label={f.unread_count + ' não lidas'}
                   >
                     {f.unread_count}

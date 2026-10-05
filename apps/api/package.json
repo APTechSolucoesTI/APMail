@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --exclude \"**/integration/**\"",
     "dev": "tsx watch src/server.ts",
-    "test:integration": "vitest run test/integration"
+    "test:integration": "vitest run test/integration --no-file-parallelism"
   },
   "dependencies": {
     "@apmail/db": "workspace:*",

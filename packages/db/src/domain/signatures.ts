@@ -51,7 +51,10 @@ export async function prepareSignature(
     const id =
       attrs.src?.match(new RegExp(`^cid:signature-(${uuid})@apmail\\.local$`, 'i'))?.[1] ??
       attrs.src?.match(
-        new RegExp(`^https?://[^/]+/api/public/signature-images/(${uuid})(?:\\?.*)?$`, 'i'),
+        new RegExp(
+          `^https?://[^/]+/api/(?:public/signature-images|signatures/images)/(${uuid})(?:\\?.*)?$`,
+          'i',
+        ),
       )?.[1];
     if (!id) return attrs;
     const normalized = id.toLowerCase();

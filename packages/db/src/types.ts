@@ -427,6 +427,13 @@ export interface PlatformAudit {
   tenant_id: string | null;
 }
 
+export interface PlatformMetricSamples {
+  id: Generated<Int8>;
+  measured_at: Generated<Timestamp>;
+  metrics: Json;
+  source: string;
+}
+
 export interface SchemaMigrations {
   applied_at: Generated<Timestamp>;
   checksum: string;
@@ -449,6 +456,7 @@ export interface SignatureImages {
   created_at: Generated<Timestamp>;
   height: number;
   id: Generated<string>;
+  legacy_public: Generated<boolean>;
   size_bytes: number;
   storage_path: string;
   tenant_id: string;
@@ -467,6 +475,128 @@ export interface Signatures {
   tenant_id: string;
   updated_at: Generated<Timestamp>;
   user_id: string;
+}
+
+export interface StorageAssetRefs {
+  asset_id: string;
+  created_at: Generated<Timestamp>;
+  mailbox_id: string | null;
+  source_id: string;
+  source_kind: string;
+  tenant_id: string | null;
+}
+
+export interface StorageAssets {
+  allocated_bytes: Int8 | null;
+  category: Generated<string>;
+  created_at: Generated<Timestamp>;
+  expected_bytes: Int8 | null;
+  id: Generated<string>;
+  last_scan_id: string | null;
+  mailbox_id: string | null;
+  observed_at: Timestamp | null;
+  physical_key: string | null;
+  present_bytes: Int8 | null;
+  revision: Generated<Int8>;
+  scope: Generated<string>;
+  state: Generated<string>;
+  storage_key: string;
+  tenant_id: string | null;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface StorageDiscrepancies {
+  asset_id: string | null;
+  code: string;
+  first_seen_at: Generated<Timestamp>;
+  id: Generated<string>;
+  last_seen_at: Generated<Timestamp>;
+  mailbox_id: string | null;
+  resolved_at: Timestamp | null;
+  tenant_id: string | null;
+}
+
+export interface StorageLogicalCatalog {
+  category: string;
+  excluded_columns: string[];
+  owner_column: string;
+  relation_name: string;
+}
+
+export interface StorageLogicalPayloads {
+  body_bytes: Int8;
+  category: string;
+  mailbox_id: string | null;
+  metadata_bytes: Int8;
+  relation_name: string;
+  retained: boolean;
+  row_key: string;
+  tenant_id: string | null;
+}
+
+export interface StorageLogicalRows {
+  body_bytes: Int8 | null;
+  category: string | null;
+  mailbox_id: string | null;
+  metadata_bytes: Int8 | null;
+  tenant_id: string | null;
+}
+
+export interface StorageLogicalRowsV2 {
+  body_bytes: Int8 | null;
+  category: string | null;
+  mailbox_id: string | null;
+  metadata_bytes: Int8 | null;
+  retained: boolean | null;
+  tenant_id: string | null;
+}
+
+export interface StorageLogicalRowsV3 {
+  body_bytes: Int8 | null;
+  category: string | null;
+  mailbox_id: string | null;
+  metadata_bytes: Int8 | null;
+  retained: boolean | null;
+  tenant_id: string | null;
+}
+
+export interface StorageOperations {
+  created_at: Generated<Timestamp>;
+  finished_at: Timestamp | null;
+  id: Generated<string>;
+  operation: string;
+  state: Generated<string>;
+  storage_key: string;
+}
+
+export interface StorageScanRuns {
+  checked_files: Generated<Int8>;
+  created_at: Generated<Timestamp>;
+  cursor: string | null;
+  error_code: string | null;
+  error_count: Generated<Int8>;
+  finished_at: Timestamp | null;
+  id: Generated<string>;
+  mode: string;
+  published_at: Timestamp | null;
+  requested_by: string | null;
+  started_at: Timestamp | null;
+  state: Generated<string>;
+  tenant_id: string | null;
+}
+
+export interface StorageUsageSnapshots {
+  categories: Json;
+  formula_version: string;
+  id: Generated<Int8>;
+  mailbox_id: string | null;
+  measured_at: Generated<Timestamp>;
+  quality: string;
+  scan_id: string | null;
+  scope: string;
+  scope_id: string;
+  tenant_id: string | null;
+  usage: Json;
 }
 
 export interface SupportSessions {
@@ -645,10 +775,22 @@ export interface DB {
   personal_labels: PersonalLabels;
   platform_admins: PlatformAdmins;
   platform_audit: PlatformAudit;
+  platform_metric_samples: PlatformMetricSamples;
   schema_migrations: SchemaMigrations;
   sessions: Sessions;
   signature_images: SignatureImages;
   signatures: Signatures;
+  storage_asset_refs: StorageAssetRefs;
+  storage_assets: StorageAssets;
+  storage_discrepancies: StorageDiscrepancies;
+  storage_logical_catalog: StorageLogicalCatalog;
+  storage_logical_payloads: StorageLogicalPayloads;
+  storage_logical_rows: StorageLogicalRows;
+  storage_logical_rows_v2: StorageLogicalRowsV2;
+  storage_logical_rows_v3: StorageLogicalRowsV3;
+  storage_operations: StorageOperations;
+  storage_scan_runs: StorageScanRuns;
+  storage_usage_snapshots: StorageUsageSnapshots;
   support_sessions: SupportSessions;
   table_preferences: TablePreferences;
   tenant_members: TenantMembers;

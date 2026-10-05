@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type ReactNode, type RefObject } from 'react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,6 +20,7 @@ export function ConfirmDialog({
   destructive = false,
   open,
   onOpenChange,
+  returnFocusRef,
 }: {
   trigger?: ReactNode;
   title: string;
@@ -29,6 +30,7 @@ export function ConfirmDialog({
   destructive?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  returnFocusRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -42,7 +44,16 @@ export function ConfirmDialog({
   return (
     <AlertDialog open={open ?? internalOpen} onOpenChange={change}>
       {trigger && <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>}
-      <AlertDialogContent>
+      <AlertDialogContent
+        onCloseAutoFocus={
+          returnFocusRef
+            ? (event) => {
+                event.preventDefault();
+                returnFocusRef.current?.focus();
+              }
+            : undefined
+        }
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>

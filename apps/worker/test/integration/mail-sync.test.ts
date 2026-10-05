@@ -1055,7 +1055,8 @@ it('SMTP incorpora imagem de assinatura, inclui assinatura por ID e preserva ras
   expect(upload.statusCode, upload.body).toBe(200);
   const asset = upload.json(),
     cid = 'signature-' + asset.id + '@apmail.local';
-  const stored = await app.inject({ url: new URL(asset.url).pathname });
+  const stored = await api('GET', new URL(asset.url).pathname, editor);
+  expect(stored.statusCode).toBe(200);
   // URL HTTPS é o formato legado: a conversão deve funcionar sem recadastrar.
   const legacyUrl = asset.url.replace(/^http:/, 'https:');
   expect(
@@ -1715,7 +1716,9 @@ it('promoção a superadmin bloqueia envio já enfileirado antes de conectar ao 
         payload: {
           message_ids: [message.id],
           previous_folder_ids: { [message.id]: message.folder_id },
-          previous_uids: { [message.id]: String(message.imap_uid) },
+          previous_uids: {
+            [message.id]: message.imap_uid === null ? null : String(message.imap_uid),
+          },
           previous_flags: { [message.id]: message.is_flagged },
           flagged: !message.is_flagged,
         },

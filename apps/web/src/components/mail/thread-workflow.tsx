@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { can, type MailboxRole } from '@apmail/shared';
 import { ChevronDown, CheckCircle2, RotateCcw, Inbox, CircleSlash } from 'lucide-react';
@@ -20,10 +20,12 @@ export function ThreadWorkflow({
   thread,
   mailboxId,
   role,
+  children,
 }: {
   thread: Thread;
   mailboxId: string;
   role: MailboxRole;
+  children?: ReactNode;
 }) {
   const client = useQueryClient(),
     [busy, setBusy] = useState(false),
@@ -52,12 +54,16 @@ export function ThreadWorkflow({
   return (
     <div className="space-y-3">
       {thread.assigned_to && (
-        <p className="rounded-md border bg-secondary p-3 text-sm text-secondary-foreground">
-          Conversa atribuída a <span className="font-semibold">{thread.assigned_to.full_name}</span>
-          .
+        <p className="break-words text-xs text-muted-foreground">
+          Responsável atual:{' '}
+          <span className="font-semibold text-foreground">{thread.assigned_to.full_name}</span>
         </p>
       )}
-      <div className="flex flex-wrap items-center gap-2">
+      <div
+        role="group"
+        aria-label="Ações da conversa"
+        className="flex min-w-0 flex-wrap items-center gap-2"
+      >
         {can(role, 'queue') && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -91,7 +97,9 @@ export function ThreadWorkflow({
           threadIds={[thread.id]}
           role={role}
           assigned={thread.assigned_to}
+          showAssigned={false}
         />
+        {children}
       </div>
       {thread.queue_excluded && (
         <p className="rounded-md border bg-muted p-3 text-sm">

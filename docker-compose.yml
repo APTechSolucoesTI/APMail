@@ -23,6 +23,16 @@ x-server-env: &server-env
   WORKER_SYNC_CONCURRENCY: ${WORKER_SYNC_CONCURRENCY:-5}
   WORKER_SEND_CONCURRENCY: ${WORKER_SEND_CONCURRENCY:-5}
   WORKER_ACTIONS_CONCURRENCY: ${WORKER_ACTIONS_CONCURRENCY:-5}
+  STORAGE_SCAN_BATCH: ${STORAGE_SCAN_BATCH:-5000}
+  STORAGE_SCAN_BUDGET_MS: ${STORAGE_SCAN_BUDGET_MS:-20000}
+  STORAGE_PUBLISH_SECONDS: ${STORAGE_PUBLISH_SECONDS:-60}
+  STORAGE_HISTORY_HOURLY_DAYS: ${STORAGE_HISTORY_HOURLY_DAYS:-90}
+  STORAGE_HISTORY_DAILY_MONTHS: ${STORAGE_HISTORY_DAILY_MONTHS:-24}
+  DISK_WARNING_PERCENT: ${DISK_WARNING_PERCENT:-80}
+  DISK_CRITICAL_PERCENT: ${DISK_CRITICAL_PERCENT:-90}
+  SYNC_DELAY_MINUTES: ${SYNC_DELAY_MINUTES:-10}
+  WORKER_HEARTBEAT_SECONDS: ${WORKER_HEARTBEAT_SECONDS:-90}
+  INFRA_METRICS_FILE: /data/metrics/infra.json
   ALLOW_INSECURE_TLS_HOSTS: ${ALLOW_INSECURE_TLS_HOSTS:-}
 services:
   postgres:
@@ -94,7 +104,9 @@ services:
     init: true
     stop_grace_period: 45s
     environment: *server-env
-    volumes: [storage:/data/storage]
+    volumes:
+      - storage:/data/storage
+      - ${APMAIL_METRICS_DIRECTORY:-./.data/metrics}:/data/metrics:ro
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }

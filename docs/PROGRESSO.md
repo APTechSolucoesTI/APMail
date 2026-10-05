@@ -1,5 +1,27 @@
 # Progresso do APMail
 
+## Ajuste de 05/10/2026 — menu lateral e barras da caixa/conversa (local)
+
+- Implementado no workspace, sem commit, push, deploy ou alteração adicional em produção.
+- Corrigido o crescimento da tabela interna do ScrollArea: o menu respeita a largura do painel em desktop e no menu móvel. Nomes longos usam reticências com o texto completo disponível; setas, contadores e opções de pasta reservam seu próprio espaço.
+- Filtros da caixa com busca/atualização alinhadas, responsável/ordenação em duas colunas, rótulos visíveis e seleção/leitura em linha própria. Limpar filtros mantém a navegação interna e retorna à primeira página.
+- Ações da conversa agrupadas com alturas/espaçamentos consistentes e quebra de linha conforme a largura disponível. Compartilhar, atribuir e etiquetar permanecem acessíveis; mover/restaurar/excluir ficam em Organizar, e leitura/fixação em Mais ações. Responsável atual aparece uma única vez.
+- Diálogos de mover/excluir devolvem foco ao botão de origem; exclusão mantém confirmação explícita. Controles principais preservam 44 px em celulares e foco visível, nos dois temas.
+- Validação: lint, typecheck de todos os pacotes, build web e 16 testes web aprovados. **60 verificações de navegador**, com 21 inspeções axe sem violações: 1440/1024/900/390/320 px, claro/escuro, painéis redimensionados, filtros combinados, seleção em lote, teclado, retorno de foco, recolhimento/ocultação do menu e nomes longos com contadores de seis dígitos. Respostas GET reais reaproveitadas entre resoluções; nomes/contadores extremos usados somente como fixtures de interface. Sem erros JavaScript; sem ensaio manual com NVDA/VoiceOver. Relatório local ignorado pelo Git: `.data/qa/mail-layout-browser-report.json`.
+
+## Entrega de 05/10/2026 — consumo verificável, dashboard e limpeza autorizada
+
+- **Fases 0–6 implementadas no workspace, sem commit, push ou deploy.** Novas migrations aplicadas somente em QA. A limpeza de produção descrita abaixo foi expressamente autorizada pelo usuário.
+- Plano completo em [PLANO-ARMAZENAMENTO-DASHBOARD-SUPERADMIN.md](PLANO-ARMAZENAMENTO-DASHBOARD-SUPERADMIN.md), vinculado à [SPEC](SPEC-EVOLUCAO-APMAIL.md).
+- Cadastro e propriedade dos arquivos, conferência com disco, dados lógicos por categoria, retenção, divergências, reconciliação e histórico implementados. Banco físico/índices/WAL, backups, Redis, logs, recursos e capacidade ficam separados como infraestrutura compartilhada, sem rateio apresentado como exato.
+- Dashboard global e detalhes por empresa/caixa: uso, crescimento, rankings, saúde, sincronização, filas, integridade e atividade administrativa. Superadmin permanece sem leitura de mensagens/anexos; gerenciamento de usuários/caixas continua após seleção da empresa.
+- Sem planos comerciais, preços, cotas por cliente, bloqueios por consumo ou nova limpeza automática. Operação, fontes opcionais e publicação em [OPERACAO-ARMAZENAMENTO.md](OPERACAO-ARMAZENAMENTO.md). API/web/worker e migrations aditivas precisam ser publicados juntos pelo usuário; fontes do host exigem Node 22 e permissões de leitura explicitamente configuradas.
+- Validação: lint, typecheck, build, 53 testes unitários e 83 integrações reais (DB 4, API 50, worker 29) PostgreSQL/Redis/filesystem/GreenMail. Inclui dois tenants, compartilhamento entre caixas, upload consumido, conflito físico entre empresas, lock entre conexões, solicitação concorrente e retomada de continuação cancelada. **25 verificações de navegador**, incluindo empresa selecionada em 1440/900/390 px e claro/escuro, teclado/foco/redução de movimento; sem erros JavaScript ou violações graves no axe. Contraste do hover escuro nos botões corrigido. Sem ensaio manual com NVDA/VoiceOver.
+- Carga concluída: 1.000.000 mensagens, 100 caixas e 100.000 arquivos; bytes presentes 1.600.000 e alocados 409.600.000, sem divergências. Reconciliação 881.191 ms em 43 lotes; pico de RSS 127.979.520 bytes, um núcleo e limite 768 MiB. Dados atribuídos 1.031.737.925 bytes, incluindo payload lógico de 1.030.137.925 bytes. Relatório remoto `.data/qa/storage-scale-report.json`.
+- Backup final `/home/administrador/apmail-next/.data/backups/production/20261005T182009Z`, com dump, arquivos, Redis, chaves privadas e checksums. Restauração independente conferiu 748 mensagens e 253 arquivos/7.123.799 bytes com SHA-256 individual; Redis RDB aprovado. As migrations `0011`–`0016` e o reset foram ensaiados em banco/volumes próprios antes da limpeza real. Cópias de produção no laboratório removidas após a conferência.
+- Produção zerada conforme autorização: **1 usuário/1 superadmin, 0 empresas, 0 caixas, 0 mensagens, 0 vínculos e 0 arquivos**. Sessão de validação encerrada. Preservados schema/migrations `0010`, imagens publicadas, domínio, SMTP, segredos e backups. Banco/Redis saudáveis, login HTTPS e negação de acesso operacional aprovados. Credenciais privadas fora do repositório, sem senha em docs/logs/Git.
+- Domínio atual conferido no APP_URL e no roteador: **https://app.apmail.com.br**. SMTP global configurado. O novo dashboard ainda depende do commit/deploy pelo usuário; a limpeza e o acesso já estão disponíveis na versão publicada.
+
 ## Atualização de 05/10/2026 — gestão por empresa e rolagem do menu (local)
 
 - **Implementado no workspace; sem commit, push ou deploy.** Publicação no Dokploy a cargo do usuário. Sem migração adicional e sem mudanças em produção.

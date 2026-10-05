@@ -2,16 +2,19 @@ import { Search, X } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 export function SearchInput({
   value,
   onChange,
   placeholder = 'Buscar registros…',
   debounce = 400,
+  className,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   debounce?: number;
+  className?: string;
 }) {
   const id = useId();
   const [state, setState] = useState({ input: value, previous: value, lastSent: value });
@@ -32,7 +35,7 @@ export function SearchInput({
     onChange('');
   };
   return (
-    <div className="relative min-w-56 flex-1">
+    <div className={cn('relative min-w-56 flex-1', className)}>
       <label htmlFor={id} className="sr-only">
         {placeholder}
       </label>

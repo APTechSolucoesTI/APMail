@@ -36,9 +36,9 @@ export function ShareToChatDialog({ threadId }: { threadId: string }) {
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="min-h-11">
+        <Button variant="outline" size="sm" aria-label="Compartilhar no chat">
           <MessageSquare className="size-4" aria-hidden />
-          Compartilhar no chat
+          Compartilhar
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[90dvh] overflow-y-auto" showCloseButton={!busy}>

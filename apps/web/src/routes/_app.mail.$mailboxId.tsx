@@ -177,47 +177,32 @@ function MailPage() {
   const admin = ['owner', 'admin'].includes(
     me.data?.tenants.find((t) => t.id === tenantId)?.role ?? '',
   );
+  const activeFilters = [
+    !!search.q,
+    !!search.unread,
+    search.assigned !== 'any',
+    search.sort !== 'recent',
+  ].filter(Boolean).length;
   const list = (
     <section aria-label="Lista de conversas" className="flex h-full min-w-0 flex-col bg-card">
-      <div className="space-y-2 border-b p-3">
-        <SearchInput
-          value={search.q ?? ''}
-          placeholder="Buscar assunto, remetente, conteúdo…"
-          debounce={300}
-          onChange={(q) =>
-            change({
-              q: q || undefined,
-              view: q ? 'search' : search.view === 'search' ? 'folder' : search.view,
-              page: 1,
-            })
-          }
-        />
-        <div className="flex flex-wrap items-center gap-3">
-          <Checkbox
-            checked={
-              selected.length === items.length && items.length > 0
-                ? true
-                : selected.length > 0
-                  ? 'indeterminate'
-                  : false
-            }
-            disabled={!items.length}
-            aria-label="Selecionar conversas da página"
-            onCheckedChange={(v) =>
-              setSelection({ context, ids: v === true ? items.map((t) => t.id) : [] })
+      <div aria-label="Filtros da caixa" className="shrink-0 space-y-3 border-b p-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <SearchInput
+            className="min-w-0"
+            value={search.q ?? ''}
+            placeholder="Buscar assunto, remetente, conteúdo…"
+            debounce={300}
+            onChange={(q) =>
+              change({
+                q: q || undefined,
+                view: q ? 'search' : search.view === 'search' ? 'folder' : search.view,
+                page: 1,
+              })
             }
           />
-          <label className="flex min-h-11 items-center gap-2 text-xs">
-            <Checkbox
-              checked={!!search.unread}
-              onCheckedChange={(v) => change({ unread: v === true, page: 1 })}
-            />
-            Não lidas
-          </label>
           <Button
-            size="icon"
-            variant="ghost"
-            className="ml-auto"
+            size="icon-sm"
+            variant="outline"
             aria-label="Atualizar conversas"
             disabled={threads.isFetching}
             onClick={() => void threads.refetch()}
@@ -227,68 +212,78 @@ function MailPage() {
             />
           </Button>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-xs" htmlFor="mail-assigned">
-            Responsável
-          </label>
-          <select
-            id="mail-assigned"
-            className="h-11 max-w-full rounded-md border border-input bg-card px-2 text-xs sm:h-8"
-            value={search.assigned}
-            onChange={(e) =>
-              change({ assigned: e.target.value as typeof search.assigned, page: 1 })
-            }
-          >
-            <option value="any">Todos</option>
-            <option value="me">Minhas conversas</option>
-            <option value="unassigned">Sem responsável</option>
-          </select>
-          <label className="text-xs" htmlFor="mail-sort">
-            Ordenar
-          </label>
-          <select
-            id="mail-sort"
-            className="h-11 max-w-full rounded-md border border-input bg-card px-2 text-xs sm:h-8"
-            value={search.sort}
-            onChange={(e) => change({ sort: e.target.value as typeof search.sort, page: 1 })}
-          >
-            <option value="recent">Mais recentes</option>
-            <option value="oldest">Mais antigas</option>
-            <option value="waiting_longest">Maior espera</option>
-          </select>
-          {(search.q || search.unread || search.assigned !== 'any' || search.sort !== 'recent') && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                change({
-                  q: undefined,
-                  unread: undefined,
-                  assigned: 'any',
-                  sort: 'recent',
-                  view: search.view === 'search' ? 'folder' : search.view,
-                  page: 1,
-                })
+        <div className="grid min-w-0 grid-cols-2 gap-3">
+          <div className="min-w-0 space-y-1">
+            <label className="block text-xs font-medium" htmlFor="mail-assigned">
+              Responsável
+            </label>
+            <select
+              id="mail-assigned"
+              className="h-11 w-full min-w-0 rounded-md border border-input bg-card px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8"
+              value={search.assigned}
+              onChange={(e) =>
+                change({ assigned: e.target.value as typeof search.assigned, page: 1 })
               }
             >
-              Limpar filtros (
-              {
-                [
-                  !!search.q,
-                  !!search.unread,
-                  search.assigned !== 'any',
-                  search.sort !== 'recent',
-                ].filter(Boolean).length
-              }
-              )
-            </Button>
-          )}
+              <option value="any">Todos</option>
+              <option value="me">Minhas conversas</option>
+              <option value="unassigned">Sem responsável</option>
+            </select>
+          </div>
+          <div className="min-w-0 space-y-1">
+            <label className="block text-xs font-medium" htmlFor="mail-sort">
+              Ordenar
+            </label>
+            <select
+              id="mail-sort"
+              className="h-11 w-full min-w-0 rounded-md border border-input bg-card px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8"
+              value={search.sort}
+              onChange={(e) => change({ sort: e.target.value as typeof search.sort, page: 1 })}
+            >
+              <option value="recent">Mais recentes</option>
+              <option value="oldest">Mais antigas</option>
+              <option value="waiting_longest">Maior espera</option>
+            </select>
+          </div>
         </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <label className="flex min-h-11 items-center gap-2 text-xs sm:min-h-8">
+            <Checkbox
+              checked={
+                selected.length === items.length && items.length > 0
+                  ? true
+                  : selected.length > 0
+                    ? 'indeterminate'
+                    : false
+              }
+              disabled={!items.length}
+              aria-label="Selecionar conversas da página"
+              onCheckedChange={(v) =>
+                setSelection({ context, ids: v === true ? items.map((t) => t.id) : [] })
+              }
+            />
+            Selecionar página
+          </label>
+          <label className="flex min-h-11 items-center gap-2 text-xs sm:min-h-8">
+            <Checkbox
+              checked={!!search.unread}
+              onCheckedChange={(v) => change({ unread: v === true, page: 1 })}
+            />
+            Não lidas
+          </label>
+        </div>
+        {activeFilters > 0 && (
+          <div className="flex justify-end">
+            <Button size="sm" variant="ghost" onClick={clearFilters}>
+              Limpar filtros ({activeFilters})
+            </Button>
+          </div>
+        )}
       </div>
       {!!selected.length && (
         <div className="space-y-2 border-b bg-muted p-3">
           <p className="text-xs font-semibold">{selected.length} selecionada(s) nesta página</p>
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap items-center gap-2">
             <ThreadLabels
               mailboxId={mailboxId}
               threadIds={selected}
@@ -346,6 +341,7 @@ function MailPage() {
               mailboxId={mailboxId}
               folders={folders.data ?? []}
               threadIds={selected}
+              compact
               onDone={() => setSelection({ context, ids: [] })}
             />
           )}
@@ -436,9 +432,9 @@ function MailPage() {
   return (
     <div className="space-y-4">
       <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-xl font-bold">{box.data.name}</h1>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 break-words text-xs text-muted-foreground">
             {search.view === 'search'
               ? 'Resultados da busca'
               : search.view === 'label'

@@ -3,7 +3,14 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { createDb, migrate, userCanReadThread, userCanReadFolder } from '@apmail/db';
+import {
+  createDb,
+  migrate,
+  userCanReadThread,
+  userCanReadFolder,
+  asJson,
+  createQueues,
+} from '@apmail/db';
 import { buildApp } from '../../src/app.js';
 import { envSchema } from '../../src/env.js';
 import { hashToken } from '../../src/plugins/auth.js';
@@ -167,6 +174,237 @@ afterAll(async () => {
   await db.destroy();
 });
 let contact = '';
+it('medição exige superadmin, valida empresa/caixa e não revela caminhos nem conteúdo', async () => {
+  const paths = [
+    '/api/superadmin/metering',
+    '/api/superadmin/metering/history',
+    '/api/superadmin/metering/integrity',
+    '/api/superadmin/metering/runs',
+    '/api/superadmin/dashboard',
+    '/api/superadmin/metering/export',
+    '/api/superadmin/metering/growth',
+  ];
+  for (const path of paths) {
+    expect((await call('GET', path, owner)).statusCode).toBe(403);
+    expect((await app.inject({ url: path })).statusCode).toBe(401);
+    const response = await call('GET', path, global);
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.body).not.toMatch(
+      /storage_path|storage_key|encrypted_password|password_hash|body_html|snippet/,
+    );
+  }
+  expect(
+    (
+      await call(
+        'GET',
+        `/api/superadmin/metering?tenant_id=${otherTenant}&mailbox_id=${otherBox}`,
+        global,
+      )
+    ).statusCode,
+  ).toBe(404);
+  expect((await call('GET', '/api/superadmin/metering?sort=storage_key', global)).statusCode).toBe(
+    400,
+  );
+  expect(
+    (await call('POST', '/api/superadmin/metering/reconcile', owner, { mode: 'full' })).statusCode,
+  ).toBe(403);
+  const original = (await call('GET', '/api/superadmin/dashboard', global)).json().counts;
+  await db.insertInto('platform_admins').values({ user_id: owner }).execute();
+  try {
+    const after = (await call('GET', '/api/superadmin/dashboard', global)).json().counts;
+    expect(after.users).toBe(original.users - 1);
+    expect(after.platform_admins).toBe(original.platform_admins + 1);
+  } finally {
+    await db.deleteFrom('platform_admins').where('user_id', '=', owner).execute();
+  }
+});
+it('deduplica solicitações concorrentes e retoma uma continuação cancelada com o mesmo scan', async () => {
+  const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 }),
+    queues = createQueues(redisUrl);
+  try {
+    await redis.del('apmail:storage:request-limit');
+    const requests = await Promise.all([
+      call('POST', '/api/superadmin/metering/reconcile', global, { mode: 'full' }),
+      call('POST', '/api/superadmin/metering/reconcile', global, { mode: 'full' }),
+    ]);
+    expect(requests.every((v) => [202, 429].includes(v.statusCode))).toBe(true);
+    const id = requests.find((v) => v.statusCode === 202)!.json().id;
+    expect(requests.filter((v) => v.statusCode === 202).every((v) => v.json().id === id)).toBe(
+      true,
+    );
+    const original = await queues.queues['storage-metering'].getJob('storage-' + id);
+    expect(original?.data).toMatchObject({ mode: 'full', run_id: id });
+    await original!.remove();
+    await redis.del('apmail:storage:request-limit');
+    const resumed = await call('POST', '/api/superadmin/metering/reconcile', global, {
+      mode: 'full',
+    });
+    expect(resumed.statusCode, resumed.body).toBe(202);
+    expect(resumed.json()).toMatchObject({ id, already_running: true });
+    const continuation = await queues.queues['storage-metering'].getJob('storage-resume-' + id);
+    expect(continuation?.data).toMatchObject({ mode: 'full', run_id: id });
+    await continuation!.remove();
+    await db
+      .updateTable('storage_scan_runs')
+      .set({ state: 'failed', error_code: 'qa_cancelled' })
+      .where('id', '=', id)
+      .execute();
+  } finally {
+    await redis.del('apmail:storage:request-limit');
+    await queues.close();
+    await redis.quit();
+  }
+});
+it('contrato de medição preserva bytes acima do limite de Number, paginação e CSV filtrado', async () => {
+  const run = randomUUID();
+  await db
+    .insertInto('storage_scan_runs')
+    .values({ id: run, mode: 'publish', state: 'completed', published_at: new Date() })
+    .execute();
+  const high = '9007199254740993',
+    usage = {
+      logical_bytes: '50',
+      body_bytes: '20',
+      metadata_bytes: '30',
+      file_bytes: high,
+      allocated_bytes: high,
+      attributed_bytes: String(BigInt(high) + 50n),
+      retained_bytes: '0',
+      files: 1,
+      messages: 1,
+      discrepancies: 0,
+    };
+  await db
+    .insertInto('storage_usage_snapshots')
+    .values({
+      scope: 'tenant',
+      scope_id: tenant,
+      tenant_id: tenant,
+      formula_version: 'logical-json-v1',
+      quality: 'verified',
+      usage,
+      categories: asJson([]),
+      scan_id: run,
+    })
+    .execute();
+  await db
+    .insertInto('storage_usage_snapshots')
+    .values(
+      Array.from({ length: 12 }, (_, i) => ({
+        scope: 'mailbox',
+        scope_id: i === 0 ? box : randomUUID(),
+        tenant_id: tenant,
+        formula_version: 'logical-json-v1',
+        quality: 'verified',
+        usage,
+        categories: asJson([]),
+        scan_id: run,
+      })),
+    )
+    .execute();
+  const base = `/api/superadmin/metering?tenant_id=${tenant}`;
+  const result = (await call('GET', base, global)).json();
+  expect(result.total).toBe(1);
+  expect(result.items[0].file_bytes).toBe(high);
+  expect(result.summary.attributed_bytes).toBe(usage.attributed_bytes);
+  const page = (await call('GET', base + '&scope=mailboxes&page=2&pageSize=10', global)).json();
+  expect(page.total).toBe(12);
+  expect(page.items).toHaveLength(2);
+  expect(page.selected_tenant).toMatchObject({
+    id: tenant,
+    attributed_bytes: usage.attributed_bytes,
+  });
+  const csv = await call(
+    'GET',
+    `/api/superadmin/metering/export?tenant_id=${tenant}&search=Evolucao`,
+    global,
+  );
+  expect(csv.statusCode, csv.body).toBe(200);
+  expect(csv.headers['content-type']).toContain('text/csv');
+  expect(csv.body).toContain(high);
+  expect(csv.body).not.toContain('Outra QA');
+  await db.updateTable('tenants').set({ name: '\t=SUM(1,2)' }).where('id', '=', tenant).execute();
+  try {
+    const protectedExport = await call(
+      'GET',
+      `/api/superadmin/metering/export?tenant_id=${tenant}`,
+      global,
+    );
+    expect(protectedExport.statusCode, protectedExport.body).toBe(200);
+    expect(protectedExport.body).toContain("'\t=SUM(1,2)");
+    expect(protectedExport.body).toContain('Variação no período (bytes)');
+  } finally {
+    await db.updateTable('tenants').set({ name: 'Evolução QA' }).where('id', '=', tenant).execute();
+  }
+  expect((await call('GET', base + '&quality=partial,verified', global)).json().total).toBe(1);
+});
+it('projeção usa histórico físico comparável e não inventa prazo para crescimento zero ou disco diferente', async () => {
+  const now = Date.now(),
+    day = 86400000;
+  await db
+    .insertInto('platform_metric_samples')
+    .values(
+      Array.from({ length: 9 }, (_, i) => ({
+        source: 'infrastructure',
+        measured_at: new Date(now - (8 - i) * day - 1000),
+        metrics: {
+          disk: {
+            available: true,
+            device: 'qa-volume',
+            total_bytes: '1000000',
+            free_bytes: String(900000 - i * 10000),
+          },
+        },
+      })),
+    )
+    .execute();
+  const measured = await call('GET', '/api/superadmin/dashboard', global);
+  expect(measured.statusCode, measured.body).toBe(200);
+  expect(measured.json().capacity_forecast).toMatchObject({
+    days_remaining: 82,
+    daily_growth_bytes: '10000',
+  });
+  await db
+    .updateTable('platform_metric_samples')
+    .set({
+      metrics: {
+        disk: {
+          available: true,
+          device: 'qa-volume',
+          total_bytes: '1000000',
+          free_bytes: '900000',
+        },
+      },
+    })
+    .where('source', '=', 'infrastructure')
+    .execute();
+  expect(
+    (await call('GET', '/api/superadmin/dashboard', global)).json().capacity_forecast,
+  ).toBeNull();
+  await db
+    .insertInto('platform_metric_samples')
+    .values({
+      source: 'infrastructure',
+      metrics: {
+        disk: {
+          available: true,
+          device: 'different-volume',
+          total_bytes: '1000000',
+          free_bytes: '800000',
+        },
+      },
+    })
+    .execute();
+  expect(
+    (await call('GET', '/api/superadmin/dashboard', global)).json().capacity_forecast,
+  ).toBeNull();
+  await db.deleteFrom('platform_metric_samples').where('source', '=', 'infrastructure').execute();
+  for (const sort of ['growth_bytes', 'last_synced_at'])
+    expect(
+      (await call('GET', `/api/superadmin/metering?scope=mailboxes&sort=${sort}`, global))
+        .statusCode,
+    ).toBe(200);
+});
 it('armazenamento soma conteúdo UTF-8 e arquivos únicos, incluindo dados retidos, sem duplicar MIME', async () => {
   const company = randomUUID(),
     storedBox = randomUUID(),
@@ -604,7 +842,7 @@ it('convites exigem caixa ativa e guardam IDs em vez de credenciais', async () =
     capabilities: ['rules'],
   });
 });
-it('upload de assinatura normaliza PNG e URL pública imutável, sem autenticação', async () => {
+it('upload de assinatura normaliza PNG privado, impedindo acesso público e entre usuários', async () => {
   const input = await sharp({
     create: { width: 20, height: 10, channels: 4, background: { r: 10, g: 20, b: 30, alpha: 1 } },
   })
@@ -630,10 +868,16 @@ it('upload de assinatura normaliza PNG e URL pública imutável, sem autenticaç
   });
   expect(upload.statusCode, upload.body).toBe(200);
   const path = new URL(upload.json().url).pathname,
-    read = await app.inject({ url: path });
+    read = await call('GET', path, owner);
+  expect((await app.inject({ url: path })).statusCode).toBe(401);
+  expect((await call('GET', path, member)).statusCode).toBe(404);
+  expect((await call('GET', path, global)).statusCode).toBe(403);
+  expect(
+    (await app.inject({ url: '/api/public/signature-images/' + upload.json().id })).statusCode,
+  ).toBe(404);
   expect(read.statusCode).toBe(200);
   expect(read.headers['content-type']).toContain('image/png');
-  expect(read.headers['cache-control']).toContain('immutable');
+  expect(read.headers['cache-control']).toContain('private');
   expect((await sharp(read.rawPayload).metadata()).width).toBe(20);
 });
 it('gestão global edita capacidades e caixas sem promover o próprio ator', async () => {

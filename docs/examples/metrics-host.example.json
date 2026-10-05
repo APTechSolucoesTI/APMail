@@ -1,0 +1,14 @@
+{
+  "output": "/home/administrador/apmail-next/.data/metrics/infra.json",
+  "backupReport": "/home/administrador/apmail-next/.data/backups/production/backup-report.json",
+  "sources": [
+    { "id": "storage", "directory": "/var/lib/docker/volumes/PROJETO_storage/_data" },
+    { "id": "database", "directory": "/var/lib/docker/volumes/PROJETO_pgdata/_data" },
+    { "id": "redis", "directory": "/var/lib/docker/volumes/PROJETO_redisdata/_data" },
+    { "id": "backups", "directory": "/home/administrador/apmail-next/.data/backups/production" },
+    { "id": "logs", "directory": "/DIRETORIO_EXATO_DOS_LOGS_DESTE_PROJETO" },
+    { "id": "api", "cgroup": "/sys/fs/cgroup/system.slice/docker-ID_API.scope" },
+    { "id": "worker", "cgroup": "/sys/fs/cgroup/system.slice/docker-ID_WORKER.scope" },
+    { "id": "web", "cgroup": "/sys/fs/cgroup/system.slice/docker-ID_WEB.scope" }
+  ]
+}

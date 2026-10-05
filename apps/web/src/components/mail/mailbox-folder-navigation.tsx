@@ -28,16 +28,16 @@ export function MailboxFolderNavigation({
   useSocketRoom('mailbox', active ? box.id : undefined);
   const search = location.search as { folderId?: string };
   return (
-    <div>
+    <div className="min-w-0">
       <Link
         to="/mail/$mailboxId"
         params={{ mailboxId: box.id }}
         onClick={onNavigate}
-        className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+        className="flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
         activeProps={{ className: 'bg-secondary text-secondary-foreground' }}
       >
         <Mail className="size-4 shrink-0" aria-hidden />
-        <span className="truncate" title={box.name}>
+        <span className="min-w-0 flex-1 truncate" title={box.name}>
           {box.name}
         </span>
       </Link>

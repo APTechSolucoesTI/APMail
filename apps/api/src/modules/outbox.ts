@@ -39,7 +39,7 @@ import type { Resources } from './resources.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 const validation = (message: string) => new ApiError(400, 'validation_error', message);
 export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
-  const storage = new Storage(r.env.STORAGE_DIR);
+  const storage = new Storage(r.env.STORAGE_DIR, r.db);
   const owned = async (ctx: RequestContext | null, id: string) => {
     const c = requireTenant(ctx);
     const row = await r.db

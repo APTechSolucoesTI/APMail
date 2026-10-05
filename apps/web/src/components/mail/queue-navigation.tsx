@@ -26,8 +26,7 @@ export function QueueNavigation({
     }),
     search = useLocation().search as { view?: string; queue?: string };
   return (
-    <div className="mt-3 space-y-1">
-      <p className="px-2 text-xs font-semibold text-muted-foreground">FILAS</p>
+    <div className="min-w-0 space-y-1">
       {queues.map(([queue, label, Icon]) => (
         <Link
           key={queue}
@@ -36,16 +35,18 @@ export function QueueNavigation({
           search={{ view: 'queue', queue }}
           onClick={onNavigate}
           className={cn(
-            'flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted',
+            'flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted',
             search.view === 'queue' &&
               search.queue === queue &&
               'bg-secondary text-secondary-foreground',
           )}
         >
           <Icon className="size-4 shrink-0" aria-hidden />
-          <span className="min-w-0 flex-1">{label}</span>
+          <span className="min-w-0 flex-1 truncate" title={label}>
+            {label}
+          </span>
           <span
-            className="font-mono text-xs"
+            className="shrink-0 font-mono text-xs tabular-nums"
             aria-label={queue === 'done' ? 'Concluídas nos últimos 7 dias' : undefined}
           >
             {q.data?.[queue === 'done' ? 'done_7d' : queue] ?? '…'}

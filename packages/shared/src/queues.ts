@@ -6,6 +6,7 @@ export const QUEUE_NAMES = [
   'rules-apply',
   'system-email',
   'maintenance',
+  'storage-metering',
 ] as const;
 export type QueueName = (typeof QUEUE_NAMES)[number];
 export type QueuePayloads = {
@@ -16,6 +17,7 @@ export type QueuePayloads = {
   'rules-apply': { rule_id: string; since_days: number };
   'system-email': { to: string; data: Record<string, string> };
   maintenance: Record<string, never>;
+  'storage-metering': { mode: 'full' | 'changed' | 'publish'; run_id?: string };
 };
 // BullMQ proíbe ':' em IDs personalizados; o contrato lógico permanece legível no banco.
 export const toBullJobId = (logicalId: string): string => logicalId.replaceAll(':', '~');

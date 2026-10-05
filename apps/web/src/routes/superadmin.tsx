@@ -13,14 +13,30 @@ import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { toast } from 'sonner';
 import { PlatformStorage } from '@/components/platform/platform-storage';
 import {
+  PlatformOverviewDashboard,
+  PlatformIntegrity,
+} from '@/components/platform/platform-overview';
+import {
   PlatformManagementDialog,
   type ManagementDialog,
   type PlatformRow,
 } from '@/components/platform/platform-management-dialog';
 import { useTheme } from '@/components/layout/theme-provider';
 
-const sections = ['tenants', 'users', 'mailboxes', 'storage', 'audit', 'logs', 'health'] as const;
+const sections = [
+  'overview',
+  'tenants',
+  'users',
+  'mailboxes',
+  'storage',
+  'integrity',
+  'audit',
+  'logs',
+  'health',
+] as const;
 const labels = {
+  overview: 'Dashboard',
+  integrity: 'Integridade',
   tenants: 'Empresa',
   users: 'Usuários',
   mailboxes: 'Caixas de e-mail',
@@ -40,7 +56,8 @@ export const Route = createFileRoute('/superadmin')({
       );
   },
   validateSearch: listQuerySchema.extend({
-    section: z.enum(sections).default('tenants'),
+    section: z.enum(sections).default('overview'),
+    storage_period: z.enum(['24h', '7d', '30d', '90d', '24mo']).default('30d'),
     tenant_id: z.uuid().optional(),
     storage_scope: z.enum(['tenants', 'mailboxes']).default('tenants'),
     storage_tenant: z.uuid().optional(),
@@ -53,7 +70,10 @@ function SuperAdmin() {
     client = useQueryClient();
   const tenantId = query.tenant_id ?? query.storage_tenant;
   // A company is selected before exposing tenant management, even for old bookmarked URLs.
-  const section = tenantId || query.section === 'health' ? query.section : 'tenants';
+  const section =
+    tenantId || ['overview', 'storage', 'integrity', 'health'].includes(query.section)
+      ? query.section
+      : 'tenants';
   const [dialog, setDialog] = useState<ManagementDialog | null>(null);
   const me = useQuery(meQuery).data;
   const { theme, setTheme } = useTheme();
@@ -92,7 +112,8 @@ function SuperAdmin() {
       ),
     enabled:
       (!tenantId && section === 'tenants') ||
-      (!!company.data && !['health', 'storage', 'tenants'].includes(section)),
+      (!!company.data &&
+        !['overview', 'integrity', 'health', 'storage', 'tenants'].includes(section)),
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === section && previousQuery.queryKey[2] === tenantId
         ? previous
@@ -249,9 +270,11 @@ function SuperAdmin() {
         <PageHeader
           title="Gestão da plataforma"
           description={
-            tenantId
-              ? 'Gerencie os cadastros e o armazenamento da empresa selecionada.'
-              : 'Selecione uma empresa para gerenciar seus usuários, caixas de e-mail e configurações.'
+            section === 'overview'
+              ? 'Acompanhe consumo, crescimento e saúde de toda a plataforma.'
+              : tenantId
+                ? 'Gerencie os cadastros e o armazenamento da empresa selecionada.'
+                : 'Selecione uma empresa para gerenciar seus usuários, caixas de e-mail e configurações.'
           }
           actions={
             section === 'tenants' ? (
@@ -292,7 +315,10 @@ function SuperAdmin() {
           </section>
         )}
         <nav aria-label="Gestão da plataforma" className="flex flex-wrap gap-2">
-          {(tenantId ? sections : (['tenants', 'health'] as const)).map((item) => (
+          {(tenantId
+            ? sections
+            : (['overview', 'tenants', 'storage', 'integrity', 'health'] as const)
+          ).map((item) => (
             <Button
               key={item}
               variant={item === section ? 'default' : 'outline'}
@@ -318,10 +344,87 @@ function SuperAdmin() {
             </Button>
           ))}
         </nav>
+        {['overview', 'storage'].includes(section) && (
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="storage-period" className="text-sm">
+              Período do histórico
+            </label>
+            <select
+              id="storage-period"
+              className="h-10 rounded-md border bg-card px-3 text-sm focus-visible:ring-2 focus-visible:ring-ring"
+              value={query.storage_period}
+              onChange={(e) =>
+                void navigate({
+                  to: '/superadmin',
+                  search: {
+                    ...query,
+                    storage_period: e.target.value as typeof query.storage_period,
+                    page: 1,
+                  },
+                })
+              }
+            >
+              {Object.entries({
+                '24h': '24 horas',
+                '7d': '7 dias',
+                '30d': '30 dias',
+                '90d': '90 dias',
+                '24mo': '24 meses',
+              }).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         {tenantId && company.isLoading ? (
           <LoadingState />
         ) : tenantId && company.error ? (
           <ErrorState onRetry={() => void company.refetch()} />
+        ) : section === 'overview' ? (
+          <PlatformOverviewDashboard
+            onSelectTenant={(id) =>
+              void navigate({
+                to: '/superadmin',
+                search: {
+                  ...query,
+                  tenant_id: id,
+                  section: 'storage',
+                  storage_scope: 'mailboxes',
+                  page: 1,
+                  sort: undefined,
+                  search: undefined,
+                  filters: {},
+                },
+              })
+            }
+            period={query.storage_period}
+            onManage={() =>
+              void navigate({
+                to: '/superadmin',
+                search: {
+                  ...query,
+                  section: 'tenants',
+                  tenant_id: undefined,
+                  storage_tenant: undefined,
+                  page: 1,
+                },
+              })
+            }
+            onStorage={() =>
+              void navigate({
+                to: '/superadmin',
+                search: { ...query, section: 'storage', page: 1 },
+              })
+            }
+          />
+        ) : section === 'integrity' ? (
+          <PlatformIntegrity
+            query={query}
+            tenantId={tenantId}
+            onChange={(next) => void navigate({ to: '/superadmin', search: { ...query, ...next } })}
+          />
         ) : section === 'health' ? (
           health.isLoading ? (
             <LoadingState />
@@ -385,19 +488,21 @@ function SuperAdmin() {
               />
             </div>
           </section>
-        ) : section === 'storage' && tenantId ? (
+        ) : section === 'storage' ? (
           <PlatformStorage
             query={query}
             scope={query.storage_scope}
             tenantId={tenantId}
-            lockTenant
-            onChange={(next, scope) =>
+            lockTenant={!!tenantId}
+            period={query.storage_period}
+            onChange={(next, scope, nextTenant) =>
               void navigate({
                 to: '/superadmin',
                 search: {
+                  ...query,
                   ...next,
                   section,
-                  tenant_id: tenantId,
+                  tenant_id: nextTenant,
                   storage_scope: scope,
                   storage_tenant: undefined,
                 },

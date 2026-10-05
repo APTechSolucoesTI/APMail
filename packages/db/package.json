@@ -9,9 +9,12 @@
     "test": "vitest run --exclude \"**/integration/**\"",
     "migrate": "tsx src/migrate.ts",
     "bootstrap:superadmin": "tsx src/bootstrap-superadmin.ts",
+    "storage:reconcile": "tsx src/reconcile-cli.ts",
+    "storage:collect-host": "tsx src/host-metrics-cli.ts",
+    "storage:benchmark": "tsx src/storage-benchmark.ts",
     "reset": "tsx src/reset.ts",
     "codegen": "tsx src/codegen.ts",
-    "test:integration": "vitest run test/integration"
+    "test:integration": "vitest run test/integration --no-file-parallelism"
   },
   "dependencies": {
     "@apmail/shared": "workspace:*",

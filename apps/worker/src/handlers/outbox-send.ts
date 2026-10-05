@@ -216,6 +216,11 @@ export async function handleOutboxSend(
                   .updateTable('uploads')
                   .set({ consumed_at: at })
                   .where('id', '=', file.upload_id)
+                  .where(
+                    sql<boolean>`not exists(select 1 from outbox other where other.id<>${id}::uuid and other.tenant_id=${box.tenant_id}::uuid
+                    and other.status in ('draft','queued','scheduled','sending','failed')
+                    and other.attachments @> jsonb_build_array(jsonb_build_object('source','upload','upload_id',${file.upload_id}::uuid)))`,
+                  )
                   .execute();
             }
             await tx
@@ -245,7 +250,16 @@ export async function handleOutboxSend(
           throw e;
         }
         for (const file of mime.files)
-          if (file.upload_id)
+          if (
+            file.upload_id &&
+            (
+              await r.db
+                .selectFrom('uploads')
+                .select('consumed_at')
+                .where('id', '=', file.upload_id)
+                .executeTakeFirst()
+            )?.consumed_at
+          )
             await r.storage
               .removeFile(file.storage_path)
               .catch(() =>

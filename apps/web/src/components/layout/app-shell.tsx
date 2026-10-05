@@ -171,9 +171,12 @@ export function AppShell() {
   const sidebar = (
     <ScrollArea
       type="hover"
-      className="h-full [&_[data-slot=scroll-area-scrollbar]]:w-2 [&_[data-slot=scroll-area-thumb]]:bg-muted-foreground/80 [&_[data-slot=scroll-area-thumb]:hover]:bg-muted-foreground"
+      className="h-full min-w-0 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-scrollbar]]:w-2 [&_[data-slot=scroll-area-thumb]]:bg-muted-foreground/80 [&_[data-slot=scroll-area-thumb]:hover]:bg-muted-foreground"
     >
-      <nav aria-label="Navegação principal" className="flex min-h-full flex-col gap-2 p-4">
+      <nav
+        aria-label="Navegação principal"
+        className="flex min-h-full w-full min-w-0 flex-col gap-2 p-4"
+      >
         <Link
           to="/"
           className="mb-6 flex items-center gap-2 text-xl font-semibold text-primary"

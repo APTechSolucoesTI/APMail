@@ -20,8 +20,7 @@ export function PersonalLabelNavigation({
     search = useLocation().search as { labelId?: string; view?: string };
   if (!q.data?.length) return null;
   return (
-    <div className="mt-3 space-y-1">
-      <p className="px-2 text-xs font-semibold text-muted-foreground">SUAS ETIQUETAS</p>
+    <div className="min-w-0 space-y-1">
       {q.data.map((l) => (
         <Link
           key={l.id}
@@ -35,9 +34,11 @@ export function PersonalLabelNavigation({
           )}
         >
           <Tag className="size-4 shrink-0" />
-          <LabelBadge label={l} />
+          <span className="min-w-0 flex-1">
+            <LabelBadge label={l} />
+          </span>
           <span
-            className="ml-auto font-mono text-xs"
+            className="shrink-0 font-mono text-xs tabular-nums"
             aria-label={l.thread_count + ' conversas em todas as suas caixas'}
           >
             {l.thread_count ?? 0}
