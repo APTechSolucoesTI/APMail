@@ -1,6 +1,6 @@
 # Evolução do APMail — especificação e plano de ação
 
-Data: 02/10/2026. Base: entrega `fase-9`. Status: **implementado, validado e publicado**. Implementação autorizada pelo usuário, inclusive `/superadmin`. Entrega conjunta `d48682c`, publicada em https://apmail.aptechinfo.com.br:75.
+Atualização: 05/10/2026. Base original: entrega `fase-9`. Status: **implementado, validado e publicado**. Evolução inicial `d48682c`; dashboard por papel, teste de conexão antes de salvar e assinatura CID publicados no commit `6d0f711`, em [APMail](https://apmail.aptechinfo.com.br:75). Evidências em [PROGRESSO](PROGRESSO.md).
 
 ## 1. Decisões confirmadas
 
@@ -15,7 +15,7 @@ Data: 02/10/2026. Base: entrega `fase-9`. Status: **implementado, validado e pub
 
 Referência visual: o print mencionado não está disponível como imagem nesta conversa. O editor foi implementado com os controles de fonte, tamanho, cores, alinhamento, listas, links, imagens, tabelas e edição solicitados por texto.
 
-## 2. Diagnóstico do estado atual
+## 2. Diagnóstico inicial de 02/10/2026
 
 | Área                  | Evidência no código                                                                                                            | Consequência                                                                                                              |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
