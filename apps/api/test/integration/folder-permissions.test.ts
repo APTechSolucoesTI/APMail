@@ -267,7 +267,12 @@ it('URL direta, anexos, resposta, compartilhamento e dashboard negam acesso inde
       '/chat/shared-threads/' + hidden + '/access',
     ])
       expect((await call('GET', path, user)).statusCode).toBe(404);
-    expect((await call('GET', '/dashboard/kpis?mailbox_id=' + box, user)).statusCode).toBe(403);
+    const dashboard = await call('GET', '/dashboard/kpis?mailbox_id=' + box, user);
+    expect(dashboard.statusCode).toBe(200);
+    expect(
+      (await call('GET', '/dashboard/stale-threads?mailbox_id=' + box, user)).body,
+    ).not.toContain('Segredo interno');
+    expect(dashboard.json()).toMatchObject({ received: 0, sent: 0 });
   }
   expect(
     (

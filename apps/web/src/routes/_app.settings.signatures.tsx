@@ -11,6 +11,7 @@ import type { Signature } from '@/lib/outbox';
 import { PageHeader } from '@/components/layout/page-header';
 import { ConfigurableTable } from '@/components/data/configurable-table';
 import { RichTextEditor } from '@/components/forms/rich-text-editor';
+import { signaturePreview } from '@/lib/signature';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -132,7 +133,9 @@ function Signatures() {
         <DialogContent className="max-h-[95dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{draft?.id ? 'Editar assinatura' : 'Nova assinatura'}</DialogTitle>
-            <DialogDescription>Imagens devem usar endereços HTTPS.</DialogDescription>
+            <DialogDescription>
+              Anexe imagens para incorporá-las automaticamente à assinatura enviada.
+            </DialogDescription>
           </DialogHeader>
           {draft && (
             <form
@@ -196,7 +199,7 @@ function Signatures() {
               </label>
               <div className="rounded-md border bg-card p-4 text-sm">
                 <p className="mb-2 font-semibold">Pré-visualização</p>
-                <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(draft.body_html) }} />
+                <div dangerouslySetInnerHTML={{ __html: signaturePreview(draft.body_html) }} />
               </div>
               {error && (
                 <p role="alert" className="text-sm text-destructive">

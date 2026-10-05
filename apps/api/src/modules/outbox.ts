@@ -10,6 +10,7 @@ import {
   sanitizeEmailHtml,
   touchThreads,
   resolveOutboxAttachments,
+  prepareSignature,
   outboxJobId,
   sendJobOptions,
   audit,
@@ -135,12 +136,23 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       if (!file) throw notFound();
     }
     try {
-      await resolveOutboxAttachments(r.db, {
+      const files = await resolveOutboxAttachments(r.db, {
         attachments: body.attachments,
         tenant_id: c.tenantId,
         mailbox_id: body.mailbox_id,
         created_by: c.userId,
       });
+      body.body_html = (
+        await prepareSignature(
+          r.db,
+          {
+            ...body,
+            tenant_id: c.tenantId,
+            created_by: c.userId,
+          },
+          files.flatMap((file) => (file.content_id ? [file.content_id] : [])),
+        )
+      ).bodyHtml;
     } catch (e) {
       throw validation((e as Error).message);
     }

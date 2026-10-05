@@ -1,5 +1,14 @@
 # Progresso do APMail
 
+## Atualização de 05/10/2026 — dashboard, conexão e assinatura
+
+- Dashboard padrão para todos. Membro consulta seus envios, atendimentos atribuídos e conclusões realizadas; Supervisor/Admin consulta o conjunto permitido e filtra usuários, caixas e período. A API protege todas as seis consultas e CSV, inclusive pastas restritas e ausência de caixas. Permissão de dashboard retirada dos controles de concessão do Supervisor.
+- Assistente testa IMAP/SMTP antes de continuar; API retesta antes de salvar. Cadastro normal/superadmin e alterações de servidor/senha são bloqueados quando a autenticação falha, sem gravar caixa nem sobrescrever credenciais válidas. SMTP verifica autenticação sem enviar mensagem.
+- Assinatura com upload exclusivo de imagem, PNG normalizado e incorporação CID no MIME. Prévia e reabertura exibem a imagem; API inclui assinatura por ID e recupera wrapper vazio. URLs antigas de imagens do APMail são convertidas no envio; cópia Enviados/IMAP conserva bytes e Content-ID. Imagens externas legadas exigem upload para incorporação.
+- Verificações locais: lint, typecheck, testes unitários e build; Linux com PostgreSQL/Redis/IMAP/SMTP reais: 51 unitários + 70 integrações. MIME recebido, rascunho, cópia IMAP, isolamento por usuário/empresa/pasta e gravação bloqueada em falhas de ambos os protocolos cobertos.
+- Navegador: proprietário e membro, desktop 1440, tablet 900 e celular 390, claro/escuro; sem overflow e sem violações sérias/críticas no axe. Upload sem URL, prévia/reabertura/compositor e conexão inválida mantendo formulário e banco conferidos. Evidência local em `.data/qa/october-browser-report.json` e screenshots `october-dashboard-*` (ignorados pelo Git).
+- Publicação desta atualização: pendente da CI e do redeploy. Produção anterior saudável, acessos SSH/Dokploy confirmados; domínio, SMTP, banco e arquivos existentes serão preservados. Não há nova migração de esquema.
+
 Atualização: 02/10/2026. Não considerar uma fase concluída até todas as verificações estarem comprovadas.
 
 ## Pré-implementação

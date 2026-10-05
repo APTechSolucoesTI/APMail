@@ -48,11 +48,18 @@ export const Route = createFileRoute('/_app/dashboard')({
   component: Dashboard,
 });
 function useDashboardData<T>(endpoint: string, params: string, enabled: boolean) {
+  const tenantId = useTenantId();
+  const me = useQuery(meQuery);
+  const tenant = me.data?.tenants.find((item) => item.id === tenantId);
+  const accessKey = [me.data?.user.id, tenant?.role, me.data?.support?.id];
   return useQuery({
-    queryKey: ['dashboard', useTenantId(), endpoint, params],
+    queryKey: ['dashboard', tenantId, endpoint, params, accessKey],
     queryFn: ({ signal }) => api<T>('/dashboard/' + endpoint + '?' + params, { signal }),
     enabled,
-    placeholderData: keepPreviousData,
+    placeholderData: (previous, query) =>
+      JSON.stringify(query?.queryKey[4]) === JSON.stringify(accessKey)
+        ? keepPreviousData(previous)
+        : undefined,
     refetchInterval: 60000,
   });
 }
@@ -159,10 +166,10 @@ function Dashboard() {
     queryKey: ['tenant', tenantId],
     queryFn: () => api<{ timezone: string }>('/tenant'),
   });
-  const allowedBoxes = (boxes.data ?? []).filter((box) => canMailbox(box, 'dashboard'));
+  const allowedBoxes = (boxes.data ?? []).filter((box) => canMailbox(box, 'read'));
   const tenantRole = me.data?.tenants.find((t) => t.id === tenantId)?.role;
-  const tenantAdmin = tenantRole === 'owner' || tenantRole === 'admin';
-  const allowed = !!me.data && (tenantAdmin || allowedBoxes.length > 0);
+  const personal = tenantRole === 'member';
+  const allowed = !!me.data && !!tenantRole;
   const dates = dashboardDates(
     search.period,
     tenant.data?.timezone ?? 'America/Sao_Paulo',
@@ -176,6 +183,7 @@ function Dashboard() {
   const params = new URLSearchParams({
     ...dates,
     ...(search.mailboxId ? { mailbox_id: search.mailboxId } : {}),
+    ...(!personal && search.userId ? { user_id: search.userId } : {}),
   }).toString();
   const kpis = useDashboardData<DashboardKpis>('kpis', params, enabled),
     volume = useDashboardData<DailyVolume[]>('daily-volume', params, enabled),
@@ -183,6 +191,15 @@ function Dashboard() {
     queues = useDashboardData<DashboardQueue[]>('queue-counts', params, enabled),
     users = useDashboardData<UserProductivity[]>('by-user', params, enabled),
     stale = useDashboardData<StaleThread[]>('stale-threads', params, enabled);
+  const directoryParams = new URLSearchParams({
+    ...dates,
+    ...(search.mailboxId ? { mailbox_id: search.mailboxId } : {}),
+  }).toString();
+  const directory = useDashboardData<UserProductivity[]>(
+    'by-user',
+    directoryParams,
+    enabled && !personal,
+  );
   const all = [kpis, volume, folders, queues, users, stale],
     updating = all.some((q) => q.isFetching);
   const selected = search.mailboxId
@@ -222,7 +239,14 @@ function Dashboard() {
   const values = kpis.data;
   return (
     <div className="space-y-6">
-      <PageHeader title="Dashboard" description="Volume, produtividade e prioridades da equipe." />
+      <PageHeader
+        title="Dashboard"
+        description={
+          personal
+            ? 'Seus envios e atendimentos atribuídos, nas caixas e pastas que você pode acessar.'
+            : 'Volume, produtividade e prioridades nas caixas e pastas permitidas.'
+        }
+      />
       <section
         aria-label="Filtros do dashboard"
         className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4"
@@ -252,7 +276,9 @@ function Dashboard() {
           <Label htmlFor="dashboard-mailbox">Caixa</Label>
           <Select
             value={search.mailboxId ?? 'all'}
-            onValueChange={(id) => change({ mailboxId: id === 'all' ? undefined : id })}
+            onValueChange={(id) =>
+              change({ mailboxId: id === 'all' ? undefined : id, userId: undefined })
+            }
           >
             <SelectTrigger id="dashboard-mailbox" className="min-h-11 w-64 max-w-full">
               <SelectValue />
@@ -267,6 +293,33 @@ function Dashboard() {
             </SelectContent>
           </Select>
         </div>
+        {!personal && (
+          <div className="space-y-1">
+            <Label htmlFor="dashboard-user">Usuário</Label>
+            <Select
+              value={search.userId ?? 'all'}
+              disabled={directory.isLoading || !!directory.error}
+              onValueChange={(id) => change({ userId: id === 'all' ? undefined : id })}
+            >
+              <SelectTrigger id="dashboard-user" className="min-h-11 w-64 max-w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os usuários permitidos</SelectItem>
+                {directory.data?.map((user) => (
+                  <SelectItem key={user.user_id} value={user.user_id}>
+                    {user.full_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {directory.error && (
+              <Button variant="outline" onClick={() => void directory.refetch()}>
+                Recarregar usuários
+              </Button>
+            )}
+          </div>
+        )}
         {search.period === 'custom' && (
           <CustomPeriod key={dates.from + dates.to} dates={dates} onApply={change} />
         )}

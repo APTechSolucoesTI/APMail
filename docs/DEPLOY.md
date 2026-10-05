@@ -123,3 +123,9 @@ Convites da empresa usam sua caixa principal ativa, configurável em **Configura
 Importação inicial: `history_classify_days` entre 0 e 90; padrão 0 mantém histórico sem fila. Conversas existentes preservam elegibilidade; mensagens novas seguem classificação normal. A origem histórica permanece em movimentos e ressincronizações. Preferências migram uma única vez para claro/escuro, densidade fixa, notificações internas e imagens ativadas; notificação do navegador desativada. Escolhas posteriores são preservadas.
 
 Contatos são exclusivos por e-mail normalizado dentro da empresa. Por padrão, todas as caixas atuais e futuras podem exibi-los. Restrição por caixas é administrativa; um usuário com acesso a qualquer caixa autorizada vê o contato completo. Consultas públicas de CEP/CNPJ têm timeout, cache e preenchimento manual. Imagens de assinatura requerem `APP_URL` HTTPS em produção e armazenamento persistente; não remover imagens antigas usadas em mensagens enviadas.
+
+### Atualização de 05/10/2026
+
+Dashboard é padrão para todos; Membro tem métricas pessoais e Supervisor/Admin visão geral somente no escopo permitido. Não exige nova concessão nem migração de banco. Cadastros e trocas de conexão/senha exigem testes IMAP e SMTP concluídos antes de persistir. A API precisa alcançar os provedores, além do worker. TLS/STARTTLS permanece obrigatório em produção; ALLOW_INSECURE_TLS_HOSTS só é considerado em desenvolvimento.
+
+Assinaturas oferecem upload de imagem, com PNG normalizado e CID incorporado no MIME. Arquivos antigos do APMail continuam acessíveis e são convertidos no envio; não remover o armazenamento persistente. Imagens externas legadas precisam ser anexadas para serem incorporadas. Preserve ambiente, domínio, SMTP e volumes existentes ao redeployar.

@@ -260,6 +260,111 @@ afterAll(async () => {
   await redis.quit();
   await db.destroy();
 }, 30000);
+it('cadastro testa IMAP/SMTP antes de gravar, incluindo superadmin e troca de credenciais', async () => {
+  const probe = await buildApp(
+    apiEnvSchema.parse({ ...env, NODE_ENV: 'development', LOG_LEVEL: 'silent' }),
+  );
+  await probe.ready();
+  const body = {
+    name: 'Conexão QA',
+    email_address: 'probe-' + suffix + '@apmail.local',
+    username: 'comercial@apmail.local',
+    password: 'Senha123',
+    imap_host: mailHost,
+    imap_port: imapPort,
+    imap_secure: false,
+    smtp_host: mailHost,
+    smtp_port: smtpPort,
+    smtp_secure: false,
+  };
+  const request = (method: 'POST' | 'PUT', path: string, payload: unknown, user = owner) =>
+    probe.inject({
+      method,
+      url: path,
+      headers: { cookie: cookies.get(user)!, origin, 'content-type': 'application/json' },
+      payload: JSON.stringify(payload),
+    });
+  let created: string | undefined;
+  try {
+    expect((await request('POST', '/api/mailboxes/test-connection', body, viewer)).statusCode).toBe(
+      403,
+    );
+    const good = await request('POST', '/api/mailboxes/test-connection', body);
+    expect(good.statusCode, good.body).toBe(200);
+    expect(good.json()).toEqual({ imap: true, smtp: true });
+    for (const bad of [
+      { smtp_port: 65534 },
+      { imap_port: 65534 },
+      { password: 'SenhaIncorreta' },
+    ]) {
+      const response = await request('POST', '/api/mailboxes', { ...body, ...bad });
+      expect(response.statusCode, response.body).toBe(422);
+      expect(response.body).not.toContain('SenhaIncorreta');
+      expect(
+        await db
+          .selectFrom('mailboxes')
+          .select('id')
+          .where('tenant_id', '=', tenantId)
+          .where('email_address', '=', body.email_address)
+          .execute(),
+      ).toHaveLength(0);
+    }
+    const saved = await request('POST', '/api/mailboxes', body);
+    expect(saved.statusCode, saved.body).toBe(201);
+    created = saved.json().id;
+    expect(
+      await db
+        .selectFrom('mailbox_credentials')
+        .select('mailbox_id')
+        .where('mailbox_id', '=', created!)
+        .execute(),
+    ).toHaveLength(1);
+    await db.insertInto('platform_admins').values({ user_id: owner }).execute();
+    const globalFailed = await request('POST', '/api/superadmin/mailboxes', {
+      ...body,
+      email_address: 'global-' + body.email_address,
+      tenant_id: tenantId,
+      smtp_port: 65534,
+    });
+    expect(globalFailed.statusCode, globalFailed.body).toBe(422);
+    expect(
+      await db
+        .selectFrom('mailboxes')
+        .select('id')
+        .where('tenant_id', '=', tenantId)
+        .where('email_address', '=', 'global-' + body.email_address)
+        .execute(),
+    ).toHaveLength(0);
+    const before = await db
+      .selectFrom('mailbox_credentials')
+      .selectAll()
+      .where('mailbox_id', '=', created!)
+      .executeTakeFirstOrThrow();
+    const replaced = await request('PUT', '/api/superadmin/mailboxes/' + created + '/credentials', {
+      password: 'SenhaIncorreta',
+    });
+    expect(replaced.statusCode, replaced.body).toBe(422);
+    expect(
+      await db
+        .selectFrom('mailbox_credentials')
+        .selectAll()
+        .where('mailbox_id', '=', created!)
+        .executeTakeFirstOrThrow(),
+    ).toEqual(before);
+  } finally {
+    await db.deleteFrom('platform_admins').where('user_id', '=', owner).execute();
+    if (created) {
+      for (const job of await queues.queues['mailbox-connection'].getJobs(['waiting', 'delayed']))
+        if (job.data.mailbox_id === created) await job.remove();
+      await db
+        .deleteFrom('mailboxes')
+        .where('id', '=', created)
+        .where('tenant_id', '=', tenantId)
+        .execute();
+    }
+    await probe.close();
+  }
+}, 45000);
 it('conecta IMAP e SMTP, registra scheduler e agrupa referências e assunto no mesmo lote', async () => {
   expect(
     (
@@ -859,7 +964,7 @@ it('assinaturas são pessoais e o padrão é único por empresa e escopo', async
     (await api('PATCH', '/api/signatures/' + rows[0].id, owner, { name: 'Outro' })).statusCode,
   ).toBe(404);
 });
-it('SMTP entrega MIME real com assinatura pessoal, nome do remetente e cópia IMAP sem duplicar', async () => {
+it('SMTP incorpora imagem de assinatura, inclui assinatura por ID e preserva rascunho/cópia sem duplicar', async () => {
   await db
     .updateTable('mailboxes')
     .set({ from_name_template: '{user_name} | {mailbox_name}' })
@@ -868,15 +973,64 @@ it('SMTP entrega MIME real com assinatura pessoal, nome do remetente e cópia IM
   const signature = (await api('GET', '/api/signatures', editor))
     .json()
     .find((s: { is_default: boolean }) => s.is_default);
+  const image = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVQImWMQa1su1racAUIBACEeBQ0P7yOtAAAAAElFTkSuQmCC',
+    'base64',
+  );
+  const boundary = 'signature-' + suffix;
+  const upload = await app.inject({
+    method: 'POST',
+    url: '/api/signatures/images',
+    headers: {
+      cookie: cookies.get(editor)!,
+      origin,
+      'content-type': 'multipart/form-data; boundary=' + boundary,
+    },
+    payload: Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="assinatura.png"\r\nContent-Type: image/png\r\n\r\n`,
+      ),
+      image,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]),
+  });
+  expect(upload.statusCode, upload.body).toBe(200);
+  const asset = upload.json(),
+    cid = 'signature-' + asset.id + '@apmail.local';
+  const stored = await app.inject({ url: new URL(asset.url).pathname });
+  // URL HTTPS é o formato legado: a conversão deve funcionar sem recadastrar.
+  const legacyUrl = asset.url.replace(/^http:/, 'https:');
+  expect(
+    (
+      await api('PATCH', '/api/signatures/' + signature.id, editor, {
+        body_html: signature.body_html + `<img src="${legacyUrl}" alt="Assinatura QA">`,
+      })
+    ).statusCode,
+  ).toBe(200);
   const draft = await newDraft(editor, {
     signature_id: signature.id,
-    body_html:
-      '<p>Olá</p><div data-apmail-signature="' +
-      signature.id +
-      '">' +
-      signature.body_html +
-      '</div>',
+    body_html: '<p>Olá</p>',
   });
+  const saved = (await api('GET', '/api/outbox/' + draft.id, editor)).json();
+  expect(saved.body_html).toContain('cid:' + cid);
+  expect(saved.body_html).toContain('Editor QA');
+  expect((await api('PATCH', '/api/outbox/' + draft.id, editor, saved)).statusCode).toBe(200);
+  expect(
+    (await api('GET', '/api/outbox/' + draft.id, editor))
+      .json()
+      .body_html.match(/data-apmail-signature=/g),
+  ).toHaveLength(1);
+  expect(
+    (
+      await api('PATCH', '/api/outbox/' + draft.id, editor, {
+        ...saved,
+        body_html: `<p>Olá</p><div data-apmail-signature="${signature.id}"></div>`,
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect((await api('GET', '/api/outbox/' + draft.id, editor)).json().body_html).toContain(
+    'cid:' + cid,
+  );
   const sent = await sendDraft(draft.id);
   expect(sent.status).toBe('sent');
   const recipient = new ImapFlow({
@@ -897,10 +1051,17 @@ it('SMTP entrega MIME real com assinatura pessoal, nome do remetente e cópia IM
     expect(Array.isArray(ids) && ids.length).toBeTruthy();
     const m = await recipient.fetchOne((ids as number[])[0]!, { source: true }, { uid: true });
     if (!m || !m.source) throw Error('MIME ausente');
-    const parsed = await simpleParser(m.source);
+    const parsed = await simpleParser(m.source, { keepCidLinks: true });
     expect(parsed.from?.value[0]?.address).toBe('comercial@apmail.local');
     expect(parsed.from?.value[0]?.name).toBe('Usuário QA | Caixa Sync QA');
     expect(parsed.html).toContain('Editor QA');
+    expect(parsed.html).toContain('cid:' + cid);
+    expect(parsed.html).not.toContain(legacyUrl);
+    const inline = parsed.attachments.filter((file) => file.cid === cid);
+    expect(inline).toHaveLength(1);
+    expect(inline[0]!.contentDisposition).toBe('inline');
+    expect(inline[0]!.contentType).toBe('image/png');
+    expect(inline[0]!.content.equals(stored.rawPayload)).toBe(true);
     expect(parsed.messageId).toBe(sent.message_id_header);
     await recipient.messageDelete(ids as number[], { uid: true });
     await recipient.mailboxClose();
@@ -923,6 +1084,14 @@ it('SMTP entrega MIME real com assinatura pessoal, nome do remetente e cópia IM
     .where('id', '=', sent.sent_message_id!)
     .executeTakeFirstOrThrow();
   expect(confirmed.imap_uid).not.toBeNull();
+  const inlineCopy = await db
+    .selectFrom('attachments')
+    .selectAll()
+    .where('message_id', '=', sent.sent_message_id!)
+    .where('content_id', '=', cid)
+    .execute();
+  expect(inlineCopy).toHaveLength(1);
+  expect(inlineCopy[0]!.is_inline).toBe(true);
 }, 30000);
 it('resposta de outro usuário conserva a thread, referências e sua própria assinatura', async () => {
   const original = await db

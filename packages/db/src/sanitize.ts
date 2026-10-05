@@ -37,7 +37,12 @@ const styles: Record<string, RegExp[]> = Object.fromEntries(
     'vertical-align',
   ].map((key) => [key, [/^(?!.*(?:url\s*\(|expression|javascript|@import|\\)).{1,200}$/i]]),
 );
-export function sanitizeEmailHtml(html: string, text = '', blockRemoteImages = true): string {
+export function sanitizeEmailHtml(
+  html: string,
+  text = '',
+  blockRemoteImages = true,
+  transformImage?: (attributes: Record<string, string>) => Record<string, string>,
+): string {
   const source =
     html ||
     escapeHtml(text)
@@ -85,7 +90,14 @@ export function sanitizeEmailHtml(html: string, text = '', blockRemoteImages = t
         'data-apmail-quote',
       ],
       a: ['href', 'target', 'rel'],
-      img: ['src', 'alt', 'data-apmail-src', 'data-apmail-cid', 'data-apmail-upload'],
+      img: [
+        'src',
+        'alt',
+        'data-apmail-src',
+        'data-apmail-cid',
+        'data-apmail-upload',
+        'data-apmail-signature-image',
+      ],
     },
     allowedSchemes: ['http', 'https', 'mailto', 'tel'],
     allowedSchemesByTag: { img: blockRemoteImages ? ['data'] : ['https', 'data', 'cid'] },
@@ -97,7 +109,7 @@ export function sanitizeEmailHtml(html: string, text = '', blockRemoteImages = t
         attribs: { ...attribs, target: '_blank', rel: 'noopener noreferrer nofollow' },
       }),
       img: (_, attribs) => {
-        const attrs = { ...attribs },
+        const attrs = { ...(transformImage ? transformImage(attribs) : attribs) },
           src =
             attrs.src ??
             (!blockRemoteImages && attrs['data-apmail-cid']

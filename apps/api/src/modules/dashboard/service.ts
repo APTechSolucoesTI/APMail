@@ -1,5 +1,4 @@
 import { isTenantAdmin } from '@apmail/shared';
-import { canDelegate } from '@apmail/shared';
 import { readableFolders } from '../../authz/folders.js';
 import { z } from 'zod';
 import { dashboardQuerySchema } from '@apmail/shared';
@@ -13,6 +12,7 @@ export type DashboardScope = {
   from: string;
   to: string;
   filtered: boolean;
+  userId: string | null;
   sla: number;
   limit: number;
   folderScopes: { mailboxId: string; folders: string[] | null }[];
@@ -29,7 +29,9 @@ export async function dashboardScope(
       .select(['timezone', 'settings'])
       .where('id', '=', c.tenantId)
       .executeTakeFirstOrThrow();
-  if (q.mailbox_id) await requireMailboxPerm(c, r.db, q.mailbox_id, 'dashboard');
+  if (q.mailbox_id) await requireMailboxPerm(c, r.db, q.mailbox_id, 'read');
+  const personal = c.tenantRole === 'member';
+  if (personal && q.user_id && q.user_id !== c.userId) throw forbidden();
   let boxes = r.db
     .selectFrom('mailboxes as b')
     .select('b.id')
@@ -44,16 +46,36 @@ export async function dashboardScope(
           .select('mm.id')
           .whereRef('mm.mailbox_id', '=', 'b.id')
           .where('mm.tenant_id', '=', c.tenantId)
-          .where('mm.user_id', '=', c.userId)
-          .where((eb) =>
-            canDelegate(c.tenantRole, c.capabilities, 'dashboard')
-              ? eb.val(true)
-              : eb('mm.role', '=', 'mailbox_admin'),
-          ),
+          .where('mm.user_id', '=', c.userId),
       ),
     );
   const ids = (await boxes.execute()).map((b) => b.id);
-  if (!ids.length) throw forbidden();
+  if (q.user_id && !personal) {
+    const member = await r.db
+      .selectFrom('tenant_members')
+      .select('user_id')
+      .where('tenant_id', '=', c.tenantId)
+      .where('user_id', '=', q.user_id)
+      .where((eb) =>
+        eb.or([
+          eb('role', 'in', ['owner', 'admin']),
+          eb.exists(
+            eb
+              .selectFrom('mailbox_members as mm')
+              .select('mm.id')
+              .where('mm.tenant_id', '=', c.tenantId)
+              .where('mm.user_id', '=', q.user_id!)
+              .where(
+                'mm.mailbox_id',
+                'in',
+                ids.length ? ids : ['00000000-0000-0000-0000-000000000000'],
+              ),
+          ),
+        ]),
+      )
+      .executeTakeFirst();
+    if (!member) throw forbidden();
+  }
   const folderScopes = await Promise.all(
     ids.map(async (mailboxId) => ({
       mailboxId,
@@ -87,6 +109,7 @@ export async function dashboardScope(
     from,
     to,
     filtered: !!q.mailbox_id,
+    userId: personal ? c.userId : (q.user_id ?? null),
     sla: Number(
       (tenant.settings as { sla_first_response_hours?: number }).sla_first_response_hours ?? 24,
     ),

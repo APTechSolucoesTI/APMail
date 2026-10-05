@@ -6,7 +6,7 @@ Funcionalidades implementadas: múltiplas empresas, caixas compartilhadas IMAP/S
 
 As fases concluídas, checks e pendências de publicação estão em [PROGRESSO](docs/PROGRESSO.md). Domínio/HTTPS e SMTP externo dependem da configuração de cada instalação.
 
-Evolução implementada: [especificação e plano](docs/SPEC-EVOLUCAO-APMAIL.md), com editor completo de HTML, upload de assinatura, navegação sem recargas, comparação de regras normalizada, classificação opcional do histórico, contatos por empresa, Supervisor com capacidades explícitas e `/superadmin`.
+Evolução implementada: [especificação e plano](docs/SPEC-EVOLUCAO-APMAIL.md), com editor completo de HTML, assinatura com imagens incorporadas por CID, dashboard pessoal/geral por papel, teste IMAP/SMTP antes de salvar caixas, navegação sem recargas, comparação de regras normalizada, classificação opcional do histórico, contatos por empresa, Supervisor com capacidades explícitas e `/superadmin`.
 
 Instalação APTech: **https://apmail.aptechinfo.com.br:75**. Domínio HTTPS, SMTP global e caixa real já configurados; cadastro público desativado e backup diário ativo. O painel `/superadmin` exige concessão global independente do papel na empresa. Consulte [DEPLOY](docs/DEPLOY.md) para bootstrap, atualização e recuperação. Credenciais não são versionadas.
 

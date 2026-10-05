@@ -18,6 +18,7 @@ import { useMediaQuery } from '@/hooks/use-media-query';
 import { useComposingPresence } from '@/hooks/use-thread-presence';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { signaturePreview } from '@/lib/signature';
 import { meQuery, useTenantId, type Mailbox } from '@/lib/auth';
 import type { Outbox, Signature } from '@/lib/outbox';
 import type { ThreadDetail } from '@/lib/mail';
@@ -168,8 +169,16 @@ export function Composer({
         const sig = doc.querySelector('[data-apmail-signature]'),
           q = doc.querySelector('blockquote[data-apmail-quote]');
         if (sig) {
-          setSignatureHtml(sig.innerHTML);
+          setSignatureHtml(
+            sig.innerHTML.trim() ||
+              signatures.data.find((s) => s.id === value.signature_id)?.body_html ||
+              '',
+          );
           sig.remove();
+        } else if (value.signature_id) {
+          setSignatureHtml(
+            signatures.data.find((s) => s.id === value.signature_id)?.body_html ?? '',
+          );
         }
         if (q) {
           setQuote(q.outerHTML);
@@ -639,7 +648,7 @@ export function Composer({
               {data.signature_id && (
                 <div
                   className="rounded-md border p-3 text-sm"
-                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(signatureHtml) }}
+                  dangerouslySetInnerHTML={{ __html: signaturePreview(signatureHtml) }}
                 />
               )}
               {quote && (

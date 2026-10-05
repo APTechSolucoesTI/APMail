@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { assertMailboxConnection } from '../lib/mailbox-probe.js';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import { audit, asJson, safeAuditMetadata, writeMailboxCredential, type Json } from '@apmail/db';
@@ -424,6 +425,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
       .where('suspended_at', 'is', null)
       .executeTakeFirst();
     if (!tenant) throw notFound();
+    await assertMailboxConnection(r.env, b);
     const box = await r.db.transaction().execute(async (tx) => {
       const row = await tx
         .insertInto('mailboxes')
@@ -454,11 +456,12 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
       b = z.object({ password: z.string().min(1).max(256) }).parse(req.body);
     const box = await r.db
       .selectFrom('mailboxes')
-      .select(['id', 'tenant_id'])
+      .selectAll()
       .where('id', '=', id)
       .where('deleted_at', 'is', null)
       .executeTakeFirst();
     if (!box) throw notFound();
+    await assertMailboxConnection(r.env, { ...box, password: b.password });
     await writeMailboxCredential(
       r.db,
       box.tenant_id,

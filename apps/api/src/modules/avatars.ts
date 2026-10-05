@@ -54,6 +54,7 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
         })
         .execute();
       return {
+        id,
         url: `${r.env.APP_URL}/api/public/signature-images/${id}`,
         width: normalized.info.width,
         height: normalized.info.height,

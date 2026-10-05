@@ -301,12 +301,18 @@ importers:
       file-type:
         specifier: ^22.1.1
         version: 22.1.1(supports-color@7.2.0)
+      imapflow:
+        specifier: 2.2.1
+        version: 2.2.1
       ioredis:
         specifier: ^6.0.0
         version: 6.0.0(supports-color@7.2.0)
       kysely:
         specifier: ^0.29.6
         version: 0.29.6
+      nodemailer:
+        specifier: 10.0.13
+        version: 10.0.13
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -323,6 +329,9 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
+      '@types/nodemailer':
+        specifier: ^8.0.2
+        version: 8.0.2
       '@types/sanitize-html':
         specifier: ^2.16.2
         version: 2.16.2

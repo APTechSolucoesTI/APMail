@@ -258,7 +258,7 @@ it('supervisor começa como membro e recebe apenas capacidades explícitas', asy
   ).toBe(200);
   expect((await call('GET', '/api/mailboxes', member)).json()).toHaveLength(1);
   expect((await call('GET', '/api/members', member)).statusCode).toBe(403);
-  expect((await call('GET', '/api/dashboard/kpis', member)).statusCode).toBe(403);
+  expect((await call('GET', '/api/dashboard/kpis', member)).statusCode).toBe(200);
   expect((await call('GET', '/api/superadmin/tenants', member)).statusCode).toBe(403);
   expect(
     (

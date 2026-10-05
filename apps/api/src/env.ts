@@ -24,6 +24,7 @@ export const envSchema = z.object({
   API_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   STORAGE_DIR: z.string().default('./.data/storage').transform(resolveWorkspacePath),
   MAX_UPLOAD_MB: z.coerce.number().min(1).max(25).default(25),
+  ALLOW_INSECURE_TLS_HOSTS: z.string().default(''),
 });
 export type ApiEnv = z.infer<typeof envSchema>;
 export function readEnv(): ApiEnv {

@@ -163,7 +163,7 @@ function AccessForm({
           {values.tenant_role === 'supervisor' && (
             <fieldset className="rounded-md border p-3 space-y-2">
               <legend>Permissões adicionais do supervisor</legend>
-              {SUPERVISOR_CAPABILITIES.map((cap) => (
+              {SUPERVISOR_CAPABILITIES.filter((cap) => cap !== 'dashboard').map((cap) => (
                 <div key={cap} className="flex min-h-11 gap-2 items-center">
                   <Checkbox
                     id={'cap-' + cap}

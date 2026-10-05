@@ -3,6 +3,7 @@ export const dashboardQuerySchema = z.object({
   from: z.iso.date().optional(),
   to: z.iso.date().optional(),
   mailbox_id: z.uuid().optional(),
+  user_id: z.uuid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 export const dashboardSearchSchema = z.object({
@@ -10,6 +11,7 @@ export const dashboardSearchSchema = z.object({
   from: z.iso.date().optional(),
   to: z.iso.date().optional(),
   mailboxId: z.uuid().optional(),
+  userId: z.uuid().optional(),
 });
 export type DashboardKpis = {
   received: number;

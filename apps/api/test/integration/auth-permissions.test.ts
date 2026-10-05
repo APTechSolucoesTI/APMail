@@ -1,4 +1,8 @@
-import { beforeAll, afterAll, expect, it } from 'vitest';
+import { beforeAll, afterAll, expect, it, vi } from 'vitest';
+vi.mock('../../src/lib/mailbox-probe.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/lib/mailbox-probe.js')>()),
+  assertMailboxConnection: vi.fn().mockResolvedValue({ imap: true, smtp: true }),
+}));
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createDb, migrate } from '@apmail/db';
 import { buildApp } from '../../src/app.js';

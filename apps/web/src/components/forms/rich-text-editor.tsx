@@ -46,6 +46,14 @@ const EmailImage = Node.create({
       alt: { default: '' },
       width: { default: null },
       height: { default: null },
+      signatureImageId: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('data-apmail-signature-image'),
+        renderHTML: (attributes) =>
+          attributes.signatureImageId
+            ? { 'data-apmail-signature-image': attributes.signatureImageId }
+            : {},
+      },
       uploadId: {
         default: null,
         parseHTML: (element) => element.getAttribute('data-apmail-upload'),
@@ -63,7 +71,11 @@ const EmailImage = Node.create({
   addNodeView() {
     return ({ node }) => {
       const dom = document.createElement('img');
-      dom.src = node.attrs.uploadId ? `/api/uploads/${node.attrs.uploadId}/image` : node.attrs.src;
+      dom.src = node.attrs.signatureImageId
+        ? `/api/public/signature-images/${node.attrs.signatureImageId}`
+        : node.attrs.uploadId
+          ? `/api/uploads/${node.attrs.uploadId}/image`
+          : node.attrs.src;
       dom.alt = node.attrs.alt ?? '';
       if (node.attrs.width) dom.width = Number(node.attrs.width);
       if (node.attrs.height) dom.height = Number(node.attrs.height);
@@ -284,7 +296,7 @@ export function RichTextEditor({
             type="button"
             variant="ghost"
             size="icon"
-            aria-label="Imagem por URL"
+            aria-label={images ? 'Anexar imagem' : 'Inserir imagem'}
             onClick={() => {
               setUrl('');
               setDialog('image');
@@ -343,10 +355,23 @@ export function RichTextEditor({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{dialog === 'image' ? 'Inserir imagem' : 'Inserir link'}</DialogTitle>
-            <DialogDescription>Informe um endereço HTTPS.</DialogDescription>
+            <DialogDescription>
+              {dialog === 'image' && images
+                ? 'Anexe a imagem. Ela será incorporada automaticamente ao e-mail enviado.'
+                : 'Informe um endereço HTTPS.'}
+            </DialogDescription>
           </DialogHeader>
-          <Label htmlFor="editor-url">Endereço</Label>
-          <Input id="editor-url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} />
+          {!(dialog === 'image' && images) && (
+            <>
+              <Label htmlFor="editor-url">Endereço</Label>
+              <Input
+                id="editor-url"
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+              />
+            </>
+          )}
           {dialog === 'image' && (images || onImageUpload) && (
             <div className="space-y-2">
               <Label htmlFor="signature-upload">Anexar imagem (JPEG, PNG ou WebP, até 5 MB)</Label>
@@ -387,7 +412,12 @@ export function RichTextEditor({
                       .focus()
                       .insertContent({
                         type: 'image',
-                        attrs: { src: data.url, alt: file.name, width: Math.min(600, data.width) },
+                        attrs: {
+                          src: `cid:signature-${data.id}@apmail.local`,
+                          signatureImageId: data.id,
+                          alt: file.name,
+                          width: Math.min(600, data.width),
+                        },
                       })
                       .run();
                     setDialog(null);
@@ -405,21 +435,23 @@ export function RichTextEditor({
               )}
             </div>
           )}
-          <Button
-            disabled={!/^https:\/\/[^\s]+$/i.test(url)}
-            onClick={() => {
-              if (dialog === 'image')
-                editor
-                  .chain()
-                  .focus()
-                  .insertContent({ type: 'image', attrs: { src: url, alt: '' } })
-                  .run();
-              else editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
-              setDialog(null);
-            }}
-          >
-            Inserir
-          </Button>
+          {!(dialog === 'image' && images) && (
+            <Button
+              disabled={!/^https:\/\/[^\s]+$/i.test(url)}
+              onClick={() => {
+                if (dialog === 'image')
+                  editor
+                    .chain()
+                    .focus()
+                    .insertContent({ type: 'image', attrs: { src: url, alt: '' } })
+                    .run();
+                else editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+                setDialog(null);
+              }}
+            >
+              Inserir
+            </Button>
+          )}
         </DialogContent>
       </Dialog>
     </div>

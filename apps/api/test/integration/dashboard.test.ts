@@ -97,7 +97,7 @@ beforeAll(async () => {
     .execute();
   for (const [id, role] of [
     [owner, 'owner'],
-    [admin, 'member'],
+    [admin, 'supervisor'],
     [editor, 'member'],
     [viewer, 'member'],
     [outsider, 'member'],
@@ -334,7 +334,7 @@ it('pastas, cinco filas, produtividade com anterior fora do período e mais anti
     (await call('stale-threads', owner, params + '&mailbox_id=' + box + '&limit=1')).json(),
   ).toHaveLength(1);
 });
-it('todas as consultas negam editor/leitor e isolam caixa administrada e empresa', async () => {
+it('dashboard padrão para membros é pessoal e supervisores respeitam caixas e empresa', async () => {
   for (const endpoint of [
     'kpis',
     'daily-volume',
@@ -343,8 +343,9 @@ it('todas as consultas negam editor/leitor e isolam caixa administrada e empresa
     'by-user',
     'stale-threads',
   ]) {
-    expect((await call(endpoint, editor)).statusCode).toBe(403);
-    expect((await call(endpoint, viewer, params)).statusCode).toBe(403);
+    expect((await call(endpoint, editor)).statusCode).toBe(200);
+    expect((await call(endpoint, viewer, params)).statusCode).toBe(200);
+    expect((await call(endpoint, editor, params + '&user_id=' + owner)).statusCode).toBe(403);
     expect((await call(endpoint, admin, params + '&mailbox_id=' + otherBox)).statusCode).toBe(404);
     expect((await call(endpoint, owner, params + '&mailbox_id=' + foreignBox)).statusCode).toBe(
       404,
@@ -352,6 +353,45 @@ it('todas as consultas negam editor/leitor e isolam caixa administrada e empresa
     expect((await call(endpoint, admin, params)).statusCode).toBe(200);
   }
   expect((await call('kpis', admin, params)).json()).toMatchObject({ received: 6, sent: 5 });
+  expect((await call('kpis', editor)).json()).toMatchObject({
+    received: 1,
+    sent: 3,
+    active_users: 1,
+    in_progress: 1,
+    to_reply: 0,
+  });
+  expect((await call('by-user', editor)).json<UserProductivity[]>()).toEqual([
+    expect.objectContaining({ user_id: editor, sent: 3, avg_reply_minutes: 75, done_in_period: 1 }),
+  ]);
+  expect((await call('stale-threads', editor)).json<StaleThread[]>().map((t) => t.subject)).toEqual(
+    ['D'],
+  );
+  expect((await call('kpis', viewer)).json()).toMatchObject({
+    received: 0,
+    sent: 0,
+    in_progress: 0,
+    active_users: 1,
+  });
+  expect((await call('by-user', viewer)).json<UserProductivity[]>().map((u) => u.user_id)).toEqual([
+    viewer,
+  ]);
+  const filter = params + '&mailbox_id=' + box + '&user_id=' + editor;
+  expect((await call('kpis', admin, filter)).json()).toEqual((await call('kpis', editor)).json());
+  expect((await call('by-user', admin, filter)).json()).toEqual(
+    (await call('by-user', editor)).json(),
+  );
+  expect((await call('kpis', admin, params + '&user_id=' + outsider)).statusCode).toBe(403);
+  const days = (await call('daily-volume', editor)).json<DailyVolume[]>();
+  expect(days.reduce((sum, day) => sum + day.sent, 0)).toBe(3);
+  expect(days.reduce((sum, day) => sum + day.received, 0)).toBe(1);
+  expect((await call('by-folder', editor)).json<FolderVolume[]>()).toEqual([
+    expect.objectContaining({ folder_name: 'inbox', received: 1, sent: 3 }),
+  ]);
+  expect(
+    (await call('queue-counts', editor))
+      .json<DashboardQueue[]>()
+      .reduce((sum, q) => sum + q.count, 0),
+  ).toBe(1);
 }, 20000);
 it('limites e validações rejeitam datas inválidas e revelam mudanças de acesso imediatamente', async () => {
   for (const query of [
@@ -382,5 +422,19 @@ it('limites e validações rejeitam datas inválidas e revelam mudanças de aces
     .where('user_id', '=', admin)
     .where('mailbox_id', '=', box)
     .execute();
-  expect((await call('kpis', admin, params)).statusCode).toBe(403);
+  expect((await call('kpis', admin, params)).statusCode).toBe(200);
+  await db
+    .deleteFrom('mailbox_members')
+    .where('user_id', '=', admin)
+    .where('mailbox_id', '=', box)
+    .execute();
+  expect((await call('kpis', admin, params + '&mailbox_id=' + box)).statusCode).toBe(404);
+  expect((await call('kpis', admin, params)).json()).toMatchObject({
+    received: 0,
+    sent: 0,
+    to_reply: 0,
+  });
+  expect((await call('by-folder', admin, params)).json()).toEqual([]);
+  expect((await call('by-user', admin, params)).json()).toEqual([]);
+  expect((await call('kpis', admin, params)).json()).toMatchObject({ active_users: 0 });
 });

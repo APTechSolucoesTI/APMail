@@ -4,7 +4,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import { mailboxSchema, mailboxRoleSchema } from '@apmail/shared';
-import { audit, auditChanges, writeMailboxCredential } from '@apmail/db';
+import { audit, auditChanges, writeMailboxCredential, readMailboxCredential } from '@apmail/db';
+import { assertMailboxConnection, connectionSchema } from '../lib/mailbox-probe.js';
 import { requireTenant, requireTenantAdmin, type RequestContext } from '../authz/context.js';
 import { getMailboxRole, requireMailboxPerm } from '../authz/guards.js';
 import { requireMember, setMailboxMember } from './tenants.js';
@@ -56,6 +57,14 @@ async function details(ctx: RequestContext, r: Resources, id: string) {
   };
 }
 export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) {
+  app.post(
+    '/api/mailboxes/test-connection',
+    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req) => {
+      requireTenantAdmin(req.ctx);
+      return assertMailboxConnection(r.env, connectionSchema.parse(req.body));
+    },
+  );
   app.get('/api/mailboxes', async (req) => {
     const c = requireTenant(req.ctx);
     const boxes = await r.db
@@ -87,6 +96,7 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
     const c = requireTenantAdmin(req.ctx);
     const b = mailboxSchema.parse(req.body);
     for (const m of b.members) await requireMember(c, r, m.user_id);
+    await assertMailboxConnection(r.env, b);
     const { password, members, sync_days, ...data } = b;
     const box = await r.db.transaction().execute(async (tx) => {
       const row = await tx
@@ -149,6 +159,14 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
         'smtp_secure',
         'username',
       ].some((k) => k in b);
+    if (changed)
+      await assertMailboxConnection(r.env, {
+        ...previous,
+        ...b,
+        password:
+          password ??
+          (await readMailboxCredential(r.db, c.tenantId, id, r.env.CREDENTIALS_ENCRYPTION_KEY)),
+      });
     await r.db.transaction().execute(async (tx) => {
       await tx
         .updateTable('mailboxes')

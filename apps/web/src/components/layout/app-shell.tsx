@@ -11,7 +11,6 @@ import { MailboxFolderNavigation } from '@/components/mail/mailbox-folder-naviga
 import { ChatNavigation } from '@/components/chat/chat-navigation';
 import { useChatRealtime } from '@/hooks/use-chat';
 import { Mail, Menu, LogOut, LayoutDashboard } from 'lucide-react';
-import { can } from '@apmail/shared';
 import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
@@ -191,9 +190,7 @@ export function AppShell() {
         Envios
       </Link>
       <ChatNavigation onNavigate={() => setOpen(false)} />
-      {(admin ||
-        canDelegate(tenant?.role ?? null, tenant?.capabilities, 'dashboard') ||
-        boxes.data?.some((b) => can(b.role, 'dashboard'))) && (
+      {tenant && (
         <Link
           to="/dashboard"
           onClick={() => setOpen(false)}

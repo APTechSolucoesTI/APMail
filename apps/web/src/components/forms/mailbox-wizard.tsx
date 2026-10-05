@@ -203,8 +203,11 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
             fields={connectionFields.map((f) =>
               f.name === 'password' ? { ...f, type: showPassword ? 'text' : 'password' } : f,
             )}
-            submitLabel="Próximo"
-            onSubmit={async (b) => next(b)}
+            submitLabel="Testar IMAP e SMTP e continuar"
+            onSubmit={async (b) => {
+              await api('/mailboxes/test-connection', { method: 'POST', body: b });
+              next(b);
+            }}
           />
         </>
       )}
@@ -282,7 +285,7 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
               ].map((value) => ({ value, label: value })),
             },
           ]}
-          submitLabel="Conectar caixa"
+          submitLabel="Testar e salvar caixa"
           renderPreview={(values) => (
             <p className="text-xs text-muted-foreground">
               Prévia do remetente:{' '}

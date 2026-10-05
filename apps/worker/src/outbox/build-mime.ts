@@ -1,7 +1,13 @@
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { randomUUID } from 'node:crypto';
 import { renderFromName, type Address } from '@apmail/shared';
-import { resolveOutboxAttachments, htmlToText, type OutboxRow } from '@apmail/db';
+import {
+  resolveOutboxAttachments,
+  prepareSignature,
+  signatureCid,
+  htmlToText,
+  type OutboxRow,
+} from '@apmail/db';
 import type { Mailbox } from '../imap/connect.js';
 import type { WorkerResources } from '../resources.js';
 export async function buildMime(r: WorkerResources, row: OutboxRow, box: Mailbox) {
@@ -31,6 +37,21 @@ export async function buildMime(r: WorkerResources, row: OutboxRow, box: Mailbox
     ? [...(original?.references_headers ?? []), inReplyTo].slice(-20)
     : [];
   const files = await resolveOutboxAttachments(r.db, row);
+  const signature = await prepareSignature(
+    r.db,
+    row,
+    files.flatMap((file) => (file.content_id ? [file.content_id] : [])),
+  );
+  for (const image of signature.images)
+    files.push({
+      ...image,
+      filename: 'assinatura.png',
+      is_inline: true,
+      content_id: signatureCid(image.id),
+      upload_id: null,
+    });
+  const bodyHtml = signature.bodyHtml;
+  const bodyText = htmlToText(bodyHtml);
   const name = renderFromName(box.from_name_template, {
     user_name: user.full_name,
     mailbox_name: box.name,
@@ -57,8 +78,8 @@ export async function buildMime(r: WorkerResources, row: OutboxRow, box: Mailbox
     cc: row.cc_addresses as Address[],
     bcc: row.bcc_addresses as Address[],
     subject: row.subject,
-    html: row.body_html,
-    text: htmlToText(row.body_html),
+    html: bodyHtml,
+    text: bodyText,
     messageId,
     inReplyTo,
     references,
@@ -69,6 +90,8 @@ export async function buildMime(r: WorkerResources, row: OutboxRow, box: Mailbox
   const raw = await composer.compile().build();
   return {
     raw,
+    bodyHtml,
+    bodyText,
     messageId,
     inReplyTo: inReplyTo ?? null,
     references,

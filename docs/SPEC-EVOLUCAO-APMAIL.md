@@ -68,18 +68,15 @@ Aceite: formatação preservada após autosave, recarga e envio; edição não p
 
 ## 4. Upload de imagens de assinatura
 
-Fluxo: **anexar imagem → validar e normalizar no servidor → armazenar → gerar URL HTTPS → inserir no HTML**. Manter também a opção atual por URL.
+Atualização de 05/10/2026: **anexar imagem → validar/normalizar PNG no servidor → armazenar → incorporar no MIME com CID**. A assinatura oferece somente upload, sem campo de URL de imagem. Links no texto continuam disponíveis.
 
-- Upload autenticado, ligado à empresa, usuário e assinatura/rascunho. Proposta: JPEG, PNG e WebP até 5 MB; limites de pixels e dimensões no servidor. Reencodar em PNG/JPEG, corrigir orientação, preservar transparência quando aplicável e retirar metadados.
-- Armazenar em prefixo próprio no volume de arquivos, com nome aleatório e versão imutável. Não reaproveitar endpoints privados de anexos ou avatar para imagens destinadas a e-mails externos.
-- Endpoint público restrito à imagem publicada, sem sessão, com MIME verificado, `nosniff` e cache apropriado. Não expor dados cadastrais, caminhos locais ou listagem de arquivos.
-- URL absoluta baseada no domínio HTTPS público configurado. Apenas trocar `http` por `https` não garante publicação. Validar a URL sem cookie e com certificado válido; o HTTPS atual já está disponível para essa etapa.
-- Remover a referência de uma assinatura não deve quebrar imagens de mensagens já enviadas. Preservar versões publicadas; limpar uploads provisórios abandonados com retenção definida. Revogação explícita de imagem publicada deve informar seu efeito nas mensagens antigas.
-- O formulário explica que a imagem publicada será acessível aos destinatários. Prévia, alt, dimensões e progresso de upload fazem parte do fluxo.
+- JPEG, PNG e WebP até 5 MB; orientação corrigida, limite de pixels e dimensões e retirada de metadados. Upload autenticado e vinculado ao usuário e à empresa.
+- O editor e a prévia exibem o arquivo da aplicação; o HTML salvo/enviado usa CID. O destinatário recebe o arquivo como parte do e-mail, sem depender de carregamento remoto.
+- A assinatura selecionada é incluída pela API/worker mesmo se um cliente fornecer apenas seu ID. O HTML do rascunho é um snapshot: reabrir, editar e enviar preservam assinatura/citação e não duplicam a assinatura.
+- URLs antigas de imagens publicadas pelo APMail são convertidas automaticamente em CID no envio. URLs externas legadas continuam compatíveis; para incorporar uma imagem externa antiga, o usuário deve anexar seu arquivo. Nenhum servidor externo é consultado para baixar imagens automaticamente.
+- Mensagens enviadas conservam arquivo, Content-ID e prévia na cópia em Enviados/IMAP. Respostas e encaminhamentos reutilizam apenas anexos autorizados. Não apagar imagens publicadas usadas em mensagens antigas.
 
-Para imagens no corpo da mensagem, utilizar CID quando forem incorporadas ao envio; imagens de assinatura seguem a publicação HTTPS pedida pelo usuário. O editor pode compartilhar a seleção/upload, mas os destinos e o ciclo de vida são distintos.
-
-Aceite: inserir imagem do computador sem digitar URL; HTML final contém HTTPS; leitura por destinatário sem autenticação; atualização da assinatura conserva a imagem antiga; rejeição de arquivo inválido e isolamento de uploads entre empresas.
+Aceite: upload sem digitar URL, imagem visível na prévia/reabertura e no MIME recebido via SMTP, cópia IMAP íntegra, assinatura única, bytes PNG conferidos, isolamento por usuário/empresa e ausência de busca arbitrária de URLs.
 
 ## 5. Navegação e menu
 
@@ -215,18 +212,18 @@ Aceite: contato com vários e-mails/empresas/endereços; endereço sem empresa; 
 
 ## 10. Supervisor e convites
 
-Supervisor é um papel **da empresa**, distinto do papel de acesso em cada caixa. Começa como Membro, sem poderes administrativos extras. Atribuir caixas e permissões de pasta continua sendo uma escolha explícita do administrador.
+Supervisor é um papel **da empresa**, distinto do papel de acesso em cada caixa. Tem dashboard geral por padrão, limitado às caixas/pastas autorizadas; as demais capacidades administrativas continuam explícitas. Atribuir caixas e permissões de pasta continua sendo uma escolha explícita do administrador.
 
 Capacidades propostas, com controle individual:
 
-| Capacidade                         | Escopo                                                                                                         |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Gerenciar regras da caixa          | Somente caixas autorizadas; aplica também a verificação do criador no worker.                                  |
-| Atribuir atendimento a outros      | Somente conversas acessíveis e destinatários elegíveis da mesma empresa.                                       |
-| Ver dashboard                      | Dados das caixas/pastas autorizadas, com o mesmo limite em gráficos, totais e CSV.                             |
-| Ver auditoria                      | Eventos administrativos genéricos permitidos e eventos dos recursos acessíveis; sem dados de caixas restritas. |
-| Ver outros usuários                | Dados básicos da equipe atual; não concede edição de acesso nem convite.                                       |
-| Gerenciar visibilidade de contatos | Concessão separada, caso desejada pelo administrador.                                                          |
+| Capacidade                         | Escopo                                                                                                                 |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Gerenciar regras da caixa          | Somente caixas autorizadas; aplica também a verificação do criador no worker.                                          |
+| Atribuir atendimento a outros      | Somente conversas acessíveis e destinatários elegíveis da mesma empresa.                                               |
+| Dashboard (padrão, sem concessão)  | Supervisor/Admin têm visão geral e filtro por usuário; Membro vê somente dados pessoais nas caixas/pastas autorizadas. |
+| Ver auditoria                      | Eventos administrativos genéricos permitidos e eventos dos recursos acessíveis; sem dados de caixas restritas.         |
+| Ver outros usuários                | Dados básicos da equipe atual; não concede edição de acesso nem convite.                                               |
+| Gerenciar visibilidade de contatos | Concessão separada, caso desejada pelo administrador.                                                                  |
 
 Administradores configuram essas capacidades no convite e na edição do usuário. Elas são persistidas por vínculo usuário/empresa, nunca globalmente no usuário. Supervisor não promove a si mesmo, não concede capacidades e não recebe automaticamente administração de todas as caixas. Editor/Leitor de caixa continuam definindo a base de operação.
 
@@ -307,3 +304,11 @@ Uma branch de implementação reúne os módulos e commits por responsabilidade.
 - Corpo do e-mail: imagens anexadas privadas com CID; assinatura: imagens normalizadas em PNG e URL pública HTTPS imutável.
 - Suporte: somente leitura, 30 minutos, gravação da auditoria antes da devolução do conteúdo; Socket.IO indisponível durante suporte para impedir efeitos de presença/chat.
 - A stack existente React/Vite/TanStack Router + Fastify/Postgres foi preservada. As diretrizes visuais e de acesso do AGENTS.md foram aplicadas; migração integral para TanStack Start/Supabase não integra esta alteração de produto.
+
+## Complemento de 05/10/2026: dashboard e validação das caixas
+
+Dashboard disponível para todos por padrão. Membros veem seus próprios envios, recebidos de atendimentos atualmente atribuídos, filas atribuídas e conclusões realizadas por eles. Supervisores, administradores e proprietários podem consultar o conjunto permitido ou filtrar por usuário, caixa e período. Restrições de caixa e pasta valem para todos os gráficos, indicadores, produtividade, conversas antigas e CSV. Membro não pode usar um parâmetro de usuário para consultar terceiros. Sem caixa permitida, a tela continua disponível com dados vazios. A configuração antiga de capacidade dashboard é mantida apenas por compatibilidade e sai dos controles de concessão.
+
+O assistente de cadastro testa e autentica IMAP/SMTP na etapa Servidor. A API testa novamente os dados finais antes de gravar a caixa e suas credenciais. O mesmo controle se aplica ao superadmin e a alterações de conexão/senha; uma falha mantém a configuração anterior e não inicia importação. O teste SMTP verifica autenticação sem enviar mensagem. Produção exige TLS/STARTTLS com certificado válido; exceções de laboratório só são aceitas em desenvolvimento e hosts explicitamente autorizados.
+
+Validação: lint, tipos, build, 51 testes unitários e 70 de integração com PostgreSQL/Redis/IMAP/SMTP reais. Revisão de navegador e publicação registradas em PROGRESSO.md.

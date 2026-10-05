@@ -6,7 +6,6 @@ import {
   asJson,
   touchThreads,
   resolveThread,
-  htmlToText,
   messageSnippet,
   sanitizeEmailHtml,
   userCanReadThread,
@@ -141,7 +140,7 @@ export async function handleOutboxSend(
         try {
           await r.db.transaction().execute(async (tx) => {
             const at = new Date(),
-              text = htmlToText(row.body_html);
+              text = mime.bodyText;
             const metadata = {
               tenant_id: box.tenant_id,
               mailbox_id: box.id,
@@ -175,7 +174,7 @@ export async function handleOutboxSend(
                 cc_addresses: asJson(row.cc_addresses),
                 bcc_addresses: asJson(row.bcc_addresses),
                 reply_to_addresses: asJson([]),
-                body_html: sanitizeEmailHtml(row.body_html, text),
+                body_html: sanitizeEmailHtml(mime.bodyHtml, text),
                 body_text: text,
                 snippet: messageSnippet(text),
                 direction: 'outbound',
