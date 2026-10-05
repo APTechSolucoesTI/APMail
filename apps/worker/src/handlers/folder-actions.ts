@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { UnrecoverableError } from 'bullmq';
 import { asJson } from '@apmail/db';
 import type { Selectable } from 'kysely';
 import type { DB } from '@apmail/db';
@@ -49,6 +50,15 @@ export async function handleFolderAction(
           .set({ status: 'processing', attempts: action.attempts + 1 })
           .where('id', '=', action.id)
           .execute();
+        if (
+          action.requested_by &&
+          (await r.db
+            .selectFrom('platform_admins')
+            .select('user_id')
+            .where('user_id', '=', action.requested_by)
+            .executeTakeFirst())
+        )
+          throw new UnrecoverableError('O superadmin não pode alterar pastas.');
         await t.imap.connect();
         const remote = await t.imap.list();
         if (action.type === 'create_folder') {
@@ -126,7 +136,7 @@ export async function handleFolderAction(
           .emit('folders:changed', { mailbox_id: box.id, action_id: action.id, status: 'done' });
       } catch (error) {
         if (isConnectionError(error)) await markMailboxError(r, box, error);
-        if (lastAttempt) {
+        if (lastAttempt || error instanceof UnrecoverableError) {
           const text =
             'Não foi possível alterar a pasta. Confira se ela ainda existe e, para excluir, se está vazia.';
           await r.db.transaction().execute(async (tx) => {
@@ -153,14 +163,12 @@ export async function handleFolderAction(
             }
           });
           if (action.requested_by)
-            r.io
-              .to('user:' + action.requested_by)
-              .emit('folders:changed', {
-                mailbox_id: box.id,
-                action_id: action.id,
-                status: 'failed',
-                error: text,
-              });
+            r.io.to('user:' + action.requested_by).emit('folders:changed', {
+              mailbox_id: box.id,
+              action_id: action.id,
+              status: 'failed',
+              error: text,
+            });
         }
         throw error;
       } finally {

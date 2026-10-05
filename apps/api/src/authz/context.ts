@@ -10,7 +10,6 @@ export type RequestContext = {
   mailboxRoles: Map<string, import('@apmail/shared').MailboxRole | null>;
   capabilities?: string[];
   platformAdmin?: boolean;
-  support?: { id: string; expires_at: string; reason: string };
 };
 declare module 'fastify' {
   interface FastifyRequest {
@@ -38,6 +37,8 @@ export function requireTenant(
   ctx: RequestContext | null,
 ): RequestContext & { tenantId: string; tenantRole: TenantRole } {
   const c = requireAuth(ctx);
+  if (c.platformAdmin)
+    throw new ApiError(403, 'platform_only', 'O superadmin atua somente na gestão da plataforma.');
   if (!c.tenantId || !c.tenantRole)
     throw new ApiError(409, 'no_tenant', 'Selecione ou crie uma empresa.');
   return c as RequestContext & { tenantId: string; tenantRole: TenantRole };

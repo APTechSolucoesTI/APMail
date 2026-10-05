@@ -11,9 +11,16 @@ import {
   memberAccessSchema,
 } from '@apmail/shared';
 import { saveMailboxAccess } from './tenants.js';
-import { requireSuperAdmin, notFound, forbidden, type RequestContext } from '../authz/context.js';
+import {
+  ApiError,
+  requireSuperAdmin,
+  notFound,
+  forbidden,
+  type RequestContext,
+} from '../authz/context.js';
 import { newToken, hashToken } from '../plugins/auth.js';
 import type { Resources } from './resources.js';
+import { registerPlatformStorage } from './platform-storage.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 const pageSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -25,6 +32,7 @@ const pageSchema = z.object({
   search: z.string().trim().max(120).default(''),
 });
 export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
+  await registerPlatformStorage(app, r);
   app.get('/api/superadmin/users/:id/access', async (req) => {
     requireSuperAdmin(req.ctx);
     const id = idOf(req.params),
@@ -58,6 +66,18 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
       id = idOf(req.params),
       b = memberAccessSchema.extend({ tenant_id: z.uuid() }).parse(req.body);
     if (id === c.userId) throw forbidden();
+    if (
+      await r.db
+        .selectFrom('platform_admins')
+        .select('user_id')
+        .where('user_id', '=', id)
+        .executeTakeFirst()
+    )
+      throw new ApiError(
+        409,
+        'platform_only',
+        'Contas superadmin não recebem acesso operacional às empresas.',
+      );
     await r.db.transaction().execute(async (tx) => {
       const member = await tx
         .selectFrom('tenant_members')
@@ -162,6 +182,19 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
       .where('id', '=', c.userId)
       .executeTakeFirstOrThrow();
     if (inviter.email === b.email) throw forbidden();
+    if (
+      await r.db
+        .selectFrom('platform_admins as p')
+        .innerJoin('users as u', 'u.id', 'p.user_id')
+        .select('p.user_id')
+        .where('u.email', '=', b.email)
+        .executeTakeFirst()
+    )
+      throw new ApiError(
+        409,
+        'platform_only',
+        'Contas superadmin não recebem convites para acesso operacional.',
+      );
     const token = newToken(),
       invite = await r.db
         .insertInto('invitations')
@@ -302,6 +335,18 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
         .where('email', '=', b.owner_email)
         .executeTakeFirst();
       if (owner) {
+        if (
+          await tx
+            .selectFrom('platform_admins')
+            .select('user_id')
+            .where('user_id', '=', owner.id)
+            .executeTakeFirst()
+        )
+          throw new ApiError(
+            409,
+            'platform_only',
+            'Escolha uma conta de proprietário que não seja superadmin.',
+          );
         await tx
           .insertInto('tenant_members')
           .values({ tenant_id: tenant.id, user_id: owner.id, role: 'owner' })
@@ -379,6 +424,11 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
       .executeTakeFirstOrThrow();
     const items = await query
       .select(['id', 'email', 'full_name', 'created_at', 'last_login_at'])
+      .select(
+        sql<boolean>`exists(select 1 from platform_admins p where p.user_id=users.id)`.as(
+          'platform_admin',
+        ),
+      )
       .orderBy('created_at', 'desc')
       .limit(q.pageSize)
       .offset((q.page - 1) * q.pageSize)
@@ -474,50 +524,8 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
     return { ok: true };
   });
   app.post('/api/superadmin/support', async (req) => {
-    const c = requireSuperAdmin(req.ctx),
-      b = z
-        .object({ tenant_id: z.uuid(), reason: z.string().trim().min(10).max(500) })
-        .parse(req.body);
-    const tenant = await r.db
-      .selectFrom('tenants')
-      .select('id')
-      .where('id', '=', b.tenant_id)
-      .where('deleted_at', 'is', null)
-      .where('suspended_at', 'is', null)
-      .executeTakeFirst();
-    if (!tenant) throw notFound();
-    const support = await r.db.transaction().execute(async (tx) => {
-      await tx
-        .selectFrom('sessions')
-        .select('token_hash')
-        .where('token_hash', '=', c.sessionHash)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
-      await tx
-        .updateTable('support_sessions')
-        .set({ ended_at: new Date() })
-        .where('session_hash', '=', c.sessionHash)
-        .where('ended_at', 'is', null)
-        .execute();
-      return tx
-        .insertInto('support_sessions')
-        .values({
-          user_id: c.userId,
-          session_hash: c.sessionHash,
-          tenant_id: b.tenant_id,
-          reason: b.reason,
-          expires_at: new Date(Date.now() + 30 * 60000),
-        })
-        .returning(['id', 'expires_at'])
-        .executeTakeFirstOrThrow();
-    });
-    await record(c, 'platform.support_started', b.tenant_id, {
-      reason: b.reason,
-      support_id: support.id,
-      expires_at: support.expires_at.toISOString(),
-    });
-    r.io.in('session:' + c.sessionHash).disconnectSockets(true);
-    return support;
+    requireSuperAdmin(req.ctx);
+    throw new ApiError(403, 'platform_only', 'O superadmin atua somente na gestão da plataforma.');
   });
   app.delete('/api/superadmin/support', async (req) => {
     const c = requireSuperAdmin(req.ctx);

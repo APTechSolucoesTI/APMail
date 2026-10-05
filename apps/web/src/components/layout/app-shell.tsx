@@ -40,7 +40,6 @@ export function AppShell() {
     if (theme) setTheme(theme);
   }, [theme, setTheme]);
   useEffect(() => {
-    if (me.data?.support) return;
     socket.connect();
     socket.on('connect', () => {
       void client.invalidateQueries({ queryKey: ['mailboxes'] });
@@ -153,7 +152,7 @@ export function AppShell() {
       socket.removeAllListeners();
       socket.disconnect();
     };
-  }, [client, socket, me.data?.current_tenant_id, me.data?.support, navigate]);
+  }, [client, socket, me.data?.current_tenant_id, navigate]);
   useEffect(() => {
     if (me.error && 'status' in me.error && me.error.status === 401)
       void navigate({ to: '/login' });
@@ -359,29 +358,6 @@ export function AppShell() {
                   </Button>
                 </div>
               </header>
-              {me.data.support && (
-                <div
-                  role="status"
-                  className="flex flex-wrap items-center justify-between gap-2 border-b bg-secondary p-3 text-sm"
-                >
-                  <span>
-                    Suporte somente leitura até{' '}
-                    {new Date(me.data.support.expires_at).toLocaleTimeString('pt-BR')}:{' '}
-                    {me.data.support.reason}
-                  </span>
-                  <Button
-                    variant="outline"
-                    onClick={async () => {
-                      await api('/superadmin/support', { method: 'DELETE' });
-                      await client.cancelQueries();
-                      client.clear();
-                      await navigate({ to: '/superadmin' });
-                    }}
-                  >
-                    Encerrar suporte
-                  </Button>
-                </div>
-              )}
               <main className="mx-auto max-w-screen-2xl p-4 sm:p-6">
                 <Outlet />
               </main>

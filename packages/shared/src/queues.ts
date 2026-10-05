@@ -22,3 +22,5 @@ export const toBullJobId = (logicalId: string): string => logicalId.replaceAll('
 // Redis Pub/Sub não isola bancos lógicos; o canal inclui o banco da conexão.
 export const socketRedisKey = (redisUrl: string): string =>
   'apmail:socket:' + (redisUrl.match(/\/(\d+)(?:[?#]|$)/)?.[1] ?? '0');
+export const platformAccessChannel = (redisUrl: string): string =>
+  socketRedisKey(redisUrl) + ':platform-only';

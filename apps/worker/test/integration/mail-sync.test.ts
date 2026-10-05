@@ -203,6 +203,7 @@ beforeAll(async () => {
         sourcePath,
         fixture
           .replace('fixture-' + name + '@cliente.local', name + '-' + suffix + '@cliente.local')
+          .replace(/^(Subject: [^\r\n]*)/m, '$1 ' + suffix)
           .replace('\n\n', '\nX-APMail-QA: ' + suffix + '\n\n'),
       );
     }
@@ -826,11 +827,6 @@ it('preserva fontes, cores, tabelas e imagem CID em MIME real, com upload privad
   }
 });
 it('convites da empresa usam sua caixa; plataforma usa SMTP global e rejeita token substituído', async () => {
-  await db
-    .insertInto('platform_admins')
-    .values({ user_id: owner })
-    .onConflict((oc) => oc.column('user_id').doNothing())
-    .execute();
   const handler = createSystemEmailHandler(
     {
       ...env,
@@ -854,6 +850,8 @@ it('convites da empresa usam sua caixa; plataforma usa SMTP global e rejeita tok
     await recipient.connect();
     await recipient.mailboxOpen('INBOX');
     for (const context of ['tenant', 'platform'] as const) {
+      if (context === 'platform')
+        await db.insertInto('platform_admins').values({ user_id: owner }).execute();
       const token = randomBytes(32).toString('base64url'),
         title = context + '-' + suffix;
       const invite = await db
@@ -924,6 +922,7 @@ it('convites da empresa usam sua caixa; plataforma usa SMTP global e rejeita tok
         .execute();
     }
   } finally {
+    await db.deleteFrom('platform_admins').where('user_id', '=', owner).execute();
     await recipient.logout().catch(() => recipient.close());
   }
 });
@@ -1624,6 +1623,105 @@ it('isola etiquetas, regras e pastas de outra empresa e aplica permissões no se
     (await api('GET', '/api/labels', editor)).json().some((x: { id: string }) => x.id === label.id),
   ).toBe(false);
   expect((await api('GET', '/api/mailboxes/' + otherBox + '/threads', owner)).statusCode).toBe(404);
+});
+it('promoção a superadmin bloqueia envio já enfileirado antes de conectar ao SMTP', async () => {
+  const draft = await newDraft();
+  const submit = await api('POST', '/api/outbox/' + draft.id + '/submit', editor, {});
+  expect(submit.statusCode).toBe(200);
+  await db
+    .updateTable('outbox')
+    .set({ send_after: new Date(Date.now() - 1000) })
+    .where('id', '=', draft.id)
+    .execute();
+  await db.insertInto('platform_admins').values({ user_id: editor }).execute();
+  try {
+    const message = await db
+      .selectFrom('messages')
+      .selectAll()
+      .where('mailbox_id', '=', boxId)
+      .where('deleted_at', 'is', null)
+      .executeTakeFirstOrThrow();
+    await db
+      .updateTable('messages')
+      .set({ pending_action: true, is_flagged: !message.is_flagged })
+      .where('id', '=', message.id)
+      .execute();
+    const action = await db
+      .insertInto('mail_actions')
+      .values({
+        tenant_id: tenantId,
+        mailbox_id: boxId,
+        requested_by: editor,
+        type: 'set_flag',
+        payload: {
+          message_ids: [message.id],
+          previous_folder_ids: { [message.id]: message.folder_id },
+          previous_uids: { [message.id]: String(message.imap_uid) },
+          previous_flags: { [message.id]: message.is_flagged },
+          flagged: !message.is_flagged,
+        },
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    await expect(
+      handleMailAction(r, action.id, 'platform-revoked-' + action.id, false),
+    ).rejects.toThrow('superadmin não pode organizar');
+    const reverted = await db
+      .selectFrom('messages')
+      .select(['pending_action', 'is_flagged'])
+      .where('id', '=', message.id)
+      .executeTakeFirstOrThrow();
+    expect(reverted).toEqual({ pending_action: false, is_flagged: message.is_flagged });
+    expect(
+      (
+        await db
+          .selectFrom('mail_actions')
+          .select('status')
+          .where('id', '=', action.id)
+          .executeTakeFirstOrThrow()
+      ).status,
+    ).toBe('failed');
+    const folderAction = await db
+      .insertInto('mail_actions')
+      .values({
+        tenant_id: tenantId,
+        mailbox_id: boxId,
+        requested_by: editor,
+        type: 'create_folder',
+        payload: { imap_path: 'Proibida-' + suffix, name: 'Proibida' },
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    await expect(
+      handleMailAction(r, folderAction.id, 'platform-folder-' + folderAction.id, false),
+    ).rejects.toThrow('superadmin não pode alterar pastas');
+    expect(
+      (
+        await db
+          .selectFrom('mail_actions')
+          .select('status')
+          .where('id', '=', folderAction.id)
+          .executeTakeFirstOrThrow()
+      ).status,
+    ).toBe('failed');
+    await expect(
+      handleOutboxSend(r, draft.id, {
+        id: submit.json().job_id,
+        attemptsMade: 0,
+        opts: { attempts: 3 },
+      }),
+    ).rejects.toThrow('O acesso de envio foi removido');
+    const row = await db
+      .selectFrom('outbox')
+      .select(['status', 'message_id_header'])
+      .where('id', '=', draft.id)
+      .executeTakeFirstOrThrow();
+    expect(row.status).toBe('failed');
+    expect(row.message_id_header).toBeNull();
+    expect((await api('GET', '/api/mailboxes', editor)).statusCode).toBe(403);
+  } finally {
+    await db.deleteFrom('platform_admins').where('user_id', '=', editor).execute();
+  }
 });
 it('empresa suspensa bloqueia envio pendente e exige nova tentativa após reativação', async () => {
   const draft = await newDraft();

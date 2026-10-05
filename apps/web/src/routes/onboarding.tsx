@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { tenantSchema } from '@apmail/shared';
 import { SchemaForm } from '@/components/forms/schema-form';
 import { AuthShell } from '@/components/layout/auth-shell';
@@ -6,7 +6,11 @@ import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query-client';
 import { requireUser } from '@/lib/auth';
 export const Route = createFileRoute('/onboarding')({
-  beforeLoad: requireUser,
+  beforeLoad: async () => {
+    const me = await requireUser();
+    if (me.platform_admin) throw redirect({ to: '/superadmin' });
+    return me;
+  },
   component: Onboarding,
 });
 function Onboarding() {

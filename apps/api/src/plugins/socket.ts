@@ -33,7 +33,7 @@ export function installSocket(app: FastifyInstance, r: Resources) {
         socket.id,
       );
       if (!ctx) throw new Error('unauthenticated');
-      if (ctx.support) throw new Error('support_read_only');
+      if (ctx.platformAdmin) throw new Error('platform_only');
       socket.data.ctx = ctx;
       socket.data.token = unsigned.value;
       next();
@@ -52,7 +52,8 @@ export function installSocket(app: FastifyInstance, r: Resources) {
         socket.handshake.address,
         socket.id,
       );
-      if (!fresh || fresh.tenantId !== c.tenantId) throw new Error('unauthenticated');
+      if (!fresh || fresh.platformAdmin || fresh.tenantId !== c.tenantId)
+        throw new Error('unauthenticated');
       socket.data.ctx = fresh;
       return fresh;
     };

@@ -2,7 +2,13 @@ import { beforeAll, afterAll, it, expect } from 'vitest';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { io, type Socket } from 'socket.io-client';
 import { createDb, migrate } from '@apmail/db';
-import type { ChatConversation, ChatMessage, SharedThreadSnapshot } from '@apmail/shared';
+import {
+  platformAccessChannel,
+  type ChatConversation,
+  type ChatMessage,
+  type SharedThreadSnapshot,
+} from '@apmail/shared';
+import { Redis } from 'ioredis';
 import { buildApp } from '../../src/app.js';
 import { envSchema } from '../../src/env.js';
 import { hashToken } from '../../src/plugins/auth.js';
@@ -69,7 +75,10 @@ async function connect(user: string) {
   sockets.push(socket);
   await new Promise<void>((resolve, reject) => {
     socket.once('connect', resolve);
-    socket.once('connect_error', reject);
+    socket.once('connect_error', (error) => {
+      socket.disconnect();
+      reject(error);
+    });
   });
   return socket;
 }
@@ -172,6 +181,23 @@ afterAll(async () => {
   for (const socket of sockets) socket.disconnect();
   await app.close();
   await db.destroy();
+});
+it('superadmin com vínculo antigo não conecta ao canal operacional em tempo real', async () => {
+  const connected = await connect(a);
+  const signal = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+  const disconnected = new Promise<void>((resolve) =>
+    connected.once('disconnect', () => resolve()),
+  );
+  await db.insertInto('platform_admins').values({ user_id: a }).execute();
+  try {
+    await signal.publish(platformAccessChannel(redisUrl), a);
+    await disconnected;
+    expect(connected.connected).toBe(false);
+    await expect(connect(a)).rejects.toThrow('unauthenticated');
+  } finally {
+    await signal.quit();
+    await db.deleteFrom('platform_admins').where('user_id', '=', a).execute();
+  }
 });
 it('diretas concorrentes convergem; grupos e participantes são isolados por tenant', async () => {
   const results = await Promise.all([

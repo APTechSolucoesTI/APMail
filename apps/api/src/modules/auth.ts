@@ -54,14 +54,6 @@ export async function me(ctx: RequestContext, r: Resources) {
     .where('tenants.deleted_at', 'is', null)
     .where('tenants.suspended_at', 'is', null)
     .execute();
-  if (ctx.support && ctx.tenantId && !tenants.some((t) => t.id === ctx.tenantId)) {
-    const supported = await r.db
-      .selectFrom('tenants')
-      .select(['id', 'name', 'slug'])
-      .where('id', '=', ctx.tenantId)
-      .executeTakeFirstOrThrow();
-    tenants.push({ ...supported, role: 'admin', capabilities: [] });
-  }
   const preferences = await r.db
     .selectFrom('user_preferences')
     .selectAll()
@@ -74,10 +66,10 @@ export async function me(ctx: RequestContext, r: Resources) {
       full_name: user.full_name,
       avatar_url: avatarUrl(user),
     },
-    tenants,
+    tenants: ctx.platformAdmin ? [] : tenants,
     platform_admin: !!ctx.platformAdmin,
-    support: ctx.support ?? null,
-    current_tenant_id: ctx.tenantId,
+    support: null,
+    current_tenant_id: ctx.platformAdmin ? null : ctx.tenantId,
     preferences,
   };
 }

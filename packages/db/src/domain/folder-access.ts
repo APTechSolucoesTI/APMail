@@ -9,6 +9,14 @@ export async function userCanReadFolder(
   userId: string,
   folderId: string,
 ) {
+  if (
+    await db
+      .selectFrom('platform_admins')
+      .select('user_id')
+      .where('user_id', '=', userId)
+      .executeTakeFirst()
+  )
+    return false;
   const member = await db
     .selectFrom('tenant_members as tm')
     .innerJoin('tenants as t', 't.id', 'tm.tenant_id')
@@ -45,6 +53,14 @@ export async function userCanReadThread(
   threadId: string,
   messageId?: string,
 ) {
+  if (
+    await db
+      .selectFrom('platform_admins')
+      .select('user_id')
+      .where('user_id', '=', userId)
+      .executeTakeFirst()
+  )
+    return false;
   const member = await db
     .selectFrom('tenant_members')
     .innerJoin('tenants', 'tenants.id', 'tenant_members.tenant_id')

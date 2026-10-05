@@ -51,7 +51,7 @@ function useDashboardData<T>(endpoint: string, params: string, enabled: boolean)
   const tenantId = useTenantId();
   const me = useQuery(meQuery);
   const tenant = me.data?.tenants.find((item) => item.id === tenantId);
-  const accessKey = [me.data?.user.id, tenant?.role, me.data?.support?.id];
+  const accessKey = [me.data?.user.id, tenant?.role];
   return useQuery({
     queryKey: ['dashboard', tenantId, endpoint, params, accessKey],
     queryFn: ({ signal }) => api<T>('/dashboard/' + endpoint + '?' + params, { signal }),

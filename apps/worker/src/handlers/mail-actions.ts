@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { UnrecoverableError } from 'bullmq';
 import { touchThreads, asJson } from '@apmail/db';
 import type { WorkerResources } from '../resources.js';
 import { transports } from '../imap/connect.js';
@@ -61,6 +62,15 @@ export async function handleMailAction(
       const t = await transports(r.db, box, r.env);
       const threadIds = new Set<string>();
       try {
+        if (
+          action.requested_by &&
+          (await r.db
+            .selectFrom('platform_admins')
+            .select('user_id')
+            .where('user_id', '=', action.requested_by)
+            .executeTakeFirst())
+        )
+          throw new UnrecoverableError('O superadmin não pode organizar mensagens.');
         if (box.status !== 'active')
           throw new Error('Caixa indisponível. Reconecte antes de organizar mensagens.');
         await r.db
@@ -162,7 +172,7 @@ export async function handleMailAction(
         emitThreads(r, box.id, [...threadIds]);
       } catch (error) {
         if (isConnectionError(error)) await markMailboxError(r, box, error);
-        if (lastAttempt) {
+        if (lastAttempt || error instanceof UnrecoverableError) {
           const last_error =
             'Não foi possível aplicar a alteração no servidor de e-mail. A alteração foi revertida.';
           await r.db.transaction().execute(async (trx) => {

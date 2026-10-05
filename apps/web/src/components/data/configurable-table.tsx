@@ -44,6 +44,7 @@ export type ConfigurableTableProps<T> = {
   bulkActions?: (selectedIds: string[]) => ReactNode;
   rowActions?: (row: T) => ReactNode;
   toolbarLeft?: ReactNode;
+  searchPlaceholder?: string;
   filters?: TableFilter[];
   isLoading?: boolean;
   isFetching?: boolean;
@@ -176,6 +177,7 @@ export function ConfigurableTable<T extends { id: string }>(props: ConfigurableT
       <div className="flex flex-wrap items-center gap-2 border-b p-3">
         {props.toolbarLeft}
         <SearchInput
+          placeholder={props.searchPlaceholder}
           value={query.search ?? ''}
           onChange={(search) => onQueryChange({ ...query, search, page: 1 })}
           debounce={mode === 'client' ? 0 : 400}

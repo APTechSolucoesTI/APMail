@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { z } from 'zod';
 import {
   listQuerySchema,
@@ -26,12 +26,15 @@ import {
 } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { toast } from 'sonner';
+import { PlatformStorage } from '@/components/platform/platform-storage';
 import { AccessEditor } from '@/components/forms/access-editor';
-const sections = ['tenants', 'users', 'mailboxes', 'audit', 'logs', 'health'] as const;
+import { useTheme } from '@/components/layout/theme-provider';
+const sections = ['tenants', 'users', 'mailboxes', 'storage', 'audit', 'logs', 'health'] as const;
 const labels = {
   tenants: 'Empresas',
   users: 'Usuários',
-  mailboxes: 'Caixas de e-mail',
+  mailboxes: 'Conexões de e-mail',
+  storage: 'Armazenamento',
   audit: 'Auditoria',
   logs: 'Logs',
   health: 'Saúde da plataforma',
@@ -55,7 +58,11 @@ export const Route = createFileRoute('/superadmin')({
         'Somente o super admin pode acessar a gestão da plataforma.',
       );
   },
-  validateSearch: listQuerySchema.extend({ section: z.enum(sections).default('tenants') }),
+  validateSearch: listQuerySchema.extend({
+    section: z.enum(sections).default('tenants'),
+    storage_scope: z.enum(['tenants', 'mailboxes']).default('tenants'),
+    storage_tenant: z.uuid().optional(),
+  }),
   component: SuperAdmin,
 });
 function SuperAdmin() {
@@ -64,11 +71,25 @@ function SuperAdmin() {
     navigate = useNavigate(),
     client = useQueryClient();
   const [dialog, setDialog] = useState<{
-    kind: 'tenant' | 'support' | 'mailbox' | 'credentials' | 'invite' | 'memberships' | 'access';
+    kind: 'tenant' | 'mailbox' | 'credentials' | 'invite' | 'memberships' | 'access';
     row?: Row;
     tenantId?: string;
   } | null>(null);
   const me = useQuery(meQuery).data;
+  const { theme, setTheme } = useTheme();
+  useEffect(() => {
+    if (me?.preferences.theme === 'light' || me?.preferences.theme === 'dark')
+      setTheme(me.preferences.theme);
+  }, [me?.preferences.theme, setTheme]);
+  const themeChange = useMutation({
+    mutationFn: (next: 'light' | 'dark') =>
+      api('/preferences', { method: 'PUT', body: { theme: next } }),
+    onSuccess: async (_, next) => {
+      setTheme(next);
+      await client.invalidateQueries({ queryKey: ['me'] });
+    },
+    onError: () => toast.error('Não foi possível salvar o tema.'),
+  });
   const companies = useQuery({
     queryKey: ['platform', 'tenant-options'],
     queryFn: () => api<ListResult<Row>>('/superadmin/tenants?pageSize=100'),
@@ -96,7 +117,7 @@ function SuperAdmin() {
           }),
         { signal },
       ),
-    enabled: section !== 'health',
+    enabled: section !== 'health' && section !== 'storage',
     placeholderData: keepPreviousData,
   });
   const health = useQuery({
@@ -127,6 +148,11 @@ function SuperAdmin() {
     users: [
       { id: 'full_name', header: 'Nome', hideable: false },
       { id: 'email', header: 'E-mail' },
+      {
+        id: 'platform_admin',
+        header: 'Perfil',
+        cell: (r) => (r.platform_admin ? 'Superadmin da plataforma' : 'Usuário de empresa'),
+      },
       {
         id: 'last_login_at',
         header: 'Último acesso',
@@ -184,12 +210,17 @@ function SuperAdmin() {
     await client.invalidateQueries({ queryKey: ['me'] });
   };
   return (
-    <div className="min-h-dvh bg-background p-4 text-foreground sm:p-6">
+    <main className="min-h-dvh bg-background p-4 text-foreground sm:p-6">
       <div className="mx-auto max-w-screen-2xl space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Link to="/" className="text-primary underline">
-            Voltar ao APMail
-          </Link>
+          <span className="font-semibold">APMail · Administração</span>
+          <Button
+            variant="outline"
+            disabled={themeChange.isPending}
+            onClick={() => themeChange.mutate(theme === 'dark' ? 'light' : 'dark')}
+          >
+            {theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}
+          </Button>
           <Button
             variant="outline"
             onClick={async () => {
@@ -203,7 +234,7 @@ function SuperAdmin() {
         </div>
         <PageHeader
           title="Gestão da plataforma"
-          description="Gerencie empresas e operação. O conteúdo dos e-mails exige uma sessão explícita de suporte."
+          description="Gerencie empresas, usuários, conexões e armazenamento da plataforma."
           actions={
             section === 'tenants' ? (
               <Button onClick={() => setDialog({ kind: 'tenant' })}>Criar empresa</Button>
@@ -214,26 +245,6 @@ function SuperAdmin() {
             ) : undefined
           }
         />
-        {me?.support && (
-          <div
-            role="status"
-            className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-secondary p-3"
-          >
-            <p className="text-sm">
-              Suporte em andamento até {new Date(me.support.expires_at).toLocaleTimeString('pt-BR')}
-              : {me.support.reason}
-            </p>
-            <Button
-              variant="outline"
-              onClick={async () => {
-                await api('/superadmin/support', { method: 'DELETE' });
-                await refresh();
-              }}
-            >
-              Encerrar suporte
-            </Button>
-          </div>
-        )}
         <nav aria-label="Gestão da plataforma" className="flex flex-wrap gap-2">
           {sections.map((item) => (
             <Button
@@ -242,7 +253,14 @@ function SuperAdmin() {
               onClick={() =>
                 void navigate({
                   to: '/superadmin',
-                  search: { ...query, section: item, page: 1, search: undefined },
+                  search: {
+                    ...query,
+                    section: item,
+                    page: 1,
+                    search: undefined,
+                    sort: undefined,
+                    storage_tenant: undefined,
+                  },
                 })
               }
               aria-current={item === section ? 'page' : undefined}
@@ -279,6 +297,18 @@ function SuperAdmin() {
               ))}
             </section>
           )
+        ) : section === 'storage' ? (
+          <PlatformStorage
+            query={query}
+            scope={query.storage_scope}
+            tenantId={query.storage_tenant}
+            onChange={(next, scope, tenantId) =>
+              void navigate({
+                to: '/superadmin',
+                search: { ...next, section, storage_scope: scope, storage_tenant: tenantId },
+              })
+            }
+          />
         ) : (
           <ConfigurableTable
             listKey={'platform-' + section}
@@ -297,14 +327,6 @@ function SuperAdmin() {
             rowActions={(row) =>
               section === 'tenants' ? (
                 <div className="flex flex-wrap gap-1">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!!row.suspended_at}
-                    onClick={() => setDialog({ kind: 'support', row })}
-                  >
-                    Suporte
-                  </Button>
                   <ConfirmDialog
                     title={row.suspended_at ? 'Reativar empresa?' : 'Suspender empresa?'}
                     description="A suspensão bloqueia o acesso e novos envios desta empresa."
@@ -363,12 +385,10 @@ function SuperAdmin() {
                           ? 'Empresas do usuário'
                           : dialog?.kind === 'access'
                             ? 'Permissões do usuário'
-                            : 'Iniciar suporte'}
+                            : 'Permissões do usuário'}
               </DialogTitle>
               <DialogDescription>
-                {dialog?.kind === 'support'
-                  ? 'Acesso somente leitura, válido por 30 minutos e registrado nas auditorias da plataforma e da empresa.'
-                  : 'As alterações serão registradas na auditoria da plataforma.'}
+                As alterações serão registradas na auditoria da plataforma.
               </DialogDescription>
             </DialogHeader>
             {dialog?.kind === 'access' && (
@@ -443,7 +463,7 @@ function SuperAdmin() {
                       <Button
                         variant="outline"
                         size="sm"
-                        disabled={dialog.row?.id === me?.user.id}
+                        disabled={dialog.row?.id === me?.user.id || !!dialog.row?.platform_admin}
                         onClick={() =>
                           setDialog({ kind: 'access', row: dialog.row, tenantId: m.tenant_id })
                         }
@@ -493,22 +513,6 @@ function SuperAdmin() {
                   toast.success(
                     'Empresa criada. O proprietário recebe o convite pelo SMTP global quando ainda não possui conta.',
                   );
-                }}
-              />
-            )}
-            {dialog?.kind === 'support' && (
-              <SchemaForm
-                schema={z.object({ reason: z.string().trim().min(10).max(500) })}
-                fields={[{ name: 'reason', label: 'Motivo do acesso' }]}
-                submitLabel="Iniciar suporte e abrir empresa"
-                onSubmit={async (b) => {
-                  await api('/superadmin/support', {
-                    method: 'POST',
-                    body: { ...b, tenant_id: dialog.row?.id },
-                  });
-                  await client.cancelQueries();
-                  client.clear();
-                  await navigate({ to: '/' });
                 }}
               />
             )}
@@ -583,6 +587,6 @@ function SuperAdmin() {
           </DialogContent>
         </Dialog>
       </div>
-    </div>
+    </main>
   );
 }

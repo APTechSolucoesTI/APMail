@@ -45,6 +45,12 @@ export async function handleOutboxSend(
       .where('suspended_at', 'is', null)
       .executeTakeFirst();
     if (!tenant) throw new Error('tenant_unavailable');
+    const platform = await r.db
+      .selectFrom('platform_admins')
+      .select('user_id')
+      .where('user_id', '=', row.created_by)
+      .executeTakeFirst();
+    if (platform) throw new Error('send_permission_revoked');
     const box = await r.db
       .selectFrom('mailboxes')
       .selectAll()

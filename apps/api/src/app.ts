@@ -12,14 +12,19 @@ import {
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod';
 import { Redis } from 'ioredis';
-import { createDb, createQueues, audit, asJson } from '@apmail/db';
-import { healthSchema, healthQueuesSchema, socketRedisKey } from '@apmail/shared';
+import { createDb, createQueues, asJson } from '@apmail/db';
+import {
+  healthSchema,
+  healthQueuesSchema,
+  socketRedisKey,
+  platformAccessChannel,
+} from '@apmail/shared';
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
 import { Server } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { readEnv, type ApiEnv } from './env.js';
-import { ZodError } from 'zod';
+import { ZodError, z } from 'zod';
 import { installAuth } from './plugins/auth.js';
 import { installSocket } from './plugins/socket.js';
 import { registerAuthRoutes } from './modules/auth.js';
@@ -164,6 +169,20 @@ export async function buildApp(config: ApiEnv = readEnv()) {
     cors: { origin: config.APP_URL, credentials: true },
   });
   io.adapter(createAdapter(pub, sub, { key: socketRedisKey(config.REDIS_URL) }));
+  const platformChannel = platformAccessChannel(config.REDIS_URL);
+  sub.on('message', (channel, userId) => {
+    if (channel !== platformChannel || !z.uuid().safeParse(userId).success) return;
+    void db
+      .selectFrom('platform_admins')
+      .select('user_id')
+      .where('user_id', '=', userId)
+      .executeTakeFirst()
+      .then((admin) => {
+        if (admin) io.local.in('user:' + userId).disconnectSockets(true);
+      })
+      .catch(() => app.log.warn('Não foi possível encerrar as conexões da conta global.'));
+  });
+  await sub.subscribe(platformChannel);
   const resources = { db, redis, io, queues: queueResources.queues, env: config };
   await installAuth(app, db, redis, config);
   app.get(
@@ -185,34 +204,6 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   );
   app.addHook('onSend', async (request, reply, payload) => {
     reply.header('X-Request-Id', request.id);
-    const c = request.ctx;
-    if (
-      c?.support &&
-      c.tenantId &&
-      request.method === 'GET' &&
-      !request.url.startsWith('/api/superadmin/')
-    ) {
-      const route = request.routeOptions.url ?? 'unknown';
-      await audit(db, {
-        tenantId: c.tenantId,
-        actorId: c.userId,
-        action: 'platform.support_read',
-        entityType: 'support',
-        entityId: c.support.id,
-        metadata: { route, status: reply.statusCode, request_id: request.id },
-        ip: c.ip,
-      });
-      await db
-        .insertInto('platform_audit')
-        .values({
-          actor_id: c.userId,
-          tenant_id: c.tenantId,
-          action: 'platform.support_read',
-          request_id: request.id,
-          metadata: asJson({ route, status: reply.statusCode, support_id: c.support.id }),
-        })
-        .execute();
-    }
     return payload;
   });
   app.addHook('onResponse', async (request, reply) => {

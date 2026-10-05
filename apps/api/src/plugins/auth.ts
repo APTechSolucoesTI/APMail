@@ -48,27 +48,13 @@ export async function contextForToken(
     .select('user_id')
     .where('user_id', '=', session.user_id)
     .executeTakeFirst();
-  const support = platform
-    ? await db
-        .selectFrom('support_sessions as s')
-        .innerJoin('tenants as t', 't.id', 's.tenant_id')
-        .select(['s.id', 's.tenant_id', 's.reason', 's.expires_at'])
-        .where('s.session_hash', '=', hash)
-        .where('s.ended_at', 'is', null)
-        .where('s.expires_at', '>', new Date())
-        .where('t.suspended_at', 'is', null)
-        .where('t.deleted_at', 'is', null)
-        .executeTakeFirst()
-    : null;
   return {
     userId: session.user_id,
-    tenantId: support?.tenant_id ?? member?.tenant_id ?? null,
-    tenantRole: support ? 'admin' : (member?.role ?? null),
-    capabilities: member?.capabilities ?? [],
+    // Platform accounts never inherit operational access from legacy memberships or support.
+    tenantId: platform ? null : (member?.tenant_id ?? null),
+    tenantRole: platform ? null : (member?.role ?? null),
+    capabilities: platform ? [] : (member?.capabilities ?? []),
     platformAdmin: !!platform,
-    support: support
-      ? { id: support.id, expires_at: support.expires_at.toISOString(), reason: support.reason }
-      : undefined,
     ip,
     requestId,
     sessionHash: hash,
@@ -100,16 +86,20 @@ export async function installAuth(app: FastifyInstance, db: Kysely<DB>, redis: R
     }
   });
   app.addHook('preHandler', async (req) => {
+    const path = req.url.split('?')[0] ?? '';
     if (
-      req.ctx?.support &&
-      ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) &&
-      !req.url.startsWith('/api/superadmin/') &&
-      !req.url.startsWith('/api/auth/')
+      req.ctx?.platformAdmin &&
+      !path.startsWith('/api/superadmin/') &&
+      !path.startsWith('/api/auth/') &&
+      path !== '/api/me' &&
+      path !== '/api/preferences' &&
+      !path.startsWith('/api/preferences/tables/') &&
+      path !== '/api/health'
     )
       throw new ApiError(
         403,
-        'forbidden',
-        'O modo suporte permite somente leitura. Encerre o suporte para operar na sua empresa.',
+        'platform_only',
+        'O superadmin atua somente na gestão da plataforma.',
       );
   });
 }

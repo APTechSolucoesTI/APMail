@@ -6,9 +6,9 @@ Funcionalidades implementadas: múltiplas empresas, caixas compartilhadas IMAP/S
 
 As fases concluídas, checks e pendências de publicação estão em [PROGRESSO](docs/PROGRESSO.md). Domínio/HTTPS e SMTP externo dependem da configuração de cada instalação.
 
-Evolução implementada: [especificação e plano](docs/SPEC-EVOLUCAO-APMAIL.md), com editor completo de HTML, assinatura com imagens incorporadas por CID, dashboard pessoal/geral por papel, teste IMAP/SMTP antes de salvar caixas, navegação sem recargas, comparação de regras normalizada, classificação opcional do histórico, contatos por empresa, Supervisor com capacidades explícitas e `/superadmin`.
+Evolução implementada: [especificação e plano](docs/SPEC-EVOLUCAO-APMAIL.md), com editor completo de HTML, assinatura com imagens incorporadas por CID, dashboard pessoal/geral por papel, teste IMAP/SMTP antes de salvar caixas, navegação sem recargas, comparação de regras normalizada, classificação opcional do histórico, contatos por empresa, Supervisor com capacidades explícitas e `/superadmin` com gestão exclusiva da plataforma e armazenamento por empresa/caixa.
 
-Instalação APTech: **https://apmail.aptechinfo.com.br:75**. Domínio HTTPS, SMTP global e caixa real já configurados; cadastro público desativado e backup diário ativo. O painel `/superadmin` exige concessão global independente do papel na empresa. Consulte [DEPLOY](docs/DEPLOY.md) para bootstrap, atualização e recuperação. Credenciais não são versionadas.
+Instalação APTech: **https://apmail.aptechinfo.com.br:75**. Domínio HTTPS, SMTP global e caixa real já configurados; cadastro público desativado e backup diário ativo. O painel `/superadmin` exige concessão global independente do papel na empresa. A revisão local de 05/10/2026 retira acesso operacional de contas globais, inclusive suporte, e adiciona métricas de armazenamento; ainda depende do commit/deploy pelo usuário. Use contas distintas para plataforma e operação de e-mails. Consulte [DEPLOY](docs/DEPLOY.md) para bootstrap, atualização e recuperação. Credenciais não são versionadas.
 
 ## Docker e Dokploy
 

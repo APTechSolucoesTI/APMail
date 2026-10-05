@@ -9,7 +9,7 @@ Atualização: 05/10/2026. Base original: entrega `fase-9`. Status: **implementa
 | Contatos               | Por padrão, visíveis em todas as caixas da empresa. Ao ter acesso a pelo menos uma caixa autorizada, o usuário vê o contato completo, incluindo todos os seus e-mails e vínculos. |
 | Histórico              | A janela de classificação vale somente para a importação inicial. Aceita 0–90 dias; 0 deixa todo o histórico sem fila. Mensagens novas seguem o fluxo normal.                     |
 | Densidade              | Remover compacta/confortável e manter um padrão operacional único.                                                                                                                |
-| Super admin            | Gestão global da plataforma, com acesso de suporte explícito e auditado à empresa escolhida.                                                                                      |
+| Super admin            | Gestão exclusiva da plataforma, sem acesso operacional a caixas, mesmo com vínculos empresariais antigos. Armazenamento por empresa/caixa.                                        |
 | Convites da empresa    | Administradores usam uma caixa conectada da própria empresa. Sem fallback para o SMTP global.                                                                                     |
 | Convites da plataforma | Super admin usa o SMTP global.                                                                                                                                                    |
 
@@ -247,15 +247,21 @@ Associação global separada dos papéis da empresa, bootstrap por comando admin
 
 Gestão global: criar/listar empresas, acompanhar estado/suspensão, designar proprietário por convite, gerenciar usuários/vínculos e caixas, consultar auditoria global e saúde/logs operacionais. Configurações de credenciais permitem substituir/testar credenciais sem devolver senhas existentes.
 
-O acesso global apresenta metadados operacionais e cadastros. Abrir a área de e-mails de uma empresa exige **Entrar em modo suporte**: empresa alvo, motivo, escopo e validade, com entrada/saída auditadas. Proposta: validade de 30 minutos. O ator real permanece identificado; não trocar a senha ou fingir ser o usuário atendido. Encerramento/expiração removem acesso, cache e salas. Operações de suporte são registradas na auditoria da plataforma e da empresa.
+O superadmin atua exclusivamente na plataforma. Mesmo que a conta tenha vínculos antigos como proprietário/admin ou permissões de caixa, não consulta mensagens, anexos privados, contatos, chat, notificações empresariais nem o dashboard operacional, e não envia ou organiza e-mails. Rotas operacionais redirecionam para /superadmin; API e Socket.IO negam acesso. O bootstrap verifica Redis e publica uma revogação isolada pelo banco lógico; cada API encerra conexões locais já abertas da conta promovida. A operação de caixas exige uma conta empresarial separada.
 
-Gestão de usuários não deve oferecer um caminho indireto para o operador conceder a si mesmo acesso permanente a conteúdo sem o fluxo de suporte. Acesso normal por um vínculo empresarial legítimo continua sendo tratado pelo papel daquela empresa.
+O modo de suporte com acesso a conteúdo foi retirado conforme solicitação de 05/10/2026. Sessões legadas não concedem contexto empresarial; iniciar suporte retorna 403. O histórico das sessões e auditorias permanece consultável. A API global não concede acesso empresarial nem envia convites de empresa a outra conta superadmin; criação de empresa exige proprietário comum. Vínculos antigos são preservados para evitar apagar histórico ou violar a proteção do último proprietário.
 
-Auditoria registra mudanças administrativas, concessões, suspensão e suporte. Logs estruturados correlacionam serviço/request_id/job_id e tenant quando conhecido; armazenamento e retenção configuráveis no servidor, com consulta paginada e fontes permitidas. Não disponibilizar shell, arquivos arbitrários ou socket Docker ao painel. Mascarar credenciais, cookies, tokens em URLs e conteúdo de mensagens antes de persistir/exibir.
+Armazenamento: nova seção em /superadmin e GET /api/superadmin/storage, exclusiva do papel global. Duas visões: empresas e caixas, com busca, ordenação validada, paginação 10/20/30/50/100, totais do conjunto filtrado e detalhamento das caixas de uma empresa. Permite priorizar a futura definição de planos a partir do uso registrado.
+
+Contrato da métrica: soma bytes UTF-8 dos corpos das mensagens e outbox com tamanho registrado dos anexos, uploads pendentes e imagens de assinatura. HTML de assinaturas, uploads e imagens próprias são compartilhados da empresa e não atribuídos artificialmente a uma caixa. Caminhos de arquivo repetidos contam uma vez, com preferência de atribuição ao anexo de caixa. Metadados de uploads consumidos não contam, pois o worker remove seu arquivo fonte após o envio. Registros excluídos logicamente continuam contando enquanto retidos. O tamanho original MIME fica separado e não entra na soma com anexos. Totais/página vêm de um único snapshot SQL.
+
+Os valores são estimativas de payload registrado: não representam RAM nem o tamanho físico completo do volume. Índices, TOAST/compressão, WAL, demais tabelas/metadados, avatares, arquivos órfãos e backups não são distribuídos por empresa nessa métrica. O painel identifica essa limitação; antes de definir cobrança por disco físico, será necessário incluir inventário/retenção e conciliação com o volume. A consulta não lê corpos, caminhos ou arquivos para devolvê-los ao superadmin: retorna somente somas, contagens e identificação cadastral.
+
+Auditoria registra mudanças administrativas, concessões e suspensão, preservando eventos de suporte anteriores. Logs estruturados correlacionam serviço/request_id/job_id e tenant quando conhecido, com consulta paginada e campos permitidos. Credenciais, cookies, tokens e conteúdo de mensagens não devem ser expostos no painel.
 
 Suspensão de empresa bloqueia novas operações, revoga sessões/salas pertinentes e impede novos jobs/envios; retomada controla a drenagem dos pendentes. Evitar exclusão irreversível como operação inicial de gestão.
 
-Aceite: owner/admin de empresa não abrem endpoints globais; super admin gerencia empresas sem acesso implícito ao conteúdo; suporte é limitado à empresa/escopo/prazo e auditado; revogação/suspensão alcançam HTTP/socket/worker; logs não expõem segredos; bootstrap não depende de cadastro público.
+Aceite: owner/admin de empresa não abrem endpoints globais; superadmin gerencia empresas sem acessar conteúdo, inclusive com vínculos antigos ou suporte legado; métricas de armazenamento são exclusivas da plataforma e não duplicam MIME/anexos; revogação/suspensão alcançam HTTP/socket/worker; logs não expõem segredos; bootstrap não depende de cadastro público.
 
 ## 12. Plano de execução para uma entrega conjunta
 
@@ -268,7 +274,7 @@ Aceite: owner/admin de empresa não abrem endpoints globais; super admin gerenci
 | 5 — Contatos                     | Serviços/APIs, unicidade, consultas CNPJ/CEP, permissões e realtime                                                         | Fluxos com várias associações, conflito concorrente e isolamento aprovados.   |
 | 6 — Imagens e editor             | Upload/publicação HTTPS, toolbar/extensões e HTML/MIME                                                                      | Formatação e assinatura verificadas até o destinatário.                       |
 | 7 — Interface                    | Sidebar/grupos/SPA, contatos/remetente, preferências, horário, regras e editor de acesso                                    | Desktop/tablet/mobile, Claro/Escuro, teclado e estados de dados revisados.    |
-| 8 — Convites e plataforma        | Seleção SMTP por contexto, painel global, suporte, auditoria e logs                                                         | SMTP correto por origem e fronteiras globais testadas.                        |
+| 8 — Convites e plataforma        | Seleção SMTP por contexto, painel global, armazenamento, auditoria e logs                                                   | SMTP correto por origem e fronteiras globais testadas.                        |
 | 9 — Homologação integrada        | Suite completa, fluxos multissessão, carga representativa e Docker                                                          | Critérios de todos os módulos satisfeitos em stack isolada.                   |
 | 10 — Publicação única            | Backup, CI, merge/tag, migração e redeploy conjunto                                                                         | Saúde, dados, filas, acesso, SMTP e assets conferidos após publicação.        |
 
@@ -280,7 +286,7 @@ Uma branch de implementação reúne os módulos e commits por responsabilidade.
 - Atualizar tipos a partir do banco migrado e validar payloads de API/job com Zod. Restrições de tenant, unicidade e FKs no banco complementam os guards da aplicação.
 - Conservar campos antigos durante a transição quando forem necessários ao rollback; não modificar SQL de migrations já aplicadas. Migração de preferências é explícita, e a de histórico preserva a elegibilidade das conversas existentes.
 - Testes unitários focam normalização, comparação e cálculo de elegibilidade/permissões. Integração usa Postgres/Redis/IMAP/SMTP reais de QA para concorrência, autorização, jobs e recuperação.
-- E2E: empresa/usuários → Supervisor → caixa → histórico → regra → contato → resposta formatada/assinatura → convite → dashboard/auditoria → suporte global e revogação. Testar também duas empresas e dois navegadores simultâneos.
+- E2E: empresa/usuários → Supervisor → caixa → histórico → regra → contato → resposta formatada/assinatura → convite → dashboard/auditoria → gestão global, armazenamento e bloqueio de contas globais na operação. Testar também duas empresas e dois navegadores simultâneos.
 - Desktop/tablet/mobile nos temas Claro/Escuro: foco, teclado, áreas de toque, um h1, contraste, redução de movimento, estados loading/vazio/erro/sem permissão. Tabelas reutilizam o contrato de paginação/filtros/colunas do projeto.
 - Conferir ausência de recargas de documento na navegação, preservação de rascunhos e ausência de conteúdo indevido em cache depois de troca/revogação.
 - Inspecionar bundle, logs e jobs para segredos. Imagem publicada de assinatura é acessível sem sessão; anexos privados continuam protegidos.
@@ -302,7 +308,7 @@ Uma branch de implementação reúne os módulos e commits por responsabilidade.
 
 - CNPJ: BrasilAPI como fonte principal, com Minha Receita em falhas de disponibilidade, mantendo dados manuais e indicação da fonte. [Contrato da fonte alternativa](https://docs.minhareceita.org/como-usar/).
 - Corpo do e-mail: imagens anexadas privadas com CID; assinatura: imagens normalizadas em PNG e URL pública HTTPS imutável.
-- Suporte: somente leitura, 30 minutos, gravação da auditoria antes da devolução do conteúdo; Socket.IO indisponível durante suporte para impedir efeitos de presença/chat.
+- Superadmin: escopo exclusivo da plataforma, conforme revisão de 05/10/2026; suporte a conteúdo retirado e auditorias históricas preservadas.
 - A stack existente React/Vite/TanStack Router + Fastify/Postgres foi preservada. As diretrizes visuais e de acesso do AGENTS.md foram aplicadas; migração integral para TanStack Start/Supabase não integra esta alteração de produto.
 
 ## Complemento de 05/10/2026: dashboard e validação das caixas
@@ -312,3 +318,7 @@ Dashboard disponível para todos por padrão. Membros veem seus próprios envios
 O assistente de cadastro testa e autentica IMAP/SMTP na etapa Servidor. A API testa novamente os dados finais antes de gravar a caixa e suas credenciais. O mesmo controle se aplica ao superadmin e a alterações de conexão/senha; uma falha mantém a configuração anterior e não inicia importação. O teste SMTP verifica autenticação sem enviar mensagem. Produção exige TLS/STARTTLS com certificado válido; exceções de laboratório só são aceitas em desenvolvimento e hosts explicitamente autorizados.
 
 Validação: lint, tipos, build, 51 testes unitários e 70 de integração com PostgreSQL/Redis/IMAP/SMTP reais. Revisão de navegador e publicação registradas em PROGRESSO.md.
+
+## Complemento de 05/10/2026: superadmin exclusivo e armazenamento
+
+Implementado em código local, com commit e deploy a cargo do usuário. Não há nova migração nem alteração automática dos cadastros em produção. Antes da publicação, manter um proprietário/admin empresarial comum para a operação: contas concedidas como superadmin, incluindo proprietários antigos, passam a entrar somente em /superadmin. Novos envios e ações pendentes revalidam essa fronteira no worker.

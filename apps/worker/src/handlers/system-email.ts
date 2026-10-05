@@ -65,6 +65,14 @@ export function createSystemEmailHandler(env: WorkerEnv, db?: Kysely<DB>) {
           throw new Error('invitation_token_replaced');
         currentInvitation = true;
         if (invite.sender_context === 'tenant') {
+          if (
+            await db
+              .selectFrom('platform_admins')
+              .select('user_id')
+              .where('user_id', '=', invite.invited_by)
+              .executeTakeFirst()
+          )
+            throw new Error('invitation_sender_unavailable');
           const member = await db
             .selectFrom('tenant_members')
             .select('id')

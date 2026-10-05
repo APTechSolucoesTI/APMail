@@ -1,10 +1,16 @@
 import './config.js';
 import { createDb } from './client.js';
+import { Redis } from 'ioredis';
+import { platformAccessChannel } from '@apmail/shared';
 const email = process.argv[2]?.trim().toLowerCase();
-if (!email || !process.env.DATABASE_URL)
+if (!email || !process.env.DATABASE_URL || !process.env.REDIS_URL)
   throw new Error('Uso: pnpm --filter @apmail/db bootstrap:superadmin usuario@empresa.com');
 const db = createDb(process.env.DATABASE_URL);
+const redis = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: 1 });
+redis.on('error', () => undefined);
 try {
+  // Ensure the revocation signal can reach all API instances before granting the role.
+  await redis.ping();
   const user = await db
     .selectFrom('users')
     .select('id')
@@ -22,7 +28,10 @@ try {
       .values({ actor_id: user.id, action: 'platform.admin_bootstrapped' })
       .execute();
   });
-  console.info('Super admin habilitado. Acesse /superadmin com a conta existente.');
+  await redis.publish(platformAccessChannel(process.env.REDIS_URL), user.id);
+  console.info(
+    'Superadmin habilitado. Acesse /superadmin. Esta conta não acessa caixas de entrada; use outra conta para administrar e-mails da empresa.',
+  );
 } finally {
-  await db.destroy();
+  await Promise.all([db.destroy(), redis.quit()]);
 }

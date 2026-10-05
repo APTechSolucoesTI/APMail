@@ -19,7 +19,7 @@ export type Me = {
   user: { id: string; email: string; full_name: string; avatar_url: string | null };
   tenants: { id: string; name: string; slug: string; role: TenantRole; capabilities: string[] }[];
   platform_admin: boolean;
-  support: { id: string; expires_at: string; reason: string } | null;
+  support: null;
   current_tenant_id: string | null;
   preferences: Preferences;
 };
@@ -57,7 +57,7 @@ export async function requireUser() {
 }
 export async function requireCompany() {
   const me = await requireUser();
-  if (!me.current_tenant_id)
-    throw redirect({ to: me.platform_admin ? '/superadmin' : '/onboarding' });
+  if (me.platform_admin) throw redirect({ to: '/superadmin' });
+  if (!me.current_tenant_id) throw redirect({ to: '/onboarding' });
   return me;
 }

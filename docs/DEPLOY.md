@@ -2,6 +2,14 @@
 
 O Compose principal cria PostgreSQL 17, Redis 7 com AOF/noeviction, migration, API, worker e web/nginx. Banco, Redis e arquivos têm volumes exclusivos; API e worker compartilham `storage`. A migration deve terminar com código 0 antes da aplicação iniciar. Os cinco serviços permanentes têm healthcheck e executam sem root. O arquivo principal contém somente portas internas (`expose`); o Dokploy encaminha o tráfego ao serviço `web`, porta 80.
 
+## Complemento local de 05/10/2026 — publicação pelo usuário
+
+Superadmin exclusivo e armazenamento implementados no workspace, sem commit/push/deploy pelo assistente. A última publicação anterior é o commit 6d0f711; esta alteração depende do commit e redeploy feitos pelo usuário. Não há nova migração de esquema. Recriar API, worker e web juntos aplica os controles de acesso e fecha as conexões antigas.
+
+A conta usada para o bootstrap deve existir e será exclusiva da plataforma. Se a conta global atual também aparece como proprietário/admin de empresa, designe outro usuário comum como proprietário/admin pelo painel global antes da atualização. Vínculos históricos permanecem no banco; a autorização ignora esses vínculos para contas globais. Configure o acesso às caixas para a conta empresarial separada.
+
+Armazenamento é uma estimativa dos corpos e arquivos registrados (uploads pendentes, anexos e assinaturas), incluindo dados excluídos ainda retidos. Não é medição de RAM ou do volume físico completo: índices/TOAST/WAL, backups, avatares e arquivos órfãos exigem conciliação separada antes de usar a métrica como cobrança por disco.
+
 ## Preparar o ambiente
 
 Requer Docker Engine com BuildKit, Docker Compose v2, espaço para imagens/volumes e acesso do servidor aos provedores IMAP/SMTP. Para publicação externa, configure domínio/DNS, HTTPS e SMTP do sistema para convites e recuperação de senha. O SMTP do sistema é independente das credenciais de cada caixa, informadas pela interface.
@@ -113,10 +121,10 @@ A validação completa de e-mail usa provedores GreenMail/Mailpit isolados. Esse
 Após aplicar as migrations, conceda o acesso global a uma conta existente, pelo servidor:
 
 ```sh
-docker compose exec -T api node node_modules/@apmail/db/dist/bootstrap-superadmin.js sistema@aptechinfo.com.br
+docker compose exec -T api node node_modules/@apmail/db/dist/bootstrap-superadmin.js superadmin@aptechinfo.com.br
 ```
 
-O comando registra a concessão na auditoria global. A conta mantém a senha existente; `/superadmin` não possui cadastro público nem senha separada. Proprietários e administradores de empresas não recebem automaticamente o papel global. O painel gerencia empresas, usuários/vínculos/capacidades, caixas, auditoria, logs e saúde. O suporte exige motivo e expira em 30 minutos, permite somente leitura e registra entrada, leituras e saída nas duas auditorias.
+O comando exige DATABASE_URL/REDIS_URL do ambiente, verifica a comunicação com Redis, registra a concessão na auditoria global e sinaliza às APIs o encerramento imediato de conexões operacionais já abertas. A conta mantém a senha existente; `/superadmin` não possui cadastro público nem senha separada. Proprietários e administradores de empresas não recebem automaticamente o papel global. O painel gerencia empresas, usuários/vínculos/capacidades, caixas, auditoria, logs e saúde. Na implementação local de 05/10/2026, a conta global atua somente na plataforma; o suporte com acesso a conteúdo foi retirado, inclusive para sessões legadas. O painel inclui uso registrado por empresa/caixa. Contas globais precisam de uma conta empresarial separada para operar e-mails.
 
 Convites da empresa usam sua caixa principal ativa, configurável em **Configurações → Empresa** e no próprio convite. Sem caixa ativa, conectar uma antes de convidar. Convites do super admin e recuperação de senha usam `SYSTEM_SMTP_*` e `SYSTEM_MAIL_FROM` globais. Falhas de entrega ficam no convite e podem ser reenviadas.
 

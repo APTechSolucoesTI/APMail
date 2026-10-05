@@ -3,7 +3,7 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { createDb, migrate } from '@apmail/db';
+import { createDb, migrate, userCanReadThread, userCanReadFolder } from '@apmail/db';
 import { buildApp } from '../../src/app.js';
 import { envSchema } from '../../src/env.js';
 import { hashToken } from '../../src/plugins/auth.js';
@@ -18,6 +18,7 @@ const suffix = randomUUID(),
   owner = randomUUID(),
   member = randomUUID(),
   global = randomUUID(),
+  foreign = randomUUID(),
   box = randomUUID(),
   otherBox = randomUUID(),
   allowed = randomUUID(),
@@ -68,6 +69,7 @@ beforeAll(async () => {
     [owner, tenant, 'owner'],
     [member, tenant, 'member'],
     [global, otherTenant, 'owner'],
+    [foreign, otherTenant, 'owner'],
   ] as const) {
     await db
       .insertInto('users')
@@ -165,6 +167,169 @@ afterAll(async () => {
   await db.destroy();
 });
 let contact = '';
+it('armazenamento soma conteúdo UTF-8 e arquivos únicos, incluindo dados retidos, sem duplicar MIME', async () => {
+  const company = randomUUID(),
+    storedBox = randomUUID(),
+    storedThread = randomUUID();
+  await db
+    .insertInto('tenants')
+    .values({ id: company, name: 'Armazenaménto QA', slug: 'storage-' + suffix })
+    .execute();
+  await db
+    .insertInto('tenant_members')
+    .values({ tenant_id: company, user_id: owner, role: 'owner' })
+    .execute();
+  await db
+    .insertInto('mailboxes')
+    .values(
+      Array.from({ length: 12 }, (_, i) => ({
+        id: i === 0 ? storedBox : randomUUID(),
+        tenant_id: company,
+        name: i === 0 ? 'Arquivo QA' : 'Vazia ' + i,
+        email_address: `storage-${suffix}-${i}@apmail.local`,
+        username: 'qa',
+        imap_host: 'localhost',
+        smtp_host: 'localhost',
+        deleted_at: i === 0 ? new Date() : null,
+      })),
+    )
+    .execute();
+  await db
+    .insertInto('threads')
+    .values({ id: storedThread, tenant_id: company, mailbox_id: storedBox })
+    .execute();
+  const html = '<p>Olá</p>',
+    text = 'ação',
+    draft = 'rascunho',
+    signature = '<p>Nome</p>';
+  const message = await db
+    .insertInto('messages')
+    .values({
+      tenant_id: company,
+      mailbox_id: storedBox,
+      thread_id: storedThread,
+      body_html: html,
+      body_text: text,
+      size_bytes: 1000000,
+      deleted_at: new Date(),
+      direction: 'inbound',
+      message_at: new Date(),
+      message_id_header: '<' + randomUUID() + '@storage.test>',
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  await db
+    .insertInto('outbox')
+    .values({ tenant_id: company, mailbox_id: storedBox, created_by: owner, body_html: draft })
+    .execute();
+  const path = company + '/unique-file';
+  // Sent upload metadata survives after the source file is removed; the attachment copy counts.
+  await db
+    .insertInto('uploads')
+    .values({
+      tenant_id: company,
+      user_id: owner,
+      filename: 'consumido',
+      content_type: 'image/png',
+      storage_path: company + '/consumed',
+      size_bytes: 100000,
+      consumed_at: new Date(),
+    })
+    .execute();
+  await db
+    .insertInto('attachments')
+    .values(
+      [0, 1].map(() => ({
+        tenant_id: company,
+        mailbox_id: storedBox,
+        message_id: message.id,
+        filename: 'anexo',
+        storage_path: path,
+        size_bytes: 2048,
+      })),
+    )
+    .execute();
+  await db
+    .insertInto('uploads')
+    .values([
+      {
+        tenant_id: company,
+        user_id: owner,
+        filename: 'mesmo arquivo',
+        content_type: 'image/png',
+        storage_path: path,
+        size_bytes: 2048,
+      },
+      {
+        tenant_id: company,
+        user_id: owner,
+        filename: 'compartilhado',
+        content_type: 'image/png',
+        storage_path: company + '/upload',
+        size_bytes: 512,
+      },
+    ])
+    .execute();
+  await db
+    .insertInto('signature_images')
+    .values({
+      tenant_id: company,
+      user_id: owner,
+      storage_path: company + '/signature',
+      size_bytes: 1024,
+      width: 10,
+      height: 10,
+      content_type: 'image/png',
+    })
+    .execute();
+  await db
+    .insertInto('signatures')
+    .values({ tenant_id: company, user_id: owner, name: 'QA', body_html: signature })
+    .execute();
+  const url = '/api/superadmin/storage?tenant_id=' + company;
+  expect((await call('GET', url, owner)).statusCode).toBe(403);
+  const response = await call('GET', url, global);
+  expect(response.statusCode, response.body).toBe(200);
+  const contentBytes = Buffer.byteLength(html + text + draft),
+    sharedBytes = 1536 + Buffer.byteLength(signature);
+  const data = response.json();
+  expect(data.total).toBe(1);
+  expect((await call('GET', url + '&search=ARMAZENAMENTO', global)).json().total).toBe(1);
+  expect(data.items[0]).toMatchObject({
+    tenant_id: company,
+    messages: 1,
+    content_bytes: contentBytes,
+    attachment_bytes: 2048,
+    shared_bytes: sharedBytes,
+    total_bytes: contentBytes + 2048 + sharedBytes,
+    source_mail_bytes: 1000000,
+  });
+  expect(data.summary.total_bytes).toBe(data.items[0].total_bytes);
+  const first = (await call('GET', url + '&scope=mailboxes', global)).json();
+  const second = (await call('GET', url + '&scope=mailboxes&page=2', global)).json();
+  expect(first.total).toBe(12);
+  expect(first.items).toHaveLength(10);
+  expect(second.items).toHaveLength(2);
+  expect(second.summary).toEqual(first.summary);
+  expect(first.items[0]).toMatchObject({
+    id: storedBox,
+    retained_deleted: true,
+    total_bytes: contentBytes + 2048,
+    shared_bytes: 0,
+  });
+  expect(first.summary.total_bytes + data.summary.shared_bytes).toBe(data.summary.total_bytes);
+  const searched = (await call('GET', url + '&scope=mailboxes&search=arquivo', global)).json();
+  expect(searched.total).toBe(1);
+  expect(searched.items[0].id).toBe(storedBox);
+  expect((await call('GET', url + '&sort=secret_column', global)).statusCode).toBe(400);
+  expect((await call('GET', '/api/superadmin/storage?tenant_id=invalid', global)).statusCode).toBe(
+    400,
+  );
+  const empty = (
+    await call('GET', '/api/superadmin/storage?tenant_id=' + otherTenant, global)
+  ).json();
+  expect(empty.items[0].total_bytes).toBe(0);
+});
 it('cria contato completo com vários e-mails e vínculos, isolado por tenant', async () => {
   const result = await call('POST', '/api/contacts', member, {
     name: 'José QA',
@@ -187,7 +352,8 @@ it('cria contato completo com vários e-mails e vínculos, isolado por tenant', 
   expect(read.statusCode).toBe(200);
   expect(read.json().emails).toHaveLength(2);
   expect(read.body).toContain('Praça da Sé');
-  expect((await call('GET', '/api/contacts/' + contact, global)).statusCode).toBe(404);
+  expect((await call('GET', '/api/contacts/' + contact, foreign)).statusCode).toBe(404);
+  expect((await call('GET', '/api/contacts/' + contact, global)).statusCode).toBe(403);
 });
 it('impede duplicidade normalizada, inclusive criação concorrente', async () => {
   const email = 'race-' + suffix + '@apmail.local';
@@ -279,31 +445,114 @@ it('supervisor começa como membro e recebe apenas capacidades explícitas', asy
   expect(stale.body).not.toContain('Assunto secreto');
   expect((await call('PATCH', '/api/tenant', member, { name: 'Inválido' })).statusCode).toBe(403);
 });
-it('painel global não concede conteúdo; suporte é explícito, auditado, somente leitura e expira', async () => {
+it('superadmin não herda acesso operacional de proprietário nem de suporte legado', async () => {
   expect((await call('GET', '/api/superadmin/tenants', owner)).statusCode).toBe(403);
-  expect((await call('GET', '/api/superadmin/tenants', global)).statusCode).toBe(200);
-  expect((await call('GET', '/api/threads/' + thread, global)).statusCode).toBe(404);
-  const started = await call('POST', '/api/superadmin/support', global, {
-    tenant_id: tenant,
-    reason: 'Investigar solicitação QA',
-  });
-  expect(started.statusCode, started.body).toBe(200);
-  expect((await call('GET', '/api/threads/' + thread, global)).statusCode).toBe(200);
-  expect((await call('PATCH', '/api/tenant', global, { name: 'Não pode' })).statusCode).toBe(403);
-  const read = await db
-    .selectFrom('platform_audit')
-    .select('id')
-    .where('actor_id', '=', global)
-    .where('action', '=', 'platform.support_read')
-    .execute();
-  expect(read.length).toBeGreaterThan(0);
+  for (const path of ['tenants', 'users', 'mailboxes', 'audit', 'logs', 'health'])
+    expect((await call('GET', '/api/superadmin/' + path, global)).statusCode).toBe(200);
+  const session = await db
+    .selectFrom('sessions')
+    .select('token_hash')
+    .where('user_id', '=', global)
+    .executeTakeFirstOrThrow();
+  const legacy = await db
+    .insertInto('support_sessions')
+    .values({
+      user_id: global,
+      session_hash: session.token_hash,
+      tenant_id: tenant,
+      reason: 'Suporte anterior à alteração',
+      expires_at: new Date(Date.now() + 3600000),
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
   await db
-    .updateTable('support_sessions')
-    .set({ expires_at: new Date(Date.now() - 1000) })
-    .where('id', '=', started.json().id)
+    .insertInto('tenant_members')
+    .values({ tenant_id: tenant, user_id: global, role: 'owner' })
     .execute();
-  expect((await call('GET', '/api/threads/' + thread, global)).statusCode).toBe(404);
+  await db
+    .insertInto('mailbox_members')
+    .values({ tenant_id: tenant, mailbox_id: box, user_id: global, role: 'mailbox_admin' })
+    .execute();
+  await db
+    .updateTable('users')
+    .set({ current_tenant_id: tenant })
+    .where('id', '=', global)
+    .execute();
+  const me = (await call('GET', '/api/auth/me', global)).json();
+  expect(me.platform_admin).toBe(true);
+  expect(me.current_tenant_id).toBeNull();
+  expect(me.support).toBeNull();
+  expect(me.tenants).toEqual([]);
+  expect(await userCanReadThread(db, tenant, box, global, thread)).toBe(false);
+  expect(await userCanReadFolder(db, tenant, box, global, allowed)).toBe(false);
+  await db.insertInto('platform_admins').values({ user_id: member }).execute();
+  try {
+    expect(
+      (
+        await call('PUT', '/api/superadmin/users/' + member + '/access', global, {
+          tenant_id: tenant,
+          tenant_role: 'owner',
+          capabilities: [],
+          mailbox_roles: [],
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(
+      (
+        await call('POST', '/api/superadmin/tenants', global, {
+          name: 'Não criar',
+          slug: 'blocked-' + suffix,
+          owner_email: member + '@apmail.local',
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(
+      (
+        await call('POST', '/api/superadmin/invitations', global, {
+          tenant_id: tenant,
+          email: member + '@apmail.local',
+          tenant_role: 'member',
+          capabilities: [],
+          mailbox_roles: [],
+        })
+      ).statusCode,
+    ).toBe(409);
+  } finally {
+    await db.deleteFrom('platform_admins').where('user_id', '=', member).execute();
+  }
+  for (const path of [
+    '/api/mailboxes',
+    '/api/threads/' + thread,
+    '/api/dashboard/summary',
+    '/api/contacts',
+    '/api/chat/conversations',
+    '/api/notifications',
+    '/api/signatures',
+  ]) {
+    const blocked = await call('GET', path, global);
+    expect(blocked.statusCode, path).toBe(403);
+    expect(blocked.json().error.code).toBe('platform_only');
+    expect(blocked.body).not.toContain('Assunto secreto');
+  }
+  for (const [method, path, body] of [
+    ['POST', '/api/superadmin/support', { tenant_id: tenant, reason: 'Investigar solicitação QA' }],
+    ['POST', '/api/outbox', { mailbox_id: box }],
+    ['POST', '/api/tenants', { name: 'Não pode', slug: 'invalido-' + suffix }],
+    ['PUT', '/api/me/current-tenant', { tenant_id: tenant }],
+  ] as const)
+    expect((await call(method, path, global, body)).statusCode).toBe(403);
+  expect((await call('GET', '/api/preferences', global)).statusCode).toBe(200);
+  expect((await call('GET', '/api/threads/' + thread, owner)).statusCode).toBe(200);
   expect((await call('DELETE', '/api/superadmin/support', global)).statusCode).toBe(200);
+  expect(
+    (
+      await db
+        .selectFrom('support_sessions')
+        .select('ended_at')
+        .where('id', '=', legacy.id)
+        .executeTakeFirstOrThrow()
+    ).ended_at,
+  ).not.toBeNull();
 });
 it('suspensão remove o acesso HTTP e reativação preserva os dados', async () => {
   expect(
