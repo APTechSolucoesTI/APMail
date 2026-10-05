@@ -14,6 +14,7 @@ import { Mail, Menu, LogOut, LayoutDashboard } from 'lucide-react';
 import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { NotificationBell } from './notification-bell';
@@ -168,95 +169,97 @@ export function AppShell() {
   const tenant = me.data.tenants.find((t) => t.id === me.data!.current_tenant_id);
   const admin = isTenantAdmin(tenant?.role);
   const sidebar = (
-    <nav
-      aria-label="Navegação principal"
-      className="flex h-full flex-col gap-2 overflow-y-auto p-4"
+    <ScrollArea
+      type="hover"
+      className="h-full [&_[data-slot=scroll-area-scrollbar]]:w-2 [&_[data-slot=scroll-area-thumb]]:bg-muted-foreground/80 [&_[data-slot=scroll-area-thumb]:hover]:bg-muted-foreground"
     >
-      <Link
-        to="/"
-        className="mb-6 flex items-center gap-2 text-xl font-semibold text-primary"
-        onClick={() => setOpen(false)}
-      >
-        <Mail aria-hidden />
-        APMail
-      </Link>
-      <Link
-        to="/scheduled"
-        onClick={() => setOpen(false)}
-        className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-      >
-        <Mail className="size-4" />
-        Envios
-      </Link>
-      <ChatNavigation onNavigate={() => setOpen(false)} />
-      {tenant && (
+      <nav aria-label="Navegação principal" className="flex min-h-full flex-col gap-2 p-4">
         <Link
-          to="/dashboard"
+          to="/"
+          className="mb-6 flex items-center gap-2 text-xl font-semibold text-primary"
+          onClick={() => setOpen(false)}
+        >
+          <Mail aria-hidden />
+          APMail
+        </Link>
+        <Link
+          to="/scheduled"
           onClick={() => setOpen(false)}
           className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
         >
-          <LayoutDashboard className="size-4" aria-hidden />
-          Dashboard
+          <Mail className="size-4" />
+          Envios
         </Link>
-      )}
-      <Link
-        to="/contacts"
-        className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
-        onClick={() => setOpen(false)}
-      >
-        Contatos
-      </Link>
-      <NavigationGroup id="mailboxes" label="Caixas de e-mail">
-        {boxes.data?.map((b) => (
-          <MailboxFolderNavigation key={b.id} box={b} onNavigate={() => setOpen(false)} />
-        ))}
-        {!boxes.data?.length && (
-          <p className="px-2 py-4 text-sm text-muted-foreground">Sem caixas disponíveis</p>
-        )}
-      </NavigationGroup>
-      <div className="mt-auto border-t pt-4">
-        <NavigationGroup id="settings" label="Configurações">
-          {[
-            ['/settings/profile', 'Meu perfil'],
-            ['/settings/preferences', 'Preferências'],
-            ['/settings/signatures', 'Assinaturas'],
-            ['/settings/labels', 'Etiquetas'],
-            ['/settings/rules', 'Regras'],
-            ...(!admin && canDelegate(tenant?.role ?? null, tenant?.capabilities, 'members')
-              ? [['/settings/users', 'Equipe']]
-              : []),
-            ...(!admin && canDelegate(tenant?.role ?? null, tenant?.capabilities, 'audit')
-              ? [['/settings/audit', 'Auditoria']]
-              : []),
-            ...(admin
-              ? [
-                  ['/settings/users', 'Equipe e acessos'],
-                  ['/settings/mailboxes', 'Caixas de e-mail'],
-                  ['/settings/tenant', 'Empresa'],
-                  ['/settings/audit', 'Auditoria'],
-                ]
-              : []),
-          ].map(([to, label]) => (
-            <Link
-              key={to}
-              to={to}
-              className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
-              onClick={() => setOpen(false)}
-            >
-              {label}
-            </Link>
-          ))}
-        </NavigationGroup>
-        {me.data.platform_admin && (
+        <ChatNavigation onNavigate={() => setOpen(false)} />
+        {tenant && (
           <Link
-            to="/superadmin"
-            className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
+            to="/dashboard"
+            onClick={() => setOpen(false)}
+            className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
           >
-            Gestão da plataforma
+            <LayoutDashboard className="size-4" aria-hidden />
+            Dashboard
           </Link>
         )}
-      </div>
-    </nav>
+        <Link
+          to="/contacts"
+          className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
+          onClick={() => setOpen(false)}
+        >
+          Contatos
+        </Link>
+        <NavigationGroup id="mailboxes" label="Caixas de e-mail">
+          {boxes.data?.map((b) => (
+            <MailboxFolderNavigation key={b.id} box={b} onNavigate={() => setOpen(false)} />
+          ))}
+          {!boxes.data?.length && (
+            <p className="px-2 py-4 text-sm text-muted-foreground">Sem caixas disponíveis</p>
+          )}
+        </NavigationGroup>
+        <div className="mt-auto border-t pt-4">
+          <NavigationGroup id="settings" label="Configurações">
+            {[
+              ['/settings/profile', 'Meu perfil'],
+              ['/settings/preferences', 'Preferências'],
+              ['/settings/signatures', 'Assinaturas'],
+              ['/settings/labels', 'Etiquetas'],
+              ['/settings/rules', 'Regras'],
+              ...(!admin && canDelegate(tenant?.role ?? null, tenant?.capabilities, 'members')
+                ? [['/settings/users', 'Equipe']]
+                : []),
+              ...(!admin && canDelegate(tenant?.role ?? null, tenant?.capabilities, 'audit')
+                ? [['/settings/audit', 'Auditoria']]
+                : []),
+              ...(admin
+                ? [
+                    ['/settings/users', 'Equipe e acessos'],
+                    ['/settings/mailboxes', 'Caixas de e-mail'],
+                    ['/settings/tenant', 'Empresa'],
+                    ['/settings/audit', 'Auditoria'],
+                  ]
+                : []),
+            ].map(([to, label]) => (
+              <Link
+                key={to}
+                to={to}
+                className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
+                onClick={() => setOpen(false)}
+              >
+                {label}
+              </Link>
+            ))}
+          </NavigationGroup>
+          {me.data.platform_admin && (
+            <Link
+              to="/superadmin"
+              className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
+            >
+              Gestão da plataforma
+            </Link>
+          )}
+        </div>
+      </nav>
+    </ScrollArea>
   );
   return (
     <SocketContext.Provider value={socket}>

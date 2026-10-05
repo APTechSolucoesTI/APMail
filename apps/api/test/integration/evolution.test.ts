@@ -448,7 +448,9 @@ it('supervisor começa como membro e recebe apenas capacidades explícitas', asy
 it('superadmin não herda acesso operacional de proprietário nem de suporte legado', async () => {
   expect((await call('GET', '/api/superadmin/tenants', owner)).statusCode).toBe(403);
   for (const path of ['tenants', 'users', 'mailboxes', 'audit', 'logs', 'health'])
-    expect((await call('GET', '/api/superadmin/' + path, global)).statusCode).toBe(200);
+    expect(
+      (await call('GET', '/api/superadmin/' + path + '?tenant_id=' + tenant, global)).statusCode,
+    ).toBe(200);
   const session = await db
     .selectFrom('sessions')
     .select('token_hash')
@@ -704,4 +706,249 @@ it('consulta CNPJ usa fonte alternativa e valida CEP sem impedir preenchimento m
     await cache.del('lookup:cnpj:' + cnpj);
     await cache.quit();
   }
+});
+
+it('gestão exige empresa para listar usuários e caixas e não mistura cadastros', async () => {
+  for (const path of ['users', 'mailboxes']) {
+    expect((await call('GET', '/api/superadmin/' + path, global)).statusCode).toBe(400);
+    expect(
+      (await call('GET', '/api/superadmin/' + path + '?tenant_id=' + tenant, member)).statusCode,
+    ).toBe(403);
+  }
+  const users = (await call('GET', '/api/superadmin/users?tenant_id=' + tenant, global)).json();
+  expect(users.items.map((u: { id: string }) => u.id).sort()).toEqual([owner, member].sort());
+  expect(users.total).toBe(2);
+  expect(
+    users.items.every(
+      (u: { platform_admin: boolean; tenant_role: string }) => !u.platform_admin && !!u.tenant_role,
+    ),
+  ).toBe(true);
+  const foreignUsers = (
+    await call('GET', '/api/superadmin/users?tenant_id=' + otherTenant, global)
+  ).json();
+  expect(foreignUsers.items.map((u: { id: string }) => u.id)).toEqual([foreign]);
+  const boxes = (await call('GET', '/api/superadmin/mailboxes?tenant_id=' + tenant, global)).json();
+  expect(boxes.items.map((b: { id: string }) => b.id).sort()).toEqual([box, otherBox].sort());
+  expect(
+    (await call('GET', '/api/superadmin/mailboxes?tenant_id=' + otherTenant, global)).json().total,
+  ).toBe(0);
+  expect((await call('GET', '/api/superadmin/tenants/' + tenant, global)).json()).toMatchObject({
+    id: tenant,
+  });
+  expect((await call('GET', '/api/superadmin/tenants/' + randomUUID(), global)).statusCode).toBe(
+    404,
+  );
+});
+it('superadmin edita empresa e registra auditoria e logs no contexto correto', async () => {
+  const updated = { name: 'Empresa editada QA', slug: 'editada-' + suffix };
+  expect(
+    (await call('PATCH', '/api/superadmin/tenants/' + tenant, global, updated)).statusCode,
+  ).toBe(200);
+  expect((await call('GET', '/api/superadmin/tenants/' + tenant, global)).json()).toMatchObject(
+    updated,
+  );
+  expect((await call('PATCH', '/api/superadmin/tenants/' + tenant, global, {})).statusCode).toBe(
+    400,
+  );
+  expect(
+    (
+      await call('PATCH', '/api/superadmin/tenants/' + tenant, global, {
+        slug: 'evo-other-' + suffix,
+      })
+    ).statusCode,
+  ).toBe(409);
+  const audit = (
+    await call(
+      'GET',
+      '/api/superadmin/audit?tenant_id=' + tenant + '&search=tenant_updated',
+      global,
+    )
+  ).json();
+  expect(audit.total).toBe(1);
+  expect(audit.items[0]).toMatchObject({ tenant_id: tenant, action: 'platform.tenant_updated' });
+  expect(
+    (
+      await call(
+        'GET',
+        '/api/superadmin/audit?tenant_id=' + otherTenant + '&search=tenant_updated',
+        global,
+      )
+    ).json().total,
+  ).toBe(0);
+  await db
+    .insertInto('operational_logs')
+    .values([
+      { tenant_id: tenant, service: 'fixture', level: 'info', message: 'Contexto ' + suffix },
+      { tenant_id: otherTenant, service: 'fixture', level: 'info', message: 'Contexto ' + suffix },
+    ])
+    .execute();
+  const logs = (
+    await call('GET', '/api/superadmin/logs?tenant_id=' + tenant + '&search=' + suffix, global)
+  ).json();
+  expect(logs.total).toBe(1);
+  expect(logs.items.every((log: { tenant_id: string }) => log.tenant_id === tenant)).toBe(true);
+});
+it('superadmin cria usuário, edita identidade e senha, revoga sessão e bloqueia contexto errado', async () => {
+  const body = {
+    full_name: 'Usuário novo QA',
+    email: 'novo-' + suffix + '@apmail.local',
+    password: 'SenhaInicial123',
+    tenant_role: 'member',
+  };
+  expect(
+    (await call('POST', '/api/superadmin/tenants/' + tenant + '/users', member, body)).statusCode,
+  ).toBe(403);
+  const created = await call('POST', '/api/superadmin/tenants/' + tenant + '/users', global, body);
+  expect(created.statusCode, created.body).toBe(201);
+  const id = created.json().id;
+  expect(created.body).not.toContain('password');
+  const stored = await db
+    .selectFrom('users')
+    .select('password_hash')
+    .where('id', '=', id)
+    .executeTakeFirstOrThrow();
+  expect(stored.password_hash).toContain('$argon2');
+  expect(stored.password_hash).not.toBe(body.password);
+  expect(
+    await db
+      .selectFrom('tenant_members')
+      .select(['role', 'status'])
+      .where('tenant_id', '=', tenant)
+      .where('user_id', '=', id)
+      .executeTakeFirst(),
+  ).toMatchObject({ role: 'member', status: 'active' });
+  expect(
+    await db.selectFrom('mailbox_members').select('id').where('user_id', '=', id).execute(),
+  ).toHaveLength(0);
+  expect(
+    await db
+      .selectFrom('user_preferences')
+      .select(['theme', 'load_remote_images'])
+      .where('user_id', '=', id)
+      .executeTakeFirst(),
+  ).toMatchObject({ theme: 'light', load_remote_images: true });
+  expect(
+    (await call('POST', '/api/superadmin/tenants/' + tenant + '/users', global, body)).statusCode,
+  ).toBe(409);
+  const login = await call('POST', '/api/auth/login', id, {
+    email: body.email,
+    password: body.password,
+  });
+  expect(login.statusCode, login.body).toBe(200);
+  cookies.set(id, login.cookies.map((c) => c.name + '=' + encodeURIComponent(c.value)).join('; '));
+  expect((await call('GET', '/api/auth/me', id)).statusCode).toBe(200);
+  expect(
+    (
+      await call('PATCH', '/api/superadmin/users/' + id, global, {
+        tenant_id: otherTenant,
+        full_name: 'Outra empresa',
+        email: body.email,
+      })
+    ).statusCode,
+  ).toBe(404);
+  expect((await call('GET', '/api/auth/me', id)).statusCode).toBe(200);
+  const edited = {
+    tenant_id: tenant,
+    full_name: 'Usuário editado QA',
+    email: 'editado-' + suffix + '@apmail.local',
+    password: 'SenhaAlterada123',
+  };
+  const updated = await call('PATCH', '/api/superadmin/users/' + id, global, edited);
+  expect(updated.statusCode, updated.body).toBe(200);
+  expect(updated.json()).toMatchObject({ full_name: edited.full_name, email: edited.email });
+  expect((await call('GET', '/api/auth/me', id)).statusCode).toBe(401);
+  expect(
+    (await call('POST', '/api/auth/login', id, { email: edited.email, password: body.password }))
+      .statusCode,
+  ).toBe(401);
+  expect(
+    (await call('POST', '/api/auth/login', id, { email: edited.email, password: edited.password }))
+      .statusCode,
+  ).toBe(200);
+  expect(
+    (
+      await call('PATCH', '/api/superadmin/users/' + global, global, {
+        tenant_id: tenant,
+        full_name: 'Alteração bloqueada',
+        email: global + '@apmail.local',
+      })
+    ).statusCode,
+  ).toBe(409);
+  const audit = await db
+    .selectFrom('platform_audit')
+    .select('metadata')
+    .where('tenant_id', '=', tenant)
+    .where('action', '=', 'platform.user_updated')
+    .execute();
+  expect(JSON.stringify(audit)).not.toContain('Senha');
+  expect(JSON.stringify(audit)).not.toContain('$argon2');
+});
+it('configuração de caixa exige empresa correta, oculta segredos e preserva campos omitidos', async () => {
+  await db
+    .updateTable('mailboxes')
+    .set({
+      aliases: ['alias@apmail.local'],
+      append_sent_copy: false,
+      history_classify_days: 17,
+      from_name_template: '{tenant_name}',
+    })
+    .where('id', '=', box)
+    .execute();
+  const config = await call(
+    'GET',
+    '/api/superadmin/tenants/' + tenant + '/mailboxes/' + box,
+    global,
+  );
+  expect(config.statusCode).toBe(200);
+  expect(config.body).not.toMatch(/password|cipher|storage_path/);
+  expect(
+    (await call('GET', '/api/superadmin/tenants/' + otherTenant + '/mailboxes/' + box, global))
+      .statusCode,
+  ).toBe(404);
+  expect(
+    (
+      await call('PATCH', '/api/superadmin/mailboxes/' + box, global, {
+        tenant_id: otherTenant,
+        name: 'Alteração bloqueada',
+      })
+    ).statusCode,
+  ).toBe(404);
+  expect(
+    (await call('PATCH', '/api/superadmin/mailboxes/' + box, global, { tenant_id: tenant }))
+      .statusCode,
+  ).toBe(400);
+  const patched = await call('PATCH', '/api/superadmin/mailboxes/' + box, global, {
+    tenant_id: tenant,
+    name: 'Nome editado QA',
+  });
+  expect(patched.statusCode, patched.body).toBe(200);
+  expect(
+    await db
+      .selectFrom('mailboxes')
+      .select([
+        'name',
+        'aliases',
+        'append_sent_copy',
+        'history_classify_days',
+        'from_name_template',
+      ])
+      .where('id', '=', box)
+      .executeTakeFirst(),
+  ).toEqual({
+    name: 'Nome editado QA',
+    aliases: ['alias@apmail.local'],
+    append_sent_copy: false,
+    history_classify_days: 17,
+    from_name_template: '{tenant_name}',
+  });
+  expect(
+    (
+      await call(
+        'GET',
+        '/api/superadmin/mailboxes?tenant_id=' + tenant + '&search=Nome%20editado',
+        global,
+      )
+    ).json().total,
+  ).toBe(1);
+  expect((await call('GET', '/api/mailboxes', global)).statusCode).toBe(403);
 });

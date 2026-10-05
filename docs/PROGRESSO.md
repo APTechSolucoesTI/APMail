@@ -1,5 +1,16 @@
 # Progresso do APMail
 
+## Atualização de 05/10/2026 — gestão por empresa e rolagem do menu (local)
+
+- **Implementado no workspace; sem commit, push ou deploy.** Publicação no Dokploy a cargo do usuário. Sem migração adicional e sem mudanças em produção.
+- /superadmin começa no seletor de empresas. Seleção fica visível e na URL; usuários, caixas, armazenamento, auditoria e logs permanecem no contexto escolhido. Troca de empresa limpa filtros/paginação e não conserva dados da anterior durante carregamento. Saúde da plataforma permanece global.
+- Criar/editar empresas; criar usuários com senha inicial e configurar acessos em seguida; editar nome/e-mail/senha, convidar e ativar/desativar vínculos. Conta existente é vinculada por convite. O formulário explica identidade compartilhada entre empresas; trocar e-mail/senha invalida sessões. Contas globais não recebem acesso operacional e não aparecem na equipe empresarial.
+- Criar/editar caixas com configuração IMAP/SMTP, remetente e cópia em Enviados. Credenciais nunca retornam ao cliente; autenticação de conexões alteradas ocorre antes da gravação. Edição parcial preserva campos omitidos, incluindo aliases e classificação histórica. Listagens de usuários/caixas exigem empresa na API; configuração/edição valida vínculo no servidor.
+- Menu lateral reutiliza ScrollArea com indicador fino, arredondado, neutro e exibido durante interação, nos dois temas e no menu móvel. Roda do mouse e foco por teclado conferidos.
+- Validação: lint, typecheck, build e 51 testes unitários; 77 integrações de QA em Linux (DB 2, API 46, worker 29) com PostgreSQL/Redis/IMAP/SMTP reais. Inclui criação/edição/isolamento, senha e revogação de sessão, ocultação de credenciais e falhas de conexão sem alterar cadastros válidos.
+- Navegador Edge: cadastro/edição de empresa, usuário e caixa de laboratório, permissões, contexto inválido, troca de empresa e histórico sem recarga, armazenamento restrito; painel, formulário e menu em 1440/900/390 px e claro/escuro. Sem erros JavaScript ou violações sérias/críticas no axe. Relatório local .data/qa/management-browser-report.json e screenshots management-*, ignorados pelo Git.
+- Documentação de contrato e publicação atualizada em [SPEC](SPEC-EVOLUCAO-APMAIL.md) e [DEPLOY](DEPLOY.md).
+
 ## Atualização de 05/10/2026 — superadmin exclusivo e armazenamento (local)
 
 - **Implementado e validado no workspace; sem commit, push ou deploy.** O usuário fará a publicação no Dokploy. A versão anterior em produção permanece a descrita na seção seguinte.

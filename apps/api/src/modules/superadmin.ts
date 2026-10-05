@@ -21,6 +21,7 @@ import {
 import { newToken, hashToken } from '../plugins/auth.js';
 import type { Resources } from './resources.js';
 import { registerPlatformStorage } from './platform-storage.js';
+import { registerPlatformManagement } from './platform-management.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 const pageSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -30,9 +31,11 @@ const pageSchema = z.object({
     .refine((n) => [10, 20, 30, 50, 100].includes(n))
     .default(10),
   search: z.string().trim().max(120).default(''),
+  tenant_id: z.uuid().optional(),
 });
 export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
   await registerPlatformStorage(app, r);
+  await registerPlatformManagement(app, r, record);
   app.get('/api/superadmin/users/:id/access', async (req) => {
     requireSuperAdmin(req.ctx);
     const id = idOf(req.params),
@@ -304,7 +307,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
         't.slug',
         't.created_at',
         't.suspended_at',
-        sql<number>`(select count(*)::int from tenant_members m where m.tenant_id=t.id and m.status='active')`.as(
+        sql<number>`(select count(*)::int from tenant_members m where m.tenant_id=t.id and m.status='active' and not exists(select 1 from platform_admins p where p.user_id=m.user_id))`.as(
           'users',
         ),
         sql<number>`(select count(*)::int from mailboxes b where b.tenant_id=t.id and b.deleted_at is null)`.as(
@@ -395,23 +398,52 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
   app.patch('/api/superadmin/tenants/:id', async (req) => {
     const c = requireSuperAdmin(req.ctx),
       id = idOf(req.params),
-      b = z.object({ suspended: z.boolean() }).parse(req.body);
+      b = tenantSchema
+        .partial()
+        .extend({ suspended: z.boolean().optional() })
+        .refine((v) => Object.keys(v).length > 0, 'Informe uma alteração.')
+        .parse(req.body);
     const row = await r.db
       .updateTable('tenants')
-      .set({ suspended_at: b.suspended ? new Date() : null })
+      .set({
+        ...(b.name !== undefined ? { name: b.name } : {}),
+        ...(b.slug !== undefined ? { slug: b.slug } : {}),
+        ...(b.suspended !== undefined ? { suspended_at: b.suspended ? new Date() : null } : {}),
+      })
       .where('id', '=', id)
       .where('deleted_at', 'is', null)
       .returning('id')
       .executeTakeFirst();
     if (!row) throw notFound();
-    r.io.in('tenant:' + id).disconnectSockets(true);
-    await record(c, b.suspended ? 'platform.tenant_suspended' : 'platform.tenant_resumed', id);
+    if (b.suspended !== undefined) r.io.in('tenant:' + id).disconnectSockets(true);
+    await record(
+      c,
+      b.suspended === undefined
+        ? 'platform.tenant_updated'
+        : b.suspended
+          ? 'platform.tenant_suspended'
+          : 'platform.tenant_resumed',
+      id,
+      { name: b.name, slug: b.slug },
+    );
     return { ok: true };
   });
   app.get('/api/superadmin/users', async (req) => {
     requireSuperAdmin(req.ctx);
-    const q = pageSchema.parse(req.query);
+    const q = pageSchema.extend({ tenant_id: z.uuid() }).parse(req.query);
     let query = r.db.selectFrom('users');
+    if (q.tenant_id)
+      query = query
+        .where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('tenant_members as m')
+              .select('m.user_id')
+              .whereRef('m.user_id', '=', 'users.id')
+              .where('m.tenant_id', '=', q.tenant_id!),
+          ),
+        )
+        .where(sql<boolean>`not exists(select 1 from platform_admins p where p.user_id=users.id)`);
     if (q.search)
       query = query.where((eb) =>
         eb.or([
@@ -429,6 +461,20 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
           'platform_admin',
         ),
       )
+      .select(
+        sql<
+          string | null
+        >`(select m.role from tenant_members m where m.user_id=users.id and m.tenant_id=${q.tenant_id ?? null}::uuid)`.as(
+          'tenant_role',
+        ),
+      )
+      .select(
+        sql<
+          string | null
+        >`(select m.status from tenant_members m where m.user_id=users.id and m.tenant_id=${q.tenant_id ?? null}::uuid)`.as(
+          'member_status',
+        ),
+      )
       .orderBy('created_at', 'desc')
       .limit(q.pageSize)
       .offset((q.page - 1) * q.pageSize)
@@ -437,12 +483,19 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
   });
   app.get('/api/superadmin/mailboxes', async (req) => {
     requireSuperAdmin(req.ctx);
-    const q = pageSchema.parse(req.query);
+    const q = pageSchema.extend({ tenant_id: z.uuid() }).parse(req.query);
     let query = r.db
       .selectFrom('mailboxes as b')
       .innerJoin('tenants as t', 't.id', 'b.tenant_id')
       .where('b.deleted_at', 'is', null);
-    if (q.search) query = query.where('b.email_address', 'ilike', '%' + q.search + '%');
+    if (q.tenant_id) query = query.where('b.tenant_id', '=', q.tenant_id);
+    if (q.search)
+      query = query.where((eb) =>
+        eb.or([
+          eb('b.email_address', 'ilike', '%' + q.search + '%'),
+          eb('b.name', 'ilike', '%' + q.search + '%'),
+        ]),
+      );
     const count = await query
       .select((eb) => eb.fn.countAll<number>().as('n'))
       .executeTakeFirstOrThrow();
@@ -544,22 +597,23 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
   app.get('/api/superadmin/audit', async (req) => {
     requireSuperAdmin(req.ctx);
     const q = pageSchema.parse(req.query);
-    const count = await r.db
-      .selectFrom('platform_audit')
+    let query = r.db.selectFrom('platform_audit');
+    if (q.tenant_id) query = query.where('tenant_id', '=', q.tenant_id);
+    if (q.search) query = query.where('action', 'ilike', '%' + q.search + '%');
+    const count = await query
       .select((eb) => eb.fn.countAll<number>().as('n'))
       .executeTakeFirstOrThrow();
-    const items = await r.db
-      .selectFrom('platform_audit as a')
-      .leftJoin('users as u', 'u.id', 'a.actor_id')
+    const items = await query
+      .leftJoin('users as u', 'u.id', 'platform_audit.actor_id')
       .select([
-        'a.id',
-        'a.tenant_id',
-        'a.action',
-        'a.metadata',
-        'a.created_at',
+        'platform_audit.id',
+        'platform_audit.tenant_id',
+        'platform_audit.action',
+        'platform_audit.metadata',
+        'platform_audit.created_at',
         'u.full_name as actor_name',
       ])
-      .orderBy('a.created_at', 'desc')
+      .orderBy('platform_audit.created_at', 'desc')
       .limit(q.pageSize)
       .offset((q.page - 1) * q.pageSize)
       .execute();
@@ -568,12 +622,20 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
   app.get('/api/superadmin/logs', async (req) => {
     requireSuperAdmin(req.ctx);
     const q = pageSchema.parse(req.query);
-    const count = await r.db
-      .selectFrom('operational_logs')
+    let query = r.db.selectFrom('operational_logs');
+    if (q.tenant_id) query = query.where('tenant_id', '=', q.tenant_id);
+    if (q.search)
+      query = query.where((eb) =>
+        eb.or([
+          eb('service', 'ilike', '%' + q.search + '%'),
+          eb('message', 'ilike', '%' + q.search + '%'),
+          eb('level', 'ilike', '%' + q.search + '%'),
+        ]),
+      );
+    const count = await query
       .select((eb) => eb.fn.countAll<number>().as('n'))
       .executeTakeFirstOrThrow();
-    const items = await r.db
-      .selectFrom('operational_logs')
+    const items = await query
       .select([
         'id',
         'tenant_id',

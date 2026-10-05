@@ -137,3 +137,9 @@ Contatos são exclusivos por e-mail normalizado dentro da empresa. Por padrão, 
 Dashboard é padrão para todos; Membro tem métricas pessoais e Supervisor/Admin visão geral somente no escopo permitido. Não exige nova concessão nem migração de banco. Cadastros e trocas de conexão/senha exigem testes IMAP e SMTP concluídos antes de persistir. A API precisa alcançar os provedores, além do worker. TLS/STARTTLS permanece obrigatório em produção; ALLOW_INSECURE_TLS_HOSTS só é considerado em desenvolvimento.
 
 Assinaturas oferecem upload de imagem, com PNG normalizado e CID incorporado no MIME. Arquivos antigos do APMail continuam acessíveis e são convertidos no envio; não remover o armazenamento persistente. Imagens externas legadas precisam ser anexadas para serem incorporadas. Preserve ambiente, domínio, SMTP e volumes existentes ao redeployar.
+
+### Gestão por empresa — implementação local de 05/10/2026
+
+Publicação e commit ficam a cargo do usuário. Atualizar API e web juntos habilita o fluxo por empresa: escolher no /superadmin, então cadastrar/editar usuários e conexões ou consultar o armazenamento/auditoria/logs. Não há nova migração. Clientes internos das listagens GET /api/superadmin/users e GET /api/superadmin/mailboxes devem enviar tenant_id. O acesso operacional de contas globais continua bloqueado.
+
+Criar usuário define senha inicial; o painel permite configurar acessos em seguida. Editar nome/e-mail/senha altera a identidade comum às empresas às quais a conta pertence. Convites de contas existentes e de proprietários novos continuam pelo SMTP global. Mudanças IMAP/SMTP/senha são testadas antes de salvar. Nenhum cadastro ou credencial de laboratório deve ser transferido para produção.

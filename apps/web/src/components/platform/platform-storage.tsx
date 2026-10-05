@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import type { ListQuery, PlatformStorageResult, StorageRow } from '@apmail/shared';
 import { api } from '@/lib/api';
 import { ConfigurableTable, type ListColumn } from '@/components/data/configurable-table';
@@ -21,11 +21,13 @@ export function PlatformStorage({
   query,
   scope,
   tenantId,
+  lockTenant = false,
   onChange,
 }: {
   query: ListQuery;
   scope: Scope;
   tenantId?: string;
+  lockTenant?: boolean;
   onChange: (query: ListQuery, scope: Scope, tenantId?: string) => void;
 }) {
   const usage = useQuery({
@@ -52,7 +54,10 @@ export function PlatformStorage({
           }),
         { signal },
       ),
-    placeholderData: keepPreviousData,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[3] === tenantId && previousQuery?.queryKey[2] === scope
+        ? previous
+        : undefined,
   });
   const columns: ListColumn<StorageRow>[] = [
     {
@@ -113,7 +118,7 @@ export function PlatformStorage({
     onChange(
       { ...query, page: 1, search: undefined, sort: undefined, filters: {} },
       nextScope,
-      nextTenant,
+      lockTenant ? tenantId : nextTenant,
     );
   return (
     <section className="space-y-4" aria-label="Armazenamento da plataforma">
@@ -132,7 +137,7 @@ export function PlatformStorage({
         >
           Por caixa
         </Button>
-        {tenantId && (
+        {tenantId && !lockTenant && (
           <Button variant="outline" onClick={() => reset(scope)}>
             Limpar filtro de empresa
           </Button>

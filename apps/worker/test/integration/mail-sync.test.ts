@@ -278,7 +278,12 @@ it('cadastro testa IMAP/SMTP antes de gravar, incluindo superadmin e troca de cr
     smtp_port: smtpPort,
     smtp_secure: false,
   };
-  const request = (method: 'POST' | 'PUT', path: string, payload: unknown, user = owner) =>
+  const request = (
+    method: 'POST' | 'PUT' | 'PATCH',
+    path: string,
+    payload: unknown,
+    user = owner,
+  ) =>
     probe.inject({
       method,
       url: path,
@@ -286,6 +291,7 @@ it('cadastro testa IMAP/SMTP antes de gravar, incluindo superadmin e troca de cr
       payload: JSON.stringify(payload),
     });
   let created: string | undefined;
+  let globalCreated: string | undefined;
   try {
     expect((await request('POST', '/api/mailboxes/test-connection', body, viewer)).statusCode).toBe(
       403,
@@ -352,14 +358,67 @@ it('cadastro testa IMAP/SMTP antes de gravar, incluindo superadmin e troca de cr
         .where('mailbox_id', '=', created!)
         .executeTakeFirstOrThrow(),
     ).toEqual(before);
+    const initialConfig = await db
+      .selectFrom('mailboxes')
+      .selectAll()
+      .where('id', '=', created!)
+      .executeTakeFirstOrThrow();
+    for (const change of [
+      { smtp_port: 65534 },
+      { imap_port: 65534 },
+      { password: 'SenhaIncorreta' },
+    ]) {
+      const failed = await request('PATCH', '/api/superadmin/mailboxes/' + created, {
+        tenant_id: tenantId,
+        ...change,
+      });
+      expect(failed.statusCode, failed.body).toBe(422);
+      expect(failed.body).not.toContain('SenhaIncorreta');
+      expect(
+        await db
+          .selectFrom('mailboxes')
+          .selectAll()
+          .where('id', '=', created!)
+          .executeTakeFirstOrThrow(),
+      ).toEqual(initialConfig);
+      expect(
+        await db
+          .selectFrom('mailbox_credentials')
+          .selectAll()
+          .where('mailbox_id', '=', created!)
+          .executeTakeFirstOrThrow(),
+      ).toEqual(before);
+    }
+    const valid = await request('PATCH', '/api/superadmin/mailboxes/' + created, {
+      tenant_id: tenantId,
+      name: 'Editada após teste',
+      password: body.password,
+    });
+    expect(valid.statusCode, valid.body).toBe(200);
+    expect(
+      (
+        await db
+          .selectFrom('mailboxes')
+          .select('name')
+          .where('id', '=', created!)
+          .executeTakeFirstOrThrow()
+      ).name,
+    ).toBe('Editada após teste');
+    const globalSaved = await request('POST', '/api/superadmin/mailboxes', {
+      ...body,
+      email_address: 'global-' + body.email_address,
+      tenant_id: tenantId,
+    });
+    expect(globalSaved.statusCode, globalSaved.body).toBe(201);
+    globalCreated = globalSaved.json().id;
   } finally {
     await db.deleteFrom('platform_admins').where('user_id', '=', owner).execute();
-    if (created) {
+    for (const id of [created, globalCreated].filter((value): value is string => !!value)) {
       for (const job of await queues.queues['mailbox-connection'].getJobs(['waiting', 'delayed']))
-        if (job.data.mailbox_id === created) await job.remove();
+        if (job.data.mailbox_id === id) await job.remove();
       await db
         .deleteFrom('mailboxes')
-        .where('id', '=', created)
+        .where('id', '=', id)
         .where('tenant_id', '=', tenantId)
         .execute();
     }

@@ -322,3 +322,15 @@ Validação: lint, tipos, build, 51 testes unitários e 70 de integração com P
 ## Complemento de 05/10/2026: superadmin exclusivo e armazenamento
 
 Implementado em código local, com commit e deploy a cargo do usuário. Não há nova migração nem alteração automática dos cadastros em produção. Antes da publicação, manter um proprietário/admin empresarial comum para a operação: contas concedidas como superadmin, incluindo proprietários antigos, passam a entrar somente em /superadmin. Novos envios e ações pendentes revalidam essa fronteira no worker.
+
+## Complemento de 05/10/2026: gestão por empresa e rolagem do menu
+
+O painel /superadmin inicia na lista de empresas. Depois de selecionar uma, mantém seu nome visível e libera cadastro da empresa, usuários, caixas, armazenamento, auditoria e logs referentes a ela. Trocar empresa retorna ao seletor; URL, busca e paginação preservam o contexto. O cache não apresenta dados da empresa anterior enquanto a nova carrega. Saúde da plataforma continua global.
+
+- Empresas: criar com proprietário existente ou convidado, editar nome/identificador, suspender e reativar.
+- Usuários: criar conta com senha inicial e papel na empresa, configurar caixas/capacidades na etapa seguinte, editar nome/e-mail/senha, convidar por SMTP global e ativar/desativar o vínculo selecionado. Conta já existente é vinculada por convite, evitando redefinir sua senha durante cadastro. Nome/e-mail/senha pertencem à identidade compartilhada; o formulário informa que afetam todas as empresas da conta. Alterar e-mail/senha encerra as sessões atuais. O último proprietário ativo é protegido.
+- Caixas: adicionar e editar configuração IMAP/SMTP, remetente e cópia em Enviados. Senha existente nunca é retornada. Campos de conexão/senha alterados são autenticados antes da gravação; falha preserva configuração/credenciais anteriores. Campos omitidos em edição parcial permanecem intactos.
+- As listagens de usuários e caixas exigem tenant_id na API, validado como UUID. Cadastros e permissões são conferidos no servidor; contexto incorreto retorna 404. Contas globais não aparecem como usuários operacionais nem recebem permissões de caixa. Gestão cadastral não concede leitura de mensagens.
+- Menu lateral: ScrollArea existente com indicador vertical fino, neutro e exibido durante interação; mesma solução no painel lateral de desktop e no menu móvel. Roda do mouse, toque e foco por teclado continuam funcionais nos dois temas.
+
+Entrega local, sem commit/push/deploy e sem migração adicional. A stack existente foi preservada; as diretrizes visuais e de acessibilidade do AGENTS.md orientam os componentes reutilizados.

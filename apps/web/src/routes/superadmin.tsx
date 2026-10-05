@@ -1,52 +1,33 @@
 import { useEffect, useState } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
-import {
-  listQuerySchema,
-  tenantSchema,
-  emailSchema,
-  mailboxSchema,
-  type ListResult,
-} from '@apmail/shared';
+import { listQuerySchema, ROLE_LABELS, type ListResult, type TenantRole } from '@apmail/shared';
 import { requireUser, meQuery } from '@/lib/auth';
 import { api, ApiError } from '@/lib/api';
 import { PageHeader } from '@/components/layout/page-header';
 import { ConfigurableTable, type ListColumn } from '@/components/data/configurable-table';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
 import { Button } from '@/components/ui/button';
-import { SchemaForm } from '@/components/forms/schema-form';
-import { connectionFields } from '@/components/forms/mailbox-wizard';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { toast } from 'sonner';
 import { PlatformStorage } from '@/components/platform/platform-storage';
-import { AccessEditor } from '@/components/forms/access-editor';
+import {
+  PlatformManagementDialog,
+  type ManagementDialog,
+  type PlatformRow,
+} from '@/components/platform/platform-management-dialog';
 import { useTheme } from '@/components/layout/theme-provider';
+
 const sections = ['tenants', 'users', 'mailboxes', 'storage', 'audit', 'logs', 'health'] as const;
 const labels = {
-  tenants: 'Empresas',
+  tenants: 'Empresa',
   users: 'Usuários',
-  mailboxes: 'Conexões de e-mail',
+  mailboxes: 'Caixas de e-mail',
   storage: 'Armazenamento',
   audit: 'Auditoria',
   logs: 'Logs',
   health: 'Saúde da plataforma',
-};
-type Row = {
-  id: string;
-  name?: string;
-  slug?: string;
-  suspended_at?: string | null;
-  email_address?: string;
-  tenant_id?: string;
-  [key: string]: unknown;
 };
 export const Route = createFileRoute('/superadmin')({
   beforeLoad: async () => {
@@ -55,11 +36,12 @@ export const Route = createFileRoute('/superadmin')({
       throw new ApiError(
         403,
         'forbidden',
-        'Somente o super admin pode acessar a gestão da plataforma.',
+        'Somente o superadmin pode acessar a gestão da plataforma.',
       );
   },
   validateSearch: listQuerySchema.extend({
     section: z.enum(sections).default('tenants'),
+    tenant_id: z.uuid().optional(),
     storage_scope: z.enum(['tenants', 'mailboxes']).default('tenants'),
     storage_tenant: z.uuid().optional(),
   }),
@@ -67,14 +49,12 @@ export const Route = createFileRoute('/superadmin')({
 });
 function SuperAdmin() {
   const query = Route.useSearch(),
-    section = query.section,
     navigate = useNavigate(),
     client = useQueryClient();
-  const [dialog, setDialog] = useState<{
-    kind: 'tenant' | 'mailbox' | 'credentials' | 'invite' | 'memberships' | 'access';
-    row?: Row;
-    tenantId?: string;
-  } | null>(null);
+  const tenantId = query.tenant_id ?? query.storage_tenant;
+  // A company is selected before exposing tenant management, even for old bookmarked URLs.
+  const section = tenantId || query.section === 'health' ? query.section : 'tenants';
+  const [dialog, setDialog] = useState<ManagementDialog | null>(null);
   const me = useQuery(meQuery).data;
   const { theme, setTheme } = useTheme();
   useEffect(() => {
@@ -90,23 +70,15 @@ function SuperAdmin() {
     },
     onError: () => toast.error('Não foi possível salvar o tema.'),
   });
-  const companies = useQuery({
-    queryKey: ['platform', 'tenant-options'],
-    queryFn: () => api<ListResult<Row>>('/superadmin/tenants?pageSize=100'),
-    enabled: dialog?.kind === 'mailbox' || dialog?.kind === 'invite',
-  });
-  const memberships = useQuery({
-    queryKey: ['platform', 'memberships', dialog?.row?.id],
-    queryFn: () =>
-      api<{ tenant_id: string; name: string; role: string; status: string }[]>(
-        '/superadmin/users/' + dialog?.row?.id + '/memberships',
-      ),
-    enabled: dialog?.kind === 'memberships',
+  const company = useQuery({
+    queryKey: ['platform', 'company', tenantId],
+    queryFn: () => api<PlatformRow>('/superadmin/tenants/' + tenantId),
+    enabled: !!tenantId,
   });
   const q = useQuery({
-    queryKey: ['platform', section, query.page, query.pageSize, query.search],
+    queryKey: ['platform', section, tenantId, query.page, query.pageSize, query.search],
     queryFn: ({ signal }) =>
-      api<ListResult<Row>>(
+      api<ListResult<PlatformRow>>(
         '/superadmin/' +
           section +
           '?' +
@@ -114,11 +86,17 @@ function SuperAdmin() {
             page: String(query.page),
             pageSize: String(query.pageSize),
             search: query.search ?? '',
+            ...(tenantId ? { tenant_id: tenantId } : {}),
           }),
         { signal },
       ),
-    enabled: section !== 'health' && section !== 'storage',
-    placeholderData: keepPreviousData,
+    enabled:
+      (!tenantId && section === 'tenants') ||
+      (!!company.data && !['health', 'storage', 'tenants'].includes(section)),
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === section && previousQuery.queryKey[2] === tenantId
+        ? previous
+        : undefined,
   });
   const health = useQuery({
     queryKey: ['platform', 'health'],
@@ -133,7 +111,7 @@ function SuperAdmin() {
     enabled: section === 'health',
     refetchInterval: section === 'health' ? 30000 : false,
   });
-  const columns: Record<string, ListColumn<Row>[]> = {
+  const columns: Record<string, ListColumn<PlatformRow>[]> = {
     tenants: [
       { id: 'name', header: 'Empresa', hideable: false },
       { id: 'slug', header: 'Identificador' },
@@ -149,9 +127,14 @@ function SuperAdmin() {
       { id: 'full_name', header: 'Nome', hideable: false },
       { id: 'email', header: 'E-mail' },
       {
-        id: 'platform_admin',
-        header: 'Perfil',
-        cell: (r) => (r.platform_admin ? 'Superadmin da plataforma' : 'Usuário de empresa'),
+        id: 'tenant_role',
+        header: 'Papel',
+        cell: (r) => ROLE_LABELS[r.tenant_role as TenantRole] ?? String(r.tenant_role ?? ''),
+      },
+      {
+        id: 'member_status',
+        header: 'Acesso',
+        cell: (r) => (r.member_status === 'active' ? 'Ativo' : 'Desativado'),
       },
       {
         id: 'last_login_at',
@@ -163,7 +146,6 @@ function SuperAdmin() {
     mailboxes: [
       { id: 'name', header: 'Caixa', hideable: false },
       { id: 'email_address', header: 'E-mail' },
-      { id: 'tenant_name', header: 'Empresa' },
       { id: 'status', header: 'Status' },
       {
         id: 'last_synced_at',
@@ -183,7 +165,6 @@ function SuperAdmin() {
       },
       { id: 'actor_name', header: 'Usuário' },
       { id: 'action', header: 'Ação' },
-      { id: 'tenant_id', header: 'Empresa' },
       {
         id: 'metadata',
         header: 'Detalhes',
@@ -209,74 +190,146 @@ function SuperAdmin() {
     await client.invalidateQueries({ queryKey: ['platform'] });
     await client.invalidateQueries({ queryKey: ['me'] });
   };
+  const switchContext = (nextId?: string) => {
+    setDialog(null);
+    void navigate({
+      to: '/superadmin',
+      search: {
+        page: 1,
+        pageSize: query.pageSize,
+        filters: {},
+        section: nextId ? 'users' : 'tenants',
+        tenant_id: nextId,
+        storage_scope: 'tenants',
+      },
+    });
+  };
+  const open = (kind: ManagementDialog['kind'], row?: PlatformRow) =>
+    setDialog({ kind, row, tenantId });
+  const visibleDialog =
+    dialog &&
+    (dialog.kind === 'tenant-create' ||
+      (dialog.kind === 'tenant-edit' && !tenantId) ||
+      dialog.tenantId === tenantId)
+      ? dialog
+      : null;
+  const available = !!company.data && !company.data.suspended_at;
+  const changeStatus = async (row: PlatformRow) => {
+    await api('/superadmin/users/' + row.id + '/status', {
+      method: 'PUT',
+      body: { tenant_id: tenantId, status: row.member_status === 'active' ? 'disabled' : 'active' },
+    });
+    await refresh();
+  };
   return (
     <main className="min-h-dvh bg-background p-4 text-foreground sm:p-6">
       <div className="mx-auto max-w-screen-2xl space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="font-semibold">APMail · Administração</span>
-          <Button
-            variant="outline"
-            disabled={themeChange.isPending}
-            onClick={() => themeChange.mutate(theme === 'dark' ? 'light' : 'dark')}
-          >
-            {theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={async () => {
-              await api('/auth/logout', { method: 'POST' });
-              client.clear();
-              await navigate({ to: '/login' });
-            }}
-          >
-            Sair
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              disabled={themeChange.isPending}
+              onClick={() => themeChange.mutate(theme === 'dark' ? 'light' : 'dark')}
+            >
+              {theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={async () => {
+                await api('/auth/logout', { method: 'POST' });
+                client.clear();
+                await navigate({ to: '/login' });
+              }}
+            >
+              Sair
+            </Button>
+          </div>
         </div>
         <PageHeader
           title="Gestão da plataforma"
-          description="Gerencie empresas, usuários, conexões e armazenamento da plataforma."
+          description={
+            tenantId
+              ? 'Gerencie os cadastros e o armazenamento da empresa selecionada.'
+              : 'Selecione uma empresa para gerenciar seus usuários, caixas de e-mail e configurações.'
+          }
           actions={
             section === 'tenants' ? (
-              <Button onClick={() => setDialog({ kind: 'tenant' })}>Criar empresa</Button>
-            ) : section === 'mailboxes' ? (
-              <Button onClick={() => setDialog({ kind: 'mailbox' })}>Conectar caixa</Button>
-            ) : section === 'users' ? (
-              <Button onClick={() => setDialog({ kind: 'invite' })}>Convidar usuário</Button>
+              <Button onClick={() => open('tenant-create')}>Criar empresa</Button>
+            ) : section === 'users' && tenantId ? (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" disabled={!available} onClick={() => open('invite')}>
+                  Convidar por e-mail
+                </Button>
+                <Button disabled={!available} onClick={() => open('user-create')}>
+                  Adicionar usuário
+                </Button>
+              </div>
+            ) : section === 'mailboxes' && tenantId ? (
+              <Button disabled={!available} onClick={() => open('mailbox-create')}>
+                Adicionar caixa
+              </Button>
             ) : undefined
           }
         />
+        {tenantId && (
+          <section
+            aria-label="Empresa selecionada"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-4"
+          >
+            <div>
+              <p className="text-xs text-muted-foreground">Empresa selecionada</p>
+              <p className="font-semibold">{company.data?.name ?? 'Carregando empresa…'}</p>
+              {company.data?.suspended_at && (
+                <p className="text-sm text-muted-foreground">
+                  Suspensa. Reative a empresa para adicionar usuários ou caixas.
+                </p>
+              )}
+            </div>
+            <Button variant="outline" onClick={() => switchContext()}>
+              Trocar empresa
+            </Button>
+          </section>
+        )}
         <nav aria-label="Gestão da plataforma" className="flex flex-wrap gap-2">
-          {sections.map((item) => (
+          {(tenantId ? sections : (['tenants', 'health'] as const)).map((item) => (
             <Button
               key={item}
               variant={item === section ? 'default' : 'outline'}
-              onClick={() =>
+              aria-current={item === section ? 'page' : undefined}
+              onClick={() => {
+                setDialog(null);
                 void navigate({
                   to: '/superadmin',
                   search: {
                     ...query,
+                    tenant_id: tenantId,
+                    storage_tenant: undefined,
                     section: item,
                     page: 1,
                     search: undefined,
                     sort: undefined,
-                    storage_tenant: undefined,
+                    filters: {},
                   },
-                })
-              }
-              aria-current={item === section ? 'page' : undefined}
+                });
+              }}
             >
-              {labels[item]}
+              {item === 'tenants' && !tenantId ? 'Empresas' : labels[item]}
             </Button>
           ))}
         </nav>
-        {section === 'health' ? (
+        {tenantId && company.isLoading ? (
+          <LoadingState />
+        ) : tenantId && company.error ? (
+          <ErrorState onRetry={() => void company.refetch()} />
+        ) : section === 'health' ? (
           health.isLoading ? (
             <LoadingState />
           ) : health.error ? (
             <ErrorState onRetry={() => void health.refetch()} />
           ) : (
             <section className="space-y-3 rounded-lg border bg-card p-4">
-              <h2 className="text-xl font-semibold">Serviços</h2>
+              <h2 className="text-xl font-semibold">Serviços da plataforma</h2>
               <p>
                 Banco: {health.data?.database} · Redis: {health.data?.redis}
               </p>
@@ -297,15 +350,57 @@ function SuperAdmin() {
               ))}
             </section>
           )
-        ) : section === 'storage' ? (
+        ) : section === 'tenants' && tenantId ? (
+          <section className="space-y-4 rounded-lg border bg-card p-4">
+            <h2 className="text-xl font-semibold">Cadastro da empresa</h2>
+            <dl className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <dt className="text-sm text-muted-foreground">Nome</dt>
+                <dd>{company.data?.name}</dd>
+              </div>
+              <div>
+                <dt className="text-sm text-muted-foreground">Identificador</dt>
+                <dd>{company.data?.slug}</dd>
+              </div>
+            </dl>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => open('tenant-edit', company.data)}>
+                Editar empresa
+              </Button>
+              <ConfirmDialog
+                title={company.data?.suspended_at ? 'Reativar empresa?' : 'Suspender empresa?'}
+                description="A suspensão bloqueia o acesso e novos envios desta empresa."
+                trigger={
+                  <Button variant="outline">
+                    {company.data?.suspended_at ? 'Reativar empresa' : 'Suspender empresa'}
+                  </Button>
+                }
+                onConfirm={async () => {
+                  await api('/superadmin/tenants/' + tenantId, {
+                    method: 'PATCH',
+                    body: { suspended: !company.data?.suspended_at },
+                  });
+                  await refresh();
+                }}
+              />
+            </div>
+          </section>
+        ) : section === 'storage' && tenantId ? (
           <PlatformStorage
             query={query}
             scope={query.storage_scope}
-            tenantId={query.storage_tenant}
-            onChange={(next, scope, tenantId) =>
+            tenantId={tenantId}
+            lockTenant
+            onChange={(next, scope) =>
               void navigate({
                 to: '/superadmin',
-                search: { ...next, section, storage_scope: scope, storage_tenant: tenantId },
+                search: {
+                  ...next,
+                  section,
+                  tenant_id: tenantId,
+                  storage_scope: scope,
+                  storage_tenant: undefined,
+                },
               })
             }
           />
@@ -315,277 +410,92 @@ function SuperAdmin() {
             mode="server"
             query={query}
             onQueryChange={(next) =>
-              void navigate({ to: '/superadmin', search: { ...next, section } })
+              void navigate({
+                to: '/superadmin',
+                search: {
+                  ...next,
+                  section,
+                  tenant_id: tenantId,
+                  storage_tenant: undefined,
+                  storage_scope: query.storage_scope,
+                },
+              })
             }
+            columns={columns[section] ?? []}
             data={q.data?.items ?? []}
             total={q.data?.total ?? 0}
-            columns={columns[section] ?? []}
             isLoading={q.isLoading}
             isFetching={q.isFetching}
             error={q.error}
             onRetry={() => void q.refetch()}
+            searchPlaceholder={
+              section === 'tenants'
+                ? 'Buscar empresa…'
+                : section === 'users'
+                  ? 'Buscar nome ou e-mail…'
+                  : section === 'mailboxes'
+                    ? 'Buscar caixa ou e-mail…'
+                    : section === 'audit'
+                      ? 'Buscar ação…'
+                      : 'Buscar serviço, nível ou mensagem…'
+            }
             rowActions={(row) =>
               section === 'tenants' ? (
                 <div className="flex flex-wrap gap-1">
-                  <ConfirmDialog
-                    title={row.suspended_at ? 'Reativar empresa?' : 'Suspender empresa?'}
-                    description="A suspensão bloqueia o acesso e novos envios desta empresa."
-                    trigger={
-                      <Button variant="ghost" size="sm">
-                        {row.suspended_at ? 'Reativar' : 'Suspender'}
-                      </Button>
-                    }
-                    onConfirm={async () => {
-                      await api('/superadmin/tenants/' + row.id, {
-                        method: 'PATCH',
-                        body: { suspended: !row.suspended_at },
-                      });
-                      await refresh();
-                    }}
-                  />
+                  <Button size="sm" onClick={() => switchContext(row.id)}>
+                    Gerenciar empresa
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setDialog({ kind: 'tenant-edit', row, tenantId: row.id })}
+                  >
+                    Editar
+                  </Button>
                 </div>
               ) : section === 'mailboxes' ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setDialog({ kind: 'credentials', row })}
-                >
-                  Atualizar credencial
+                <Button size="sm" variant="outline" onClick={() => open('mailbox-edit', row)}>
+                  Editar caixa
                 </Button>
               ) : section === 'users' ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setDialog({ kind: 'memberships', row })}
-                >
-                  Empresas e acesso
-                </Button>
+                <div className="flex flex-wrap gap-1">
+                  <Button size="sm" variant="outline" onClick={() => open('user-edit', row)}>
+                    Editar usuário
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => open('access', row)}>
+                    Permissões
+                  </Button>
+                  <ConfirmDialog
+                    title={
+                      row.member_status === 'active' ? 'Desativar acesso?' : 'Reativar acesso?'
+                    }
+                    description="Esta alteração afeta somente o vínculo com a empresa selecionada. Deve existir um proprietário ativo."
+                    trigger={
+                      <Button size="sm" variant="ghost">
+                        {row.member_status === 'active' ? 'Desativar' : 'Reativar'}
+                      </Button>
+                    }
+                    onConfirm={() => changeStatus(row)}
+                  />
+                </div>
               ) : null
             }
           />
         )}
-        <Dialog
-          open={!!dialog}
-          onOpenChange={(open) => {
-            if (!open) setDialog(null);
+        <PlatformManagementDialog
+          dialog={visibleDialog}
+          tenantName={
+            visibleDialog?.kind === 'tenant-edit' ? visibleDialog.row?.name : company.data?.name
+          }
+          onClose={() => setDialog(null)}
+          onSaved={async (result) => {
+            await refresh();
+            if (result?.tenant) switchContext(result.tenant.id);
+            else if (result?.user) setDialog({ kind: 'access', row: result.user, tenantId });
+            else setDialog(null);
+            toast.success('Cadastro atualizado.');
           }}
-        >
-          <DialogContent className="max-h-[90dvh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>
-                {dialog?.kind === 'tenant'
-                  ? 'Criar empresa'
-                  : dialog?.kind === 'mailbox'
-                    ? 'Conectar caixa'
-                    : dialog?.kind === 'credentials'
-                      ? 'Atualizar credencial'
-                      : dialog?.kind === 'invite'
-                        ? 'Convidar usuário'
-                        : dialog?.kind === 'memberships'
-                          ? 'Empresas do usuário'
-                          : dialog?.kind === 'access'
-                            ? 'Permissões do usuário'
-                            : 'Permissões do usuário'}
-              </DialogTitle>
-              <DialogDescription>
-                As alterações serão registradas na auditoria da plataforma.
-              </DialogDescription>
-            </DialogHeader>
-            {dialog?.kind === 'access' && (
-              <AccessEditor
-                userId={dialog.row?.id}
-                platformTenantId={dialog.tenantId}
-                onDone={async () => {
-                  await refresh();
-                  setDialog(null);
-                }}
-              />
-            )}
-            {dialog?.kind === 'invite' && (
-              <SchemaForm
-                schema={z.object({
-                  tenant_id: z.uuid(),
-                  email: emailSchema,
-                  tenant_role: z.enum(['owner', 'admin', 'member', 'supervisor']),
-                })}
-                defaults={{ tenant_role: 'member' }}
-                fields={[
-                  {
-                    name: 'tenant_id',
-                    label: 'Empresa',
-                    type: 'select',
-                    options: (companies.data?.items ?? [])
-                      .filter((t) => !t.suspended_at)
-                      .map((t) => ({ value: t.id, label: String(t.name) })),
-                  },
-                  { name: 'email', label: 'E-mail', type: 'email' },
-                  {
-                    name: 'tenant_role',
-                    label: 'Papel',
-                    type: 'select',
-                    options: [
-                      { value: 'owner', label: 'Proprietário' },
-                      { value: 'admin', label: 'Administrador' },
-                      { value: 'member', label: 'Membro' },
-                      { value: 'supervisor', label: 'Supervisor' },
-                    ],
-                  },
-                ]}
-                submitLabel="Enviar convite pelo SMTP global"
-                onSubmit={async (b) => {
-                  await api('/superadmin/invitations', {
-                    method: 'POST',
-                    body: { ...b, mailbox_roles: [] },
-                  });
-                  setDialog(null);
-                  toast.success('Convite registrado para envio pelo SMTP global.');
-                }}
-              />
-            )}
-            {dialog?.kind === 'memberships' &&
-              (memberships.isLoading ? (
-                <LoadingState />
-              ) : memberships.error ? (
-                <ErrorState onRetry={() => void memberships.refetch()} />
-              ) : (
-                <div className="space-y-3">
-                  {memberships.data?.map((m) => (
-                    <div
-                      key={m.tenant_id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"
-                    >
-                      <div>
-                        <p className="text-sm font-semibold">{m.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {m.role} · {m.status === 'active' ? 'Ativo' : 'Desativado'}
-                        </p>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={dialog.row?.id === me?.user.id || !!dialog.row?.platform_admin}
-                        onClick={() =>
-                          setDialog({ kind: 'access', row: dialog.row, tenantId: m.tenant_id })
-                        }
-                      >
-                        Editar permissões
-                      </Button>
-                      <ConfirmDialog
-                        title={
-                          m.status === 'active'
-                            ? 'Desativar acesso nesta empresa?'
-                            : 'Reativar acesso nesta empresa?'
-                        }
-                        description="A alteração afeta somente a empresa selecionada. A empresa precisa manter um proprietário ativo."
-                        trigger={
-                          <Button variant="outline" size="sm">
-                            {m.status === 'active' ? 'Desativar' : 'Reativar'}
-                          </Button>
-                        }
-                        onConfirm={async () => {
-                          await api('/superadmin/users/' + dialog.row?.id + '/status', {
-                            method: 'PUT',
-                            body: {
-                              tenant_id: m.tenant_id,
-                              status: m.status === 'active' ? 'disabled' : 'active',
-                            },
-                          });
-                          await memberships.refetch();
-                          await refresh();
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              ))}
-            {dialog?.kind === 'tenant' && (
-              <SchemaForm
-                schema={tenantSchema.extend({ owner_email: emailSchema })}
-                fields={[
-                  { name: 'name', label: 'Nome da empresa' },
-                  { name: 'slug', label: 'Identificador' },
-                  { name: 'owner_email', label: 'E-mail do proprietário', type: 'email' },
-                ]}
-                onSubmit={async (b) => {
-                  await api('/superadmin/tenants', { method: 'POST', body: b });
-                  await refresh();
-                  setDialog(null);
-                  toast.success(
-                    'Empresa criada. O proprietário recebe o convite pelo SMTP global quando ainda não possui conta.',
-                  );
-                }}
-              />
-            )}
-            {dialog?.kind === 'credentials' && (
-              <SchemaForm
-                schema={z.object({ password: z.string().min(1).max(256) })}
-                fields={[
-                  {
-                    name: 'password',
-                    label: 'Nova senha de aplicativo',
-                    type: 'password',
-                    autoComplete: 'new-password',
-                  },
-                ]}
-                onSubmit={async (b) => {
-                  await api('/superadmin/mailboxes/' + dialog.row?.id + '/credentials', {
-                    method: 'PUT',
-                    body: b,
-                  });
-                  setDialog(null);
-                  await refresh();
-                  toast.success('Credencial atualizada.');
-                }}
-              />
-            )}
-            {dialog?.kind === 'mailbox' && (
-              <SchemaForm
-                schema={mailboxSchema.omit({ members: true }).extend({ tenant_id: z.uuid() })}
-                defaults={{
-                  imap_port: 993,
-                  imap_secure: true,
-                  smtp_port: 465,
-                  smtp_secure: true,
-                  sync_days: 90,
-                  history_classify_days: 0,
-                  aliases: [],
-                  append_sent_copy: true,
-                  from_name_template: '{mailbox_name}',
-                }}
-                fields={[
-                  {
-                    name: 'tenant_id',
-                    label: 'Empresa',
-                    type: 'select',
-                    options: (companies.data?.items ?? [])
-                      .filter((t) => !t.suspended_at)
-                      .map((t) => ({ value: t.id, label: String(t.name) })),
-                  },
-                  { name: 'name', label: 'Nome da caixa' },
-                  { name: 'email_address', label: 'E-mail', type: 'email' },
-                  ...connectionFields,
-                  {
-                    name: 'sync_days',
-                    label: 'Importar histórico (30, 90, 180 ou 365 dias)',
-                    type: 'number',
-                  },
-                  {
-                    name: 'history_classify_days',
-                    label: 'Classificar filas dos últimos dias (0–90)',
-                    type: 'number',
-                    help: '0 mantém o histórico sem fila.',
-                  },
-                ]}
-                onSubmit={async (b) => {
-                  await api('/superadmin/mailboxes', { method: 'POST', body: b });
-                  setDialog(null);
-                  await refresh();
-                  toast.success('Verificação da caixa iniciada.');
-                }}
-              />
-            )}
-          </DialogContent>
-        </Dialog>
+        />
       </div>
     </main>
   );
