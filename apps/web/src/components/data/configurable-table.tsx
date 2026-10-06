@@ -31,6 +31,7 @@ export type ListColumn<T> = {
   width?: number;
   hideable?: boolean;
   defaultVisible?: boolean;
+  stackOnMobile?: boolean;
 };
 export type TableFilter = { id: string; label: string; options: FilterOption[] };
 export type ConfigurableTableProps<T> = {
@@ -379,9 +380,22 @@ export function ConfigurableTable<T extends { id: string }>(props: ConfigurableT
                 )}
                 <dl className="space-y-2">
                   {visible.map((column) => (
-                    <div key={column.id} className="flex items-start justify-between gap-3 text-xs">
+                    <div
+                      key={column.id}
+                      className={cn(
+                        'flex text-xs',
+                        column.stackOnMobile
+                          ? 'flex-col gap-2'
+                          : 'items-start justify-between gap-3',
+                      )}
+                    >
                       <dt className="font-semibold text-muted-foreground">{column.header}</dt>
-                      <dd className="min-w-0 flex-1 break-words text-right">
+                      <dd
+                        className={cn(
+                          'min-w-0 break-words',
+                          column.stackOnMobile ? 'text-left' : 'flex-1 text-right',
+                        )}
+                      >
                         {column.cell?.(row) ?? String(columnValue(row, column) ?? '')}
                       </dd>
                     </div>

@@ -2,7 +2,8 @@ import { useTenantId } from '@/lib/auth';
 import { useState } from 'react';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { listQuerySchema } from '@apmail/shared';
+import { listQuerySchema, type TenantQuota } from '@apmail/shared';
+import { MailboxStorageCell } from '@/components/storage/storage-quotas';
 import { PageHeader } from '@/components/layout/page-header';
 import { ConfigurableTable } from '@/components/data/configurable-table';
 import { MailboxStatusBadge } from '@/components/common/status-badge';
@@ -32,9 +33,15 @@ function Mailboxes() {
   const client = useQueryClient();
   const query = Route.useSearch();
   const navigate = useNavigate();
+  const tenantId = useTenantId();
   const q = useQuery({
-    queryKey: ['mailboxes', useTenantId()],
+    queryKey: ['mailboxes', tenantId],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
+  });
+  const storage = useQuery({
+    queryKey: ['storage-quota', 'tenant', tenantId],
+    queryFn: ({ signal }) => api<TenantQuota>('/tenant/storage', { signal }),
+    refetchInterval: 60000,
   });
   const action = async (id: string, name: string) => {
     await api('/mailboxes/' + id + '/' + name, { method: 'POST' });
@@ -52,6 +59,22 @@ function Mailboxes() {
           </Button>
         }
       />
+      {storage.error && (
+        <p
+          role="status"
+          className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+        >
+          Não foi possível atualizar o consumo das caixas.
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void storage.refetch()}
+            disabled={storage.isFetching}
+          >
+            Tentar novamente
+          </Button>
+        </p>
+      )}
       <ConfigurableTable
         listKey="mailboxes"
         mode="client"
@@ -70,6 +93,31 @@ function Mailboxes() {
               <span title={b.last_error ?? undefined}>
                 <MailboxStatusBadge status={b.status} />
               </span>
+            ),
+          },
+          {
+            id: 'apmail_storage',
+            stackOnMobile: true,
+            header: 'Armazenamento APMail',
+            hideable: false,
+            cell: (b) => (
+              <MailboxStorageCell
+                quota={storage.data?.mailboxes.find((quota) => quota.mailbox_id === b.id)}
+                error={!!storage.error}
+              />
+            ),
+          },
+          {
+            id: 'provider_storage',
+            stackOnMobile: true,
+            header: 'Armazenamento no provedor',
+            hideable: false,
+            cell: (b) => (
+              <MailboxStorageCell
+                quota={storage.data?.mailboxes.find((quota) => quota.mailbox_id === b.id)}
+                provider
+                error={!!storage.error}
+              />
             ),
           },
           {

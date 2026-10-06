@@ -1,5 +1,13 @@
 # Progresso do APMail
 
+## Revisão de 06/10/2026 — quota individual e localização das barras (local)
+
+- Identificado no código do ImapFlow 2.2.1 que respostas QUOTA de raízes diferentes sobrescrevem o mesmo recurso. Adaptador preserva cada resposta e seleciona somente a raiz individual; domínio/hospedagem/raiz opaca ou ambígua não viram limite da caixa. Seleção conservadora por convenções de nome e hosts conhecidos, com limitações documentadas; não houve leitura da conta real do provedor nem mudança em produção nesta revisão.
+- Nova migration `0019_provider_account_quota.sql` invalida medições antigas, preservando cotas APMail, checkpoint e conteúdo. Próximo ciclo consulta a quota novamente. Falha de consulta também remove valores antigos. Inteiros do protocolo convertidos para bytes com BigInt.
+- Duas barras na listagem de Configurações → Caixas de e-mail, com layout próprio em celulares. Tela de e-mails sem painel permanente: somente alertas de 90% ou mais, limite atingido e sincronização pausada. Cadastro com Gmail/Google Workspace, Hotmail/Outlook.com, Outlook/Microsoft 365 e Outro; removidos os presets Zoho.
+- Validação: lint, typecheck e build; 67 testes unitários aprovados, incluindo sete regressões de quota com servidor IMAP local real para testar parsing/ordem de raízes e quatro testes da interface. Dois testes de migrations e uma regressão de invalidação/preservação passaram no PostgreSQL de QA. Navegador com fixtures: oito combinações de 1440/900/390/320 px e claro/escuro sem overflow, erros JavaScript ou violações axe WCAG A/AA; avisos, ausência das barras na tela de e-mails e presets conferidos. Relatório ignorado pelo Git: `.data/qa/provider-quota-ui-report.json`.
+- Somente implementação local, sem commit, push ou deploy. Orientações em [DEPLOY.md](DEPLOY.md) e [COTAS-ARMAZENAMENTO.md](COTAS-ARMAZENAMENTO.md).
+
 ## Entrega de 06/10/2026 — cotas por empresa/caixa e retomada da sincronização (local)
 
 - Superadmin configura limite de caixas e capacidade da empresa, depois de selecionar a empresa. Valores vazios mantêm capacidade ilimitada; zero é um limite válido. Contagem e admissão são protegidas no banco, inclusive em cadastros concorrentes.

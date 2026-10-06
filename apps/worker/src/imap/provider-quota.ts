@@ -3,13 +3,8 @@ import { sql } from 'kysely';
 import type { ImapFlow } from 'imapflow';
 import type { WorkerResources } from '../resources.js';
 import type { Mailbox } from './connect.js';
+import { readAccountQuota } from './account-quota.js';
 
-/** ImapFlow has already converted the IMAP STORAGE resource from KiB to bytes. */
-export function providerQuotaBytes(value: number | undefined): string | null {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-    ? String(value)
-    : null;
-}
 export async function refreshProviderQuota(r: WorkerResources, box: Mailbox, imap: ImapFlow) {
   const previous = (
     await sql<{
@@ -20,15 +15,10 @@ export async function refreshProviderQuota(r: WorkerResources, box: Mailbox, ima
   ).rows[0];
   if (previous?.checked_at && Date.now() - previous.checked_at.getTime() < 15 * 60000) return;
   try {
-    const quota = await imap.getQuota('INBOX');
-    const used = quota ? providerQuotaBytes(quota.storage?.usage) : null;
-    const limit = quota ? providerQuotaBytes(quota.storage?.limit) : null;
-    const status =
-      used !== null && limit !== null
-        ? 'available'
-        : imap.capabilities.has('QUOTA')
-          ? 'error'
-          : 'unsupported';
+    const quota = await readAccountQuota(imap, box.username, box.imap_host);
+    const used = quota?.used ?? null;
+    const limit = quota?.limit ?? null;
+    const status = used !== null && limit !== null ? 'available' : 'unsupported';
     // Account-scoped identity deduplicates repeated connections without merging independent
     // accounts whose provider uses the same opaque root name (often an empty string).
     const identity =
@@ -39,7 +29,7 @@ export async function refreshProviderQuota(r: WorkerResources, box: Mailbox, ima
                 box.imap_host.toLowerCase(),
                 box.imap_port,
                 box.username,
-                (quota && quota.quotaRoot) || '',
+                quota?.root ?? '',
               ]),
             )
             .digest('hex')
@@ -48,7 +38,7 @@ export async function refreshProviderQuota(r: WorkerResources, box: Mailbox, ima
       r.db,
     );
   } catch {
-    await sql`update mailbox_storage_limits set provider_status='error',provider_checked_at=now() where mailbox_id=${box.id}::uuid`.execute(
+    await sql`update mailbox_storage_limits set provider_status='error',provider_used_bytes=null,provider_limit_bytes=null,provider_identity=null,provider_checked_at=now() where mailbox_id=${box.id}::uuid`.execute(
       r.db,
     );
     r.log.warn({ mailbox_id: box.id }, 'Não foi possível consultar a cota do provedor.');

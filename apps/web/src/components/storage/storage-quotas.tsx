@@ -24,7 +24,7 @@ import { LoadingState, ErrorState } from '@/components/data/data-state';
 
 const providerLabels = {
   pending: 'Aguardando consulta ao provedor',
-  unsupported: 'O provedor não informa a cota por IMAP',
+  unsupported: 'O provedor não informa uma cota individual identificável para esta caixa',
   error: 'Não foi possível consultar a cota do provedor',
   available: '',
 };
@@ -68,12 +68,14 @@ export function StorageUsageBar({
   limit,
   unavailable,
   detail,
+  hideLabel = false,
 }: {
   label: string;
   used: string | null;
   limit: string | null;
   unavailable?: string;
   detail?: string;
+  hideLabel?: boolean;
 }) {
   const measured = used !== null,
     finite = limit !== null,
@@ -94,7 +96,7 @@ export function StorageUsageBar({
   return (
     <div className="min-w-0 space-y-2 text-card-foreground">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs">
-        <span className="font-semibold">{label}</span>
+        <span className={cn('font-semibold', hideLabel && 'sr-only')}>{label}</span>
         <span
           className="tabular-nums text-muted-foreground"
           title={measured ? `${used} bytes${finite ? ` de ${limit} bytes` : ''}` : undefined}
@@ -159,26 +161,106 @@ export function MailboxQuotaBars({ quota }: { quota: MailboxQuota }) {
     </div>
   );
 }
-export function MailboxStorage({ mailboxId }: { mailboxId: string }) {
+export function quotaAlertLevel(used: string | null, limit: string | null) {
+  if (used === null || limit === null) return null;
+  const bytes = BigInt(used),
+    cap = BigInt(limit);
+  if (bytes >= cap) return 'full';
+  return bytes * 100n >= cap * 90n ? 'near' : null;
+}
+export function MailboxStorageAlerts({ mailboxId }: { mailboxId: string }) {
   const tenant = useTenantId();
   const q = useQuery({
     queryKey: ['storage-quota', tenant, mailboxId],
     queryFn: ({ signal }) => api<MailboxQuota>(`/mailboxes/${mailboxId}/storage`, { signal }),
     refetchInterval: 60000,
   });
+  if (!q.data) return null;
+  const quota = q.data;
+  const apmail = quotaAlertLevel(quota.used_bytes, quota.allocated_bytes);
+  const provider =
+    quota.provider_status === 'available'
+      ? quotaAlertLevel(quota.provider_used_bytes, quota.provider_limit_bytes)
+      : null;
+  if (!apmail && !provider && !quota.paused_at) return null;
   return (
-    <section
-      aria-label="Armazenamento da caixa"
-      className="rounded-lg border bg-card p-4 text-card-foreground"
+    <aside
+      role="status"
+      aria-label="Avisos de armazenamento"
+      className="flex items-start gap-3 rounded-lg border bg-card p-3 text-card-foreground"
     >
-      {q.isLoading ? (
-        <LoadingState />
-      ) : q.error || !q.data ? (
-        <ErrorState onRetry={() => void q.refetch()} />
-      ) : (
-        <MailboxQuotaBars quota={q.data} />
+      <AlertTriangle
+        aria-hidden="true"
+        className={cn(
+          'size-4 shrink-0',
+          (apmail === 'full' || provider === 'full') && 'text-destructive',
+        )}
+      />
+      <div className="space-y-1 text-sm">
+        {apmail && (
+          <p>
+            {apmail === 'full'
+              ? 'Limite de armazenamento do APMail atingido. Novos conteúdos estão bloqueados.'
+              : 'Armazenamento do APMail próximo do limite (90% ou mais). Solicite capacidade ou libere espaço.'}
+          </p>
+        )}
+        {provider && (
+          <p>
+            {provider === 'full'
+              ? 'Limite de armazenamento desta conta no provedor atingido.'
+              : 'Armazenamento desta conta no provedor próximo do limite (90% ou mais).'}
+          </p>
+        )}
+        {quota.paused_at && (
+          <p>
+            Sincronização pausada por falta de capacidade. Retomará automaticamente quando houver
+            espaço.
+          </p>
+        )}
+      </div>
+    </aside>
+  );
+}
+export function MailboxStorageCell({
+  quota,
+  provider = false,
+  error = false,
+}: {
+  quota?: MailboxQuota;
+  provider?: boolean;
+  error?: boolean;
+}) {
+  if (!quota)
+    return (
+      <span className="text-xs text-muted-foreground">
+        {error ? 'Não foi possível consultar o consumo' : 'Consultando consumo…'}
+      </span>
+    );
+  return (
+    <div className="min-w-0 whitespace-normal sm:w-48 sm:min-w-48">
+      <StorageUsageBar
+        label={provider ? 'Provedor' : 'APMail'}
+        hideLabel
+        used={
+          provider
+            ? quota.provider_status === 'available'
+              ? quota.provider_used_bytes
+              : null
+            : quota.used_bytes
+        }
+        limit={
+          provider
+            ? quota.provider_status === 'available'
+              ? quota.provider_limit_bytes
+              : null
+            : quota.allocated_bytes
+        }
+        unavailable={provider ? providerLabels[quota.provider_status] : undefined}
+      />
+      {!provider && quota.paused_at && (
+        <p className="mt-2 text-xs text-muted-foreground">Sincronização pausada pela cota</p>
       )}
-    </section>
+    </div>
   );
 }
 export function TenantStorage({

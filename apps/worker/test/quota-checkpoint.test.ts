@@ -1,6 +1,5 @@
 import { expect, it } from 'vitest';
 import { canResumeQuota } from '../src/imap/quota-checkpoint.js';
-import { providerQuotaBytes } from '../src/imap/provider-quota.js';
 it('reavalia pausa quando o limite muda ou bytes são liberados, sem perder precisão', () => {
   const checkpoint = {
     folder_id: 'folder',
@@ -27,11 +26,4 @@ it('reavalia pausa quando o limite muda ou bytes são liberados, sem perder prec
   expect(canResumeQuota({ ...state, mailbox_limit: '2000' })).toBe(true);
   expect(canResumeQuota({ ...state, tenant_used: '9007199254740992' })).toBe(true);
   expect(canResumeQuota({ ...state, mailbox_used: '999' })).toBe(true);
-});
-it('cota de provedor já está em bytes; rejeita valores imprecisos e preserva limite zero', () => {
-  expect(providerQuotaBytes(1024)).toBe('1024');
-  expect(providerQuotaBytes(0)).toBe('0');
-  expect(providerQuotaBytes(undefined)).toBeNull();
-  expect(providerQuotaBytes(Number.MAX_SAFE_INTEGER + 1)).toBeNull();
-  expect(providerQuotaBytes(-1)).toBeNull();
 });

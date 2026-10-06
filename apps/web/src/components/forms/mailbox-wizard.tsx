@@ -172,9 +172,9 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
             ))}
           </select>
           <p className="text-xs text-muted-foreground">
-            {preset.includes('Microsoft')
+            {preset.includes('Microsoft') || preset.includes('Outlook')
               ? 'Muitas organizações desativaram IMAP/SMTP com senha. Se a conexão falhar, peça ao administrador para habilitar SMTP autenticado e IMAP para esta caixa.'
-              : preset.includes('Gmail') || preset.includes('Zoho')
+              : preset.includes('Gmail')
                 ? 'Se a conta usa verificação em duas etapas, informe uma senha de aplicativo.'
                 : 'Use os servidores indicados pelo seu provedor de e-mail.'}
           </p>

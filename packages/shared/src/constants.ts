@@ -41,12 +41,11 @@ export const ROLE_LABELS = {
 } as const;
 export const PAGE_SIZES = [10, 20, 30, 50, 100] as const;
 export const PROVIDER_PRESETS = [
-  { name: 'Zoho Mail', imap_host: 'imap.zoho.com', smtp_host: 'smtp.zoho.com', smtp_port: 465 },
   {
-    name: 'Zoho Mail — Europa',
-    imap_host: 'imap.zoho.eu',
-    smtp_host: 'smtp.zoho.eu',
-    smtp_port: 465,
+    name: 'Hotmail / Outlook.com',
+    imap_host: 'outlook.office365.com',
+    smtp_host: 'smtp-mail.outlook.com',
+    smtp_port: 587,
   },
   {
     name: 'Gmail / Google Workspace',

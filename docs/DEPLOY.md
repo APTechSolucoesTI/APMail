@@ -1,5 +1,11 @@
 # Publicação do APMail
 
+## Revisão de 06/10/2026 — quota individual do provedor
+
+Aplicar `0019_provider_account_quota.sql` (e migrations anteriores pendentes) e atualizar web/worker/API juntos. Essa migration limpa somente medições antigas do provedor; preserva limites do APMail, conteúdo e checkpoints. Os valores serão consultados novamente no próximo ciclo de sincronização. A leitura separa as raízes de quota e recusa informar capacidade de domínio ou raiz ambígua como se fosse individual. Quando o provedor não publica uma quota identificável da conta, a interface informa indisponibilidade.
+
+As barras ficam na listagem de Configurações → Caixas de e-mail. A tela de e-mails mostra somente avisos a partir de 90%, limite atingido ou pausa por capacidade. Cadastro oferece Gmail/Google Workspace, Hotmail/Outlook.com, Outlook/Microsoft 365 e Outro; servidores Zoho existentes continuam funcionando e podem ser informados manualmente em Outro. Fontes dos presets Microsoft: [Outlook.com](https://support.microsoft.com/en-gb/outlook/pop-imap-and-smtp-settings-for-outlook-com) e [Exchange Online](https://learn.microsoft.com/en-us/exchange/clients-and-mobile-in-exchange-online/pop3-and-imap4/pop3-and-imap4). Publicação pelo usuário, sem reset.
+
 ## Cotas — entrega de 06/10/2026
 
 Aplicar `0018_storage_quotas.sql` e atualizar API, web e worker juntos. A migration é aditiva, preserva conteúdo e deixa empresas existentes sem limite definido. Antes de configurar cotas finitas em uma instalação com arquivos legados, conclua a reconciliação inicial no superadmin; referências ainda não conferidas impedem salvar a cota. Não execute reset do banco ou do volume para publicar estas alterações.
