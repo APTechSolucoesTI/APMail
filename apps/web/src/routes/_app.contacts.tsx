@@ -68,6 +68,7 @@ function Contacts() {
       />
       <ConfigurableTable
         listKey="contacts"
+        searchPlaceholder="Buscar nome, e-mail, telefone ou empresa…"
         mode="server"
         query={query}
         onQueryChange={(search) => void navigate({ to: '/contacts', search })}

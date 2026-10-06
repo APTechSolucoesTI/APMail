@@ -19,6 +19,7 @@ import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SuperadminRouteImport } from './routes/superadmin'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppChatRouteImport } from './routes/_app.chat'
+import { Route as AppCompaniesRouteImport } from './routes/_app.companies'
 import { Route as AppContactsRouteImport } from './routes/_app.contacts'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppScheduledRouteImport } from './routes/_app.scheduled'
@@ -84,6 +85,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppChatRoute = AppChatRouteImport.update({
   id: '/chat',
   path: '/chat',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCompaniesRoute = AppCompaniesRouteImport.update({
+  id: '/companies',
+  path: '/companies',
   getParentRoute: () => AppRoute,
 } as any)
 const AppContactsRoute = AppContactsRouteImport.update({
@@ -183,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/superadmin': typeof SuperadminRoute
   '/chat': typeof AppChatRouteWithChildren
+  '/companies': typeof AppCompaniesRoute
   '/contacts': typeof AppContactsRoute
   '/dashboard': typeof AppDashboardRoute
   '/scheduled': typeof AppScheduledRoute
@@ -209,6 +216,7 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/superadmin': typeof SuperadminRoute
+  '/companies': typeof AppCompaniesRoute
   '/contacts': typeof AppContactsRoute
   '/dashboard': typeof AppDashboardRoute
   '/scheduled': typeof AppScheduledRoute
@@ -239,6 +247,7 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/superadmin': typeof SuperadminRoute
   '/_app/chat': typeof AppChatRouteWithChildren
+  '/_app/companies': typeof AppCompaniesRoute
   '/_app/contacts': typeof AppContactsRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/scheduled': typeof AppScheduledRoute
@@ -270,6 +279,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/superadmin'
     | '/chat'
+    | '/companies'
     | '/contacts'
     | '/dashboard'
     | '/scheduled'
@@ -296,6 +306,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/superadmin'
+    | '/companies'
     | '/contacts'
     | '/dashboard'
     | '/scheduled'
@@ -325,6 +336,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/superadmin'
     | '/_app/chat'
+    | '/_app/companies'
     | '/_app/contacts'
     | '/_app/dashboard'
     | '/_app/scheduled'
@@ -427,6 +439,13 @@ declare module '@tanstack/react-router' {
       path: '/chat'
       fullPath: '/chat'
       preLoaderRoute: typeof AppChatRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/companies': {
+      id: '/_app/companies'
+      path: '/companies'
+      fullPath: '/companies'
+      preLoaderRoute: typeof AppCompaniesRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/contacts': {
@@ -566,6 +585,7 @@ const AppChatRouteWithChildren =
 
 interface AppRouteChildren {
   AppChatRoute: typeof AppChatRouteWithChildren
+  AppCompaniesRoute: typeof AppCompaniesRoute
   AppContactsRoute: typeof AppContactsRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppScheduledRoute: typeof AppScheduledRoute
@@ -585,6 +605,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppChatRoute: AppChatRouteWithChildren,
+  AppCompaniesRoute: AppCompaniesRoute,
   AppContactsRoute: AppContactsRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppScheduledRoute: AppScheduledRoute,

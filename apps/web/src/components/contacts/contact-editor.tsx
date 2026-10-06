@@ -1,55 +1,39 @@
-import { useEffect, useState } from 'react';
-import {
-  useForm,
-  useFieldArray,
-  useWatch,
-  type UseFormReturn,
-  type FieldPath,
-} from 'react-hook-form';
-import { z } from 'zod';
-import { Star, Plus, Trash2, Building2, MapPin, Mail, Phone } from 'lucide-react';
+import { useState } from 'react';
+import { useForm, useWatch } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   contactSchema,
-  isTenantAdmin,
-  canDelegate,
   type ContactInput,
   type ContactDetail,
+  type CompanyDetail,
+  type ListResult,
 } from '@apmail/shared';
+import { ChevronsUpDown, Plus } from 'lucide-react';
+import { z } from 'zod';
 import { api } from '@/lib/api';
-import { meQuery, useTenantId, type Mailbox } from '@/lib/auth';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
+import { useTenantId } from '@/lib/auth';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
+import {
+  DirectoryHeader,
+  DirectoryVisibility,
+  PrincipalChips,
+  ChannelPicker,
+  useDirectorySearch,
+  useDirectoryControl,
+} from './directory-fields';
+import { CompanyEditorDialog } from './company-editor';
+import { AddressFields, blankAddress } from './address-fields';
 import { toast } from 'sonner';
-const emptyAddress = {
-  cep: '',
-  street: '',
-  number: '',
-  complement: '',
-  district: '',
-  city: '',
-  state: '',
-  country: 'Brasil',
-};
-function useDebouncedSearch(value: string) {
-  const [term, setTerm] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setTerm(value.trim()), 300);
-    return () => clearTimeout(timer);
-  }, [value]);
-  return term;
-}
+type Company = NonNullable<ContactInput['emails'][number]['links'][number]['company']>;
+const companyKey = (c: Company) => c.id || c.cnpj || c.name;
+type ContactAddress = { address: typeof blankAddress; emailIndex: number; companyKey: string };
 export function ContactEditorDialog({
   id,
   email = '',
@@ -61,12 +45,12 @@ export function ContactEditorDialog({
   name?: string;
   onClose: () => void;
 }) {
-  const tenant = useTenantId();
-  const q = useQuery({
-    queryKey: ['contact', tenant, id],
-    queryFn: () => api<ContactDetail>('/contacts/' + id),
-    enabled: !!id,
-  });
+  const tenant = useTenantId(),
+    q = useQuery({
+      queryKey: ['contact', tenant, id],
+      queryFn: () => api<ContactDetail>('/contacts/' + id),
+      enabled: !!id,
+    });
   return (
     <Dialog
       open
@@ -74,14 +58,11 @@ export function ContactEditorDialog({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="max-h-[90dvh] overflow-y-auto p-4 sm:max-w-4xl sm:p-6">
-        <DialogHeader>
-          <DialogTitle>{id ? 'Editar contato' : 'Novo contato'}</DialogTitle>
-          <DialogDescription>
-            Organize empresas, endereços e canais de contato. Use a estrela para definir os dados
-            principais.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="flex max-h-[min(90dvh,40rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
+        <DirectoryHeader
+          title={id ? 'Editar contato' : 'Novo contato'}
+          description="Vincule empresas e organize os canais de contato. Campos com * são obrigatórios."
+        />
         {id && q.isLoading ? (
           <LoadingState />
         ) : id && q.error ? (
@@ -93,11 +74,13 @@ export function ContactEditorDialog({
             initial={
               q.data ?? {
                 name,
-                phone: '',
                 job_title: '',
+                phone: '',
                 phones: [],
                 notes: '',
-                emails: [{ email, label: '', is_primary: true, links: [] }],
+                emails: email ? [{ email, label: '', is_primary: true, links: [] }] : [],
+                visibility: 'all',
+                mailbox_ids: [],
               }
             }
             onClose={onClose}
@@ -117,693 +100,590 @@ function ContactForm({
   onClose: () => void;
 }) {
   const form = useForm<ContactInput>({
-    defaultValues: {
-      ...initial,
-      phones:
-        initial.phones ??
-        (initial.phone ? [{ number: initial.phone, label: '', is_primary: true }] : []),
-    },
+      defaultValues: {
+        ...initial,
+        phones:
+          initial.phones ??
+          (initial.phone ? [{ number: initial.phone, label: '', is_primary: true }] : []),
+      },
+    }),
+    values = useWatch({ control: form.control, compute: () => form.getValues() }),
+    client = useQueryClient(),
+    tenant = useTenantId(),
+    mayControl = useDirectoryControl();
+  const originalLinks = initial.emails.flatMap((e) => e.links),
+    originalCompanies = originalLinks.flatMap((l) => (l.company ? [l.company] : []));
+  const [companies, setCompanies] = useState<Company[]>(() => [
+    ...new Map(originalCompanies.map((c) => [companyKey(c), c])).values(),
+  ]);
+  const [primaryCompany, setPrimaryCompany] = useState(() => {
+    const primary = originalLinks.find((l) => l.is_primary_company)?.company;
+    return primary
+      ? companyKey(primary)
+      : originalCompanies[0]
+        ? companyKey(originalCompanies[0])
+        : '';
   });
-  const emails = useFieldArray({ control: form.control, name: 'emails' });
-  const phones = useFieldArray({ control: form.control, name: 'phones' });
-  const client = useQueryClient(),
-    tenantId = useTenantId(),
-    me = useQuery(meQuery).data;
-  const tenant = me?.tenants.find((t) => t.id === tenantId);
-  const mayControl =
-    isTenantAdmin(tenant?.role) ||
-    canDelegate(tenant?.role ?? null, tenant?.capabilities, 'contacts_visibility');
-  const boxes = useQuery({
-    queryKey: ['mailboxes', tenantId],
-    queryFn: () => api<Mailbox[]>('/mailboxes'),
-  });
-  const [error, setError] = useState(''),
-    [search, setSearch] = useState(''),
-    [linkId, setLinkId] = useState('');
-  const searchTerm = useDebouncedSearch(search);
-  const contacts = useQuery({
-    queryKey: ['contact-link-options', tenantId, searchTerm],
+  const [addresses, setAddresses] = useState<ContactAddress[]>(() =>
+    initial.emails.flatMap((e, emailIndex) =>
+      e.links.flatMap((l) =>
+        l.address
+          ? [{ address: l.address, emailIndex, companyKey: l.company ? companyKey(l.company) : '' }]
+          : [],
+      ),
+    ),
+  );
+  const [search, setSearch] = useState(''),
+    term = useDirectorySearch(search),
+    [pickerOpen, setPickerOpen] = useState(false),
+    [newCompany, setNewCompany] = useState<{ cnpj: string } | null>(null),
+    [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const options = useQuery({
+    queryKey: ['company-options', tenant, term, 50],
     queryFn: ({ signal }) =>
-      api<{ items: { id: string; name: string; emails: string[] }[] }>(
-        '/contacts?' + new URLSearchParams({ search: searchTerm, pageSize: '10' }),
+      api<ListResult<CompanyDetail>>(
+        '/companies?' + new URLSearchParams({ search: term, pageSize: '50' }),
         { signal },
       ),
-    enabled: !id && !!searchTerm,
+    enabled: pickerOpen,
   });
-  const fields = [
-    ['name', 'Nome'],
-    ['job_title', 'Cargo'],
-  ] as const;
-  const watched = useWatch({ control: form.control }),
-    visibility = watched.visibility ?? 'all';
-  return (
-    <form
-      className="min-w-0 space-y-4 [&_fieldset]:min-w-0 [&_details]:min-w-0"
-      noValidate
-      onSubmit={(event) => {
-        if (form.formState.isSubmitting) {
-          event.preventDefault();
-          return;
-        }
-        // Cross-field errors (e.g. duplicate channels) have no registered input.
-        // Clear them before RHF checks submission, then validate the current values.
-        form.clearErrors();
-        void form.handleSubmit(async (values) => {
-          setError('');
-          try {
-            const body = contactSchema.parse(values);
-            if (!mayControl) {
-              delete body.visibility;
-              delete body.mailbox_ids;
-            }
-            if (linkId && !id) {
-              const existing = await api<ContactDetail>('/contacts/' + linkId);
-              const merged = {
-                ...existing,
-                phones: [
-                  ...(existing.phones ?? []),
-                  ...(body.phones ?? []).map((p) => ({ ...p, is_primary: false })),
-                ],
-                emails: [
-                  ...existing.emails,
-                  ...body.emails.map((e) => ({
-                    ...e,
-                    is_primary: false,
-                    links: e.links.map((l) => ({ ...l, is_primary_company: false })),
-                  })),
-                ],
-              };
-              if (!mayControl) {
-                delete (merged as ContactInput).visibility;
-                delete (merged as ContactInput).mailbox_ids;
-              }
-              await api('/contacts/' + linkId, {
-                method: 'PUT',
-                body: contactSchema.parse(merged),
-              });
-            } else
-              await api(id ? '/contacts/' + id : '/contacts', {
-                method: id ? 'PUT' : 'POST',
-                body,
-              });
-            await client.invalidateQueries({
-              predicate: (q) =>
-                String(q.queryKey[0]).startsWith('contact') || q.queryKey[0] === 'global-search',
-            });
-            toast.success('Contato salvo.');
-            onClose();
-          } catch (e) {
-            if (e instanceof z.ZodError) {
-              for (const issue of e.issues)
-                form.setError(issue.path.join('.') as FieldPath<ContactInput>, {
-                  type: 'validate',
-                  message: issue.message,
-                });
-              const first = e.issues[0];
-              if (first) form.setFocus(first.path.join('.') as FieldPath<ContactInput>);
-              setError('Revise os campos indicados antes de salvar.');
-            } else setError(e instanceof Error ? e.message : 'Não foi possível salvar.');
-          }
-        })(event);
-      }}
-    >
-      {!id && (
-        <fieldset className="space-y-2 rounded-md border p-3">
-          <legend>Criar ou vincular</legend>
-          <Label htmlFor="link-contact-search">Buscar contato existente pelo nome ou e-mail</Label>
-          <Input
-            id="link-contact-search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <Label htmlFor="link-contact">Destino</Label>
-          <select
-            id="link-contact"
-            className="h-11 w-full rounded-md border bg-card px-2 text-sm"
-            value={linkId}
-            onChange={(e) => {
-              setLinkId(e.target.value);
-              const selected = contacts.data?.items.find((c) => c.id === e.target.value);
-              if (selected) form.setValue('name', selected.name);
-            }}
-          >
-            <option value="">Criar novo contato</option>
-            {contacts.data?.items.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} — {c.emails.join(', ')}
-              </option>
-            ))}
-          </select>
-          {linkId && (
-            <p className="text-sm text-muted-foreground">
-              Os e-mails e vínculos abaixo serão adicionados ao contato selecionado.
-            </p>
-          )}
-        </fieldset>
-      )}
-      {!linkId && (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {fields.map(([key, label]) => (
-            <div key={key} className="space-y-2">
-              <Label htmlFor={'contact-' + key}>{label}</Label>
-              <Input
-                id={'contact-' + key}
-                {...form.register(key)}
-                aria-invalid={!!form.formState.errors[key]}
-              />
-              <FieldMessage form={form} name={key} />
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="rounded-lg border p-4">
-        <h3 className="mb-3 flex items-center gap-2 text-base font-semibold">
-          <Mail className="size-4" aria-hidden />
-          E-mails
-        </h3>
-        <p className="mb-3 text-xs text-muted-foreground">
-          Cada e-mail pode ter várias empresas e endereços. O principal identifica este contato na
-          listagem.
-        </p>
-        <FieldMessage form={form} name="emails" />
-        {emails.fields.map((entry, index) => (
-          <fieldset key={entry.id} className="mb-3 space-y-3 rounded-md border p-3">
-            <legend className="px-1 text-xs font-medium">
-              E-mail {index + 1}
-              {watched.emails?.[index]?.is_primary ? ' · Principal' : ''}
-            </legend>
-            <div className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]">
-              <div>
-                <Label htmlFor={'contact-email-' + entry.id}>Endereço de e-mail</Label>
-                <Input
-                  id={'contact-email-' + entry.id}
-                  type="email"
-                  {...form.register(`emails.${index}.email`)}
-                  aria-invalid={!!form.getFieldState(`emails.${index}.email`, form.formState).error}
-                />
-                <FieldMessage form={form} name={`emails.${index}.email`} />
-              </div>
-              <div>
-                <Label htmlFor={'contact-label-' + entry.id}>Identificação</Label>
-                <Input
-                  id={'contact-label-' + entry.id}
-                  {...form.register(`emails.${index}.label`)}
-                />
-              </div>
-              <div className="flex gap-1">
-                <PrimaryButton
-                  active={!!watched.emails?.[index]?.is_primary}
-                  label={`Definir e-mail ${index + 1} como principal`}
-                  onClick={() =>
-                    form
-                      .getValues('emails')
-                      .forEach((_, i) =>
-                        form.setValue(`emails.${i}.is_primary`, i === index, { shouldDirty: true }),
-                      )
-                  }
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-11 sm:size-9"
-                  aria-label={`Remover e-mail ${index + 1}`}
-                  disabled={emails.fields.length === 1}
-                  onClick={() => {
-                    emails.remove(index);
-                    repairPrimaries(form);
-                  }}
-                >
-                  <Trash2 className="size-4" aria-hidden />
-                </Button>
-              </div>
-            </div>
-            <details className="border-t pt-2">
-              <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                Empresas e endereços ({watched.emails?.[index]?.links?.length ?? 0})
-              </summary>
-              <EmailLinks key={`${entry.id}-${index}`} index={index} form={form} />
-            </details>
-          </fieldset>
-        ))}
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => emails.append({ email: '', label: '', is_primary: false, links: [] })}
-        >
-          <Plus aria-hidden className="size-4" />
-          Adicionar e-mail
-        </Button>
-      </div>
-      <section className="space-y-3 rounded-lg border p-4" aria-label="Telefones do contato">
-        <h3 className="flex items-center gap-2 text-base font-semibold">
-          <Phone aria-hidden className="size-4" />
-          Telefones <span className="text-xs font-normal text-muted-foreground">Opcional</span>
-        </h3>
-        <FieldMessage form={form} name="phones" />
-        {phones.fields.map((phone, index) => (
-          <fieldset
-            key={phone.id}
-            className="grid items-end gap-3 rounded-md border p-3 sm:grid-cols-[1fr_1fr_auto]"
-          >
-            <legend className="px-1 text-xs font-medium">
-              Telefone {index + 1}
-              {watched.phones?.[index]?.is_primary ? ' · Principal' : ''}
-            </legend>
-            <div className="space-y-2">
-              <Label htmlFor={phone.id + 'number'}>Número</Label>
-              <Input
-                id={phone.id + 'number'}
-                type="tel"
-                {...form.register(`phones.${index}.number`)}
-                aria-invalid={!!form.getFieldState(`phones.${index}.number`, form.formState).error}
-              />
-              <FieldMessage form={form} name={`phones.${index}.number`} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor={phone.id + 'label'}>Identificação</Label>
-              <Input id={phone.id + 'label'} {...form.register(`phones.${index}.label`)} />
-            </div>
-            <div className="flex gap-1">
-              <PrimaryButton
-                active={!!watched.phones?.[index]?.is_primary}
-                label={`Definir telefone ${index + 1} como principal`}
-                onClick={() =>
-                  form
-                    .getValues('phones')
-                    ?.forEach((_, i) =>
-                      form.setValue(`phones.${i}.is_primary`, i === index, { shouldDirty: true }),
-                    )
-                }
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-11 sm:size-9"
-                aria-label={`Remover telefone ${index + 1}`}
-                onClick={() => {
-                  phones.remove(index);
-                  repairPrimaries(form);
-                }}
-              >
-                <Trash2 aria-hidden className="size-4" />
-              </Button>
-            </div>
-          </fieldset>
-        ))}
-        {!phones.fields.length && (
-          <p className="text-xs text-muted-foreground">Nenhum telefone cadastrado.</p>
-        )}
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() =>
-            phones.append({ number: '', label: '', is_primary: !phones.fields.length })
-          }
-        >
-          <Plus aria-hidden className="size-4" />
-          Adicionar telefone
-        </Button>
-      </section>
-      {!linkId && (
-        <details className="rounded-lg border p-4">
-          <summary className="cursor-pointer text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring">
-            Observações
-          </summary>
-          <div className="mt-3 space-y-2">
-            <Label htmlFor="contact-notes">Observações sobre o contato</Label>
-            <Textarea id="contact-notes" {...form.register('notes')} />
-            <FieldMessage form={form} name="notes" />
-          </div>
-        </details>
-      )}
-      {mayControl && !linkId && (
-        <fieldset className="space-y-3 rounded-md border p-3">
-          <legend>Exibição do contato</legend>
-          <Label htmlFor="contact-visibility">Caixas autorizadas</Label>
-          <select
-            id="contact-visibility"
-            {...form.register('visibility')}
-            className="h-11 w-full rounded-md border bg-card px-2 text-sm"
-          >
-            <option value="all">Todas as caixas atuais e futuras</option>
-            <option value="selected">Somente caixas selecionadas</option>
-          </select>
-          {visibility === 'selected' &&
-            boxes.data?.map((box) => (
-              <div key={box.id} className="flex min-h-11 items-center gap-2">
-                <Checkbox
-                  id={'visible-' + box.id}
-                  checked={watched.mailbox_ids?.includes(box.id) ?? false}
-                  onCheckedChange={(checked) =>
-                    form.setValue(
-                      'mailbox_ids',
-                      checked
-                        ? [...(form.getValues('mailbox_ids') ?? []), box.id]
-                        : (form.getValues('mailbox_ids') ?? []).filter((v) => v !== box.id),
-                    )
-                  }
-                />
-                <Label htmlFor={'visible-' + box.id}>{box.name}</Label>
-              </div>
-            ))}
-          <p className="text-sm text-muted-foreground">
-            Quem tiver acesso a uma caixa autorizada poderá ver o contato completo.
-          </p>
-        </fieldset>
-      )}
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-      <div className="flex flex-wrap justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onClose}>
-          Cancelar
-        </Button>
-        <Button disabled={form.formState.isSubmitting}>
-          {form.formState.isSubmitting ? 'Salvando…' : 'Salvar contato'}
-        </Button>
-      </div>
-    </form>
-  );
-}
-function PrimaryButton({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      type="button"
-      size="icon"
-      variant="ghost"
-      className="size-11 sm:size-9"
-      aria-label={label}
-      aria-pressed={active}
-      title={active ? 'Principal' : label}
-      onClick={onClick}
-    >
-      <Star
-        aria-hidden
-        className={active ? 'size-4 fill-current text-primary' : 'size-4 text-muted-foreground'}
-      />
-    </Button>
-  );
-}
-function FieldMessage({
-  form,
-  name,
-}: {
-  form: UseFormReturn<ContactInput>;
-  name: FieldPath<ContactInput>;
-}) {
-  const error = form.getFieldState(name, form.formState).error;
-  return error?.message ? (
-    <p role="alert" className="mt-1 text-xs text-destructive">
-      {error.message}
-    </p>
-  ) : null;
-}
-function repairPrimaries(form: UseFormReturn<ContactInput>) {
-  const emails = form.getValues('emails');
-  if (!emails.some((e) => e.is_primary) && emails.length)
-    form.setValue('emails.0.is_primary', true);
-  if (!emails.some((e) => e.links.some((l) => l.is_primary_company))) {
-    const emailIndex = emails.findIndex((e) => e.links.some((l) => l.company));
-    if (emailIndex >= 0)
-      form.setValue(
-        `emails.${emailIndex}.links.${emails[emailIndex]!.links.findIndex((l) => l.company)}.is_primary_company`,
-        true,
+  const selectCompany = (company: Company | CompanyDetail) => {
+    const key = companyKey(company);
+    setCompanies((current) =>
+      current.some((c) => companyKey(c) === key)
+        ? current.map((c) => (companyKey(c) === key ? company : c))
+        : [...current, company],
+    );
+    if (!primaryCompany) setPrimaryCompany(key);
+    if (!companies.some((c) => companyKey(c) === key) && 'addresses' in company)
+      setAddresses((current) => [
+        ...current,
+        ...company.addresses.map((address) => ({
+          address,
+          emailIndex: Math.max(
+            0,
+            form.getValues('emails').findIndex((e) => e.is_primary),
+          ),
+          companyKey: key,
+        })),
+      ]);
+    const emails = form.getValues('emails');
+    if (!emails.some((e) => e.links.some((l) => l.company && companyKey(l.company) === key))) {
+      const index = Math.max(
+        0,
+        emails.findIndex((e) => e.is_primary),
       );
-  }
-  const phones = form.getValues('phones');
-  if (phones?.length && !phones.some((p) => p.is_primary))
-    form.setValue('phones.0.is_primary', true);
-}
-function EmailLinks({ index, form }: { index: number; form: UseFormReturn<ContactInput> }) {
-  const links = useFieldArray({ control: form.control, name: `emails.${index}.links` });
-  const watchedLinks = useWatch({ control: form.control, name: `emails.${index}.links` });
-  const [busy, setBusy] = useState<string | null>(null);
-  const tenant = useTenantId(),
-    [companySearch, setCompanySearch] = useState(''),
-    [companyPickerOpen, setCompanyPickerOpen] = useState(false);
-  const companyTerm = useDebouncedSearch(companySearch);
-  const companies = useQuery({
-    queryKey: ['contact-company-options', tenant, companyTerm],
-    queryFn: ({ signal }) =>
-      api<{ items: { id: string; name: string; trade_name: string; cnpj: string }[] }>(
-        '/contacts/companies?' + new URLSearchParams({ search: companyTerm }),
-        { signal },
-      ),
-    staleTime: 30000,
-    enabled: companyPickerOpen,
-  });
-  const lookup = async (kind: 'cep' | 'cnpj', linkIndex: number) => {
-    const key = `emails.${index}.links.${linkIndex}` as const;
-    const value =
-      kind === 'cep' ? form.getValues(`${key}.address.cep`) : form.getValues(`${key}.company.cnpj`);
-    setBusy(key + kind);
-    try {
-      const data = await api<{
-        company?: ContactInput['emails'][number]['links'][number]['company'];
-        address: typeof emptyAddress;
-      }>('/contacts/lookup/' + kind + '/' + encodeURIComponent(value ?? ''));
-      if (data.company) form.setValue(`${key}.company`, data.company);
-      form.setValue(`${key}.address`, data.address);
-      toast.success('Dados consultados. Confira antes de salvar.');
-    } catch (e) {
-      toast.error(
-        (e instanceof Error ? e.message + ' ' : '') + 'Você pode preencher os dados manualmente.',
-      );
-    } finally {
-      setBusy(null);
+      if (emails[index])
+        form.setValue(`emails.${index}.links`, [
+          ...emails[index]!.links,
+          { company, address: null, label: '', is_primary_company: false },
+        ]);
     }
   };
+  const removeCompany = (key: string) => {
+    const remaining = companies.filter((c) => companyKey(c) !== key);
+    setCompanies(remaining);
+    if (primaryCompany === key) setPrimaryCompany(remaining[0] ? companyKey(remaining[0]) : '');
+    setAddresses((current) =>
+      current.map((a) => (a.companyKey === key ? { ...a, companyKey: '' } : a)),
+    );
+    form.setValue(
+      'emails',
+      values.emails.map((e) => ({
+        ...e,
+        links: e.links.filter((l) => !l.company || companyKey(l.company) !== key),
+      })),
+    );
+  };
+  const toggleCompany = (company: Company) =>
+    companies.some((c) => companyKey(c) === companyKey(company))
+      ? removeCompany(companyKey(company))
+      : selectCompany(company);
+  const enterCompanySearch = async () => {
+    let match: CompanyDetail | undefined;
+    try {
+      match = (
+        await api<ListResult<CompanyDetail>>(
+          '/companies?' + new URLSearchParams({ search: search.trim(), pageSize: '10' }),
+        )
+      ).items[0];
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Não foi possível buscar empresas.');
+      return;
+    }
+    if (match) selectCompany(match);
+    else if (/^[A-Z\d]{12}\d{2}$/.test(search.replace(/[.\-/\s]/g, '').toUpperCase())) {
+      setPickerOpen(false);
+      setNewCompany({ cnpj: search });
+    }
+  };
+  const removeEmail = (index: number) => {
+    const remaining = values.emails.filter((_, i) => i !== index);
+    if (remaining.length && !remaining.some((e) => e.is_primary)) remaining[0]!.is_primary = true;
+    for (const company of companies)
+      if (
+        remaining.length &&
+        !remaining.some((e) =>
+          e.links.some((l) => l.company && companyKey(l.company) === companyKey(company)),
+        )
+      )
+        remaining[0]!.links.push({ company, address: null, label: '', is_primary_company: false });
+    form.setValue('emails', remaining);
+    setAddresses((current) =>
+      current.map((a) => ({
+        ...a,
+        emailIndex:
+          a.emailIndex === index ? 0 : a.emailIndex > index ? a.emailIndex - 1 : a.emailIndex,
+      })),
+    );
+  };
+  const save = form.handleSubmit(async (raw) => {
+    setError('');
+    setFieldErrors({});
+    try {
+      const emails: ContactInput['emails'] = raw.emails.map((e) => ({
+        ...e,
+        label: e.label ?? '',
+        links: e.links
+          .filter(
+            (l) => l.company && companies.some((c) => companyKey(c) === companyKey(l.company!)),
+          )
+          .map((l) => ({ ...l, label: '', address: null, is_primary_company: false })),
+      }));
+      for (const company of companies)
+        if (
+          !emails.some((e) =>
+            e.links.some((l) => l.company && companyKey(l.company) === companyKey(company)),
+          )
+        ) {
+          const email = emails.find((e) => e.is_primary) ?? emails[0];
+          email?.links.push({ company, address: null, label: '', is_primary_company: false });
+        }
+      for (const entry of addresses) {
+        const email = emails[entry.emailIndex] ?? emails[0];
+        if (!email) continue;
+        const company = companies.find((c) => companyKey(c) === entry.companyKey) ?? null;
+        const existing = company
+          ? email.links.find(
+              (l) => l.company && companyKey(l.company) === companyKey(company) && !l.address,
+            )
+          : null;
+        if (existing) existing.address = entry.address;
+        else
+          email.links.push({
+            company,
+            address: entry.address,
+            label: '',
+            is_primary_company: false,
+          });
+      }
+      const principal = emails
+        .flatMap((e) => e.links)
+        .find((l) => l.company && companyKey(l.company) === primaryCompany);
+      if (principal) principal.is_primary_company = true;
+      const body = contactSchema.parse({ ...raw, emails });
+      if (!mayControl) {
+        delete body.visibility;
+        delete body.mailbox_ids;
+      }
+      await api(id ? '/contacts/' + id : '/contacts', { method: id ? 'PUT' : 'POST', body });
+      await client.invalidateQueries({
+        predicate: (q) =>
+          String(q.queryKey[0]).startsWith('contact') || q.queryKey[0] === 'global-search',
+      });
+      toast.success('Contato salvo.');
+      onClose();
+    } catch (e) {
+      if (e instanceof z.ZodError) {
+        setFieldErrors(
+          Object.fromEntries(e.issues.map((issue) => [String(issue.path[0]), issue.message])),
+        );
+        if (e.issues.some((issue) => issue.path[0] === 'name')) form.setFocus('name');
+      }
+      setError(
+        e instanceof z.ZodError
+          ? e.issues.map((issue) => issue.message).join(' ')
+          : e instanceof Error
+            ? e.message
+            : 'Não foi possível salvar.',
+      );
+    }
+  });
   return (
-    <div className="space-y-3 [&_button]:max-w-full [&_button]:whitespace-normal">
-      {links.fields.map((link, li) => {
-        const key = `emails.${index}.links.${li}` as const,
-          current = watchedLinks?.[li];
-        return (
-          <details
-            key={link.id}
-            open={link.company?.name === '' || (!link.company && !link.address?.street)}
-            className="rounded-md border p-3"
-          >
-            <summary className="min-h-11 cursor-pointer break-words py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring">
-              {current?.company?.name ||
-                (current?.company ? 'Nova empresa' : current?.address?.street || 'Novo endereço')}
-              {current?.is_primary_company ? ' · Empresa principal' : ''}
-            </summary>
-            <div className="mt-3 space-y-3">
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="min-w-0 flex-1 space-y-2">
-                  <Label htmlFor={link.id + 'label'}>Identificação do vínculo</Label>
-                  <Input id={link.id + 'label'} {...form.register(`${key}.label`)} />
-                </div>
-                {current?.company && (
-                  <PrimaryButton
-                    active={!!current.is_primary_company}
-                    label={`Definir empresa ${li + 1} do e-mail ${index + 1} como principal`}
-                    onClick={() =>
-                      form
-                        .getValues('emails')
-                        .forEach((e, ei) =>
-                          e.links.forEach((_, i) =>
-                            form.setValue(
-                              `emails.${ei}.links.${i}.is_primary_company`,
-                              ei === index && i === li,
-                              { shouldDirty: true },
-                            ),
-                          ),
-                        )
-                    }
-                  />
-                )}
-              </div>
-              {current?.company && (
-                <>
-                  <div className="flex flex-wrap items-end gap-2">
-                    <div className="min-w-0 flex-1">
-                      <Label htmlFor={link.id + 'cnpj'}>CNPJ</Label>
-                      <Input id={link.id + 'cnpj'} {...form.register(`${key}.company.cnpj`)} />
-                      <FieldMessage form={form} name={`${key}.company.cnpj`} />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!!busy}
-                      onClick={() => void lookup('cnpj', li)}
-                    >
-                      Consultar CNPJ
-                    </Button>
-                  </div>
-                  {(['name', 'trade_name'] as const).map((field, i) => (
-                    <div key={field}>
-                      <Label htmlFor={link.id + field}>
-                        {i ? 'Nome fantasia' : 'Razão social'}
-                      </Label>
-                      <Input id={link.id + field} {...form.register(`${key}.company.${field}`)} />
-                      <FieldMessage form={form} name={`${key}.company.${field}`} />
-                    </div>
-                  ))}
-                </>
-              )}
-              {current?.company && !current.address && (
+    <>
+      <form
+        className="flex min-h-0 flex-1 flex-col"
+        noValidate
+        onSubmit={(event) => {
+          if (form.formState.isSubmitting) {
+            event.preventDefault();
+            return;
+          }
+          void save(event);
+        }}
+      >
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-5">
+          <section className="space-y-3">
+            <Label>Empresas (opcional)</Label>
+            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+              <PopoverTrigger asChild>
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() =>
-                    form.setValue(`${key}.address`, { ...emptyAddress }, { shouldDirty: true })
-                  }
+                  className="h-11 w-full justify-between font-normal"
+                  aria-label="Selecionar empresas"
                 >
-                  <MapPin aria-hidden className="size-4" />
-                  Adicionar endereço desta empresa
+                  <span>
+                    {companies.length}{' '}
+                    {companies.length === 1 ? 'empresa selecionada' : 'empresas selecionadas'}
+                  </span>
+                  <ChevronsUpDown aria-hidden className="size-4 text-muted-foreground" />
                 </Button>
-              )}
-              {current?.address && (
-                <>
-                  <div className="flex flex-wrap items-end gap-2">
-                    <div className="flex-1">
-                      <Label htmlFor={link.id + 'cep'}>CEP</Label>
-                      <Input id={link.id + 'cep'} {...form.register(`${key}.address.cep`)} />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!!busy}
-                      onClick={() => void lookup('cep', li)}
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="max-h-[55dvh] w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] space-y-3 overflow-y-auto"
+              >
+                <Label htmlFor="contact-company-search">
+                  Pesquisar por CNPJ, razão social ou nome fantasia
+                </Label>
+                <Input
+                  id="contact-company-search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void enterCompanySearch();
+                    }
+                  }}
+                />
+                {options.isLoading ? (
+                  <p role="status" className="text-sm">
+                    Carregando empresas…
+                  </p>
+                ) : options.error ? (
+                  <p role="alert" className="text-sm text-destructive">
+                    Não foi possível buscar empresas.
+                  </p>
+                ) : !options.data?.items.length ? (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    Nenhuma empresa encontrada. Cadastre uma nova ou informe o CNPJ e pressione
+                    Enter.
+                  </p>
+                ) : (
+                  options.data.items.map((company) => (
+                    <div
+                      key={company.id}
+                      className="flex min-h-11 items-center gap-3 rounded-md p-2 hover:bg-muted"
                     >
-                      Consultar CEP
-                    </Button>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {(
-                      [
-                        ['street', 'Logradouro'],
-                        ['number', 'Número'],
-                        ['complement', 'Complemento'],
-                        ['district', 'Bairro'],
-                        ['city', 'Cidade'],
-                        ['state', 'Estado'],
-                        ['country', 'País'],
-                      ] as const
-                    ).map(([field, label]) => (
-                      <div key={field}>
-                        <Label htmlFor={link.id + field}>{label}</Label>
-                        <Input id={link.id + field} {...form.register(`${key}.address.${field}`)} />
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-              {busy?.startsWith(key) && (
-                <p role="status" className="text-sm">
-                  Consultando…
+                      <Checkbox
+                        id={'company-option-' + company.id}
+                        checked={companies.some((c) => companyKey(c) === company.id)}
+                        onCheckedChange={() => toggleCompany(company)}
+                      />
+                      <Label
+                        htmlFor={'company-option-' + company.id}
+                        className="min-w-0 flex-1 cursor-pointer break-words"
+                      >
+                        <span>{company.name}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {company.trade_name}
+                          {company.cnpj ? ' · ' + company.cnpj : ''}
+                        </span>
+                      </Label>
+                    </div>
+                  ))
+                )}
+                <div className="flex flex-wrap justify-between gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setPickerOpen(false);
+                      setNewCompany({ cnpj: '' });
+                    }}
+                  >
+                    <Plus aria-hidden className="size-4" />
+                    Nova empresa
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setPickerOpen(false)}>
+                    Concluir
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+            <PrincipalChips
+              items={companies.map((c) => ({
+                key: companyKey(c),
+                text: c.name,
+                primary: companyKey(c) === primaryCompany,
+              }))}
+              onPrimary={setPrimaryCompany}
+              onRemove={removeCompany}
+            />
+            <p className="text-sm text-muted-foreground">
+              Selecione uma ou mais empresas. Use a estrela para definir a principal. O vínculo é
+              opcional.
+            </p>
+          </section>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="contact-name">Nome *</Label>
+              <Input
+                id="contact-name"
+                aria-invalid={!!fieldErrors.name}
+                {...form.register('name')}
+              />
+              {fieldErrors.name && (
+                <p role="alert" className="text-sm text-destructive">
+                  {fieldErrors.name}
                 </p>
               )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="contact-job">Cargo</Label>
+              <Input id="contact-job" {...form.register('job_title')} />
+            </div>
+          </div>
+          <div className="grid items-start gap-5 sm:grid-cols-2">
+            <ChannelPicker
+              kind="email"
+              error={fieldErrors.emails}
+              items={values.emails.map((e) => ({ value: e.email, primary: !!e.is_primary }))}
+              onAdd={(email) =>
+                form.setValue('emails', [
+                  ...values.emails,
+                  {
+                    email,
+                    label: '',
+                    is_primary: !values.emails.length,
+                    links: values.emails.length
+                      ? []
+                      : companies.map((company) => ({
+                          company,
+                          address: null,
+                          label: '',
+                          is_primary_company: false,
+                        })),
+                  },
+                ])
+              }
+              onEdit={(i, email) => form.setValue(`emails.${i}.email`, email)}
+              onRemove={removeEmail}
+              onPrimary={(index) =>
+                form.setValue(
+                  'emails',
+                  values.emails.map((e, i) => ({ ...e, is_primary: i === index })),
+                )
+              }
+            >
+              <details className="border-t pt-2">
+                <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
+                  Empresas por e-mail
+                </summary>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Por padrão, empresas selecionadas são vinculadas ao e-mail principal. Ajuste os
+                  vínculos abaixo se necessário.
+                </p>
+                {values.emails.map((email, ei) => (
+                  <fieldset key={ei} className="min-w-0 space-y-2 rounded-md border p-2">
+                    <legend className="break-all text-sm">{email.email}</legend>
+                    {companies.map((company) => {
+                      const key = companyKey(company),
+                        linked = email.links.some(
+                          (l) => l.company && companyKey(l.company) === key,
+                        );
+                      return (
+                        <div key={key} className="flex min-h-11 items-center gap-2">
+                          <Checkbox
+                            id={'email-company-' + ei + key}
+                            checked={linked}
+                            onCheckedChange={(checked) =>
+                              form.setValue(
+                                `emails.${ei}.links`,
+                                checked
+                                  ? [
+                                      ...email.links,
+                                      {
+                                        company,
+                                        address: null,
+                                        label: '',
+                                        is_primary_company: false,
+                                      },
+                                    ]
+                                  : email.links.filter(
+                                      (l) => !l.company || companyKey(l.company) !== key,
+                                    ),
+                              )
+                            }
+                          />
+                          <Label htmlFor={'email-company-' + ei + key} className="break-words">
+                            {company.name}
+                          </Label>
+                        </div>
+                      );
+                    })}
+                  </fieldset>
+                ))}
+              </details>
+            </ChannelPicker>
+            <ChannelPicker
+              kind="phone"
+              error={fieldErrors.phones}
+              items={(values.phones ?? []).map((p) => ({
+                value: p.number,
+                primary: !!p.is_primary,
+              }))}
+              onAdd={(number) =>
+                form.setValue('phones', [
+                  ...(values.phones ?? []),
+                  { number, label: '', is_primary: !values.phones?.length },
+                ])
+              }
+              onEdit={(i, number) => form.setValue(`phones.${i}.number`, number)}
+              onPrimary={(index) =>
+                form.setValue(
+                  'phones',
+                  values.phones?.map((p, i) => ({ ...p, is_primary: i === index })),
+                )
+              }
+              onRemove={(index) => {
+                const remaining = values.phones?.filter((_, i) => i !== index) ?? [];
+                if (remaining.length && !remaining.some((p) => p.is_primary))
+                  remaining[0]!.is_primary = true;
+                form.setValue('phones', remaining);
+              }}
+            />
+          </div>
+          <details className="rounded-md border p-3">
+            <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
+              Endereços do contato{addresses.length ? ' (' + addresses.length + ')' : ''}
+            </summary>
+            <div className="space-y-3 pt-3">
+              {addresses.map((entry, i) => (
+                <fieldset key={i} className="min-w-0 space-y-3 rounded-md border p-3">
+                  <legend className="px-1 text-sm">Endereço {i + 1}</legend>
+                  <Label htmlFor={'address-company-' + i}>Empresa vinculada (opcional)</Label>
+                  <select
+                    id={'address-company-' + i}
+                    className="h-11 w-full rounded-md border bg-card px-3 text-sm"
+                    value={entry.companyKey}
+                    onChange={(e) =>
+                      setAddresses((current) =>
+                        current.map((a, index) =>
+                          index === i ? { ...a, companyKey: e.target.value } : a,
+                        ),
+                      )
+                    }
+                  >
+                    <option value="">Endereço avulso</option>
+                    {companies.map((c) => (
+                      <option key={companyKey(c)} value={companyKey(c)}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Label htmlFor={'address-email-' + i}>E-mail vinculado</Label>
+                  <select
+                    id={'address-email-' + i}
+                    className="h-11 w-full rounded-md border bg-card px-3 text-sm"
+                    value={entry.emailIndex}
+                    onChange={(e) =>
+                      setAddresses((current) =>
+                        current.map((a, index) =>
+                          index === i ? { ...a, emailIndex: Number(e.target.value) } : a,
+                        ),
+                      )
+                    }
+                  >
+                    {values.emails.map((e, index) => (
+                      <option key={index} value={index}>
+                        {e.email}
+                      </option>
+                    ))}
+                  </select>
+                  <AddressFields
+                    id={'contact-address-' + i}
+                    value={entry.address}
+                    onChange={(address) =>
+                      setAddresses((current) =>
+                        current.map((a, index) => (index === i ? { ...a, address } : a)),
+                      )
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() =>
+                      setAddresses((current) => current.filter((_, index) => index !== i))
+                    }
+                  >
+                    Remover endereço {i + 1}
+                  </Button>
+                </fieldset>
+              ))}
               <Button
                 type="button"
-                variant="ghost"
-                disabled={!!busy}
-                onClick={() => {
-                  links.remove(li);
-                  repairPrimaries(form);
-                }}
+                variant="outline"
+                onClick={() =>
+                  setAddresses((current) => [
+                    ...current,
+                    {
+                      address: { ...blankAddress },
+                      emailIndex: Math.max(
+                        0,
+                        values.emails.findIndex((e) => e.is_primary),
+                      ),
+                      companyKey: '',
+                    },
+                  ])
+                }
               >
-                <Trash2 aria-hidden className="size-4" />
-                Remover vínculo
+                Adicionar endereço avulso
               </Button>
             </div>
           </details>
-        );
-      })}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() =>
-            links.append({
-              label: '',
-              is_primary_company: !form
-                .getValues('emails')
-                .some((e) => e.links.some((l) => l.is_primary_company)),
-              company: { name: '', trade_name: '', cnpj: '' },
-              address: { ...emptyAddress },
-            })
-          }
-        >
-          <Building2 aria-hidden className="size-4" />
-          Adicionar empresa e endereço
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => links.append({ label: '', company: null, address: { ...emptyAddress } })}
-        >
-          <MapPin aria-hidden className="size-4" />
-          Adicionar endereço por CEP
-        </Button>
-      </div>
-      <details
-        className="rounded-md border p-3"
-        onToggle={(event) => setCompanyPickerOpen(event.currentTarget.open)}
-      >
-        <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring">
-          Vincular empresa já cadastrada
-        </summary>
-        <div className="mt-3 space-y-2">
-          <Label htmlFor={`company-search-${index}`}>Buscar por empresa ou CNPJ</Label>
-          <Input
-            id={`company-search-${index}`}
-            value={companySearch}
-            onChange={(e) => setCompanySearch(e.target.value)}
-          />
-          <Label htmlFor={`company-picker-${index}`}>Empresa para este e-mail</Label>
-          <select
-            id={`company-picker-${index}`}
-            className="h-11 w-full max-w-full rounded-md border bg-card px-3 text-sm"
-            value=""
-            onChange={(e) => {
-              const company = companies.data?.items[Number(e.target.value)];
-              if (company)
-                links.append({
-                  label: '',
-                  company,
-                  address: null,
-                  is_primary_company: !form
-                    .getValues('emails')
-                    .some((email) => email.links.some((l) => l.is_primary_company)),
-                });
+          <details className="rounded-md border p-3">
+            <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
+              Observações
+            </summary>
+            <div className="space-y-2 pt-3">
+              <Label htmlFor="contact-notes">Observações sobre o contato</Label>
+              <Textarea id="contact-notes" {...form.register('notes')} />
+            </div>
+          </details>
+          <DirectoryVisibility
+            value={values}
+            onChange={(next) => {
+              form.setValue('visibility', next.visibility);
+              form.setValue('mailbox_ids', next.mailbox_ids);
             }}
-          >
-            <option value="">
-              {companies.isLoading ? 'Carregando empresas…' : 'Selecionar empresa'}
-            </option>
-            {companies.data?.items.map((company, i) => (
-              <option key={i} value={i}>
-                {company.trade_name || company.name}
-                {company.cnpj ? ` · ${company.cnpj}` : ''}
-              </option>
-            ))}
-          </select>
-          {companies.error && (
-            <p role="status" className="text-xs text-destructive">
-              Não foi possível consultar empresas. Você pode cadastrá-las manualmente.
+          />
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
             </p>
           )}
-          <p className="text-xs text-muted-foreground">
-            Empresas dos contatos que você pode visualizar. Refine a busca para encontrar outras.
-          </p>
         </div>
-      </details>
-    </div>
+        <footer className="flex shrink-0 flex-wrap justify-end gap-3 border-t p-4">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button disabled={form.formState.isSubmitting}>
+            {form.formState.isSubmitting ? 'Salvando…' : 'Salvar contato'}
+          </Button>
+        </footer>
+      </form>
+      {newCompany && (
+        <CompanyEditorDialog
+          cnpj={newCompany.cnpj}
+          onClose={() => setNewCompany(null)}
+          onSaved={selectCompany}
+        />
+      )}
+    </>
   );
 }
 export function ContactSenderAction({ email, name }: { email: string; name: string }) {

@@ -133,6 +133,10 @@ export interface ContactAddresses {
 }
 
 export interface ContactCompanies {
+  addresses: Generated<JsonValue>;
+  visibility: Generated<string>;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
   cnpj: string | null;
   id: Generated<string>;
   name: string;
@@ -140,6 +144,11 @@ export interface ContactCompanies {
   source: string | null;
   tenant_id: string;
   trade_name: Generated<string>;
+}
+export interface ContactCompanyMailboxes {
+  tenant_id: string;
+  company_id: string;
+  mailbox_id: string;
 }
 
 export interface ContactEmailLinks {
@@ -761,6 +770,7 @@ export interface DB {
   chat_participants: ChatParticipants;
   contact_addresses: ContactAddresses;
   contact_companies: ContactCompanies;
+  contact_company_mailboxes: ContactCompanyMailboxes;
   contact_email_links: ContactEmailLinks;
   contact_emails: ContactEmails;
   contact_mailboxes: ContactMailboxes;

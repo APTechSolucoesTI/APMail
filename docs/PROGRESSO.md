@@ -1,5 +1,13 @@
 # Progresso do APMail
 
+## Revisão de 06/10/2026 — formulário do print e cadastro de empresas (local)
+
+- Formulário de contato refeito conforme o print: empresas opcionais primeiro, chips/estrelas, nome/cargo, seletores de e-mails/telefones e rodapé fixo. Removidos Destino e os campos de identificação. Vínculos por e-mail, endereços avulsos e visibilidade ficam sob demanda.
+- `/companies` e item Empresas no menu, com cadastro independente, listagem paginada/ordenada, vários endereços e visibilidade por caixa. Busca por CNPJ/razão social/nome fantasia no mesmo campo; Enter consulta CNPJ/CEP sem enviar o formulário. Empresa nova pode ser cadastrada de dentro do contato.
+- Migration aditiva `0021_company_directory.sql` amplia a tabela de empresas já existente, preserva dados/restrições e inclui os vínculos de caixa na medição. Não há importação de contatos/empresas externos.
+- Validação: lint sem avisos, tipos, build, 71 testes unitários, 35 integrações da API e três de migrations. Contato/empresa em quatro tamanhos e dois temas, consultas por Enter, principais, endereço sem empresa e acessibilidade automatizada sem violações WCAG A/AA.
+- Comportamento atual em [CONTATOS-BUSCA-GLOBAL.md](CONTATOS-BUSCA-GLOBAL.md). Produção preservada; commit e deploy pelo usuário.
+
 ## Revisão de 06/10/2026 — contatos e busca global (local)
 
 - APTicket acessado com autenticação para inspecionar Contatos, formulário e busca do cabeçalho, sem alterações nos dados do sistema de referência.

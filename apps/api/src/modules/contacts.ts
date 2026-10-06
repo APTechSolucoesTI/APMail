@@ -21,13 +21,14 @@ import {
 } from '../authz/context.js';
 import { requireMailboxPerm } from '../authz/guards.js';
 import type { Resources } from './resources.js';
+import { companyVisible, companySearch } from './companies.js';
 type Database = Kysely<DB> | Transaction<DB>;
 const idOf = (p: unknown) => z.object({ id: z.uuid() }).parse(p).id;
 // Visibility is the intersection with actual mailbox access, not the sender address.
 export function contactVisible(c: ReturnType<typeof requireTenant>) {
-  return sql<boolean>`exists(select 1 from mailboxes b where b.tenant_id=${c.tenantId} and b.deleted_at is null
-    and (${isTenantAdmin(c.tenantRole)} or exists(select 1 from mailbox_members mm where mm.tenant_id=b.tenant_id and mm.mailbox_id=b.id and mm.user_id=${c.userId}))
-    and (contacts.visibility='all' or exists(select 1 from contact_mailboxes cm where cm.tenant_id=contacts.tenant_id and cm.contact_id=contacts.id and cm.mailbox_id=b.id)))`;
+  return sql<boolean>`(${isTenantAdmin(c.tenantRole)} or exists(select 1 from mailboxes b where b.tenant_id=${c.tenantId} and b.deleted_at is null
+    and exists(select 1 from mailbox_members mm where mm.tenant_id=b.tenant_id and mm.mailbox_id=b.id and mm.user_id=${c.userId})
+    and (contacts.visibility='all' or exists(select 1 from contact_mailboxes cm where cm.tenant_id=contacts.tenant_id and cm.contact_id=contacts.id and cm.mailbox_id=b.id))))`;
 }
 export function contactSearch(search: string) {
   const pattern = '%' + normalizeRuleText(search).replace(/[%_\\]/g, '\\$&') + '%';
@@ -49,15 +50,13 @@ export async function registerContacts(app: FastifyInstance, r: Resources) {
   app.get('/api/contacts/companies', async (req) => {
     const c = requireTenant(req.ctx),
       { search } = z.object({ search: z.string().trim().max(200).default('') }).parse(req.query);
-    const pattern = '%' + normalizeRuleText(search).replace(/[%_\\]/g, '\\$&') + '%';
     const rows = await sql<{
       id: string;
       name: string;
       trade_name: string;
       cnpj: string | null;
     }>`select cc.id,cc.name,cc.trade_name,cc.cnpj from contact_companies cc
-      where cc.tenant_id=${c.tenantId} and lower(unaccent(concat_ws(' ',cc.name,cc.trade_name,cc.cnpj))) like ${pattern}
-      and exists(select 1 from contacts join contact_email_links l on l.contact_id=contacts.id and l.tenant_id=contacts.tenant_id where l.company_id=cc.id and contacts.tenant_id=${c.tenantId} and ${contactVisible(c)})
+      where cc.tenant_id=${c.tenantId} and ${companySearch(search)} and ${companyVisible(c)}
       order by cc.name,cc.id limit 50`.execute(r.db);
     return { items: rows.rows.map((company) => ({ ...company, cnpj: company.cnpj ?? '' })) };
   });
@@ -236,7 +235,7 @@ export async function registerContacts(app: FastifyInstance, r: Resources) {
             await sql<{
               id: string;
             }>`select cc.id from contact_companies cc where cc.tenant_id=${c.tenantId} and cc.id in (${sql.join(companyIds.map((company) => sql`${company}::uuid`))})
-        and exists(select 1 from contacts join contact_email_links l on l.contact_id=contacts.id and l.tenant_id=contacts.tenant_id where l.company_id=cc.id and contacts.tenant_id=${c.tenantId} and ${contactVisible(c)})`.execute(
+        and (${companyVisible(c)} or exists(select 1 from contacts join contact_email_links l on l.contact_id=contacts.id and l.tenant_id=contacts.tenant_id where l.company_id=cc.id and contacts.tenant_id=${c.tenantId} and ${contactVisible(c)}))`.execute(
               tx,
             )
           ).rows
@@ -327,16 +326,19 @@ export async function registerContacts(app: FastifyInstance, r: Resources) {
                 : null);
             if (existing) {
               companyId = existing.id;
-              await tx
-                .updateTable('contact_companies')
-                .set({
-                  name: company.name,
-                  trade_name: company.trade_name,
-                  cnpj: company.cnpj || null,
-                })
-                .where('tenant_id', '=', c.tenantId)
-                .where('id', '=', existing.id)
-                .execute();
+              if (
+                !byId &&
+                !(await tx
+                  .selectFrom('contact_companies as cc')
+                  .select('cc.id')
+                  .where('cc.id', '=', existing.id)
+                  .where('cc.tenant_id', '=', c.tenantId)
+                  .where(companyVisible(c))
+                  .executeTakeFirst())
+              )
+                throw conflict(
+                  'Já existe uma empresa com este CNPJ. Solicite acesso a um administrador.',
+                );
             } else
               companyId = (
                 await tx
@@ -346,10 +348,23 @@ export async function registerContacts(app: FastifyInstance, r: Resources) {
                     trade_name: company.trade_name,
                     cnpj: company.cnpj || null,
                     tenant_id: c.tenantId,
+                    visibility: b.visibility ?? 'all',
+                    addresses: asJson(link.address ? [link.address] : []),
                   })
                   .returning('id')
                   .executeTakeFirstOrThrow()
               ).id;
+            if (!existing && b.visibility === 'selected' && b.mailbox_ids?.length)
+              await tx
+                .insertInto('contact_company_mailboxes')
+                .values(
+                  b.mailbox_ids.map((mailbox_id) => ({
+                    tenant_id: c.tenantId,
+                    company_id: companyId!,
+                    mailbox_id,
+                  })),
+                )
+                .execute();
           }
           if (link.address)
             addressId = (

@@ -90,16 +90,54 @@ it('migra contatos existentes com cota cheia, preserva canais e atualiza a medi√
       tenant,
       'Empresa existente',
     ]);
+    const mailbox = randomUUID(),
+      addressId = randomUUID();
+    await client.query(
+      "insert into mailboxes(id,tenant_id,name,email_address,username,imap_host,smtp_host,status) values($1,$2,'QA','qa@qa.local','qa','localhost','localhost','disabled')",
+      [mailbox, tenant],
+    );
+    await client.query("update contacts set visibility='selected' where id=$1", [contact]);
+    await client.query(
+      'insert into contact_mailboxes(tenant_id,contact_id,mailbox_id) values($1,$2,$3)',
+      [tenant, contact, mailbox],
+    );
+    await client.query(
+      "insert into contact_addresses(id,tenant_id,cep,street) values($1,$2,'01001000','Rua migrada')",
+      [addressId, tenant],
+    );
     for (const email of emails)
       await client.query(
-        'insert into contact_email_links(tenant_id,email_id,company_id) values($1,$2,$3)',
-        [tenant, email.id, company],
+        'insert into contact_email_links(tenant_id,email_id,company_id,address_id) values($1,$2,$3,$4)',
+        [tenant, email.id, company, addressId],
       );
     await client.query(
       'update tenant_storage_limits set storage_limit_bytes=storage_quota_usage($1) where tenant_id=$1',
       [tenant],
     );
     await migrate(url);
+    const migratedCompany = (
+      await client.query('select visibility,addresses from contact_companies where id=$1', [
+        company,
+      ])
+    ).rows[0];
+    expect(migratedCompany.visibility).toBe('selected');
+    expect(migratedCompany.addresses).toHaveLength(1);
+    expect(migratedCompany.addresses[0]).toMatchObject({ street: 'Rua migrada', cep: '01001000' });
+    expect(
+      (
+        await client.query('select mailbox_id from contact_company_mailboxes where company_id=$1', [
+          company,
+        ])
+      ).rows,
+    ).toEqual([{ mailbox_id: mailbox }]);
+    expect(
+      (
+        await client.query(
+          "select count(*)::int as n from storage_logical_payloads where relation_name='contact_company_mailboxes' and tenant_id=$1",
+          [tenant],
+        )
+      ).rows[0].n,
+    ).toBe(1);
     expect(
       (await client.query('select phone,phones,job_title from contacts where id=$1', [contact]))
         .rows[0],

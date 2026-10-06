@@ -10,7 +10,7 @@ import { SocketContext } from '@/hooks/use-socket-room';
 import { MailboxFolderNavigation } from '@/components/mail/mailbox-folder-navigation';
 import { ChatNavigation } from '@/components/chat/chat-navigation';
 import { useChatRealtime } from '@/hooks/use-chat';
-import { Mail, Menu, LogOut, LayoutDashboard } from 'lucide-react';
+import { Mail, Menu, LogOut, LayoutDashboard, Building2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
@@ -216,6 +216,14 @@ export function AppShell() {
           onClick={() => setOpen(false)}
         >
           Contatos
+        </Link>
+        <Link
+          to="/companies"
+          className="flex min-h-11 items-center gap-2 rounded-md px-3 text-sm hover:bg-accent hover:text-accent-foreground"
+          activeProps={{ className: 'bg-accent text-accent-foreground' }}
+        >
+          <Building2 aria-hidden className="size-4" />
+          Empresas
         </Link>
         <NavigationGroup id="mailboxes" label="Caixas de e-mail">
           {boxes.data?.map((b) => (

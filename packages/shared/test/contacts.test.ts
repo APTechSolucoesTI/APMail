@@ -1,6 +1,20 @@
 import { expect, it } from 'vitest';
-import { contactSchema } from '../src/contacts.js';
+import { contactSchema, companySchema } from '../src/contacts.js';
 const base = { name: 'Contato', emails: [{ email: 'principal@example.com' }] };
+it('empresa independente normaliza CNPJ e admite cadastro manual sem documento', () => {
+  expect(
+    companySchema.parse({
+      name: 'Empresa',
+      cnpj: '12.345.678/0001-99',
+      addresses: [{ cep: '01001000', street: 'Rua QA' }],
+    }),
+  ).toMatchObject({ cnpj: '12345678000199', addresses: [{ cep: '01001000', street: 'Rua QA' }] });
+  expect(companySchema.parse({ name: 'Empresa manual' })).toMatchObject({
+    cnpj: '',
+    addresses: [],
+  });
+  expect(companySchema.safeParse({ name: 'Empresa', cnpj: '123' }).success).toBe(false);
+});
 it('normaliza e-mails e detecta duplicações após a normalização', () => {
   expect(
     contactSchema.parse({ ...base, emails: [{ email: ' PRINCIPAL@EXAMPLE.COM ' }] }).emails[0]!

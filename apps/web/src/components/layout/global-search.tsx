@@ -11,6 +11,7 @@ import {
   Folder,
   Send,
   MessageSquare,
+  Building2,
 } from 'lucide-react';
 import { searchCategories, type GlobalSearchResponse, type SearchCategory } from '@apmail/shared';
 import {
@@ -26,6 +27,7 @@ import { useTenantId } from '@/lib/auth';
 
 const icons = {
   contact: Users,
+  company: Building2,
   email: Mail,
   mailbox: Inbox,
   setting: Settings,

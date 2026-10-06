@@ -12,6 +12,7 @@ import {
 } from '@apmail/shared';
 import { requireTenant } from '../authz/context.js';
 import { contactVisible, contactSearch } from './contacts.js';
+import { companyVisible, companySearch } from './companies.js';
 import type { Resources } from './resources.js';
 
 type Row = {
@@ -46,6 +47,10 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
     )`;
       const readableMessage = sql<boolean>`(b.full_access or exists(select 1 from allowed_folders f where f.id=m.folder_id and f.mailbox_id=m.mailbox_id))`;
       const queries: [SearchCategory, RawBuilder<Row>][] = [
+        [
+          'company',
+          sql<Row>`select cc.id,cc.name as title,concat_ws(' · ',nullif(cc.trade_name,''),cc.cnpj) as description from contact_companies cc where cc.tenant_id=${c.tenantId} and ${companyVisible(c)} and ${companySearch(q)} order by cc.name,cc.id limit 6`,
+        ],
         [
           'contact',
           sql<Row>`select contacts.id,contacts.name as title,coalesce((select e.email from contact_emails e where e.tenant_id=contacts.tenant_id and e.contact_id=contacts.id order by e.is_primary desc,e.email limit 1),'') as description
@@ -97,6 +102,7 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
         ['/settings/rules', 'Regras', 'Minhas regras e regras da caixa'],
         ['/dashboard', 'Dashboard', 'Indicadores e atendimentos'],
         ['/contacts', 'Contatos', 'Pessoas, empresas e canais de contato'],
+        ['/companies', 'Empresas', 'CNPJ, razão social, nome fantasia e endereços'],
         ['/scheduled', 'Envios', 'Rascunhos, agendados e falhas'],
         ...(isTenantAdmin(c.tenantRole)
           ? [
@@ -120,6 +126,7 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
             const { rows } = await query.execute(tx);
             const items: GlobalSearchItem[] = rows.slice(0, 5).map((row) => {
               let url = '/contacts?contactId=' + row.id;
+              if (category === 'company') url = '/companies?companyId=' + row.id;
               if (category === 'mailbox') url = '/mail/' + row.id;
               if (category === 'email')
                 url =

@@ -12,7 +12,7 @@ export const contactAddressSchema = z.object({
 });
 export const contactCompanySchema = z.object({
   id: z.uuid().optional(),
-  name: z.string().trim().min(2).max(200),
+  name: z.string().trim().min(2, 'Informe a razão social.').max(200),
   trade_name: z.string().trim().max(200).default(''),
   cnpj: z
     .string()
@@ -20,6 +20,17 @@ export const contactCompanySchema = z.object({
     .refine((s) => s === '' || /^[A-Z\d]{12}\d{2}$/.test(s), 'CNPJ deve ter 14 caracteres.')
     .default(''),
 });
+export const companySchema = contactCompanySchema.omit({ id: true }).extend({
+  addresses: z.array(contactAddressSchema).max(50).default([]),
+  visibility: z.enum(['all', 'selected']).optional(),
+  mailbox_ids: z.array(z.uuid()).max(100).optional(),
+});
+export type CompanyInput = z.infer<typeof companySchema>;
+export type CompanyDetail = CompanyInput & {
+  id: string;
+  visibility: 'all' | 'selected';
+  mailbox_ids: string[];
+};
 export const contactLinkSchema = z
   .object({
     label: z.string().trim().max(80).default(''),
@@ -39,7 +50,7 @@ export const contactPhoneSchema = z.object({
 });
 export const contactSchema = z
   .object({
-    name: z.string().trim().min(2).max(120),
+    name: z.string().trim().min(2, 'Informe o nome do contato.').max(120),
     job_title: z.string().trim().max(120).optional(),
     phone: z.string().trim().max(40).default(''),
     phones: z.array(contactPhoneSchema).max(100).optional(),
@@ -53,7 +64,7 @@ export const contactSchema = z
           links: z.array(contactLinkSchema).max(50).default([]),
         }),
       )
-      .min(1)
+      .min(1, 'Cadastre ao menos um e-mail.')
       .max(100)
       .refine(
         (items) => new Set(items.map((i) => i.email)).size === items.length,

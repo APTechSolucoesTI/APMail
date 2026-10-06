@@ -40,7 +40,12 @@ const app = await buildApp(
   }),
 );
 const cookies = new Map<string, string>();
-const call = (method: 'GET' | 'POST' | 'PUT', path: string, user = owner, body?: unknown) =>
+const call = (
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  user = owner,
+  body?: unknown,
+) =>
   app.inject({
     method,
     url: path,
@@ -484,5 +489,148 @@ it('telefones novos contam na cota e uma falha não altera o cadastro', async ()
     await sql`update tenant_storage_limits set storage_limit_bytes=null where tenant_id=${tenant}::uuid`.execute(
       db,
     );
+  }
+});
+it('cadastra empresa independente, pesquisa no mesmo campo e vincula sem duplicar', async () => {
+  const created = await call('POST', '/api/companies', member, {
+    name: 'Razão Árvore',
+    trade_name: 'Fantasia Directory',
+    cnpj: '12.345.678/0001-99',
+    addresses: [
+      { cep: '01001000', street: 'Rua QA' },
+      { cep: '20000000', street: 'Rua B' },
+    ],
+  });
+  expect(created.statusCode, created.body).toBe(201);
+  const companyId = created.json().id;
+  for (const term of [
+    'razao arvore',
+    'Fantasia Directory',
+    '12.345.678/0001-99',
+    '12345678000199',
+  ]) {
+    const result = await call(
+      'GET',
+      '/api/companies?' + new URLSearchParams({ search: term }),
+      member,
+    );
+    expect(result.statusCode, result.body).toBe(200);
+    expect(result.json().items.some((r: { id: string }) => r.id === companyId)).toBe(true);
+  }
+  const company = (await call('GET', '/api/companies/' + companyId, member)).json();
+  expect(company.addresses).toHaveLength(2);
+  expect(company.visibility).toBe('all');
+  const linked = await call('POST', '/api/contacts', member, {
+    name: 'Contato Directory',
+    emails: [{ email: randomUUID() + '@qa.local', links: [{ company }] }],
+  });
+  expect(linked.statusCode, linked.body).toBe(201);
+  expect(
+    (
+      await call('POST', '/api/companies', member, {
+        name: 'Duplicate CNPJ',
+        cnpj: '12345678000199',
+      })
+    ).statusCode,
+  ).toBe(409);
+  expect(
+    (
+      await call('PUT', '/api/companies/' + companyId, member, {
+        ...company,
+        name: 'Razão revisada',
+        visibility: undefined,
+        mailbox_ids: undefined,
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect(
+    (await call('GET', '/api/contacts/' + linked.json().id, member)).json().emails[0].links[0]
+      .company.name,
+  ).toBe('Razão revisada');
+  expect((await call('DELETE', '/api/companies/' + companyId, owner)).statusCode).toBe(409);
+  expect(
+    (await search('Razão revisada'))
+      .json()
+      .groups.find((g: { category: string }) => g.category === 'company').items[0].url,
+  ).toContain('companyId=');
+});
+it('personaliza visibilidade de empresas com controle administrativo e isolamento de tenant', async () => {
+  const hidden = await call('POST', '/api/companies', owner, {
+    name: 'Directory Hidden',
+    visibility: 'selected',
+    mailbox_ids: [privateBox],
+  });
+  expect(hidden.statusCode, hidden.body).toBe(201);
+  const id = hidden.json().id;
+  expect((await call('GET', '/api/companies/' + id, member)).statusCode).toBe(404);
+  expect((await call('GET', '/api/companies/' + id, foreign)).statusCode).toBe(404);
+  expect(
+    (await call('GET', '/api/companies?search=Directory Hidden', member)).json().items,
+  ).toHaveLength(0);
+  expect(
+    (await search('Directory Hidden'))
+      .json()
+      .groups.find((g: { category: string }) => g.category === 'company').items,
+  ).toHaveLength(0);
+  expect(
+    (await call('POST', '/api/companies', member, { name: 'Not allowed', visibility: 'all' }))
+      .statusCode,
+  ).toBe(403);
+  expect(
+    (
+      await call('POST', '/api/contacts', member, {
+        name: 'Reference hidden',
+        emails: [
+          {
+            email: randomUUID() + '@qa.local',
+            links: [{ company: { id, name: 'Directory Hidden' } }],
+          },
+        ],
+      })
+    ).statusCode,
+  ).toBe(404);
+  expect(
+    (
+      await call('PUT', '/api/companies/' + id, owner, {
+        name: 'Directory Hidden',
+        visibility: 'selected',
+        mailbox_ids: [box],
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect((await call('GET', '/api/companies/' + id, member)).statusCode).toBe(200);
+  expect((await call('DELETE', '/api/companies/' + id, owner)).statusCode).toBe(200);
+});
+it('contato sem empresa aceita endereço avulso e mantém unicidade do e-mail', async () => {
+  const email = randomUUID() + '@qa.local',
+    body = {
+      name: 'Sem empresa',
+      emails: [{ email, links: [{ address: { cep: '01001000', street: 'Endereço avulso' } }] }],
+    };
+  const created = await call('POST', '/api/contacts', member, body);
+  expect(created.statusCode, created.body).toBe(201);
+  const detail = (await call('GET', '/api/contacts/' + created.json().id, member)).json();
+  expect(detail.emails[0].links[0].company).toBeNull();
+  expect(detail.emails[0].links[0].address.street).toBe('Endereço avulso');
+  expect(detail.visibility).toBe('all');
+  expect((await call('POST', '/api/contacts', member, body)).statusCode).toBe(409);
+});
+it('admin gerencia contatos mesmo antes de conectar caixas, sem liberar o membro sem caixas', async () => {
+  await db
+    .updateTable('mailboxes')
+    .set({ deleted_at: new Date() })
+    .where('tenant_id', '=', tenant)
+    .execute();
+  try {
+    expect((await call('GET', '/api/contacts/' + contact, owner)).statusCode).toBe(200);
+    expect((await call('GET', '/api/contacts/' + contact, member)).statusCode).toBe(404);
+    expect((await call('GET', '/api/companies', owner)).statusCode).toBe(200);
+    expect((await call('GET', '/api/contacts', member)).json().items).toHaveLength(0);
+  } finally {
+    await db
+      .updateTable('mailboxes')
+      .set({ deleted_at: null })
+      .where('tenant_id', '=', tenant)
+      .execute();
   }
 });
