@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { z } from 'zod';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { listQuerySchema, isTenantAdmin, canDelegate, type ListResult } from '@apmail/shared';
@@ -11,9 +12,18 @@ import { ContactEditorDialog } from '@/components/contacts/contact-editor';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { Pencil, Trash2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
-type Row = { id: string; name: string; phone: string; emails: string[]; visibility: string };
+type Row = {
+  id: string;
+  name: string;
+  phone: string;
+  emails: string[];
+  visibility: string;
+  job_title: string;
+  primary_company: string | null;
+  primary_email: string | null;
+};
 export const Route = createFileRoute('/_app/contacts')({
-  validateSearch: listQuerySchema,
+  validateSearch: listQuerySchema.extend({ contactId: z.uuid().optional() }),
   component: Contacts,
 });
 function Contacts() {
@@ -27,6 +37,7 @@ function Contacts() {
     isTenantAdmin(tenant?.role) ||
     canDelegate(tenant?.role ?? null, tenant?.capabilities, 'contacts_visibility');
   const [editing, setEditing] = useState<string | null | undefined>(undefined);
+  const selected = editing !== undefined ? editing : query.contactId;
   const q = useQuery({
     queryKey: ['contacts', tenantId, query],
     queryFn: ({ signal }) =>
@@ -69,11 +80,22 @@ function Contacts() {
         columns={[
           { id: 'name', header: 'Nome', hideable: false, sortable: true },
           {
+            id: 'primary_company',
+            header: 'Empresa principal',
+            cell: (r) => r.primary_company ?? 'Sem empresa',
+          },
+          {
             id: 'emails',
             header: 'E-mails',
-            cell: (r) => <span title={r.emails.join(', ')}>{r.emails.join(', ')}</span>,
+            cell: (r) => (
+              <span title={r.emails.join(', ')}>
+                {r.primary_email ?? r.emails[0]}
+                {r.emails.length > 1 ? ` (+${r.emails.length - 1})` : ''}
+              </span>
+            ),
           },
           { id: 'phone', header: 'Telefone' },
+          { id: 'job_title', header: 'Cargo', defaultVisible: false },
           {
             id: 'visibility',
             header: 'Exibição',
@@ -102,6 +124,7 @@ function Contacts() {
                 onConfirm={async () => {
                   await api('/contacts/' + row.id, { method: 'DELETE' });
                   await client.invalidateQueries({ queryKey: ['contacts'] });
+                  await client.invalidateQueries({ queryKey: ['global-search'] });
                   toast.success('Contato excluído.');
                 }}
               />
@@ -109,8 +132,15 @@ function Contacts() {
           </div>
         )}
       />
-      {editing !== undefined && (
-        <ContactEditorDialog id={editing ?? undefined} onClose={() => setEditing(undefined)} />
+      {selected !== undefined && (
+        <ContactEditorDialog
+          id={selected ?? undefined}
+          onClose={() => {
+            setEditing(undefined);
+            if (query.contactId)
+              void navigate({ to: '/contacts', search: { ...query, contactId: undefined } });
+          }}
+        />
       )}
     </>
   );

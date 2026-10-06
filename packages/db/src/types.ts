@@ -143,6 +143,8 @@ export interface ContactCompanies {
 }
 
 export interface ContactEmailLinks {
+  contact_id: string;
+  is_primary_company: Generated<boolean>;
   address_id: string | null;
   company_id: string | null;
   email_id: string;
@@ -152,6 +154,7 @@ export interface ContactEmailLinks {
 }
 
 export interface ContactEmails {
+  is_primary: Generated<boolean>;
   contact_id: string;
   email: string;
   id: Generated<string>;
@@ -166,6 +169,8 @@ export interface ContactMailboxes {
 }
 
 export interface Contacts {
+  job_title: Generated<string>;
+  phones: Generated<JsonValue>;
   created_at: Generated<Timestamp>;
   created_by: string;
   id: Generated<string>;

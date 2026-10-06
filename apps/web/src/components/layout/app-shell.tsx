@@ -19,6 +19,7 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/s
 import { UserAvatar } from '@/components/common/user-avatar';
 import { NotificationBell } from './notification-bell';
 import { KeyboardHelp } from './keyboard-help';
+import { GlobalSearch } from './global-search';
 import { useTheme } from './theme-provider';
 import { TableUserContext } from '@/hooks/use-table-preferences';
 export function AppShell() {
@@ -57,6 +58,7 @@ export function AppShell() {
         'thread-notes',
         'thread-history',
         'dashboard',
+        'global-search',
         'chat-conversations',
         'chat-messages',
         'chat-presence',
@@ -76,6 +78,7 @@ export function AppShell() {
         'shared-thread-access',
         'address-suggestions',
         'dashboard',
+        'global-search',
       ])
         void client.resetQueries({ queryKey: [key] });
       void client.invalidateQueries({ queryKey: ['mailboxes'] });
@@ -127,7 +130,9 @@ export function AppShell() {
     const invalidate = (...keys: string[]) => {
       for (const key of keys) void client.invalidateQueries({ queryKey: [key] });
     };
-    socket.on('threads:changed', () => invalidate('labels', 'threads', 'thread', 'thread-history'));
+    socket.on('threads:changed', () =>
+      invalidate('labels', 'threads', 'thread', 'thread-history', 'global-search'),
+    );
     socket.on(
       'thread:notes-changed',
       ({ thread_id }: { thread_id: string }) =>
@@ -338,6 +343,7 @@ export function AppShell() {
                     ))}
                   </select>
                 </div>
+                <GlobalSearch key={me.data.current_tenant_id} />
                 <div className="flex items-center gap-2">
                   <KeyboardHelp mailboxes={boxes.data ?? []} />
                   <NotificationBell />

@@ -118,6 +118,8 @@ Use `docker compose logs --tail 100 api worker migrate` ou as telas de logs do D
 
 ## Situação da instalação local
 
+Entrega local de 06/10/2026: contatos ampliados e busca global requerem a migration aditiva `0020_contacts_primary_channels.sql` e atualização conjunta de API/web. O migrador habitual aplica somente versões novas; não executar reset/seed. Contatos existentes são preservados e a projeção de consumo lógico é atualizada. Esta etapa não aplicou alterações na produção; commit/deploy são feitos pelo usuário. Comportamento e validação em [CONTATOS-BUSCA-GLOBAL.md](CONTATOS-BUSCA-GLOBAL.md).
+
 A instalação gerenciada está no projeto **APMail**, ambiente **production**, serviço Compose **APMail** do Dokploy em `http://192.168.3.106:3000`. O nome Compose efetivo é `apmail-next-production-qrufqc`, com banco, Redis, arquivos e segredos exclusivos. Endereço público: **https://apmail.aptechinfo.com.br:75**. Proprietário `sistema@aptechinfo.com.br`, empresa **APTech Soluções TI**, cadastro público desativado. Domínio, SMTP global e caixa real estão configurados. O ambiente atual do Dokploy é a fonte de verdade; `.data/qa/dokploy-production.env` é uma cópia antiga e não deve ser reaplicada. Não execute seed nessa instalação.
 
 Abra o túnel e acesse `http://localhost:8081`:

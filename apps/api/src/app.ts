@@ -40,6 +40,7 @@ import { registerDashboard } from './modules/dashboard/routes.js';
 import { registerChat } from './modules/chat/routes.js';
 import { registerSuperAdmin } from './modules/superadmin.js';
 import { registerContacts } from './modules/contacts.js';
+import { registerGlobalSearch } from './modules/global-search.js';
 import { registerStorageQuotas } from './modules/storage-quotas.js';
 import { ApiError, requireTenantAdmin } from './authz/context.js';
 
@@ -244,6 +245,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   registerChat(app, resources);
   await registerSuperAdmin(app, resources);
   await registerContacts(app, resources);
+  await registerGlobalSearch(app, resources);
   await registerStorageQuotas(app, resources);
   app.addHook('onClose', async () => {
     io.local.disconnectSockets(true);

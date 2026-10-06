@@ -2,6 +2,8 @@
 
 Gestão de e-mails compartilhados do Grupo AP. Aplicação própria com React, Fastify, PostgreSQL, Redis/BullMQ e integração IMAP/SMTP.
 
+[Contatos e busca global](docs/CONTATOS-BUSCA-GLOBAL.md): múltiplos e-mails, telefones, empresas e endereços, seleção de principais por estrela e busca no cabeçalho com resultados por categoria e permissões verificadas. Entrega local de 06/10/2026, com migration `0020`; commit e deploy pelo usuário.
+
 Funcionalidades implementadas: múltiplas empresas, caixas compartilhadas IMAP/SMTP, permissões por papel e pasta, leitura segura de HTML e anexos, composição/resposta/encaminhamento, assinaturas, agendamento com Desfazer, etiquetas pessoais, regras, filas de atendimento, atribuição, SLA, notas/menções, dashboard, auditoria e chat em tempo real. Temas claro/escuro, interface responsiva e atalhos de teclado.
 
 As fases concluídas, checks e pendências de publicação estão em [PROGRESSO](docs/PROGRESSO.md). Domínio/HTTPS e SMTP externo dependem da configuração de cada instalação.

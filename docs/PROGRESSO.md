@@ -1,5 +1,14 @@
 # Progresso do APMail
 
+## Revisão de 06/10/2026 — contatos e busca global (local)
+
+- APTicket acessado com autenticação para inspecionar Contatos, formulário e busca do cabeçalho, sem alterações nos dados do sistema de referência.
+- Cadastro com cargo, múltiplos e-mails/telefones/empresas/endereços, principais por estrela, vínculos por e-mail, reutilização de empresa e consultas CNPJ/CEP. Unicidade de e-mail por empresa e permissões preservadas.
+- Busca superior com Ctrl/Cmd K, categorias, debounce, teclado e navegação SPA. Resultados filtrados no servidor por empresa, caixa, pasta, contato, identidade e participação no chat; superadmin sem conteúdo operacional.
+- Migration `0020_contacts_primary_channels.sql` preserva contatos antigos, preenche principais e telefones e atualiza a medição lógica. Ensaiada em QA com contatos existentes e cota cheia.
+- Validação: tipos, lint, build, 70 testes unitários, nove integrações novas e 22 regressões de evolução, três testes de migrations. Oito layouts em claro/escuro, sem overflow, erros JavaScript ou violações WCAG A/AA detectadas. Testes existentes que excederam 5 s passaram na repetição com 20 s e menor concorrência.
+- Entrega e comportamento em [CONTATOS-BUSCA-GLOBAL.md](CONTATOS-BUSCA-GLOBAL.md). Somente implementação local; commit/deploy pelo usuário, sem alteração da produção.
+
 ## Revisão de 06/10/2026 — quota individual e localização das barras (local)
 
 - Identificado no código do ImapFlow 2.2.1 que respostas QUOTA de raízes diferentes sobrescrevem o mesmo recurso. Adaptador preserva cada resposta e seleciona somente a raiz individual; domínio/hospedagem/raiz opaca ou ambígua não viram limite da caixa. Seleção conservadora por convenções de nome e hosts conhecidos, com limitações documentadas; não houve leitura da conta real do provedor nem mudança em produção nesta revisão.

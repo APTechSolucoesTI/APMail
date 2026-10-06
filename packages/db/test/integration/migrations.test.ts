@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, readdir, copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -46,6 +46,113 @@ it('aplica do zero, impede mudança de checksum e mantém transação', async ()
     await resetDatabase(url);
   }
 }, 30000);
+it('migra contatos existentes com cota cheia, preserva canais e atualiza a medição', async () => {
+  const url = process.env.DATABASE_URL_TEST;
+  if (!url || !new URL(url).pathname.endsWith('_test')) throw Error('Banco exclusivo obrigatório.');
+  const directory = await mkdtemp(join(tmpdir(), 'apmail-contacts-migration-'));
+  const source = new URL('../../migrations/', import.meta.url);
+  const client = new pg.Client({ connectionString: url });
+  await client.connect();
+  try {
+    if (process.env.NODE_ENV === 'production') throw Error('Reset proibido em produção.');
+    await client.query('drop schema public cascade; create schema public;');
+    for (const file of await readdir(source))
+      if (/^\d{4}_.+\.sql$/.test(file) && file < '0020')
+        await copyFile(new URL(file, source), join(directory, file));
+    await migrate(url, pathToFileURL(directory + sep));
+    const tenant = randomUUID(),
+      user = randomUUID(),
+      contact = randomUUID(),
+      company = randomUUID();
+    await client.query('insert into tenants(id,name,slug) values($1,$2,$3)', [
+      tenant,
+      'Migration QA',
+      'migration-' + tenant,
+    ]);
+    await client.query('insert into users(id,email,full_name,password_hash) values($1,$2,$3,$4)', [
+      user,
+      user + '@qa.local',
+      'QA',
+      'fixture',
+    ]);
+    await client.query(
+      'insert into contacts(id,tenant_id,name,phone,created_by) values($1,$2,$3,$4,$5)',
+      [contact, tenant, 'Contato existente', '(11) 3333-2222', user],
+    );
+    const emails = (
+      await client.query(
+        'insert into contact_emails(tenant_id,contact_id,email) values($1,$2,$3),($1,$2,$4) returning id,email',
+        [tenant, contact, 'z@qa.local', 'a@qa.local'],
+      )
+    ).rows;
+    await client.query('insert into contact_companies(id,tenant_id,name) values($1,$2,$3)', [
+      company,
+      tenant,
+      'Empresa existente',
+    ]);
+    for (const email of emails)
+      await client.query(
+        'insert into contact_email_links(tenant_id,email_id,company_id) values($1,$2,$3)',
+        [tenant, email.id, company],
+      );
+    await client.query(
+      'update tenant_storage_limits set storage_limit_bytes=storage_quota_usage($1) where tenant_id=$1',
+      [tenant],
+    );
+    await migrate(url);
+    expect(
+      (await client.query('select phone,phones,job_title from contacts where id=$1', [contact]))
+        .rows[0],
+    ).toMatchObject({
+      phone: '(11) 3333-2222',
+      phones: [{ number: '(11) 3333-2222', label: '', is_primary: true }],
+      job_title: '',
+    });
+    expect(
+      (
+        await client.query('select email from contact_emails where contact_id=$1 and is_primary', [
+          contact,
+        ])
+      ).rows,
+    ).toEqual([{ email: 'a@qa.local' }]);
+    expect(
+      (
+        await client.query(
+          'select count(*)::int as n from contact_email_links where contact_id=$1 and is_primary_company',
+          [contact],
+        )
+      ).rows[0].n,
+    ).toBe(1);
+    expect(
+      (
+        await client.query(
+          'select count(*)::int as n from contact_email_links where contact_id=$1',
+          [contact],
+        )
+      ).rows[0].n,
+    ).toBe(2);
+    const measured = (
+      await client.query(
+        "select p.metadata_bytes::text as actual,octet_length((to_jsonb(c)-catalog.excluded_columns)::text)::bigint::text as expected from storage_logical_payloads p join contacts c on p.row_key=jsonb_build_object('id',c.id)::text join storage_logical_catalog catalog on catalog.relation_name=p.relation_name where p.relation_name='contacts' and c.id=$1",
+        [contact],
+      )
+    ).rows[0];
+    expect(measured).toMatchObject({ actual: expect.any(String), expected: expect.any(String) });
+    expect(measured.actual).toBe(measured.expected);
+    expect(
+      (
+        await client.query(
+          "select count(*)::int as n from pg_trigger where tgname='storage_payload_track' and tgenabled='O' and tgrelid in ('contacts'::regclass,'contact_emails'::regclass,'contact_email_links'::regclass)",
+        )
+      ).rows[0].n,
+    ).toBe(3);
+  } finally {
+    await client.end();
+    await rm(directory, { recursive: true, force: true });
+    await resetDatabase(url);
+    await migrate(url);
+  }
+}, 120000);
 it('serializa recomputações concorrentes e grava somente uma transição por mudança', async () => {
   const url = process.env.DATABASE_URL_TEST!;
   if (!url || !new URL(url).pathname.endsWith('_test')) throw Error('Banco exclusivo obrigatório.');

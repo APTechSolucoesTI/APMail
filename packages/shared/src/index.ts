@@ -15,6 +15,7 @@ export * from './schemas/dashboard.js';
 export * from './schemas/chat.js';
 export * from './audit.js';
 export * from './contacts.js';
+export * from './global-search.js';
 export * from './platform-storage.js';
 export * from './platform-metering.js';
 export * from './storage-quotas.js';

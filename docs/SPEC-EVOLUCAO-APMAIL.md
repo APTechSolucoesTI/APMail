@@ -1,5 +1,7 @@
 # Evolução do APMail — especificação e plano de ação
 
+Complemento local de 06/10/2026: [contatos e busca global](CONTATOS-BUSCA-GLOBAL.md). Múltiplos canais/vínculos, seleção de principais e busca por categoria implementados com a stack existente e as diretrizes visuais/acessíveis do AGENTS.md. Migration `0020`, publicação pelo usuário; as referências de produção abaixo descrevem entregas anteriores.
+
 Atualização: 05/10/2026. Base original: entrega `fase-9`. Status: **implementado, validado e publicado**. Evolução inicial `d48682c`; dashboard por papel, teste de conexão antes de salvar e assinatura CID publicados no commit `6d0f711`, em [APMail](https://apmail.aptechinfo.com.br:75). Evidências em [PROGRESSO](PROGRESSO.md).
 
 ## 1. Decisões confirmadas
