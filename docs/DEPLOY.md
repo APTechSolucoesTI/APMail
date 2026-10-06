@@ -1,5 +1,11 @@
 # Publicação do APMail
 
+## Cotas — entrega de 06/10/2026
+
+Aplicar `0018_storage_quotas.sql` e atualizar API, web e worker juntos. A migration é aditiva, preserva conteúdo e deixa empresas existentes sem limite definido. Antes de configurar cotas finitas em uma instalação com arquivos legados, conclua a reconciliação inicial no superadmin; referências ainda não conferidas impedem salvar a cota. Não execute reset do banco ou do volume para publicar estas alterações.
+
+No `/superadmin`, selecionar a empresa e abrir Empresa/Armazenamento habilita limites de caixas e bytes. Proprietários e administradores redistribuem as cotas em Configurações → Empresa. Teste a retomada ampliando uma cota que tenha pausado a sincronização: o checkpoint permanece até a importação concluir, sem pular a mensagem bloqueada. A consulta de cota do provedor é por IMAP; ausência de suporte deve aparecer como indisponível. Regras e detalhes em [COTAS-ARMAZENAMENTO.md](COTAS-ARMAZENAMENTO.md).
+
 O Compose principal cria PostgreSQL 17, Redis 7 com AOF/noeviction, migration, API, worker e web/nginx. Banco, Redis e arquivos têm volumes exclusivos; API e worker compartilham `storage`. A migration deve terminar com código 0 antes da aplicação iniciar. Os cinco serviços permanentes têm healthcheck e executam sem root. O arquivo principal contém somente portas internas (`expose`); o Dokploy encaminha o tráfego ao serviço `web`, porta 80.
 
 ## Correção de 06/10/2026 — convite do proprietário no cadastro de empresa

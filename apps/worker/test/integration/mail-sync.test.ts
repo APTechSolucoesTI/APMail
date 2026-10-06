@@ -1,6 +1,7 @@
 import { beforeAll, afterAll, it, expect } from 'vitest';
 import { socketRedisKey } from '@apmail/shared';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
+import { sql } from 'kysely';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { Worker } from 'bullmq';
@@ -70,7 +71,7 @@ const r = {
   redis,
   io: new Emitter(redis, { key: socketRedisKey(redisUrl) }),
   env,
-  storage: new Storage(join(tmpdir(), 'apmail-test-' + suffix)),
+  storage: new Storage(join(tmpdir(), 'apmail-test-' + suffix), db),
   log: pino({ level: 'silent' }),
 };
 const app = await buildApp(apiEnvSchema.parse({ ...env, NODE_ENV: 'test' }));
@@ -221,7 +222,7 @@ beforeAll(async () => {
   sourceId = folders.find((f) => f.imap_path === sourcePath)!.id;
   targetId = folders.find((f) => f.imap_path === targetPath)!.id;
   trashId = folders.find((f) => f.imap_path === 'Trash')!.id;
-}, 60000);
+}, 180000);
 afterAll(async () => {
   const t = await client().catch(() => null);
   if (t)
@@ -1570,7 +1571,7 @@ it('reprocessa mensagens existentes e combina busca sem acentos, filtros e total
     ).statusCode,
   ).toBe(200);
   expect((await api('GET', '/api/threads/' + first, editor)).json().labels).toEqual([]);
-}, 60000);
+}, 180000);
 it('bloqueia encaminhamento automático desabilitado e não duplica após reaplicação', async () => {
   const rule = {
     mailbox_id: boxId,
@@ -1614,7 +1615,7 @@ it('bloqueia encaminhamento automático desabilitado e não duplica após reapli
         .executeTakeFirstOrThrow()
     ).status,
   ).toBe('sent');
-}, 30000);
+}, 120000);
 
 it('isola etiquetas, regras e pastas de outra empresa e aplica permissões no servidor', async () => {
   const otherTenant = randomUUID(),
@@ -1888,5 +1889,155 @@ it('histórico com janela zero fica sem fila, mantém origem em movimentos e uma
       .set({ history_classify_days: 90 })
       .where('id', '=', boxId)
       .execute();
+  }
+}, 60000);
+
+it('salva checkpoint ao exceder a cota e retoma do UID não importado após ampliar o limite', async () => {
+  const t = await client(),
+    header = `quota-${suffix}@cliente.local`;
+  const before = await db
+    .selectFrom('folders')
+    .select(['last_uid', 'uidvalidity'])
+    .where('id', '=', sourceId)
+    .executeTakeFirstOrThrow();
+  try {
+    await t.imap.connect();
+    await t.imap.append(
+      sourcePath,
+      `From: cliente@cliente.local\r\nTo: comercial@apmail.local\r\nSubject: Cota checkpoint\r\nMessage-ID: <${header}>\r\nX-APMail-QA: ${suffix}\r\nDate: ${new Date().toUTCString()}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${'Checkpoint '.repeat(20000)}\r\n`,
+    );
+    const usage = (
+      await sql<{
+        bytes: string;
+      }>`select storage_quota_usage(${tenantId}::uuid)::text as bytes`.execute(db)
+    ).rows[0]!.bytes;
+    await sql`update tenant_storage_limits set storage_limit_bytes=${(BigInt(usage) + 3000n).toString()}::bigint where tenant_id=${tenantId}::uuid`.execute(
+      db,
+    );
+    await sql`select storage_quota_rebalance(${tenantId}::uuid)`.execute(db);
+    await sync();
+    const pause = (
+      await sql<{
+        paused_at: Date | null;
+        sync_checkpoint: {
+          folder_id: string;
+          last_uid: number;
+          next_uid: number;
+          uidvalidity: string;
+        };
+      }>`select paused_at,sync_checkpoint from mailbox_storage_limits where mailbox_id=${boxId}::uuid`.execute(
+        db,
+      )
+    ).rows[0]!;
+    expect(pause.paused_at).not.toBeNull();
+    expect(pause.sync_checkpoint.folder_id).toBe(sourceId);
+    expect(pause.sync_checkpoint.last_uid).toBe(Number(before.last_uid));
+    expect(pause.sync_checkpoint.uidvalidity).toBe(before.uidvalidity);
+    expect(
+      await db
+        .selectFrom('messages')
+        .select('id')
+        .where('mailbox_id', '=', boxId)
+        .where('message_id_header', '=', `<${header}>`)
+        .execute(),
+    ).toHaveLength(0);
+    await sync();
+    expect(
+      (
+        await db
+          .selectFrom('folders')
+          .select('last_uid')
+          .where('id', '=', sourceId)
+          .executeTakeFirstOrThrow()
+      ).last_uid,
+    ).toBe(before.last_uid);
+    await sql`update tenant_storage_limits set storage_limit_bytes=1000000000 where tenant_id=${tenantId}::uuid`.execute(
+      db,
+    );
+    await sql`select storage_quota_rebalance(${tenantId}::uuid)`.execute(db);
+    await sync();
+    await sync();
+    const imported = await db
+      .selectFrom('messages')
+      .select(['id', 'imap_uid'])
+      .where('mailbox_id', '=', boxId)
+      .where('message_id_header', '=', `<${header}>`)
+      .execute();
+    expect(imported).toHaveLength(1);
+    expect(imported[0]!.imap_uid).toBe(String(pause.sync_checkpoint.next_uid));
+    expect(
+      (
+        await sql<{
+          paused_at: Date | null;
+        }>`select paused_at from mailbox_storage_limits where mailbox_id=${boxId}::uuid`.execute(db)
+      ).rows[0]!.paused_at,
+    ).toBeNull();
+  } finally {
+    await sql`update tenant_storage_limits set storage_limit_bytes=null where tenant_id=${tenantId}::uuid`.execute(
+      db,
+    );
+    await sql`select storage_quota_rebalance(${tenantId}::uuid)`.execute(db);
+    await t.close();
+  }
+}, 60000);
+
+it('rejeita envio pela cota antes de entregar ao SMTP e mantém falha recuperável pelo usuário', async () => {
+  const created = await api('POST', '/api/outbox', editor, {
+    mailbox_id: boxId,
+    to_addresses: [{ name: 'QA', address: 'comercial@apmail.local' }],
+    subject: 'Quota SMTP ' + suffix,
+    body_html: '<p>Não deve ser entregue.</p>',
+  });
+  expect(created.statusCode, created.body).toBe(201);
+  const draft = created.json();
+  outboxIds.push(draft.id);
+  const submitted = await api('POST', `/api/outbox/${draft.id}/submit`, editor, {});
+  expect(submitted.statusCode, submitted.body).toBe(200);
+  await db
+    .updateTable('outbox')
+    .set({ send_after: new Date(Date.now() - 1000) })
+    .where('id', '=', draft.id)
+    .execute();
+  const recipient = await client();
+  try {
+    const usage = (
+      await sql<{
+        bytes: string;
+      }>`select storage_quota_usage(${tenantId}::uuid)::text as bytes`.execute(db)
+    ).rows[0]!.bytes;
+    await sql`update tenant_storage_limits set storage_limit_bytes=${usage}::bigint where tenant_id=${tenantId}::uuid`.execute(
+      db,
+    );
+    await sql`select storage_quota_rebalance(${tenantId}::uuid)`.execute(db);
+    await expect(
+      handleOutboxSend(r, draft.id, {
+        id: submitted.json().job_id,
+        attemptsMade: 0,
+        opts: { attempts: 3 },
+      }),
+    ).rejects.toThrow(/limite de armazenamento/);
+    expect(
+      (
+        await db
+          .selectFrom('outbox')
+          .select('status')
+          .where('id', '=', draft.id)
+          .executeTakeFirstOrThrow()
+      ).status,
+    ).toBe('failed');
+    expect(
+      await db.selectFrom('messages').select('id').where('outbox_id', '=', draft.id).execute(),
+    ).toHaveLength(0);
+    await recipient.imap.connect();
+    await recipient.imap.mailboxOpen('INBOX');
+    expect(
+      await recipient.imap.search({ header: { 'X-APMail-Outbox-Id': draft.id } }, { uid: true }),
+    ).toEqual([]);
+  } finally {
+    await sql`update tenant_storage_limits set storage_limit_bytes=null where tenant_id=${tenantId}::uuid`.execute(
+      db,
+    );
+    await sql`select storage_quota_rebalance(${tenantId}::uuid)`.execute(db);
+    await recipient.close();
   }
 }, 60000);

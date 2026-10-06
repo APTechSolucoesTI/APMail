@@ -711,6 +711,7 @@ export interface ThreadUserState {
 }
 
 export interface Uploads {
+  mailbox_id: string | null;
   consumed_at: Timestamp | null;
   content_type: string;
   created_at: Generated<Timestamp>;

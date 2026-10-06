@@ -36,3 +36,5 @@ Verificação: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:integratio
 No servidor compartilhado, portas da infra podem ser alteradas pelas variáveis DEV_* descritas em [DECISOES](docs/DECISOES.md). Não reutilize Redis nem bancos de outros projetos para os testes.
 
 Consulte [arquitetura](docs/ARQUITETURA.md), [design system](docs/design-system.md) e [publicação](docs/DEPLOY.md).
+
+O superadmin pode definir quantidade de caixas e capacidade por empresa; proprietários e administradores distribuem a cota entre caixas. A interface apresenta consumo do APMail e do provedor. Importações bloqueadas pela cota preservam um checkpoint e retomam quando houver capacidade. Consulte [cotas de armazenamento](docs/COTAS-ARMAZENAMENTO.md).

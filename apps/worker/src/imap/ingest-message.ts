@@ -9,6 +9,8 @@ import {
   htmlToText,
   messageSnippet,
   type DB,
+  assertStorageCapacity,
+  lockStorageTenant,
 } from '@apmail/db';
 import { isAutomated, type Address } from '@apmail/shared';
 import type { Selectable } from 'kysely';
@@ -118,6 +120,7 @@ export async function ingestMessage(
     written: string[] = [];
   try {
     return await r.db.transaction().execute(async (trx) => {
+      await lockStorageTenant(trx, box.tenant_id);
       const threadId = await resolveThread(trx, metadata, own);
       const hasMessage = await trx
         .selectFrom('messages')
@@ -164,7 +167,7 @@ export async function ingestMessage(
       for (const a of parsed?.attachments ?? []) {
         const attachmentId = randomUUID(),
           path = `attachments/${box.tenant_id}/${box.id}/${id}/${attachmentId}`;
-        await r.storage.writeFile(path, a.content);
+        await r.storage.withDatabase(trx).writeFile(path, a.content);
         written.push(path);
         await trx
           .insertInto('attachments')
@@ -188,10 +191,19 @@ export async function ingestMessage(
         own.includes(from.address) ? 'outbound' : 'inbound',
         null,
       );
+      await assertStorageCapacity(trx, box.tenant_id, box.id);
       return threadId;
     });
   } catch (error) {
-    await Promise.all(written.map((path) => r.storage.removeFile(path)));
+    await Promise.all(
+      written.map((path) =>
+        r.storage
+          .removeFile(path)
+          .catch(() =>
+            r.log.warn({ mailbox_id: box.id }, 'Limpeza de anexo pendente de reconciliação.'),
+          ),
+      ),
+    );
     throw error;
   }
 }

@@ -149,6 +149,7 @@ export function AppShell() {
       invalidate('outbox', 'outbox-detail', 'thread', 'threads', 'queue-counts'),
     );
     socket.on('notifications:changed', () => invalidate('notifications'));
+    socket.on('mailbox:storage', () => invalidate('storage-quota'));
     return () => {
       socket.removeAllListeners();
       socket.disconnect();

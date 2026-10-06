@@ -2,6 +2,7 @@ export * from './client.js';
 export * from './types.js';
 export * from './crypto.js';
 export * from './storage.js';
+export * from './quotas.js';
 export * from './metering-files.js';
 export * from './metering-snapshot.js';
 export * from './metering-scan.js';

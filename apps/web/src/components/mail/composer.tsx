@@ -386,7 +386,7 @@ export function Composer({
       const response = await new Promise<{ id: string; filename: string; size_bytes: number }>(
         (resolve, reject) => {
           const xhr = new XMLHttpRequest();
-          xhr.open('POST', '/api/uploads');
+          xhr.open('POST', '/api/uploads?mailbox_id=' + encodeURIComponent(mailboxId));
           xhr.withCredentials = true;
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable)

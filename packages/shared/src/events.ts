@@ -15,6 +15,7 @@ export type ServerEvents = {
     status: string;
   };
   'mailbox:status': { mailbox_id: string; status: string; last_error: string | null };
+  'mailbox:storage': { mailbox_id: string; paused: boolean };
   'folders:changed': { mailbox_id: string };
   'mailboxes:changed': Record<string, never>;
   'notification:new': { notification: Record<string, unknown> };

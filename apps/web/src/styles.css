@@ -243,4 +243,20 @@
     content: attr(data-placeholder);
     @apply pointer-events-none float-left h-0 text-muted-foreground;
   }
+  .storage-quota-bar {
+    appearance: none;
+    border: 0;
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--muted);
+  }
+  .storage-quota-bar::-webkit-progress-bar {
+    background: var(--muted);
+  }
+  .storage-quota-bar::-webkit-progress-value {
+    background: currentColor;
+  }
+  .storage-quota-bar::-moz-progress-bar {
+    background: currentColor;
+  }
 }

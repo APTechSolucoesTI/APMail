@@ -3,7 +3,7 @@ import multipart from '@fastify/multipart';
 import sharp from 'sharp';
 import { fileTypeFromBuffer } from 'file-type';
 import { randomUUID } from 'node:crypto';
-import { Storage } from '@apmail/db';
+import { Storage, isStorageQuotaError } from '@apmail/db';
 import { z } from 'zod';
 import { requireAuth, requireTenant, notFound, ApiError } from '../authz/context.js';
 import { avatarUrl } from './auth.js';
@@ -62,11 +62,12 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
         width: normalized.info.width,
         height: normalized.info.height,
       };
-    } catch {
+    } catch (error) {
       if (storedPath)
         await storage
           .removeFile(storedPath)
           .catch(() => app.log.warn('Limpeza de imagem pendente de reconciliação.'));
+      if (isStorageQuotaError(error)) throw error;
       throw new ApiError(400, 'validation_error', 'Não foi possível processar esta imagem.');
     }
   });

@@ -9,6 +9,10 @@ import {
   messageSnippet,
   sanitizeEmailHtml,
   userCanReadThread,
+  isStorageQuotaError,
+  quotaErrors,
+  assertStorageCapacity,
+  lockStorageTenant,
 } from '@apmail/db';
 import { can, type Address } from '@apmail/shared';
 import { UnrecoverableError, type Job } from 'bullmq';
@@ -124,8 +128,6 @@ export async function handleOutboxSend(
       box.id,
       job.id!,
       async () => {
-        await transport!.smtp.sendMail({ envelope: mime.envelope, raw: mime.raw });
-        delivered = true;
         const sent = await r.db
           .selectFrom('folders')
           .select(['id', 'imap_path'])
@@ -134,17 +136,11 @@ export async function handleOutboxSend(
           .where('special_use', '=', 'sent')
           .where('deleted_at', 'is', null)
           .executeTakeFirst();
-        if (box.append_sent_copy && sent)
-          try {
-            await transport!.imap.connect();
-            await transport!.imap.append(sent.imap_path, mime.raw, ['\\Seen']);
-          } catch {
-            r.log.warn({ outbox_id: id }, 'Enviado; não foi possível salvar a cópia no IMAP.');
-          }
         const messageId = randomUUID(),
           written: string[] = [];
         try {
           await r.db.transaction().execute(async (tx) => {
+            await lockStorageTenant(tx, box.tenant_id);
             const at = new Date(),
               text = mime.bodyText;
             const metadata = {
@@ -194,7 +190,7 @@ export async function handleOutboxSend(
             for (const file of mime.files) {
               const attachmentId = randomUUID(),
                 path = `attachments/${box.tenant_id}/${box.id}/${messageId}/${attachmentId}`;
-              await r.storage.copyFile(file.storage_path, path);
+              await r.storage.withDatabase(tx).copyFile(file.storage_path, path);
               written.push(path);
               await tx
                 .insertInto('attachments')
@@ -243,12 +239,35 @@ export async function handleOutboxSend(
               entityType: 'message',
               entityId: messageId,
             });
+            // Admit and stage the complete local copy before delivery. Quota rejection
+            // rolls everything back without sending; the tenant lock prevents races.
+            await assertStorageCapacity(tx, box.tenant_id, box.id);
+            await transport!.smtp.sendMail({ envelope: mime.envelope, raw: mime.raw });
+            delivered = true;
             emitThreads(r, box.id, [threadId]);
           });
         } catch (e) {
-          await Promise.all(written.map((p) => r.storage.removeFile(p)));
+          await Promise.all(
+            written.map((p) =>
+              r.storage
+                .removeFile(p)
+                .catch(() =>
+                  r.log.warn(
+                    { outbox_id: id },
+                    'Limpeza da cópia de envio pendente de reconciliação.',
+                  ),
+                ),
+            ),
+          );
           throw e;
         }
+        if (box.append_sent_copy && sent)
+          try {
+            await transport!.imap.connect();
+            await transport!.imap.append(sent.imap_path, mime.raw, ['\\Seen']);
+          } catch {
+            r.log.warn({ outbox_id: id }, 'Enviado; não foi possível salvar a cópia no IMAP.');
+          }
         for (const file of mime.files)
           if (
             file.upload_id &&
@@ -279,19 +298,22 @@ export async function handleOutboxSend(
     const last =
       auth ||
       delivered ||
+      isStorageQuotaError(error) ||
       job.attemptsMade + 1 >= (job.opts.attempts ?? 1) ||
       ['mailbox_unavailable', 'send_permission_revoked', 'tenant_unavailable'].includes(
         (error as Error).message,
       );
-    const message = delivered
-      ? 'O SMTP aceitou o envio, mas a confirmação local falhou. Verifique Enviados antes de tentar novamente.'
-      : (error as Error).message === 'tenant_unavailable'
-        ? 'A empresa está suspensa ou indisponível. Retome o acesso antes de tentar novamente.'
-        : (error as Error).message === 'mailbox_unavailable'
-          ? 'A caixa está indisponível.'
-          : (error as Error).message === 'send_permission_revoked'
-            ? 'O acesso de envio foi removido.'
-            : connectionError(error, 'SMTP', 0);
+    const message = isStorageQuotaError(error)
+      ? quotaErrors[(error as Error).message]!
+      : delivered
+        ? 'O SMTP aceitou o envio, mas a confirmação local falhou. Verifique Enviados antes de tentar novamente.'
+        : (error as Error).message === 'tenant_unavailable'
+          ? 'A empresa está suspensa ou indisponível. Retome o acesso antes de tentar novamente.'
+          : (error as Error).message === 'mailbox_unavailable'
+            ? 'A caixa está indisponível.'
+            : (error as Error).message === 'send_permission_revoked'
+              ? 'O acesso de envio foi removido.'
+              : connectionError(error, 'SMTP', 0);
     await r.db.transaction().execute(async (tx) => {
       await tx
         .updateTable('outbox')

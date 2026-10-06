@@ -29,6 +29,15 @@ export async function inferStorageOwner(db: Kysely<DB>, key: string): Promise<Ow
       };
   }
   if (['uploads', 'signatures'].includes(parts[0] ?? '') && uuid.test(parts[1] ?? '')) {
+    if (parts[0] === 'uploads' && parts.length >= 5 && uuid.test(parts[2] ?? '')) {
+      const box = await db
+        .selectFrom('mailboxes')
+        .select('id')
+        .where('id', '=', parts[2]!)
+        .where('tenant_id', '=', parts[1]!)
+        .executeTakeFirst();
+      if (box) return { scope: 'mailbox', tenant: parts[1]!, box: box.id, category: 'upload' };
+    }
     if (await db.selectFrom('tenants').select('id').where('id', '=', parts[1]!).executeTakeFirst())
       return {
         scope: 'tenant',
@@ -103,7 +112,7 @@ export async function failStorageOperation(db: Kysely<DB>, operationId: string) 
 /** Reference changes commit with their domain row. Resolve shared ownership without multiplying files. */
 export async function refreshStorageOwnership(db: Kysely<DB>) {
   await sql`update storage_asset_refs r set mailbox_id=(
-      select case when count(distinct o.mailbox_id)=1 then min(o.mailbox_id::text)::uuid else null end
+      select case when count(distinct o.mailbox_id)=1 then min(o.mailbox_id::text)::uuid else (select u.mailbox_id from uploads u where u.id=r.source_id) end
       from outbox o where o.tenant_id=r.tenant_id and o.status in ('draft','queued','scheduled','sending','failed')
       and o.attachments @> jsonb_build_array(jsonb_build_object('source','upload','upload_id',r.source_id)))
     where r.source_kind='uploads'`.execute(db);

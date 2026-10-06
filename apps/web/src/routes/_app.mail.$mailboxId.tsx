@@ -31,6 +31,7 @@ import { ThreadView } from '@/components/mail/thread-view';
 import { MessageActions } from '@/components/mail/message-actions';
 import { Composer, type ComposerHandle } from '@/components/mail/composer';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
+import { MailboxStorage } from '@/components/storage/storage-quotas';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 export const Route = createFileRoute('/_app/mail/$mailboxId')({
   validateSearch: mailSearchSchema,
@@ -459,6 +460,7 @@ function MailPage() {
           )}
         </div>
       </header>
+      <MailboxStorage key={mailboxId} mailboxId={mailboxId} />
       {box.data.status === 'error' && (
         <div
           role="alert"

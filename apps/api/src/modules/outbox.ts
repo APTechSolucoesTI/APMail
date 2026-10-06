@@ -190,6 +190,17 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
   app.post('/api/uploads', async (req, reply) => {
     const c = requireTenant(req.ctx),
       file = await req.file();
+    const { mailbox_id } = z.object({ mailbox_id: z.uuid().optional() }).parse(req.query);
+    if (mailbox_id) await requireMailboxPerm(c, r.db, mailbox_id, 'send');
+    else {
+      const configured = await sql<{
+        cap: string | null;
+      }>`select storage_limit_bytes::text as cap from tenant_storage_limits where tenant_id=${c.tenantId}::uuid`.execute(
+        r.db,
+      );
+      if (configured.rows[0]?.cap !== null && configured.rows[0]?.cap !== undefined)
+        throw validation('Selecione a caixa de envio antes de anexar um arquivo.');
+    }
     if (!file) throw validation('Escolha um arquivo.');
     const filename = file.filename.replace(/[/\\\0\r\n]/g, '_').slice(0, 255) || 'anexo';
     if (/\.(exe|bat|cmd|com|scr|js|vbs|msi|ps1|sh|jar|html|svg)$/i.test(filename))
@@ -202,7 +213,9 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     )
       throw validation('Este tipo de arquivo não é permitido.');
     const id = randomUUID(),
-      path = `uploads/${c.tenantId}/${c.userId}/${id}`;
+      path = mailbox_id
+        ? `uploads/${c.tenantId}/${mailbox_id}/${c.userId}/${id}`
+        : `uploads/${c.tenantId}/${c.userId}/${id}`;
     await storage.writeFile(path, buffer);
     try {
       return reply.code(201).send(
@@ -211,6 +224,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
           .values({
             id,
             tenant_id: c.tenantId,
+            mailbox_id: mailbox_id ?? null,
             user_id: c.userId,
             filename,
             content_type: detected?.mime ?? 'application/octet-stream',

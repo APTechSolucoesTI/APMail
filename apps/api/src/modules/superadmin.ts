@@ -2,7 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import { assertMailboxConnection } from '../lib/mailbox-probe.js';
 import { z } from 'zod';
 import { sql } from 'kysely';
-import { audit, asJson, safeAuditMetadata, writeMailboxCredential, type Json } from '@apmail/db';
+import {
+  audit,
+  asJson,
+  safeAuditMetadata,
+  writeMailboxCredential,
+  assertMailboxSlot,
+  type Json,
+} from '@apmail/db';
 import {
   tenantSchema,
   emailSchema,
@@ -530,6 +537,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
       .where('suspended_at', 'is', null)
       .executeTakeFirst();
     if (!tenant) throw notFound();
+    await assertMailboxSlot(r.db, tenant_id);
     await assertMailboxConnection(r.env, b);
     const box = await r.db.transaction().execute(async (tx) => {
       const row = await tx

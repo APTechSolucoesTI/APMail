@@ -22,6 +22,7 @@ import {
   type PlatformRow,
 } from '@/components/platform/platform-management-dialog';
 import { useTheme } from '@/components/layout/theme-provider';
+import { TenantStorage } from '@/components/storage/storage-quotas';
 
 const sections = [
   'overview',
@@ -586,6 +587,9 @@ function SuperAdmin() {
               ) : null
             }
           />
+        )}
+        {tenantId && ['tenants', 'storage'].includes(section) && (
+          <TenantStorage key={tenantId} tenantId={tenantId} platform />
         )}
         <PlatformManagementDialog
           dialog={visibleDialog}

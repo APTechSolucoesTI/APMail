@@ -34,7 +34,7 @@ export async function resolveOutboxAttachments(
         .where('user_id', '=', row.created_by)
         .where('consumed_at', 'is', null)
         .executeTakeFirst();
-      if (!file) throw new Error('Um dos anexos não está disponível.');
+      if (!file || (file.mailbox_id && file.mailbox_id !== row.mailbox_id)) throw new Error('Um dos anexos não está disponível nesta caixa.');
       if (
         ref.inline &&
         (!['image/png', 'image/jpeg', 'image/webp'].includes(file.content_type) ||

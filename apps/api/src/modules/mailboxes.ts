@@ -4,7 +4,13 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import { mailboxSchema, mailboxRoleSchema } from '@apmail/shared';
-import { audit, auditChanges, writeMailboxCredential, readMailboxCredential } from '@apmail/db';
+import {
+  audit,
+  auditChanges,
+  writeMailboxCredential,
+  readMailboxCredential,
+  assertMailboxSlot,
+} from '@apmail/db';
 import { assertMailboxConnection, connectionSchema } from '../lib/mailbox-probe.js';
 import { requireTenant, requireTenantAdmin, type RequestContext } from '../authz/context.js';
 import { getMailboxRole, requireMailboxPerm } from '../authz/guards.js';
@@ -96,6 +102,7 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
     const c = requireTenantAdmin(req.ctx);
     const b = mailboxSchema.parse(req.body);
     for (const m of b.members) await requireMember(c, r, m.user_id);
+    await assertMailboxSlot(r.db, c.tenantId);
     await assertMailboxConnection(r.env, b);
     const { password, members, sync_days, ...data } = b;
     const box = await r.db.transaction().execute(async (tx) => {

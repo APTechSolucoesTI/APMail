@@ -17,3 +17,4 @@ export * from './audit.js';
 export * from './contacts.js';
 export * from './platform-storage.js';
 export * from './platform-metering.js';
+export * from './storage-quotas.js';

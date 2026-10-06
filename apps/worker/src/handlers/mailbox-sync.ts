@@ -1,4 +1,7 @@
-import { touchThreads } from '@apmail/db';
+import { touchThreads, isStorageQuotaError } from '@apmail/db';
+import { sql } from 'kysely';
+import { refreshProviderQuota } from '../imap/provider-quota.js';
+import { quotaResumeState, canResumeQuota, saveQuotaCheckpoint } from '../imap/quota-checkpoint.js';
 import type { WorkerResources } from '../resources.js';
 import { transports } from '../imap/connect.js';
 import { syncFolders } from '../imap/sync-folders.js';
@@ -26,6 +29,14 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
       .where('deleted_at', 'is', null)
       .executeTakeFirst();
     if (!tenant) return;
+    const quotaState = await quotaResumeState(r, box.tenant_id, box.id);
+    const quotaPaused = quotaState && !canResumeQuota(quotaState);
+    if (
+      quotaPaused &&
+      quotaState.provider_checked_at &&
+      Date.now() - quotaState.provider_checked_at.getTime() < 15 * 60000
+    )
+      return;
     if (!box.import_started_at) {
       box.import_started_at = new Date();
       await r.db
@@ -41,6 +52,8 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
       Date.now() - box.last_reconciled_at.getTime() > r.env.WORKER_RECONCILE_EVERY_MINUTES * 60000;
     try {
       await t.imap.connect();
+      await refreshProviderQuota(r, box, t.imap);
+      if (quotaPaused) return;
       const folders = await syncFolders(r, box, t.imap);
       for (const folder of folders) {
         const lock = await t.imap.getMailboxLock(folder.imap_path);
@@ -111,7 +124,25 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
                 const threadId = await ingestMessage(r, box, folder, msg);
                 affected.add(threadId);
                 if (consecutive) lastUid = meta.uid;
-              } catch {
+              } catch (error) {
+                if (isStorageQuotaError(error)) {
+                  await saveQuotaCheckpoint(
+                    r,
+                    box.tenant_id,
+                    box.id,
+                    folder.id,
+                    validity,
+                    lastUid,
+                    uids.find((uid) => uid > lastUid) ?? meta.uid,
+                    error,
+                  );
+                  if (affected.size) emitThreads(r, box.id, [...affected]);
+                  r.log.warn(
+                    { mailbox_id: box.id, folder_id: folder.id, uid: meta.uid },
+                    'Sincronização pausada pela cota; checkpoint preservado.',
+                  );
+                  return;
+                }
                 consecutive = false;
                 r.log.warn(
                   { mailbox_id: box.id, folder_id: folder.id, uid: meta.uid },
@@ -188,6 +219,11 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
         .where('id', '=', box.id)
         .execute();
       emitThreads(r, box.id, [...affected]);
+      await sql`update mailbox_storage_limits set sync_checkpoint=null,paused_at=null where mailbox_id=${box.id}::uuid`.execute(
+        r.db,
+      );
+      if (quotaState?.checkpoint)
+        r.io.to(`mailbox:${box.id}`).emit('mailbox:storage', { mailbox_id: box.id, paused: false });
     } catch (error) {
       if (isConnectionError(error)) await markMailboxError(r, box, error);
       else throw error;

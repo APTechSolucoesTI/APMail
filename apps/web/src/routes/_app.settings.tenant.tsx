@@ -10,11 +10,13 @@ import { api } from '@/lib/api';
 import { requireAdmin } from '@/lib/settings';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
 import { toast } from 'sonner';
+import { TenantStorage } from '@/components/storage/storage-quotas';
 export const Route = createFileRoute('/_app/settings/tenant')({
   beforeLoad: requireAdmin,
   component: Tenant,
 });
 function Tenant() {
+  const tenantId = useTenantId();
   const boxes = useQuery({
     queryKey: ['mailboxes', useTenantId()],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
@@ -84,6 +86,11 @@ function Tenant() {
             }}
           />
         </section>
+      )}
+      {tenantId && (
+        <div className="mt-6">
+          <TenantStorage tenantId={tenantId} />
+        </div>
       )}
     </>
   );

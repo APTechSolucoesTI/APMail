@@ -2,6 +2,7 @@ import { audit } from '@apmail/db';
 import type { WorkerResources } from '../resources.js';
 import { transports, type Mailbox } from '../imap/connect.js';
 import { connectionError } from '../lib/errors.js';
+import { refreshProviderQuota } from '../imap/provider-quota.js';
 export async function markMailboxError(
   r: WorkerResources,
   box: Mailbox,
@@ -77,6 +78,7 @@ export async function handleMailboxConnection(r: WorkerResources, mailboxId: str
   let smtp = false;
   try {
     await t.imap.connect();
+    await refreshProviderQuota(r, box, t.imap);
     smtp = true;
     await t.smtp.verify();
     const changed = await r.db
