@@ -49,7 +49,7 @@ const cookies = new Map<string, string>();
 const call = (
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
-  user = owner,
+  user: string = owner,
   body?: unknown,
 ) =>
   app.inject({
@@ -174,6 +174,137 @@ afterAll(async () => {
   await db.destroy();
 });
 let contact = '';
+it('cadastro de empresa pelo superadmin convida proprietário novo e permite aceitar o convite', async () => {
+  const email = 'new-owner-' + suffix + '@apmail.local',
+    body = {
+      name: 'Empresa com proprietário novo',
+      slug: 'new-owner-' + suffix,
+      owner_email: email,
+    },
+    queues = createQueues(redisUrl);
+  try {
+    expect((await call('POST', '/api/superadmin/tenants', member, body)).statusCode).toBe(403);
+    const created = await call('POST', '/api/superadmin/tenants', global, body);
+    expect(created.statusCode, created.body).toBe(201);
+    const company = created.json();
+    const invite = await db
+      .selectFrom('invitations')
+      .selectAll()
+      .where('tenant_id', '=', company.id)
+      .executeTakeFirstOrThrow();
+    expect(invite).toMatchObject({
+      email,
+      tenant_role: 'owner',
+      sender_context: 'platform',
+      sender_mailbox_id: null,
+      invited_by: global,
+      accepted_at: null,
+      mailbox_roles: [],
+    });
+    expect(
+      await db
+        .selectFrom('tenant_members')
+        .select('id')
+        .where('tenant_id', '=', company.id)
+        .execute(),
+    ).toEqual([]);
+    const job = (await queues.queues['system-email'].getJobs(['waiting', 'delayed'], 0, 100)).find(
+      (entry) => entry.data.invitation_id === invite.id,
+    );
+    expect(job?.name).toBe('invite');
+    expect(job?.data).toMatchObject({ to: email, data: { tenant_name: body.name } });
+    const token = new URL(job!.data.data.link).searchParams.get('token')!;
+    expect(hashToken(token)).toBe(invite.token_hash);
+    await job!.remove();
+    expect((await call('POST', '/api/superadmin/tenants', global, body)).statusCode).toBe(409);
+    const accepted = await call('POST', '/api/invitations/by-token/' + token + '/accept', '', {
+      full_name: 'Proprietário convidado',
+      password: 'SenhaForte@12345',
+    });
+    expect(accepted.statusCode, accepted.body).toBe(200);
+    const user = await db
+      .selectFrom('users')
+      .select(['id', 'current_tenant_id'])
+      .where('email', '=', email)
+      .executeTakeFirstOrThrow();
+    expect(user.current_tenant_id).toBe(company.id);
+    expect(
+      await db
+        .selectFrom('tenant_members')
+        .select(['role', 'status'])
+        .where('tenant_id', '=', company.id)
+        .where('user_id', '=', user.id)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ role: 'owner', status: 'active' });
+    expect(
+      (
+        await call('POST', '/api/invitations/by-token/' + token + '/accept', '', {
+          full_name: 'Proprietário convidado',
+          password: 'SenhaForte@12345',
+        })
+      ).statusCode,
+    ).toBe(409);
+  } finally {
+    await queues.close();
+  }
+});
+it('cadastro de empresa vincula proprietário existente sem criar convite', async () => {
+  const created = await call('POST', '/api/superadmin/tenants', global, {
+    name: 'Empresa com conta existente',
+    slug: 'existing-owner-' + suffix,
+    owner_email: foreign + '@apmail.local',
+  });
+  expect(created.statusCode, created.body).toBe(201);
+  const company = created.json();
+  expect(
+    await db
+      .selectFrom('tenant_members')
+      .select('role')
+      .where('tenant_id', '=', company.id)
+      .where('user_id', '=', foreign)
+      .executeTakeFirstOrThrow(),
+  ).toEqual({ role: 'owner' });
+  expect(
+    await db.selectFrom('invitations').select('id').where('tenant_id', '=', company.id).execute(),
+  ).toEqual([]);
+  expect(
+    (
+      await db
+        .selectFrom('users')
+        .select('current_tenant_id')
+        .where('id', '=', foreign)
+        .executeTakeFirstOrThrow()
+    ).current_tenant_id,
+  ).toBe(otherTenant);
+});
+it('convite de proprietário continua proibido nos contextos tenant e legacy', async () => {
+  for (const sender_context of ['tenant', 'legacy']) {
+    await expect(
+      db
+        .insertInto('invitations')
+        .values({
+          tenant_id: tenant,
+          email: 'invalid-owner-' + randomUUID() + '@apmail.local',
+          tenant_role: 'owner',
+          sender_context,
+          invited_by: owner,
+          token_hash: hashToken(randomUUID()),
+          expires_at: new Date(Date.now() + 86400000),
+          mailbox_roles: asJson([]),
+        })
+        .execute(),
+    ).rejects.toMatchObject({ code: '23514', constraint: 'invitations_tenant_role_check' });
+  }
+  expect(
+    (
+      await call('POST', '/api/invitations', owner, {
+        email: 'invalid-owner-' + suffix + '@apmail.local',
+        tenant_role: 'owner',
+        mailbox_roles: [],
+      })
+    ).statusCode,
+  ).toBe(400);
+});
 it('medição exige superadmin, valida empresa/caixa e não revela caminhos nem conteúdo', async () => {
   const paths = [
     '/api/superadmin/metering',

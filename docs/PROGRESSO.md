@@ -1,5 +1,13 @@
 # Progresso do APMail
 
+## Correção de 06/10/2026 — cadastro de empresa com proprietário novo
+
+- Diagnóstico confirmado em leitura dos logs de produção: `POST /api/superadmin/tenants` falhava com PostgreSQL `23514`, pois `invitations_tenant_role_check` proibia o papel `owner`. A produção estava com as migrations até `0016`; as tentativas com identificador `teste` foram revertidas pela transação, sem deixar empresa cadastrada.
+- Nova migration `0017_platform_owner_invitations.sql` permite convite de proprietário somente com `sender_context = 'platform'`. Convites comuns e legados continuam impedidos de conceder esse papel. As migrations anteriores permanecem intactas.
+- Regressões para cadastro com proprietário novo, job de convite pelo SMTP global, aceitação como proprietário ativo, bloqueio de reutilização do token, identificador duplicado, vínculo de conta existente e proibição de convite comum para proprietário. O caso novo reproduziu HTTP 500 antes da correção.
+- Validação: lint, formatação, typecheck e build da API aprovados. Os 26 cenários de integração em `evolution.test.ts` e `dashboard.test.ts` passaram com timeout de 30 segundos para o túnel SSH; os demais 27 cenários da API passaram na execução inicial. Inclui três regressões novas desta correção. Dois testes de migrations aprovaram aplicação desde banco vazio, proteção de checksum e rollback; a migration também foi conferida em outra base QA nova, removida ao final, sem modificar a produção.
+- Implementação local, sem commit/push/deploy e sem alteração de dados ou esquema em produção. Para corrigir no servidor, o deploy do usuário deve aplicar a migration `0017`; não é necessário limpar o banco.
+
 ## Ajuste de 05/10/2026 — menu lateral e barras da caixa/conversa (local)
 
 - Implementado no workspace, sem commit, push, deploy ou alteração adicional em produção.

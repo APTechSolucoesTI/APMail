@@ -2,6 +2,10 @@
 
 O Compose principal cria PostgreSQL 17, Redis 7 com AOF/noeviction, migration, API, worker e web/nginx. Banco, Redis e arquivos têm volumes exclusivos; API e worker compartilham `storage`. A migration deve terminar com código 0 antes da aplicação iniciar. Os cinco serviços permanentes têm healthcheck e executam sem root. O arquivo principal contém somente portas internas (`expose`); o Dokploy encaminha o tráfego ao serviço `web`, porta 80.
 
+## Correção de 06/10/2026 — convite do proprietário no cadastro de empresa
+
+O cadastro pelo superadmin com um proprietário que ainda não tem conta depende da migration `0017_platform_owner_invitations.sql`. Ela atualiza a restrição dos convites para aceitar `owner` somente no contexto de plataforma; preserva os dados e o bloqueio de convites comuns para proprietário. Faça commit e redeploy pelo Dokploy e confira que o serviço `migrate` concluiu com código 0 antes de testar novamente o cadastro. Não edite migrations já aplicadas nem execute reset para esta correção. Código pronto no workspace; nenhuma alteração desta correção foi aplicada em produção pelo assistente.
+
 ## Complemento local de 05/10/2026 — publicação pelo usuário
 
 Superadmin exclusivo e armazenamento implementados no workspace, sem commit/push/deploy pelo assistente. A última publicação anterior é o commit 6d0f711; esta alteração depende do commit e redeploy feitos pelo usuário. Não há nova migração de esquema. Recriar API, worker e web juntos aplica os controles de acesso e fecha as conexões antigas.
