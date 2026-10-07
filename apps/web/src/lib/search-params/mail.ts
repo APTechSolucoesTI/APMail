@@ -16,5 +16,7 @@ export const mailSearchSchema = z.object({
     .default(10),
   thread: z.uuid().optional(),
   compose: z.string().optional(),
+  toEmail: z.email().max(254).optional(),
+  toName: z.string().max(120).optional(),
 });
 export type MailSearch = z.infer<typeof mailSearchSchema>;

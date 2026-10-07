@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { X } from 'lucide-react';
 import type { Address } from '@apmail/shared';
 import { api } from '@/lib/api';
-import { useTenantId } from '@/lib/auth';
+import { useTenantId, useUserId } from '@/lib/auth';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 export function EmailChipInput({
@@ -27,9 +27,9 @@ export function EmailChipInput({
     return () => clearTimeout(timer);
   }, [input]);
   const q = useQuery({
-    queryKey: ['address-suggestions', tenant, mailboxId, debounced],
+    queryKey: ['address-suggestions', tenant, useUserId(), mailboxId, debounced],
     queryFn: () =>
-      api<Address[]>(
+      api<(Address & { nickname?: string; company_name?: string })[]>(
         '/mailboxes/' + mailboxId + '/address-suggestions?q=' + encodeURIComponent(debounced),
       ),
     enabled: debounced.length >= 2,
@@ -46,8 +46,15 @@ export function EmailChipInput({
           address: (match?.[2] ?? t).toLowerCase(),
         };
       });
-    const seen=new Set(value.map(address=>address.address.toLowerCase()));
-    onChange([...value,...parsed.filter(address=>{if(seen.has(address.address))return false;seen.add(address.address);return true;})]);
+    const seen = new Set(value.map((address) => address.address.toLowerCase()));
+    onChange([
+      ...value,
+      ...parsed.filter((address) => {
+        if (seen.has(address.address)) return false;
+        seen.add(address.address);
+        return true;
+      }),
+    ]);
     setInput('');
   };
   return (
@@ -112,7 +119,7 @@ export function EmailChipInput({
         <datalist id={id + '-suggestions'}>
           {q.data?.map((a) => (
             <option key={a.address} value={a.address}>
-              {a.name}
+              {[a.name, a.nickname, a.company_name].filter(Boolean).join(' · ')}
             </option>
           ))}
         </datalist>

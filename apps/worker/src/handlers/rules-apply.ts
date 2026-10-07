@@ -5,6 +5,8 @@ import type { ImapFlow } from 'imapflow';
 import { randomUUID } from 'node:crypto';
 import {
   asJson,
+  audit,
+  lockStorageTenant,
   touchThreads,
   sanitizeEmailHtml,
   outboxJobId,
@@ -124,24 +126,45 @@ async function applyRule(
     return false;
   for (const action of rule.actions) {
     if (action.type === 'add_label') {
-      const label = await r.db
-        .selectFrom('personal_labels')
-        .select('id')
-        .where('id', '=', action.label_id)
-        .where('tenant_id', '=', box.tenant_id)
-        .where('user_id', '=', row.owner_user_id!)
-        .executeTakeFirst();
-      if (label)
-        await r.db
-          .insertInto('thread_personal_labels')
-          .values({
-            thread_id: msg.thread_id,
-            label_id: label.id,
-            tenant_id: box.tenant_id,
-            user_id: row.owner_user_id!,
-          })
-          .onConflict((oc) => oc.columns(['thread_id', 'label_id']).doNothing())
-          .execute();
+      const appliedGlobal = await r.db.transaction().execute(async (tx) => {
+        await lockStorageTenant(tx, box.tenant_id);
+        const label = await tx
+          .selectFrom('personal_labels')
+          .select(['id', 'user_id', 'scope'])
+          .where('id', '=', action.label_id)
+          .where('tenant_id', '=', box.tenant_id)
+          .where((eb) =>
+            eb.or([eb('scope', '=', 'tenant'), eb('user_id', '=', row.owner_user_id!)]),
+          )
+          .executeTakeFirst();
+        if (label) {
+          const inserted = await tx
+            .insertInto('thread_personal_labels')
+            .values({
+              thread_id: msg.thread_id,
+              label_id: label.id,
+              tenant_id: box.tenant_id,
+              user_id: label.user_id,
+              applied_by: row.owner_user_id!,
+            })
+            .onConflict((oc) => oc.columns(['thread_id', 'label_id']).doNothing())
+            .returning('label_id')
+            .execute();
+          if (label.scope === 'tenant' && inserted.length) {
+            await audit(tx, {
+              tenantId: box.tenant_id,
+              actorId: row.owner_user_id!,
+              action: 'labels.applied',
+              entityType: 'thread',
+              entityId: msg.thread_id,
+              metadata: { added: [label.id], rule_id: row.id },
+            });
+            return true;
+          }
+        }
+        return false;
+      });
+      if (appliedGlobal) r.io.to('tenant:' + box.tenant_id).emit('labels:changed', {});
     } else if (action.type === 'pin') {
       await r.db
         .insertInto('thread_user_state')

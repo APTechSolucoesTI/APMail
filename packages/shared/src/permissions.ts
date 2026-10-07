@@ -21,7 +21,7 @@ export const SUPERVISOR_CAPABILITIES = [
   'dashboard',
   'audit',
   'members',
-  'contacts_visibility',
+  'contacts_manage',
 ] as const;
 export type SupervisorCapability = (typeof SUPERVISOR_CAPABILITIES)[number];
 export const CAPABILITY_LABELS: Record<SupervisorCapability, string> = {
@@ -30,7 +30,7 @@ export const CAPABILITY_LABELS: Record<SupervisorCapability, string> = {
   dashboard: 'Ver dashboard',
   audit: 'Ver auditoria',
   members: 'Ver equipe',
-  contacts_visibility: 'Gerenciar exibição de contatos',
+  contacts_manage: 'Gerenciar exclusão de contatos e empresas',
 };
 export const canDelegate = (
   role: TenantRole | null,

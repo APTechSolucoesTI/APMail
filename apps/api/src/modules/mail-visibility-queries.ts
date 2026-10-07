@@ -36,7 +36,7 @@ export async function listThreads(
           .select('id')
           .where('id', '=', q.label_id)
           .where('tenant_id', '=', c.tenantId)
-          .where('user_id', '=', c.userId)
+          .where((eb) => eb.or([eb('scope', '=', 'tenant'), eb('user_id', '=', c.userId)]))
           .executeTakeFirst()
       : null;
     if (!label) throw notFound();
@@ -56,7 +56,7 @@ export async function listThreads(
   }
   if (q.view === 'label')
     conditions.push(
-      sql`exists(select 1 from thread_personal_labels tl where tl.thread_id=t.id and tl.label_id=${q.label_id} and tl.tenant_id=${c.tenantId} and tl.user_id=${c.userId})`,
+      sql`exists(select 1 from thread_personal_labels tl where tl.thread_id=t.id and tl.label_id=${q.label_id} and tl.tenant_id=${c.tenantId} and (tl.user_id=${c.userId} or exists(select 1 from personal_labels l where l.id=tl.label_id and l.tenant_id=tl.tenant_id and l.scope='tenant')))`,
     );
   if (q.q?.trim())
     conditions.push(
@@ -91,7 +91,7 @@ export async function listThreads(
     select lower(m.from_address) as address from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter}
     union select lower(a->>'address') from messages m cross join lateral jsonb_array_elements(m.to_addresses||m.cc_addresses) a where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter}
    ) contacts where address<>lower(box.email_address) and not address=any(box.aliases)), '{}'::text[]) as participants,
-   coalesce((select jsonb_agg(jsonb_build_object('id',l.id,'name',l.name,'color',l.color) order by l.name) from thread_personal_labels tl join personal_labels l on l.id=tl.label_id where tl.thread_id=p.id and tl.tenant_id=${c.tenantId} and tl.user_id=${c.userId}),'[]'::jsonb) as labels,
+   coalesce((select jsonb_agg(jsonb_build_object('id',l.id,'name',l.name,'color',l.color,'scope',l.scope) order by l.name) from thread_personal_labels tl join personal_labels l on l.id=tl.label_id where tl.thread_id=p.id and tl.tenant_id=${c.tenantId} and (l.scope='tenant' or l.user_id=${c.userId})),'[]'::jsonb) as labels,
    exists(select 1 from outbox o where o.thread_id=p.id and o.tenant_id=${c.tenantId} and o.status in ('scheduled','queued','sending')) as has_scheduled
   from paged p join mailboxes box on box.id=${boxId} join lateral (
    select m.subject,m.snippet,m.from_name,m.from_address from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter}

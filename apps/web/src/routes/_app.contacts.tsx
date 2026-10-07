@@ -17,7 +17,7 @@ type Row = {
   name: string;
   phone: string;
   emails: string[];
-  visibility: string;
+  nickname: string;
   job_title: string;
   primary_company: string | null;
   primary_email: string | null;
@@ -35,11 +35,11 @@ function Contacts() {
     tenant = me?.tenants.find((t) => t.id === tenantId);
   const mayControl =
     isTenantAdmin(tenant?.role) ||
-    canDelegate(tenant?.role ?? null, tenant?.capabilities, 'contacts_visibility');
+    canDelegate(tenant?.role ?? null, tenant?.capabilities, 'contacts_manage');
   const [editing, setEditing] = useState<string | null | undefined>(undefined);
   const selected = editing !== undefined ? editing : query.contactId;
   const q = useQuery({
-    queryKey: ['contacts', tenantId, query],
+    queryKey: ['contacts', tenantId, me?.user.id, query],
     queryFn: ({ signal }) =>
       api<ListResult<Row>>(
         '/contacts?' +
@@ -58,7 +58,7 @@ function Contacts() {
     <>
       <PageHeader
         title="Contatos"
-        description="Pessoas, e-mails, empresas e endereços compartilhados pela sua empresa."
+        description="Pessoas, empresas e canais de contato compartilhados pela sua empresa."
         actions={
           <Button onClick={() => setEditing(null)}>
             <UserPlus />
@@ -68,7 +68,7 @@ function Contacts() {
       />
       <ConfigurableTable
         listKey="contacts"
-        searchPlaceholder="Buscar nome, e-mail, telefone ou empresa…"
+        searchPlaceholder="Buscar nome, empresa, apelido, e-mail ou telefone…"
         mode="server"
         query={query}
         onQueryChange={(search) => void navigate({ to: '/contacts', search })}
@@ -80,6 +80,7 @@ function Contacts() {
         onRetry={() => void q.refetch()}
         columns={[
           { id: 'name', header: 'Nome', hideable: false, sortable: true },
+          { id: 'nickname', header: 'Meu apelido' },
           {
             id: 'primary_company',
             header: 'Empresa principal',
@@ -97,11 +98,6 @@ function Contacts() {
           },
           { id: 'phone', header: 'Telefone' },
           { id: 'job_title', header: 'Cargo', defaultVisible: false },
-          {
-            id: 'visibility',
-            header: 'Exibição',
-            cell: (r) => (r.visibility === 'all' ? 'Todas as caixas' : 'Caixas selecionadas'),
-          },
         ]}
         rowActions={(row) => (
           <div className="flex gap-1">

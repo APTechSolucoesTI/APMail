@@ -19,7 +19,7 @@ import { useComposingPresence } from '@/hooks/use-thread-presence';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { signaturePreview } from '@/lib/signature';
-import { meQuery, useTenantId, type Mailbox } from '@/lib/auth';
+import { meQuery, useTenantId, canMailbox, type Mailbox } from '@/lib/auth';
 import type { Outbox, Signature } from '@/lib/outbox';
 import type { ThreadDetail } from '@/lib/mail';
 import { RichTextEditor } from '@/components/forms/rich-text-editor';
@@ -63,6 +63,7 @@ export function Composer({
   mailboxId,
   mode,
   threadId,
+  initialRecipient,
   onClose,
   onReopen,
   ref,
@@ -70,6 +71,7 @@ export function Composer({
   mailboxId: string;
   mode: string;
   threadId?: string;
+  initialRecipient?: { address: string; name: string };
   onClose: () => void;
   onReopen: (id: string) => void;
   ref?: Ref<ComposerHandle>;
@@ -161,7 +163,7 @@ export function Composer({
     queueMicrotask(() => {
       if (canceled || initialized.current) return;
       initialized.current = true;
-      let value = blank(mailboxId),
+      let value = { ...blank(mailboxId), to_addresses: initialRecipient ? [initialRecipient] : [] },
         content = '';
       if (draft.data) {
         value = outboxSchema.parse(draft.data);
@@ -259,6 +261,7 @@ export function Composer({
     replyId,
     conversation.data,
     mailboxId,
+    initialRecipient,
     mode,
     me.data,
   ]);
@@ -386,7 +389,10 @@ export function Composer({
       const response = await new Promise<{ id: string; filename: string; size_bytes: number }>(
         (resolve, reject) => {
           const xhr = new XMLHttpRequest();
-          xhr.open('POST', '/api/uploads?mailbox_id=' + encodeURIComponent(mailboxId));
+          xhr.open(
+            'POST',
+            '/api/uploads?mailbox_id=' + encodeURIComponent(current.current.mailbox_id),
+          );
           xhr.withCredentials = true;
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable)
@@ -539,19 +545,45 @@ export function Composer({
                 id="compose-from"
                 className="h-11 w-full rounded-md border border-input bg-card px-3 text-sm"
                 value={data.mailbox_id}
-                disabled={data.kind !== 'new' || busy}
-                onChange={(e) => {
-                  const id = e.target.value,
-                    s =
+                disabled={data.kind !== 'new' || busy || saving || uploads.length > 0}
+                onChange={async (e) => {
+                  const id = e.target.value;
+                  if (busy || uploads.length || saving) return;
+                  setBusy(true);
+                  setError('');
+                  try {
+                    const row = await save();
+                    const s =
                       signatures.data?.find((s) => s.is_default && s.mailbox_id === id) ??
                       signatures.data?.find((s) => s.is_default && !s.mailbox_id);
-                  setEdited(true);
-                  setData((d) => ({ ...d, mailbox_id: id, signature_id: s?.id ?? null }));
-                  setSignatureHtml(s?.body_html ?? '');
+                    const next = {
+                      ...current.current,
+                      mailbox_id: id,
+                      signature_id: s?.id ?? null,
+                      body_html: DOMPurify.sanitize(
+                        body +
+                          (s
+                            ? '<div data-apmail-signature="' + s.id + '">' + s.body_html + '</div>'
+                            : '') +
+                          quote,
+                      ),
+                    };
+                    await api('/outbox/' + row.id, { method: 'PATCH', body: next });
+                    savedJson.current = JSON.stringify(next);
+                    current.current = next;
+                    setData((d) => ({ ...d, mailbox_id: id, signature_id: s?.id ?? null }));
+                    setSignatureHtml(s?.body_html ?? '');
+                    setEdited(true);
+                    await client.invalidateQueries({ queryKey: ['outbox', tenant] });
+                  } catch (err) {
+                    setError((err as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
                 }}
               >
                 {boxes.data
-                  ?.filter((b) => can(b.role, 'send'))
+                  ?.filter((b) => canMailbox(b, 'send') && b.status === 'active')
                   .map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name} &lt;{b.email_address}&gt;

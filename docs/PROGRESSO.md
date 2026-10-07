@@ -1,5 +1,23 @@
 # Progresso do APMail
 
+## Entrega de 07/10/2026 — contatos, etiquetas e envio (local)
+
+- Fases 1–6 do [plano aprovado](PLANO-CONTATOS-ETIQUETAS-ENVIO.md) implementadas. Empresas vinculadas diretamente ao contato, endereços exclusivamente nas empresas, agenda compartilhada na tenância, títulos de telefone, principais por estrela e balão Info com dados/endereço da empresa.
+- Apelido privado por usuário, pesquisa por nome/empresa/apelido, sugestões identificadas e histórico filtrado por caixas/pastas. Caches privados incluem usuário/tenância; eventos compartilhados não contêm apelidos.
+- Escolha de destinatário e caixa remetente antes da composição, tratamento de alterações pendentes e troca de De preservando rascunho, assinatura e anexos. Transferência de propriedade/consumo transacional, incluindo imagem CID; cota insuficiente reverte tudo. Prévia de upload revalida permissão atual.
+- Etiquetas pessoais e globais na mesma listagem/menu, qualquer cor RGB com gradiente e alternativas de teclado, contraste calculado, indicação de escopo e aplicações globais auditadas. Globais usam deltas explícitos, sem apagar seleção compartilhada por formulário desatualizado; pessoais continuam privadas. API/web/worker compatíveis, com atualização dos demais usuários.
+- Ícones Lucide em Contatos/Configurações, portais de popovers integrados ao diálogo e rolagem real dentro dos seletores. Revisão em 16 combinações de telas/tamanhos/temas (1440/900/390/320 px, claro/escuro), sem overflow horizontal, erros JavaScript ou violações axe WCAG A/AA. Toque abre/fecha Info, Escape não reabre, teclado altera cor a partir de preto, criação de etiqueta global e escolha/troca de remetente também conferidos. Navegador usa fixtures sintéticas.
+- Migration `0022_directory_labels.sql` ensaiada em PostgreSQL exclusivo de QA: três testes de migrations, incluindo upgrade com legado e quota cheia. Preserva IDs, referências e dados, arquiva restrições/endereço avulso em `directory_legacy`, consolida endereços normalizados e atualiza projeções de consumo. Capacidade `contacts_visibility` passa a `contacts_manage`.
+- Validação: 73 testes unitários, 39 integrações de API, três de migrations e cinco integrações selecionadas do worker aprovadas. Inclui aplicação global por regra/idempotência/referência excluída, HTML formatado e imagem CID em MIME real, assinatura pessoal/incorporação SMTP e convite pelo SMTP correto. A suíte completa de 32 integrações do worker não foi executada nesta entrega. Tipos, lint e build aprovados. PostgreSQL/Redis/IMAP/SMTP exclusivos de QA. Os 17 testes de contatos/busca foram repetidos após a revalidação da prévia de upload e passaram.
+- **Sem commit, push, deploy, importação externa ou alteração de produção nesta entrega.** Publicação exige migration `0022` e API/web/worker da mesma versão. Não executar reset; detalhes em [DEPLOY.md](DEPLOY.md).
+
+## Planejamento de 07/10/2026 — contatos, etiquetas e envio
+
+- Regras e fases registradas em [PLANO-CONTATOS-ETIQUETAS-ENVIO.md](PLANO-CONTATOS-ETIQUETAS-ENVIO.md), após revisão do modelo atual, API, compositor, seletor de canais e etiquetas/worker.
+- Confirmados pelo usuário: contatos e empresas disponíveis a toda a tenância; escolha do e-mail destinatário e da caixa remetente antes de compor; aplicação de etiquetas globais compartilhada nas conversas autorizadas.
+- Planejados vínculos diretos contato–empresa, endereços somente nas empresas, Info por empresa, título de telefone, apelido exclusivo por usuário, busca unificada, cor livre/escopos de etiquetas, ícones e correção da rolagem. Migração preserva dados/IDs/referências e atualiza a medição de armazenamento; troca de remetente inclui integridade/propriedade de anexos.
+- Registro da etapa de planejamento, concluída antes da implementação acima. Produção preservada; commit e deploy pelo usuário.
+
 ## Revisão de 06/10/2026 — formulário do print e cadastro de empresas (local)
 
 - Formulário de contato refeito conforme o print: empresas opcionais primeiro, chips/estrelas, nome/cargo, seletores de e-mails/telefones e rodapé fixo. Removidos Destino e os campos de identificação. Vínculos por e-mail, endereços avulsos e visibilidade ficam sob demanda.

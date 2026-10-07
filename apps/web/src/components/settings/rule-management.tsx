@@ -12,7 +12,7 @@ import {
 import { Plus, Pencil, Trash2, ArrowUp, ArrowDown, Play, Ellipsis } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { useTenantId, canMailbox, type Mailbox } from '@/lib/auth';
+import { useTenantId, useUserId, canMailbox, type Mailbox } from '@/lib/auth';
 import type { MailRule, PersonalLabel } from '@/lib/organization';
 import { folderLabel, type Folder } from '@/lib/mail';
 import { ConfigurableTable } from '@/components/data/configurable-table';
@@ -304,7 +304,7 @@ function RuleEditor({
       enabled: !!mailboxId,
     }),
     labels = useQuery({
-      queryKey: ['labels', tenant],
+      queryKey: ['labels', tenant, useUserId()],
       queryFn: () => api<PersonalLabel[]>('/labels'),
     }),
     users = useQuery({
@@ -648,7 +648,7 @@ function RuleEditor({
                     <option value="">Selecione uma etiqueta</option>
                     {labels.data?.map((l) => (
                       <option key={l.id} value={l.id}>
-                        {l.name}
+                        {l.name} · {l.scope === 'tenant' ? 'Global' : 'Pessoal'}
                       </option>
                     ))}
                   </select>

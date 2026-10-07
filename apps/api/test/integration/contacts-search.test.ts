@@ -18,6 +18,8 @@ const db = createDb(url),
   member = randomUUID(),
   foreign = randomUUID(),
   platform = randomUUID();
+const firstCompany = randomUUID(),
+  secondCompany = randomUUID();
 const box = randomUUID(),
   privateBox = randomUUID(),
   foreignBox = randomUUID(),
@@ -41,7 +43,7 @@ const app = await buildApp(
 );
 const cookies = new Map<string, string>();
 const call = (
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   user = owner,
   body?: unknown,
@@ -190,8 +192,20 @@ beforeAll(async () => {
   await db
     .insertInto('personal_labels')
     .values([
-      { tenant_id: tenant, user_id: member, name: 'My Needle', color: 'teal' },
-      { tenant_id: tenant, user_id: owner, name: 'Other Needle', color: 'teal' },
+      { tenant_id: tenant, user_id: member, name: 'My Needle', color: '#CCFBF1' },
+      { tenant_id: tenant, user_id: owner, name: 'Other Needle', color: '#CCFBF1' },
+    ])
+    .execute();
+  await db
+    .insertInto('contact_companies')
+    .values([
+      {
+        id: firstCompany,
+        tenant_id: tenant,
+        name: 'First Needle',
+        addresses: JSON.stringify([{ street: 'Rua A', city: 'São Paulo' }]),
+      },
+      { id: secondCompany, tenant_id: tenant, name: 'Second Needle' },
     ])
     .execute();
 }, 120000);
@@ -199,26 +213,224 @@ afterAll(async () => {
   await app.close();
   await db.destroy();
 });
+it('etiquetas globais compartilham aplicação e contam somente conversas visíveis', async () => {
+  const name = 'Global QA ' + randomUUID().slice(0, 8);
+  expect(
+    (await call('POST', '/api/labels', member, { name, color: '#123456', scope: 'tenant' }))
+      .statusCode,
+  ).toBe(403);
+  const created = await call('POST', '/api/labels', owner, {
+    name,
+    color: '#123456',
+    scope: 'tenant',
+  });
+  expect(created.statusCode, created.body).toBe(201);
+  const id = created.json().id;
+  expect((await call('PATCH', '/api/labels/' + id, member, { color: '#FFFFFF' })).statusCode).toBe(
+    403,
+  );
+  expect((await call('DELETE', '/api/labels/' + id, member)).statusCode).toBe(403);
+  for (const tid of [thread, hiddenThread])
+    expect(
+      (
+        await call('PUT', '/api/threads/' + tid + '/labels', owner, {
+          label_ids: [],
+          global_add: [id],
+        })
+      ).statusCode,
+    ).toBe(200);
+  const list = await call('GET', '/api/labels', member);
+  expect(list.statusCode, list.body).toBe(200);
+  expect(list.json().find((l: { id: string }) => l.id === id)).toMatchObject({
+    scope: 'tenant',
+    thread_count: 1,
+  });
+  const foreignList = (await call('GET', '/api/labels', foreign)).json();
+  expect(foreignList.some((l: { id: string }) => l.id === id)).toBe(false);
+  expect((await call('GET', '/api/threads/' + thread, member)).json().labels).toEqual(
+    expect.arrayContaining([expect.objectContaining({ id, scope: 'tenant' })]),
+  );
+  const personal = await call('POST', '/api/labels', member, { name, color: '#000000' });
+  expect(personal.statusCode, personal.body).toBe(201);
+  const pid = personal.json().id;
+  expect(
+    (await call('PUT', '/api/threads/' + thread + '/labels', member, { label_ids: [pid] }))
+      .statusCode,
+  ).toBe(200);
+  expect((await call('GET', '/api/threads/' + thread, member)).json().labels).toHaveLength(2);
+  expect(
+    (await call('GET', '/api/threads/' + thread, owner))
+      .json()
+      .labels.map((l: { id: string }) => l.id),
+  ).toEqual([id]);
+  expect((await call('PATCH', '/api/labels/' + pid, owner, { name: ' чужой' })).statusCode).toBe(
+    404,
+  );
+  expect((await call('PATCH', '/api/labels/' + pid, member, { scope: 'tenant' })).statusCode).toBe(
+    409,
+  );
+  const second = await call('POST', '/api/labels', owner, {
+    name: name + ' 2',
+    color: '#ABCDEF',
+    scope: 'tenant',
+  });
+  expect(second.statusCode).toBe(201);
+  const sid = second.json().id;
+  const concurrent = await Promise.all([
+    call('PUT', '/api/threads/' + thread + '/labels', member, {
+      label_ids: [pid],
+      global_add: [sid],
+    }),
+    call('PUT', '/api/threads/' + thread + '/labels', owner, {
+      label_ids: [],
+      global_remove: [id],
+    }),
+  ]);
+  expect(concurrent.map((r) => r.statusCode)).toEqual([200, 200]);
+  const selected = (await call('GET', '/api/threads/' + thread, member))
+    .json()
+    .labels.map((l: { id: string }) => l.id);
+  expect(selected).toEqual(expect.arrayContaining([pid, sid]));
+  expect(selected).not.toContain(id);
+  expect(
+    (
+      await call('POST', '/api/mailboxes/' + box + '/threads/bulk', member, {
+        thread_ids: [thread],
+        action: 'labels',
+        label_ids: [pid],
+        global_remove: [sid],
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect(
+    (await call('GET', '/api/threads/' + thread, member))
+      .json()
+      .labels.map((l: { id: string }) => l.id),
+  ).toEqual([pid]);
+  expect(
+    (await call('POST', '/api/labels', member, { name: 'invalid', color: 'url(javascript:1)' }))
+      .statusCode,
+  ).toBe(400);
+  expect(
+    (
+      await call('POST', '/api/labels', owner, {
+        name: name.toUpperCase(),
+        color: '#123456',
+        scope: 'tenant',
+      })
+    ).statusCode,
+  ).toBe(409);
+});
+
+it('troca de remetente preserva anexos, CID, medição e rascunho em falha de cota', async () => {
+  const boundary = 'QA' + randomUUID(),
+    binary = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF7sAAAAASUVORK5CYII=',
+      'base64',
+    );
+  const uploadResponse = await app.inject({
+    method: 'POST',
+    url: '/api/uploads?mailbox_id=' + box,
+    headers: {
+      origin,
+      cookie: cookies.get(owner)!,
+      'content-type': 'multipart/form-data; boundary=' + boundary,
+    },
+    payload: Buffer.concat([
+      Buffer.from(
+        '--' +
+          boundary +
+          '\r\nContent-Disposition: form-data; name="file"; filename="imagem.png"\r\nContent-Type: image/png\r\n\r\n',
+      ),
+      binary,
+      Buffer.from('\r\n--' + boundary + '--\r\n'),
+    ]),
+  });
+  expect(uploadResponse.statusCode, uploadResponse.body).toBe(201);
+  const uploadId = uploadResponse.json().id;
+  const draft = await call('POST', '/api/outbox', owner, {
+    mailbox_id: box,
+    kind: 'new',
+    to_addresses: [{ address: 'dest@qa.local', name: 'Contato' }],
+    subject: 'Rascunho QA',
+    body_html: `<p>Texto preservado</p><img src="cid:${uploadId}@apmail.local" data-apmail-upload="${uploadId}" alt="QA">`,
+    attachments: [{ source: 'upload', upload_id: uploadId, inline: true }],
+  });
+  expect(draft.statusCode, draft.body).toBe(201);
+  const id = draft.json().id;
+  const switched = await call('PATCH', '/api/outbox/' + id, owner, { mailbox_id: privateBox });
+  expect(switched.statusCode, switched.body).toBe(200);
+  const read = (await call('GET', '/api/outbox/' + id, owner)).json();
+  expect(read.mailbox_id).toBe(privateBox);
+  expect(read.subject).toBe('Rascunho QA');
+  expect(read.body_html).toContain('cid:' + uploadId + '@apmail.local');
+  expect(read.attachments[0].inline).toBe(true);
+  const preview = await call('GET', '/api/uploads/' + uploadId + '/image', owner);
+  expect(preview.statusCode, preview.body).toBe(200);
+  expect(preview.rawPayload.equals(binary)).toBe(true);
+  expect(read.attachment_metadata).toHaveLength(1);
+  expect(
+    (
+      await db
+        .selectFrom('uploads')
+        .select('mailbox_id')
+        .where('id', '=', uploadId)
+        .executeTakeFirstOrThrow()
+    ).mailbox_id,
+  ).toBe(privateBox);
+  const asset = await db
+    .selectFrom('storage_assets as a')
+    .innerJoin('storage_asset_refs as ref', 'ref.asset_id', 'a.id')
+    .select(['a.mailbox_id', 'a.present_bytes'])
+    .where('ref.source_id', '=', uploadId)
+    .executeTakeFirstOrThrow();
+  expect(asset.mailbox_id).toBe(privateBox);
+  expect(Number(asset.present_bytes)).toBe(binary.length);
+  await sql`update mailbox_storage_limits set allocated_bytes=0 where mailbox_id=${box}::uuid`.execute(
+    db,
+  );
+  try {
+    const failed = await call('PATCH', '/api/outbox/' + id, owner, { mailbox_id: box });
+    expect(failed.statusCode, failed.body).toBe(409);
+    expect((await call('GET', '/api/outbox/' + id, owner)).json().mailbox_id).toBe(privateBox);
+    expect(
+      (
+        await db
+          .selectFrom('uploads')
+          .select('mailbox_id')
+          .where('id', '=', uploadId)
+          .executeTakeFirstOrThrow()
+      ).mailbox_id,
+    ).toBe(privateBox);
+    expect(
+      (
+        await db
+          .selectFrom('storage_assets as a')
+          .innerJoin('storage_asset_refs as ref', 'ref.asset_id', 'a.id')
+          .select('a.mailbox_id')
+          .where('ref.source_id', '=', uploadId)
+          .executeTakeFirstOrThrow()
+      ).mailbox_id,
+    ).toBe(privateBox);
+  } finally {
+    await sql`update mailbox_storage_limits set allocated_bytes=null where mailbox_id=${box}::uuid`.execute(
+      db,
+    );
+  }
+  expect((await call('PATCH', '/api/outbox/' + id, member, { mailbox_id: box })).statusCode).toBe(
+    403,
+  );
+});
 const payload = {
   name: 'Pessoa Áção Needle',
   job_title: 'Gestor',
+  companies: [
+    { id: firstCompany, name: 'First Needle', is_primary: true },
+    { id: secondCompany, name: 'Second Needle' },
+  ],
   emails: [
-    {
-      email: 'one-' + tenant + '@qa.local',
-      is_primary: true,
-      links: [
-        {
-          company: { name: 'First Needle', cnpj: '' },
-          address: { street: 'Rua A', city: 'São Paulo' },
-          is_primary_company: true,
-        },
-        { company: { name: 'Second Needle', cnpj: '' }, address: null },
-      ],
-    },
-    {
-      email: 'two-' + tenant + '@qa.local',
-      links: [{ company: null, address: { street: 'Rua B', city: 'Campinas' } }],
-    },
+    { email: 'one-' + tenant + '@qa.local', is_primary: true },
+    { email: 'two-' + tenant + '@qa.local' },
   ],
   phones: [
     { number: '(11) 99999-0000', label: 'Celular', is_primary: true },
@@ -234,14 +446,13 @@ it('salva múltiplos canais e troca os principais, incluindo empresas sem CNPJ',
   expect(detail.phones).toHaveLength(2);
   expect(detail.emails).toHaveLength(2);
   expect(detail.phone).toBe('(11) 99999-0000');
-  detail.emails.forEach((e: { is_primary: boolean; links: { is_primary_company: boolean }[] }) => {
+  detail.emails.forEach((e: { is_primary: boolean }) => {
     e.is_primary = false;
-    e.links.forEach((l) => {
-      l.is_primary_company = false;
-    });
   });
   detail.emails[1].is_primary = true;
-  detail.emails[0].links[1].is_primary_company = true;
+  detail.companies.forEach((company: { id: string; is_primary: boolean }) => {
+    company.is_primary = company.id === secondCompany;
+  });
   detail.phones[0].is_primary = false;
   detail.phones[1].is_primary = true;
   delete detail.visibility;
@@ -251,11 +462,9 @@ it('salva múltiplos canais e troca os principais, incluindo empresas sem CNPJ',
   const reread = (await call('GET', '/api/contacts/' + contact, member)).json();
   expect(reread.emails[0].email).toBe(payload.emails[1]!.email);
   expect(reread.phone).toBe('11 3333-2222');
-  expect(
-    reread.emails
-      .flatMap((e: { links: unknown[] }) => e.links)
-      .find((l: { is_primary_company: boolean }) => l.is_primary_company).company.name,
-  ).toBe('Second Needle');
+  expect(reread.companies.find((company: { is_primary: boolean }) => company.is_primary).name).toBe(
+    'Second Needle',
+  );
   const rows = (await call('GET', '/api/contacts?search=Pessoa', member)).json().items;
   expect(rows.find((r: { id: string }) => r.id === contact)).toMatchObject({
     primary_email: payload.emails[1]!.email,
@@ -299,9 +508,8 @@ it('lista e vincula somente empresas dos contatos visíveis, sem duplicar empres
   expect(companies).toHaveLength(1);
   const result = await call('POST', '/api/contacts', member, {
     name: 'Another contact',
-    emails: [
-      { email: randomUUID() + '@qa.local', links: [{ company: companies[0], address: null }] },
-    ],
+    emails: [{ email: randomUUID() + '@qa.local' }],
+    companies: [companies[0]],
   });
   expect(result.statusCode, result.body).toBe(201);
   expect(
@@ -338,42 +546,32 @@ it('busca global não revela caixas, pastas, mensagens nem etiquetas sem acesso'
       .groups.find((g: { category: string }) => g.category === 'email').items.length,
   ).toBeGreaterThan(0);
 });
-it('aplica a visibilidade de contato a todos os campos pesquisáveis e sugestões de empresas', async () => {
-  const hidden = await call('POST', '/api/contacts', owner, {
-    name: 'Secret Contact',
-    visibility: 'selected',
-    mailbox_ids: [privateBox],
-    emails: [
-      {
-        email: randomUUID() + '@qa.local',
-        links: [
-          { company: { name: 'Hidden Company', cnpj: '' }, address: { street: 'Hidden Street' } },
-        ],
-      },
-    ],
+it('agenda completa é compartilhada na tenância e não concede mensagens restritas', async () => {
+  const company = (
+    await call('POST', '/api/companies', owner, {
+      name: 'Shared Company',
+      addresses: [{ street: 'Rua compartilhada' }],
+    })
+  ).json();
+  const created = await call('POST', '/api/contacts', owner, {
+    name: 'Shared Contact',
+    emails: [{ email: randomUUID() + '@qa.local' }],
+    companies: [{ id: company.id, name: 'Shared Company' }],
     phones: [{ number: '555777' }],
   });
-  expect(hidden.statusCode, hidden.body).toBe(201);
-  for (const term of ['Hidden', '555777'])
+  expect(created.statusCode, created.body).toBe(201);
+  expect((await call('GET', '/api/contacts/' + created.json().id, member)).statusCode).toBe(200);
+  for (const term of ['Shared Company', '555777'])
     expect(
       (await search(term)).json().groups.find((g: { category: string }) => g.category === 'contact')
-        .items,
-    ).toHaveLength(0);
+        .items.length,
+    ).toBeGreaterThan(0);
+  expect((await call('GET', '/api/contacts/' + created.json().id, foreign)).statusCode).toBe(404);
   expect(
-    (await call('GET', '/api/contacts/companies?search=Hidden', member)).json().items,
+    (await search('Secret')).json().groups.flatMap((g: { items: unknown[] }) => g.items),
   ).toHaveLength(0);
-  const company = (await call('GET', '/api/contacts/companies?search=Hidden', owner)).json()
-    .items[0];
-  expect(
-    (
-      await call('POST', '/api/contacts', member, {
-        name: 'Forbidden company',
-        emails: [{ email: randomUUID() + '@qa.local', links: [{ company, address: null }] }],
-      })
-    ).statusCode,
-  ).toBe(404);
-  expect((await call('GET', '/api/contacts/' + contact, foreign)).statusCode).toBe(404);
 });
+
 it('resultados de configurações e filas respeitam o papel, e buscas inválidas não geram wildcard', async () => {
   const memberSettings = (await search('configuracoes'))
     .json()
@@ -522,7 +720,8 @@ it('cadastra empresa independente, pesquisa no mesmo campo e vincula sem duplica
   expect(company.visibility).toBe('all');
   const linked = await call('POST', '/api/contacts', member, {
     name: 'Contato Directory',
-    emails: [{ email: randomUUID() + '@qa.local', links: [{ company }] }],
+    emails: [{ email: randomUUID() + '@qa.local' }],
+    companies: [company],
   });
   expect(linked.statusCode, linked.body).toBe(201);
   expect(
@@ -544,8 +743,7 @@ it('cadastra empresa independente, pesquisa no mesmo campo e vincula sem duplica
     ).statusCode,
   ).toBe(200);
   expect(
-    (await call('GET', '/api/contacts/' + linked.json().id, member)).json().emails[0].links[0]
-      .company.name,
+    (await call('GET', '/api/contacts/' + linked.json().id, member)).json().companies[0].name,
   ).toBe('Razão revisada');
   expect((await call('DELETE', '/api/companies/' + companyId, owner)).statusCode).toBe(409);
   expect(
@@ -554,68 +752,43 @@ it('cadastra empresa independente, pesquisa no mesmo campo e vincula sem duplica
       .groups.find((g: { category: string }) => g.category === 'company').items[0].url,
   ).toContain('companyId=');
 });
-it('personaliza visibilidade de empresas com controle administrativo e isolamento de tenant', async () => {
-  const hidden = await call('POST', '/api/companies', owner, {
-    name: 'Directory Hidden',
-    visibility: 'selected',
-    mailbox_ids: [privateBox],
+it('empresas são compartilhadas com membros da tenância e isoladas das demais', async () => {
+  const created = await call('POST', '/api/companies', member, {
+    name: 'Directory Shared',
+    addresses: [{ street: 'Endereço único' }],
   });
-  expect(hidden.statusCode, hidden.body).toBe(201);
-  const id = hidden.json().id;
-  expect((await call('GET', '/api/companies/' + id, member)).statusCode).toBe(404);
+  expect(created.statusCode, created.body).toBe(201);
+  const id = created.json().id;
+  expect((await call('GET', '/api/companies/' + id, owner)).statusCode).toBe(200);
   expect((await call('GET', '/api/companies/' + id, foreign)).statusCode).toBe(404);
   expect(
-    (await call('GET', '/api/companies?search=Directory Hidden', member)).json().items,
-  ).toHaveLength(0);
-  expect(
-    (await search('Directory Hidden'))
-      .json()
-      .groups.find((g: { category: string }) => g.category === 'company').items,
-  ).toHaveLength(0);
-  expect(
-    (await call('POST', '/api/companies', member, { name: 'Not allowed', visibility: 'all' }))
-      .statusCode,
-  ).toBe(403);
-  expect(
-    (
-      await call('POST', '/api/contacts', member, {
-        name: 'Reference hidden',
-        emails: [
-          {
-            email: randomUUID() + '@qa.local',
-            links: [{ company: { id, name: 'Directory Hidden' } }],
-          },
-        ],
-      })
-    ).statusCode,
-  ).toBe(404);
-  expect(
-    (
-      await call('PUT', '/api/companies/' + id, owner, {
-        name: 'Directory Hidden',
-        visibility: 'selected',
-        mailbox_ids: [box],
-      })
-    ).statusCode,
-  ).toBe(200);
-  expect((await call('GET', '/api/companies/' + id, member)).statusCode).toBe(200);
+    (await call('GET', '/api/companies?search=Directory Shared', member)).json().items,
+  ).toHaveLength(1);
+  expect((await call('DELETE', '/api/companies/' + id, member)).statusCode).toBe(403);
   expect((await call('DELETE', '/api/companies/' + id, owner)).statusCode).toBe(200);
 });
-it('contato sem empresa aceita endereço avulso e mantém unicidade do e-mail', async () => {
+
+it('contato sem empresa não recebe endereço e conserva unicidade do e-mail', async () => {
   const email = randomUUID() + '@qa.local',
-    body = {
-      name: 'Sem empresa',
-      emails: [{ email, links: [{ address: { cep: '01001000', street: 'Endereço avulso' } }] }],
-    };
+    body = { name: 'Sem empresa', emails: [{ email }] };
   const created = await call('POST', '/api/contacts', member, body);
   expect(created.statusCode, created.body).toBe(201);
   const detail = (await call('GET', '/api/contacts/' + created.json().id, member)).json();
-  expect(detail.emails[0].links[0].company).toBeNull();
-  expect(detail.emails[0].links[0].address.street).toBe('Endereço avulso');
-  expect(detail.visibility).toBe('all');
+  expect(detail.companies).toHaveLength(0);
+  expect(detail.emails[0].links).toHaveLength(0);
+  expect(detail).not.toHaveProperty('addresses');
   expect((await call('POST', '/api/contacts', member, body)).statusCode).toBe(409);
+  expect(
+    (
+      await call('POST', '/api/contacts', member, {
+        ...body,
+        emails: [{ email: randomUUID() + '@qa.local', links: [{ address: { street: 'Avulso' } }] }],
+      })
+    ).statusCode,
+  ).toBe(400);
 });
-it('admin gerencia contatos mesmo antes de conectar caixas, sem liberar o membro sem caixas', async () => {
+
+it('agenda também é acessível a membros sem caixas', async () => {
   await db
     .updateTable('mailboxes')
     .set({ deleted_at: new Date() })
@@ -623,9 +796,9 @@ it('admin gerencia contatos mesmo antes de conectar caixas, sem liberar o membro
     .execute();
   try {
     expect((await call('GET', '/api/contacts/' + contact, owner)).statusCode).toBe(200);
-    expect((await call('GET', '/api/contacts/' + contact, member)).statusCode).toBe(404);
+    expect((await call('GET', '/api/contacts/' + contact, member)).statusCode).toBe(200);
     expect((await call('GET', '/api/companies', owner)).statusCode).toBe(200);
-    expect((await call('GET', '/api/contacts', member)).json().items).toHaveLength(0);
+    expect((await call('GET', '/api/contacts', member)).json().total).toBeGreaterThan(0);
   } finally {
     await db
       .updateTable('mailboxes')
@@ -633,4 +806,60 @@ it('admin gerencia contatos mesmo antes de conectar caixas, sem liberar o membro
       .where('tenant_id', '=', tenant)
       .execute();
   }
+});
+
+it('apelidos são privados por usuário, inclusive em busca e sugestões', async () => {
+  const request = (user: string, value: string) =>
+    app.inject({
+      method: 'PATCH',
+      url: '/api/contacts/' + contact + '/nickname',
+      headers: { origin, cookie: cookies.get(user)! },
+      payload: { nickname: value },
+    });
+  expect((await request(member, 'Meu Ápelido')).statusCode).toBe(200);
+  expect((await request(owner, 'Outro Particular')).statusCode).toBe(200);
+  expect((await call('GET', '/api/contacts/' + contact, member)).json().nickname).toBe(
+    'Meu Ápelido',
+  );
+  expect((await call('GET', '/api/contacts/' + contact, owner)).json().nickname).toBe(
+    'Outro Particular',
+  );
+  expect(
+    (await search('meu apelido', member))
+      .json()
+      .groups.find((g: { category: string }) => g.category === 'contact').items,
+  ).toHaveLength(1);
+  expect(
+    (await search('meu apelido', owner))
+      .json()
+      .groups.find((g: { category: string }) => g.category === 'contact').items,
+  ).toHaveLength(0);
+  const suggestions = await call(
+    'GET',
+    '/api/mailboxes/' + box + '/address-suggestions?q=meu%20apelido',
+    member,
+  );
+  expect(suggestions.statusCode, suggestions.body).toBe(200);
+  expect(suggestions.json()[0].nickname).toBe('Meu Ápelido');
+  expect(suggestions.json()[0].company_name).toBeTruthy();
+  expect(suggestions.json().map((a: { address: string }) => a.address)).toEqual(
+    expect.arrayContaining(payload.emails.map((e) => e.email)),
+  );
+});
+it('histórico retorna somente pastas permitidas, sem ampliar acesso pela agenda', async () => {
+  const historyContact = await call('POST', '/api/contacts', owner, {
+    name: 'Remetente de histórico',
+    emails: [{ email: 'sender@qa.local' }],
+  });
+  expect(historyContact.statusCode).toBe(201);
+  const result = await call(
+    'GET',
+    '/api/contacts/' + historyContact.json().id + '/history',
+    member,
+  );
+  expect(result.statusCode, result.body).toBe(200);
+  expect(result.json().items).toHaveLength(1);
+  expect(result.body).toContain('Visible Áção Needle');
+  expect(result.body).not.toContain('Secret');
+  expect(result.json().total).toBe(1);
 });

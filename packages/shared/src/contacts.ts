@@ -22,14 +22,10 @@ export const contactCompanySchema = z.object({
 });
 export const companySchema = contactCompanySchema.omit({ id: true }).extend({
   addresses: z.array(contactAddressSchema).max(50).default([]),
-  visibility: z.enum(['all', 'selected']).optional(),
-  mailbox_ids: z.array(z.uuid()).max(100).optional(),
 });
 export type CompanyInput = z.infer<typeof companySchema>;
 export type CompanyDetail = CompanyInput & {
   id: string;
-  visibility: 'all' | 'selected';
-  mailbox_ids: string[];
 };
 export const contactLinkSchema = z
   .object({
@@ -51,6 +47,11 @@ export const contactPhoneSchema = z.object({
 export const contactSchema = z
   .object({
     name: z.string().trim().min(2, 'Informe o nome do contato.').max(120),
+    nickname: z.string().trim().max(120).optional(),
+    companies: z
+      .array(contactCompanySchema.extend({ is_primary: z.boolean().optional() }))
+      .max(100)
+      .default([]),
     job_title: z.string().trim().max(120).optional(),
     phone: z.string().trim().max(40).default(''),
     phones: z.array(contactPhoneSchema).max(100).optional(),
@@ -61,7 +62,10 @@ export const contactSchema = z
           email: emailSchema,
           label: z.string().trim().max(80).default(''),
           is_primary: z.boolean().optional(),
-          links: z.array(contactLinkSchema).max(50).default([]),
+          links: z
+            .array(contactLinkSchema)
+            .max(0, 'Vincule empresas diretamente ao contato; endereços ficam nas empresas.')
+            .default([]),
         }),
       )
       .min(1, 'Cadastre ao menos um e-mail.')
@@ -70,8 +74,6 @@ export const contactSchema = z
         (items) => new Set(items.map((i) => i.email)).size === items.length,
         'Há e-mails repetidos no contato.',
       ),
-    visibility: z.enum(['all', 'selected']).optional(),
-    mailbox_ids: z.array(z.uuid()).max(100).optional(),
   })
   .superRefine((contact, ctx) => {
     if (contact.emails.filter((e) => e.is_primary).length > 1)
@@ -80,10 +82,10 @@ export const contactSchema = z
         path: ['emails'],
         message: 'Defina somente um e-mail principal.',
       });
-    if (contact.emails.flatMap((e) => e.links).filter((l) => l.is_primary_company).length > 1)
+    if (contact.companies.filter((company) => company.is_primary).length > 1)
       ctx.addIssue({
         code: 'custom',
-        path: ['emails'],
+        path: ['companies'],
         message: 'Defina somente uma empresa principal.',
       });
     if ((contact.phones?.filter((p) => p.is_primary).length ?? 0) > 1)
@@ -106,8 +108,6 @@ export const contactSchema = z
 export type ContactInput = z.infer<typeof contactSchema>;
 export type ContactDetail = ContactInput & {
   id: string;
-  visibility: 'all' | 'selected';
-  mailbox_ids: string[];
   created_at: string;
   updated_at: string;
 };

@@ -1,13 +1,11 @@
-import { type ReactNode, useEffect, useId, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Star, X, ChevronsUpDown, Plus } from 'lucide-react';
-import { isTenantAdmin, canDelegate, type ContactInput } from '@apmail/shared';
-import { meQuery, useTenantId, type Mailbox } from '@/lib/auth';
-import { api } from '@/lib/api';
+import { isTenantAdmin, canDelegate } from '@apmail/shared';
+import { meQuery, useTenantId } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 export function useDirectorySearch(value: string) {
@@ -33,7 +31,7 @@ export function PrincipalChips({
   onPrimary,
   onRemove,
 }: {
-  items: { key: string; text: string; primary: boolean }[];
+  items: { key: string; text: string; primary: boolean; info?: ReactNode }[];
   onPrimary: (key: string) => void;
   onRemove: (key: string) => void;
 }) {
@@ -62,8 +60,9 @@ export function PrincipalChips({
           </Button>
           <span className="min-w-0 break-all">
             {item.text}
-            {item.primary && <span className="text-primary"> · Principal</span>}
+            {item.primary && <span className="whitespace-nowrap text-primary"> · Principal</span>}
           </span>
+          {item.info}
           <Button
             type="button"
             variant="ghost"
@@ -84,15 +83,17 @@ export function ChannelPicker({
   items,
   onAdd,
   onEdit,
+  onEditLabel,
   onRemove,
   onPrimary,
   children,
   error,
 }: {
   kind: 'email' | 'phone';
-  items: { value: string; primary: boolean }[];
+  items: { value: string; primary: boolean; label?: string }[];
   onAdd: (value: string) => void;
   onEdit: (index: number, value: string) => void;
+  onEditLabel?: (index: number, value: string) => void;
   onRemove: (index: number) => void;
   onPrimary: (index: number) => void;
   children?: ReactNode;
@@ -172,6 +173,17 @@ export function ChannelPicker({
                 value={item.value}
                 onChange={(e) => onEdit(index, e.target.value)}
               />
+              {!email && (
+                <div className="space-y-2">
+                  <Label htmlFor={'phone-title-' + index}>Título do telefone {index + 1}</Label>
+                  <Input
+                    id={'phone-title-' + index}
+                    value={item.label ?? ''}
+                    onChange={(e) => onEditLabel?.(index, e.target.value)}
+                    maxLength={80}
+                  />
+                </div>
+              )}
             </div>
           ))}
           {children}
@@ -188,7 +200,7 @@ export function ChannelPicker({
       <PrincipalChips
         items={items.map((item, i) => ({
           key: String(i),
-          text: item.value,
+          text: item.label ? item.label + ' · ' + item.value : item.value,
           primary: item.primary,
         }))}
         onPrimary={(key) => onPrimary(Number(key))}
@@ -207,62 +219,6 @@ export function useDirectoryControl() {
     tenant = me?.tenants.find((t) => t.id === tenantId);
   return (
     isTenantAdmin(tenant?.role) ||
-    canDelegate(tenant?.role ?? null, tenant?.capabilities, 'contacts_visibility')
-  );
-}
-export function DirectoryVisibility({
-  value,
-  onChange,
-}: {
-  value: Pick<ContactInput, 'visibility' | 'mailbox_ids'>;
-  onChange: (value: Pick<ContactInput, 'visibility' | 'mailbox_ids'>) => void;
-}) {
-  const id = useId();
-  const mayControl = useDirectoryControl(),
-    tenant = useTenantId(),
-    boxes = useQuery({
-      queryKey: ['mailboxes', tenant],
-      queryFn: () => api<Mailbox[]>('/mailboxes'),
-    });
-  if (!mayControl) return null;
-  return (
-    <details className="rounded-md border p-3">
-      <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring">
-        Visibilidade nas caixas de entrada
-      </summary>
-      <div className="space-y-3 pt-3">
-        <Label htmlFor={id + 'visibility'}>Disponível em</Label>
-        <select
-          id={id + 'visibility'}
-          className="h-11 w-full rounded-md border bg-card px-3 text-sm"
-          value={value.visibility ?? 'all'}
-          onChange={(e) => onChange({ ...value, visibility: e.target.value as 'all' | 'selected' })}
-        >
-          <option value="all">Todas as caixas atuais e futuras</option>
-          <option value="selected">Somente caixas selecionadas</option>
-        </select>
-        {value.visibility === 'selected' &&
-          boxes.data?.map((box) => (
-            <div key={box.id} className="flex min-h-11 items-center gap-2">
-              <Checkbox
-                id={id + 'box-' + box.id}
-                checked={value.mailbox_ids?.includes(box.id) ?? false}
-                onCheckedChange={(checked) =>
-                  onChange({
-                    ...value,
-                    mailbox_ids: checked
-                      ? [...(value.mailbox_ids ?? []), box.id]
-                      : (value.mailbox_ids ?? []).filter((id) => id !== box.id),
-                  })
-                }
-              />
-              <Label htmlFor={id + 'box-' + box.id}>{box.name}</Label>
-            </div>
-          ))}
-        <p className="text-sm text-muted-foreground">
-          Por padrão, disponível para todos. A administração pode restringir a caixas específicas.
-        </p>
-      </div>
-    </details>
+    canDelegate(tenant?.role ?? null, tenant?.capabilities, 'contacts_manage')
   );
 }

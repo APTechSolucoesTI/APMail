@@ -3,6 +3,7 @@ import { queryClient } from './query-client';
 import { redirect } from '@tanstack/react-router';
 import { can, type MailboxRole, type TenantRole, type MailboxPerm } from '@apmail/shared';
 import { createContext, useContext } from 'react';
+import { useQuery } from '@tanstack/react-query';
 export const TenantContext = createContext<string | null>(null);
 export const useTenantId = () => useContext(TenantContext);
 export type Preferences = {
@@ -46,6 +47,7 @@ export type Mailbox = {
 export const canMailbox = (box: Pick<Mailbox, 'role' | 'permissions'>, permission: MailboxPerm) =>
   box.permissions?.includes(permission) ?? can(box.role, permission);
 export const meQuery = { queryKey: ['me'], queryFn: () => api<Me>('/auth/me'), retry: false };
+export const useUserId = () => useQuery(meQuery).data?.user.id;
 export async function requireUser() {
   try {
     return await queryClient.fetchQuery({ ...meQuery, staleTime: 0 });

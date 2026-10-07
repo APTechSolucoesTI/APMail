@@ -282,9 +282,9 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       labels: await r.db
         .selectFrom('thread_personal_labels as tl')
         .innerJoin('personal_labels as l', 'l.id', 'tl.label_id')
-        .select(['l.id', 'l.name', 'l.color'])
+        .select(['l.id', 'l.name', 'l.color', 'l.scope'])
         .where('tl.tenant_id', '=', c.tenantId)
-        .where('tl.user_id', '=', c.userId)
+        .where((eb) => eb.or([eb('l.scope', '=', 'tenant'), eb('l.user_id', '=', c.userId)]))
         .where('tl.thread_id', '=', thread.id)
         .orderBy('l.name')
         .execute(),
@@ -346,6 +346,8 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         action: z.enum(['read', 'unread', 'labels', 'done', 'reopen', 'assign']),
         user_id: z.uuid().nullable().optional(),
         label_ids: labelIdsSchema.shape.label_ids.optional(),
+        global_add: labelIdsSchema.shape.global_add,
+        global_remove: labelIdsSchema.shape.global_remove,
       })
       .parse(req.body);
     const ids = [...new Set(b.thread_ids)];
@@ -368,7 +370,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       b.action === 'labels' ? await validateLabelIds(r, c, labelIdsSchema.parse(b).label_ids) : [];
     await r.db.transaction().execute(async (trx) => {
       if (b.action === 'labels') {
-        await replaceLabels(trx, c, ids, labels);
+        await replaceLabels(trx, c, ids, labels, b.global_add, b.global_remove);
         return;
       }
       for (const threadId of ids)
@@ -388,6 +390,8 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
           .execute();
     });
     mailEvents(r, id, ids, c.userId);
+    if (b.action === 'labels' && (b.global_add.length || b.global_remove.length))
+      r.io.to('tenant:' + c.tenantId).emit('labels:changed', {});
     return { updated: ids.length };
   });
   app.post('/api/mailboxes/:id/messages/actions', async (req, reply) => {

@@ -2,7 +2,7 @@ import { Link, useLocation } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Tag } from 'lucide-react';
 import { api } from '@/lib/api';
-import { useTenantId } from '@/lib/auth';
+import { useTenantId, meQuery } from '@/lib/auth';
 import type { PersonalLabel } from '@/lib/organization';
 import { cn } from '@/lib/utils';
 import { LabelBadge } from './label-badge';
@@ -13,8 +13,9 @@ export function PersonalLabelNavigation({
   mailboxId: string;
   onNavigate: () => void;
 }) {
+  const user = useQuery(meQuery).data?.user.id;
   const q = useQuery({
-      queryKey: ['labels', useTenantId()],
+      queryKey: ['labels', useTenantId(), user],
       queryFn: () => api<PersonalLabel[]>('/labels'),
     }),
     search = useLocation().search as { labelId?: string; view?: string };

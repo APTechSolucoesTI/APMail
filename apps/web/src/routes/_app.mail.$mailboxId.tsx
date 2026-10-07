@@ -54,7 +54,7 @@ function MailPage() {
     queryFn: () => api<Folder[]>('/mailboxes/' + mailboxId + '/folders'),
   });
   const labels = useQuery({
-    queryKey: ['labels', tenantId],
+    queryKey: ['labels', tenantId, me.data?.user.id],
     queryFn: () => api<PersonalLabel[]>('/labels'),
     enabled: search.view === 'label',
   });
@@ -522,8 +522,11 @@ function MailPage() {
           ref={composer}
           mailboxId={mailboxId}
           mode={search.compose}
+          initialRecipient={
+            search.toEmail ? { address: search.toEmail, name: search.toName ?? '' } : undefined
+          }
           threadId={search.thread}
-          onClose={() => change({ compose: undefined })}
+          onClose={() => change({ compose: undefined, toEmail: undefined, toName: undefined })}
           onReopen={(id) => change({ compose: 'draft:' + id })}
         />
       )}

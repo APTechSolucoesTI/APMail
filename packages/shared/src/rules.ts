@@ -11,8 +11,16 @@ export const LABEL_COLORS = [
   'cyan',
 ] as const;
 export const personalLabelSchema = z.object({
-  name: z.string().trim().min(1).max(40),
-  color: z.enum(LABEL_COLORS),
+  name: z
+    .string()
+    .trim()
+    .transform((s) => s.replace(/\s+/g, ' '))
+    .pipe(z.string().min(1).max(40)),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/, 'Informe uma cor hexadecimal, como #1686A7.')
+    .transform((s) => s.toUpperCase()),
+  scope: z.enum(['personal', 'tenant']).default('personal'),
 });
 export const ruleConditionSchema = z
   .object({

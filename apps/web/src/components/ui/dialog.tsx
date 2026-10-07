@@ -6,6 +6,7 @@ import { XIcon } from 'lucide-react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 
 import { Button } from '@/components/ui/button';
+import { OverlayContainerContext } from './overlay-container';
 
 function Dialog({ ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -43,14 +44,25 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  ref,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
 }) {
+  const [container, setContainer] = React.useState<HTMLDivElement | null>(null);
+  const setRef = React.useCallback(
+    (element: HTMLDivElement | null) => {
+      setContainer(element);
+      if (typeof ref === 'function') ref(element);
+      else if (ref) ref.current = element;
+    },
+    [ref],
+  );
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
       <DialogPrimitive.Content
+        ref={setRef}
         data-slot="dialog-content"
         className={cn(
           'fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg',
@@ -58,7 +70,9 @@ function DialogContent({
         )}
         {...props}
       >
-        {children}
+        <OverlayContainerContext.Provider value={container ?? undefined}>
+          {children}
+        </OverlayContainerContext.Provider>
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"

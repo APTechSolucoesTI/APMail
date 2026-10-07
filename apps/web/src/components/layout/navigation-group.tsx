@@ -7,11 +7,13 @@ export function NavigationGroup({
   label,
   children,
   defaultOpen = true,
+  icon,
 }: {
   id: string;
   label: string;
   children: ReactNode;
   defaultOpen?: boolean;
+  icon?: ReactNode;
 }) {
   const me = useQuery(meQuery).data;
   const controlsId = useId();
@@ -31,8 +33,9 @@ export function NavigationGroup({
           setStored((prev) => ({ ...prev, [key]: !open }));
         }}
       >
-        <span className="min-w-0 truncate" title={label}>
-          {label}
+        <span className="flex min-w-0 items-center gap-2" title={label}>
+          {icon}
+          <span className="truncate">{label}</span>
         </span>
         <ChevronDown aria-hidden className={'size-4 shrink-0 ' + (open ? '' : '-rotate-90')} />
       </button>

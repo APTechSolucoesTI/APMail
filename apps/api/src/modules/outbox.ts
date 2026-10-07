@@ -15,6 +15,9 @@ import {
   sendJobOptions,
   audit,
   type OutboxRow,
+  type Database,
+  lockStorageTenant,
+  assertStorageCapacity,
 } from '@apmail/db';
 import {
   outboxSchema,
@@ -36,6 +39,8 @@ import { requireMailboxPerm, getMailboxRole } from '../authz/guards.js';
 import { readableFolders, folderPredicate, requireFolder } from '../authz/folders.js';
 import { requireThread } from './mail.js';
 import type { Resources } from './resources.js';
+import { moveDraftUploads } from './outbox-mailbox.js';
+import { contactSearch, contactNickname } from './contact-directory.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 const validation = (message: string) => new ApiError(400, 'validation_error', message);
 export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
@@ -78,11 +83,15 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         .emit('queue-counts:changed', { mailbox_id: row.mailbox_id });
     }
   };
-  const validateRefs = async (c: ReturnType<typeof requireTenant>, body: OutboxInput) => {
-    await requireMailboxPerm(c, r.db, body.mailbox_id, 'send');
-    const scope = await readableFolders(c, r.db, body.mailbox_id);
+  const validateRefs = async (
+    c: ReturnType<typeof requireTenant>,
+    body: OutboxInput,
+    db: Database = r.db,
+  ) => {
+    await requireMailboxPerm(c, db, body.mailbox_id, 'send');
+    const scope = await readableFolders(c, db, body.mailbox_id);
     if (body.thread_id) {
-      const t = await r.db
+      const t = await db
         .selectFrom('threads')
         .select('id')
         .where('id', '=', body.thread_id)
@@ -94,7 +103,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       await requireThread(c, r, body.thread_id);
     }
     if (body.reply_to_message_id) {
-      const m = await r.db
+      const m = await db
         .selectFrom('messages')
         .select(['thread_id', 'folder_id'])
         .where('id', '=', body.reply_to_message_id)
@@ -103,7 +112,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         .where('deleted_at', 'is', null)
         .executeTakeFirst();
       if (!m || m.thread_id !== body.thread_id) throw notFound();
-      await requireFolder(c, r.db, body.mailbox_id, m.folder_id);
+      await requireFolder(c, db, body.mailbox_id, m.folder_id);
     }
     if (
       ['reply', 'reply_all'].includes(body.kind) &&
@@ -111,7 +120,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     )
       throw validation('Selecione a mensagem respondida.');
     if (body.signature_id) {
-      const s = await r.db
+      const s = await db
         .selectFrom('signatures')
         .select('mailbox_id')
         .where('id', '=', body.signature_id)
@@ -123,7 +132,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     }
     for (const ref of body.attachments) {
       if (ref.source !== 'message_attachment') continue;
-      const file = await r.db
+      const file = await db
         .selectFrom('attachments as a')
         .innerJoin('messages as m', 'm.id', 'a.message_id')
         .select('a.id')
@@ -136,7 +145,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       if (!file) throw notFound();
     }
     try {
-      const files = await resolveOutboxAttachments(r.db, {
+      const files = await resolveOutboxAttachments(db, {
         attachments: body.attachments,
         tenant_id: c.tenantId,
         mailbox_id: body.mailbox_id,
@@ -144,7 +153,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       });
       body.body_html = (
         await prepareSignature(
-          r.db,
+          db,
           {
             ...body,
             tenant_id: c.tenantId,
@@ -251,6 +260,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       .executeTakeFirst();
     if (!row) throw notFound();
     if (row.consumed_at) throw conflict('Este anexo já foi enviado.');
+    if (row.mailbox_id) await requireMailboxPerm(c, r.db, row.mailbox_id, 'send');
     const referenced = await r.db
       .selectFrom('outbox')
       .select('id')
@@ -268,7 +278,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       id = idOf(req.params);
     const file = await r.db
       .selectFrom('uploads')
-      .select(['storage_path', 'content_type'])
+      .select(['storage_path', 'content_type', 'mailbox_id'])
       .where('id', '=', id)
       .where('tenant_id', '=', c.tenantId)
       .where('user_id', '=', c.userId)
@@ -276,9 +286,10 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       .executeTakeFirst();
     if (!file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.content_type))
       throw notFound();
+    if (file.mailbox_id) await requireMailboxPerm(c, r.db, file.mailbox_id, 'send');
     return reply
       .type(file.content_type)
-      .header('Cache-Control', 'private, max-age=300')
+      .header('Cache-Control', 'private, no-store')
       .header('X-Content-Type-Options', 'nosniff')
       .send(await storage.openReadStream(file.storage_path));
   });
@@ -321,17 +332,31 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
   app.patch('/api/outbox/:id', async (req) => {
     const { c, row } = await owned(req.ctx, idOf(req.params));
     if (row.created_by !== c.userId) throw forbidden();
-    if (row.status !== 'draft') throw conflict('Somente rascunhos podem ser editados.');
-    const body = outboxSchema.parse({ ...row, ...(req.body as object) });
-    await validateRefs(c, body);
-    const updated = await r.db
-      .updateTable('outbox')
-      .set(values(body))
-      .where('id', '=', row.id)
-      .where('status', '=', 'draft')
-      .returningAll()
-      .executeTakeFirst();
-    if (!updated) throw conflict('Este envio mudou. Atualize a página.');
+    const updated = await r.db.transaction().execute(async (tx) => {
+      await lockStorageTenant(tx, c.tenantId);
+      const current = await tx
+        .selectFrom('outbox')
+        .selectAll()
+        .where('id', '=', row.id)
+        .where('tenant_id', '=', c.tenantId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!current || current.status !== 'draft')
+        throw conflict('Somente rascunhos podem ser editados.');
+      const body = outboxSchema.parse({ ...current, ...(req.body as object) });
+      await moveDraftUploads(tx, c, current, body);
+      await validateRefs(c, body, tx);
+      const result = await tx
+        .updateTable('outbox')
+        .set(values(body))
+        .where('id', '=', row.id)
+        .where('status', '=', 'draft')
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      if (current.mailbox_id !== body.mailbox_id)
+        await assertStorageCapacity(tx, c.tenantId, body.mailbox_id);
+      return result;
+    });
     changed(updated);
     return { ...updated, ...(await flags(c, updated)) };
   });
@@ -554,7 +579,15 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       await sql<Address>`select address,coalesce((array_agg(name order by message_at desc))[1],'') as name from (select m.from_address as address,m.from_name as name,m.message_at from messages m where m.tenant_id=${c.tenantId} and m.mailbox_id=${id} and m.deleted_at is null and ${folderPredicate(scope)} union all select a->>'address',a->>'name',m.message_at from messages m cross join lateral jsonb_array_elements(m.to_addresses||m.cc_addresses) a where m.tenant_id=${c.tenantId} and m.mailbox_id=${id} and m.deleted_at is null and ${folderPredicate(scope)}) contacts where unaccent(address) ilike unaccent(${'%' + q + '%'}) or unaccent(name) ilike unaccent(${'%' + q + '%'}) group by address order by max(message_at) desc,address limit 8`.execute(
         r.db,
       );
-    return result.rows;
+    const directory =
+      await sql<Address>`select e.email as address,contacts.name as name,${contactNickname(c)} as nickname,(select cc.name from contact_company_links l join contact_companies cc on cc.id=l.company_id and cc.tenant_id=l.tenant_id where l.contact_id=contacts.id and l.tenant_id=contacts.tenant_id and l.is_primary) as company_name from contacts join contact_emails e on e.contact_id=contacts.id and e.tenant_id=contacts.tenant_id where contacts.tenant_id=${c.tenantId} and ${contactSearch(q, c)} order by contacts.name,e.is_primary desc,e.email limit 12`.execute(
+        r.db,
+      );
+    return [
+      ...new Map(
+        [...result.rows, ...directory.rows].map((a) => [a.address.toLowerCase(), a]),
+      ).values(),
+    ].slice(0, 20);
   });
   app.get('/api/signatures', async (req) => {
     const c = requireTenant(req.ctx);

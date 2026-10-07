@@ -11,7 +11,7 @@ import {
   type GlobalSearchResponse,
 } from '@apmail/shared';
 import { requireTenant } from '../authz/context.js';
-import { contactVisible, contactSearch } from './contacts.js';
+import { contactVisible, contactSearch, contactNickname } from './contacts.js';
 import { companyVisible, companySearch } from './companies.js';
 import type { Resources } from './resources.js';
 
@@ -53,8 +53,8 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
         ],
         [
           'contact',
-          sql<Row>`select contacts.id,contacts.name as title,coalesce((select e.email from contact_emails e where e.tenant_id=contacts.tenant_id and e.contact_id=contacts.id order by e.is_primary desc,e.email limit 1),'') as description
-        from contacts where contacts.tenant_id=${c.tenantId} and ${contactVisible(c)} and ${contactSearch(q)} order by contacts.name,contacts.id limit 6`,
+          sql<Row>`select contacts.id,contacts.name as title,concat_ws(' · ',nullif(${contactNickname(c)},''),coalesce((select e.email from contact_emails e where e.tenant_id=contacts.tenant_id and e.contact_id=contacts.id order by e.is_primary desc,e.email limit 1),'')) as description
+        from contacts where contacts.tenant_id=${c.tenantId} and ${contactVisible(c)} and ${contactSearch(q, c)} order by contacts.name,contacts.id limit 6`,
         ],
         [
           'mailbox',
@@ -76,7 +76,7 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
         ],
         [
           'label',
-          sql<Row>`select id,name as title,'Etiqueta pessoal' as description from personal_labels where tenant_id=${c.tenantId} and user_id=${c.userId} and ${matches(sql`name`)} order by name,id limit 6`,
+          sql<Row>`select id,name as title,case when scope='tenant' then 'Etiqueta global' else 'Etiqueta pessoal' end as description from personal_labels where tenant_id=${c.tenantId} and (scope='tenant' or user_id=${c.userId}) and ${matches(sql`name`)} order by name,id limit 6`,
         ],
         [
           'outbox',

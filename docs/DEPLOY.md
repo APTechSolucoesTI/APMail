@@ -1,5 +1,21 @@
 # Publicação do APMail
 
+## Entrega local de 07/10/2026 — contatos, etiquetas e envio
+
+Aplicar `0022_directory_labels.sql` após todas as migrations anteriores. Publicar API, web e worker da mesma versão. Commit e deploy pelo usuário; esta implementação não alterou produção.
+
+1. Fazer backup do banco e preservar o volume de arquivos. Pausar API/worker da versão anterior durante a transição: a escrita dos antigos vínculos de contato será desativada.
+2. Executar o serviço `migrate` da nova imagem. Confirmar código 0 antes de iniciar API/worker/web. Fora do Compose, o comando existente é `pnpm db:migrate`, usando as variáveis do ambiente escolhido.
+3. Se o índice `label_personal_name` indicar colisão, a transação é revertida. Identificar os nomes conflitantes por tenância/usuário com `lower(regexp_replace(btrim(name),'\s+',' ','g'))`, ajustar os nomes preservando IDs e repetir. Não fundir ou excluir etiquetas automaticamente.
+4. Iniciar os três serviços, atualizar a página e conferir agenda compartilhada, apelidos distintos por usuário, etiquetas pessoais/globais, regras pessoais e troca de remetente com anexos.
+5. Conferir reconciliação/consumo no superadmin. Legado de diretório entra como retido; crescimento de dados novos continua sujeito à quota. A migração não altera limites ou checkpoints de sincronização.
+
+`personal_labels` e `thread_personal_labels` mantêm seus nomes físicos e IDs, com `scope` explícito. Capacidade de supervisor `contacts_visibility` passa para `contacts_manage`, preservando permissão de exclusão. `directory_legacy` retém os dados e restrições anteriores; não executar reset nem remover essa tabela para publicar.
+
+A transferência de upload muda propriedade e referências no banco sem mover sua chave física imutável. API/worker usam a propriedade atual para acesso e consumo. Arquivo usado por outro rascunho impede a mudança de remetente e mantém os rascunhos intactos.
+
+Recuperação exige restaurar o backup compatível com a versão anterior e seus arquivos. Downgrade isolado da aplicação após aplicar `0022` não restaura os conceitos antigos. Contratos efetivos em [CONTATOS-BUSCA-GLOBAL.md](CONTATOS-BUSCA-GLOBAL.md).
+
 ## Revisão de 06/10/2026 — quota individual do provedor
 
 Aplicar `0019_provider_account_quota.sql` (e migrations anteriores pendentes) e atualizar web/worker/API juntos. Essa migration limpa somente medições antigas do provedor; preserva limites do APMail, conteúdo e checkpoints. Os valores serão consultados novamente no próximo ciclo de sincronização. A leitura separa as raízes de quota e recusa informar capacidade de domínio ou raiz ambígua como se fosse individual. Quando o provedor não publica uma quota identificável da conta, a interface informa indisponibilidade.

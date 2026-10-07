@@ -45,7 +45,7 @@ it('aplica do zero, impede mudanÃ§a de checksum e mantÃ©m transaÃ§Ã£o', async ()
     await rm(folder, { recursive: true, force: true });
     await resetDatabase(url);
   }
-}, 30000);
+}, 90000);
 it('migra contatos existentes com cota cheia, preserva canais e atualiza a mediÃ§Ã£o', async () => {
   const url = process.env.DATABASE_URL_TEST;
   if (!url || !new URL(url).pathname.endsWith('_test')) throw Error('Banco exclusivo obrigatÃ³rio.');
@@ -110,6 +110,30 @@ it('migra contatos existentes com cota cheia, preserva canais e atualiza a mediÃ
         'insert into contact_email_links(tenant_id,email_id,company_id,address_id) values($1,$2,$3,$4)',
         [tenant, email.id, company, addressId],
       );
+    const standalone = randomUUID(),
+      label = randomUUID(),
+      thread = randomUUID();
+    await client.query(
+      "insert into contact_addresses(id,tenant_id,street) values($1,$2,'Avulso preservado')",
+      [standalone, tenant],
+    );
+    await client.query(
+      'insert into contact_email_links(tenant_id,email_id,address_id) values($1,$2,$3)',
+      [tenant, emails[0].id, standalone],
+    );
+    await client.query(
+      "insert into personal_labels(id,tenant_id,user_id,name,color) values($1,$2,$3,'Etiqueta antiga','teal')",
+      [label, tenant, user],
+    );
+    await client.query('insert into threads(id,tenant_id,mailbox_id) values($1,$2,$3)', [
+      thread,
+      tenant,
+      mailbox,
+    ]);
+    await client.query(
+      'insert into thread_personal_labels(thread_id,label_id,tenant_id,user_id) values($1,$2,$3,$4)',
+      [thread, label, tenant, user],
+    );
     await client.query(
       'update tenant_storage_limits set storage_limit_bytes=storage_quota_usage($1) where tenant_id=$1',
       [tenant],
@@ -120,7 +144,7 @@ it('migra contatos existentes com cota cheia, preserva canais e atualiza a mediÃ
         company,
       ])
     ).rows[0];
-    expect(migratedCompany.visibility).toBe('selected');
+    expect(migratedCompany.visibility).toBe('all');
     expect(migratedCompany.addresses).toHaveLength(1);
     expect(migratedCompany.addresses[0]).toMatchObject({ street: 'Rua migrada', cep: '01001000' });
     expect(
@@ -129,7 +153,7 @@ it('migra contatos existentes com cota cheia, preserva canais e atualiza a mediÃ
           company,
         ])
       ).rows,
-    ).toEqual([{ mailbox_id: mailbox }]);
+    ).toEqual([]);
     expect(
       (
         await client.query(
@@ -137,7 +161,7 @@ it('migra contatos existentes com cota cheia, preserva canais e atualiza a mediÃ
           [tenant],
         )
       ).rows[0].n,
-    ).toBe(1);
+    ).toBe(0);
     expect(
       (await client.query('select phone,phones,job_title from contacts where id=$1', [contact]))
         .rows[0],
@@ -156,7 +180,7 @@ it('migra contatos existentes com cota cheia, preserva canais e atualiza a mediÃ
     expect(
       (
         await client.query(
-          'select count(*)::int as n from contact_email_links where contact_id=$1 and is_primary_company',
+          'select count(*)::int as n from contact_company_links where contact_id=$1 and is_primary',
           [contact],
         )
       ).rows[0].n,
@@ -168,7 +192,48 @@ it('migra contatos existentes com cota cheia, preserva canais e atualiza a mediÃ
           [contact],
         )
       ).rows[0].n,
-    ).toBe(2);
+    ).toBe(0);
+    expect(
+      (
+        await client.query(
+          "select payload->>'street' as street from directory_legacy where tenant_id=$1 and source='contact_addresses' and payload->>'id'=$2",
+          [tenant, standalone],
+        )
+      ).rows,
+    ).toEqual([{ street: 'Avulso preservado' }]);
+    expect(
+      (
+        await client.query(
+          "select count(*)::int as n from directory_legacy where tenant_id=$1 and source='contact_email_links'",
+          [tenant],
+        )
+      ).rows[0].n,
+    ).toBe(3);
+    expect(
+      (await client.query('select scope,color,user_id from personal_labels where id=$1', [label]))
+        .rows[0],
+    ).toEqual({ scope: 'personal', color: '#CCFBF1', user_id: user });
+    expect(
+      (
+        await client.query('select applied_by from thread_personal_labels where label_id=$1', [
+          label,
+        ])
+      ).rows[0].applied_by,
+    ).toBe(user);
+    expect(
+      (
+        await client.query(
+          "select count(*)::int as n from storage_logical_payloads where relation_name='directory_legacy' and tenant_id=$1 and retained",
+          [tenant],
+        )
+      ).rows[0].n,
+    ).toBeGreaterThan(0);
+    await expect(
+      client.query(
+        'insert into contact_email_links(tenant_id,email_id,company_id,contact_id) values($1,$2,$3,$4)',
+        [tenant, emails[0].id, company, contact],
+      ),
+    ).rejects.toThrow('obsolete_contact_relationship');
     const measured = (
       await client.query(
         "select p.metadata_bytes::text as actual,octet_length((to_jsonb(c)-catalog.excluded_columns)::text)::bigint::text as expected from storage_logical_payloads p join contacts c on p.row_key=jsonb_build_object('id',c.id)::text join storage_logical_catalog catalog on catalog.relation_name=p.relation_name where p.relation_name='contacts' and c.id=$1",

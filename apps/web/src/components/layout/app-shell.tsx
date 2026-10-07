@@ -10,7 +10,22 @@ import { SocketContext } from '@/hooks/use-socket-room';
 import { MailboxFolderNavigation } from '@/components/mail/mailbox-folder-navigation';
 import { ChatNavigation } from '@/components/chat/chat-navigation';
 import { useChatRealtime } from '@/hooks/use-chat';
-import { Mail, Menu, LogOut, LayoutDashboard, Building2 } from 'lucide-react';
+import {
+  Mail,
+  Menu,
+  LogOut,
+  LayoutDashboard,
+  Building2,
+  ContactRound,
+  Settings,
+  UserRound,
+  SlidersHorizontal,
+  Signature,
+  Tags,
+  ListFilter,
+  UsersRound,
+  ClipboardList,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
@@ -22,6 +37,17 @@ import { KeyboardHelp } from './keyboard-help';
 import { GlobalSearch } from './global-search';
 import { useTheme } from './theme-provider';
 import { TableUserContext } from '@/hooks/use-table-preferences';
+const settingsIcons: Record<string, typeof Mail> = {
+  '/settings/profile': UserRound,
+  '/settings/preferences': SlidersHorizontal,
+  '/settings/signatures': Signature,
+  '/settings/labels': Tags,
+  '/settings/rules': ListFilter,
+  '/settings/users': UsersRound,
+  '/settings/mailboxes': Mail,
+  '/settings/tenant': Building2,
+  '/settings/audit': ClipboardList,
+};
 export function AppShell() {
   const me = useQuery(meQuery);
   const client = useQueryClient();
@@ -59,6 +85,12 @@ export function AppShell() {
         'thread-history',
         'dashboard',
         'global-search',
+        'contacts',
+        'contact',
+        'contact-history',
+        'companies',
+        'company',
+        'company-options',
         'chat-conversations',
         'chat-messages',
         'chat-presence',
@@ -149,6 +181,18 @@ export function AppShell() {
         }),
     );
     socket.on('folders:changed', () => invalidate('folders'));
+    socket.on('labels:changed', () => invalidate('labels', 'threads', 'thread', 'global-search'));
+    socket.on('directory:changed', () =>
+      invalidate(
+        'contacts',
+        'contact',
+        'companies',
+        'company',
+        'company-options',
+        'global-search',
+        'address-suggestions',
+      ),
+    );
     socket.on('mailbox:status', () => invalidate('mailboxes', 'mailbox'));
     socket.on('outbox:changed', () =>
       invalidate('outbox', 'outbox-detail', 'thread', 'threads', 'queue-counts'),
@@ -212,9 +256,10 @@ export function AppShell() {
         )}
         <Link
           to="/contacts"
-          className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
+          className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
           onClick={() => setOpen(false)}
         >
+          <ContactRound aria-hidden className="size-4 shrink-0" />
           Contatos
         </Link>
         <Link
@@ -234,7 +279,11 @@ export function AppShell() {
           )}
         </NavigationGroup>
         <div className="mt-auto border-t pt-4">
-          <NavigationGroup id="settings" label="Configurações">
+          <NavigationGroup
+            id="settings"
+            label="Configurações"
+            icon={<Settings aria-hidden className="size-4 shrink-0" />}
+          >
             {[
               ['/settings/profile', 'Meu perfil'],
               ['/settings/preferences', 'Preferências'],
@@ -255,16 +304,20 @@ export function AppShell() {
                     ['/settings/audit', 'Auditoria'],
                   ]
                 : []),
-            ].map(([to, label]) => (
-              <Link
-                key={to}
-                to={to}
-                className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
-                onClick={() => setOpen(false)}
-              >
-                {label}
-              </Link>
-            ))}
+            ].map(([to, label]) => {
+              const Icon = settingsIcons[to!] ?? Settings;
+              return (
+                <Link
+                  key={to}
+                  to={to}
+                  className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+                  onClick={() => setOpen(false)}
+                >
+                  <Icon aria-hidden className="size-4 shrink-0" />
+                  {label}
+                </Link>
+              );
+            })}
           </NavigationGroup>
           {me.data.platform_admin && (
             <Link

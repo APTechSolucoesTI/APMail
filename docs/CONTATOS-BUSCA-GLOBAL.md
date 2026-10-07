@@ -1,55 +1,59 @@
-# Contatos e busca global — 06/10/2026
+﻿# Contatos, empresas, etiquetas e envio — 07/10/2026
 
-Implementação local revisada conforme o print enviado em 06/10/2026. Contatos usa o cabeçalho destacado, seleção de empresas no topo, chips com estrela, nome/cargo lado a lado, e-mails/telefones em seletores compactos e rodapé fixo. O APTicket foi somente referência visual; nenhum contato ou empresa externa foi importado.
+Implementado no workspace conforme [plano aprovado](PLANO-CONTATOS-ETIQUETAS-ENVIO.md). Commit e deploy pelo usuário; nenhuma importação de contatos ou alteração de produção nesta entrega.
 
-## Cadastro e edição
+## Agenda e formulário
 
-- Empresa opcional no primeiro campo; depois nome, cargo, vários e-mails e telefones, com seleção dos principais por estrela. Removidos os campos de identificação e a escolha de destino: o formulário cria ou edita um contato.
-- Cada e-mail aceita vários vínculos de empresa/endereço. Um endereço também pode existir sem empresa. A empresa principal é uma escolha única do contato, independente do e-mail principal.
-- Empresas são selecionadas no cadastro próprio, mesmo quando ainda não têm contato. Busca única por CNPJ, razão social e nome fantasia; Enter seleciona uma empresa encontrada ou abre o cadastro consultando um CNPJ completo ainda não cadastrado. Selecionar uma empresa conserva sua identidade, inclusive sem CNPJ.
-- Endereços, observações, vínculos específicos por e-mail e visibilidade aparecem sob demanda. É possível cadastrar endereço avulso; Enter no CEP consulta/preenche sem salvar o formulário. Os botões de consulta continuam disponíveis.
-- Remover um dado principal seleciona o primeiro canal/vínculo restante aplicável. No servidor, a ausência de seleção explícita também usa o primeiro disponível. Não é obrigatório cadastrar empresa ou telefone.
-- A listagem apresenta empresa, e-mail e telefone principais; os demais e-mails ficam disponíveis no cadastro e na indicação da listagem. Cargo pode ser habilitado em Colunas.
-- E-mails são normalizados e exclusivos dentro da empresa. Telefones repetidos com formatações diferentes são recusados. Mais de um principal de cada tipo também é recusado.
-- Mantida a criação/edição pelo remetente: procura primeiro o e-mail existente para abrir o contato correto. A administração controla a exibição por caixas; basta acesso a uma caixa autorizada para visualizar o contato completo.
+Contatos e empresas são compartilhados com todos os membros ativos da mesma tenância, inclusive membros sem acesso a caixas. Empresas do diretório representam organizações dos contatos, distintas das tenâncias clientes da plataforma. Outra tenância e superadmin não acessam a agenda operacional.
 
-Empresas reutilizadas têm um cadastro comum dentro da empresa do APMail: alterar razão social/nome fantasia/CNPJ atualiza essa mesma empresa nos seus vínculos.
+- Empresas opcionais no primeiro campo, vinculadas diretamente ao contato. Várias empresas, uma principal, chips com estrela e informações por empresa sob demanda.
+- Nome obrigatório, cargo, Meu apelido, e-mails e telefones com título opcional. Apelido é exclusivo do usuário atual; os demais dados são compartilhados.
+- Pelo menos um e-mail; cada conjunto não vazio tem exatamente um principal. Remover o principal promove o primeiro restante. E-mails são normalizados e exclusivos por contato dentro da tenância; telefones repetidos com outra formatação são recusados.
+- Endereços ficam somente nas empresas. Não existem endereço avulso no contato nem vínculo de empresa/endereço por e-mail.
+- Observações e histórico sob demanda. Cabeçalho com Enviar novo e-mail; contato novo precisa ser salvo. Alterações pendentes oferecem salvar e continuar, usar os dados salvos ou cancelar.
+- Criar/editar pelo remetente procura primeiro o e-mail existente. Excluir exige proprietário/admin ou supervisor autorizado por `contacts_manage`; membro comum não recebe essa capacidade.
 
-## Cadastro de empresas
+Empresa selecionada mantém sua identidade; salvar contato não altera o cadastro da empresa. Listagem independente `/companies`, pesquisa por CNPJ/razão social/nome fantasia, cadastro manual com ou sem CNPJ, vários endereços e consultas CNPJ/CEP com Enter ou botão. Empresa vinculada não pode ser excluída antes de remover os vínculos.
 
-Menu **Empresas**, rota `/companies`, com listagem paginada no servidor, busca por CNPJ/razão social/nome fantasia, ordenação, colunas e criação/edição. Empresas deste cadastro são organizações vinculáveis a contatos, distintas das tenâncias geridas pela plataforma.
+O ícone Info consulta a ficha salva e mostra razão social, nome fantasia, CNPJ e todos os endereços. Abre por mouse, foco de teclado ou toque, admite rolagem e fecha com Escape. Os portais dos seletores ficam dentro do diálogo atual, preservando o bloqueio do fundo e a roda do mouse. Temas claro/escuro e layout de celular seguem os componentes existentes.
 
-O formulário permite cadastro manual com ou sem CNPJ, vários endereços, busca de empresa existente e preenchimento por CNPJ/CEP com Enter. Também pode ser aberto dentro do contato para criar uma empresa e selecioná-la sem sair da edição. Excluir empresa ainda vinculada a contatos é bloqueado; seus vínculos precisam ser removidos antes.
+## Apelido, busca e histórico
 
-Contatos e empresas novos ficam disponíveis em todas as caixas da tenância. Proprietário/admin e supervisores com capacidade `contacts_visibility` podem restringir a caixas específicas. Membros não podem alterar essa configuração. A restrição de uma empresa controla o catálogo, sua ficha e sua categoria na busca; preserva-se o acordo de contato completo: dados de empresa já associados a um contato compartilhado continuam compondo esse contato. Para restringir esse compartilhamento, configure também a visibilidade do contato.
+`contact_user_nicknames` guarda um apelido por contato/usuário. Sessão determina o proprietário; a API não aceita editar o apelido de terceiros. Admin vê apenas o próprio. Campo vazio remove somente seu registro. Apelido não muda nome cadastral ou cabeçalho enviado e não aparece na auditoria compartilhada. Contabilização usa bytes por tenância sem revelar o conteúdo ao superadmin.
 
-Proprietários/admins gerenciam esses cadastros mesmo antes de conectar a primeira caixa. Membros sem caixa autorizada continuam sem resultados operacionais.
+Listagem, busca global e sugestões de destinatários pesquisam nome, empresa e apelido do solicitante, sem distinção de acentos/caixa e com espaços normalizados. Permanecem pesquisas por e-mail, telefone e CNPJ. Sugestões apresentam nome, apelido pessoal, empresa principal e endereços disponíveis; seleção adiciona somente o e-mail escolhido. Entrada manual continua disponível.
 
-Empresas existentes são editadas na sua própria ficha. Salvar um contato com referência a empresa não altera silenciosamente seu cadastro comum.
+Busca superior preserva categorias Contatos, Empresas, E-mails, Caixas, Configurações, Filas, Etiquetas, Pastas, Envios/rascunhos e Chat, atalho Ctrl/Cmd K e navegação SPA. API limita grupos e filtra cada categoria por suas permissões. Caches com apelidos incluem usuário e tenância; atualizações compartilhadas notificam sem conteúdo privado, e mudança independente de apelido notifica somente seu usuário.
 
-## Busca superior
+Histórico resolve os e-mails salvos do contato, permitindo todos ou um específico, com paginação e datas/horários. Filtra caixas e pastas permitidas no servidor antes de obter resultados e total. Agenda compartilhada não concede acesso a assuntos, contagens, participantes ou anexos restritos.
 
-O campo do cabeçalho aceita texto e o atalho Ctrl/Cmd K. Consulta após 300 ms e pelo menos dois caracteres. Setas e Enter navegam pelos resultados; Escape fecha. Selecionar um resultado abre seu destino sem recarregar a página, incluindo o editor do contato encontrado.
+## Enviar pelo contato
 
-Categorias: Contatos, Empresas, E-mails, Caixas de entrada, Configurações, Filas, Etiquetas, Pastas, Envios e rascunhos e Chat. Cada grupo exibe até cinco resultados; quando há mais, orienta refinar o termo. Busca vazia, carregamento, ausência de resultados e falha com nova tentativa têm apresentação própria.
+Enviar novo e-mail abre uma confirmação de destinatário e caixa remetente autorizada. Principal é pré-selecionado; mais de uma caixa exige escolha explícita. Nenhuma caixa com envio impede abrir o compositor e explica o motivo. Cancelar não cria rascunho.
 
-Contatos são encontrados por nome, cargo, observações, canais, empresas e endereços. Telefone/CEP/CNPJ numéricos aceitam pesquisa com ou sem formatação. E-mails usam busca textual existente e assunto/remetente parcial. Caixas, pastas, etiquetas e atalhos usam seus nomes/contextos. Chat busca nome/conteúdo de conversas das quais o usuário participa; Envios respeita a visibilidade operacional e a privacidade dos rascunhos.
+O compositor abre preenchido; Para e De podem ser alterados em mensagem nova. Troca de De serializa salvamento, preserva assunto/corpo/destinatários/anexos, substitui assinatura automática e verifica permissões e cotas. Upload passa a utilizar a caixa atual. Respostas/encaminhamentos mantêm o vínculo com a conversa original.
 
-O endpoint `GET /api/search?q=...` consulta exclusivamente a empresa atual. Permissões são aplicadas antes do limite e da montagem dos resultados, inclusive pastas descendentes. Um assunto de mensagem restrita não pode identificar um resultado autorizado da mesma conversa. Contatos/empresas sem exibição permitida, caixas alheias, etiquetas de terceiros, rascunhos de terceiros e chats sem participação ativa não aparecem. Superadmin continua sem acesso operacional. Não são retornados corpos HTML, anexos nem credenciais.
+API transfere uploads, referências e propriedade contábil em transação. Chave física do arquivo permanece imutável, com acesso determinado pela propriedade atual no banco. Não há cópia dupla nem perda do arquivo. Falha de quota/permissão mantém caixa anterior e rascunho. Upload também referenciado por outro rascunho bloqueia transferência, evitando alterar o arquivo daquele rascunho.
 
-## Migração e publicação
+## Etiquetas
 
-A migration aditiva `0020_contacts_primary_channels.sql` cria cargo/telefones, principais de e-mail/empresa e o vínculo explícito entre contato e empresa/endereço. Preserva cadastros antigos, converte o telefone anterior e escolhe principais legados de forma determinística. Atualiza a projeção de bytes lógicos das colunas novas; o preenchimento não é barrado por uma cota já cheia. As verificações de crescimento voltam a valer ao término da transação.
+Catálogo único com escopos Pessoal e Global da empresa, na mesma listagem/menu/seletor. Nome e cor aparecem com indicação de escopo. Cor livre `#RRGGBB`, seletor de matiz e gradiente, sliders acessíveis, entrada hexadecimal e prévia com contraste calculado. Código CSS arbitrário é recusado.
 
-A nova `0021_company_directory.sql` amplia a tabela existente `contact_companies`, adicionando endereços, datas e visibilidade, e cria `contact_company_mailboxes` com chaves por tenância. Aproveita os registros já existentes no APMail e preserva restrições das empresas associadas exclusivamente a contatos restritos. Endereços existentes são preservados e disponibilizados na ficha da empresa. O catálogo/projeção de armazenamento inclui os novos campos e vínculos; preenchimento ensaiado com cota cheia.
+| Operação                 | Pessoal                                 | Global                         |
+| ------------------------ | --------------------------------------- | ------------------------------ |
+| Criar/editar/excluir     | Proprietário da etiqueta                | Proprietário/admin da tenância |
+| Visualizar cadastro      | Somente o proprietário                  | Membros da tenância            |
+| Aplicar/remover          | Proprietário com acesso à conversa      | Usuário com acesso à conversa  |
+| Ver aplicações/contagens | Somente próprias e conversas acessíveis | Somente conversas acessíveis   |
 
-Aplicar migrations e publicar API/web em conjunto pelo fluxo habitual. Não executar reset/seed. Nenhum segredo ou configuração adicional é necessário. Commit e deploy ficam com o usuário; esta entrega não modifica a produção.
+Admin pode criar pessoal ou global, inicialmente pessoal. Supervisor não recebe gestão de globais automaticamente. Escopo não muda por edição. Nomes únicos após normalizar espaços e caixa no conjunto pessoal do usuário ou global da tenância; nomes iguais em escopos diferentes são permitidos e identificados.
 
-## Validação
+Aplicação global é um único vínculo compartilhado e auditado. API usa adicionar/remover explícitos, idempotentes e transacionais; salvar pessoais não remove globais nem etiquetas de terceiros. Ações em lote seguem o mesmo contrato. Contagem respeita caixa e pasta. Excluir pede confirmação e remove suas aplicações. Regras pessoais podem aplicar etiquetas próprias ou globais; worker ignora referência excluída e registra aplicação global por regra.
 
-- Tipos, lint e build do workspace.
-- 71 testes unitários; 13 integrações de contatos/busca/empresas e 22 regressões de evolução com PostgreSQL/Redis de QA.
-- Três testes de migrations, incluindo atualização de contatos existentes com cota cheia e conferência de bytes/canais preservados.
-- Navegador com dados sintéticos: formulários de contato e empresa em 1440/900/390/320 px, claro/escuro (16 cenários), axe WCAG A/AA, ausência de overflow e erros JavaScript. Seleção de empresa, múltiplos canais/principais, busca e consultas por Enter, cadastro de endereço avulso e formulário aninhado para nova empresa.
+## Persistência e publicação
 
-As validações de interface usam respostas controladas; integrações de persistência/permissões usam o banco e o Redis exclusivos de QA. Timeouts padrão de alguns testes preexistentes foram excedidos durante execução concorrente; a repetição com 20 s e menor concorrência passou. Não houve teste manual com leitor de tela nem envio de mensagens reais.
+Migration `0022_directory_labels.sql` preserva IDs, cores anteriores convertidas para hexadecimal, proprietários, regras e aplicações. Nomes físicos `personal_labels` e `thread_personal_labels` permanecem, agora com escopo explícito. Relação contato–empresa usa `contact_company_links`, sem associação por e-mail.
+
+Endereços associados são consolidados no cadastro da empresa, comparando campos normalizados. Dados avulsos, relações antigas e restrições anteriores são arquivados em `directory_legacy`. Tabelas obsoletas ficam vazias e não aceitam novas escritas. Apelidos começam vazios; agendas existentes tornam-se compartilhadas. Capacidade de supervisor `contacts_visibility` passa a `contacts_manage`, preservando exclusão autorizada.
+
+Catálogo/projeções de consumo contam dados ativos e legado retido; backfill não falha com quota preexistente cheia. Depois da migração, crescimento segue sujeito a quota. Colisão de nomes normalizados interrompe a migração sem fundir ou excluir dados. Publicar migration/API/web/worker juntos; instruções e recuperação em [DEPLOY.md](DEPLOY.md). Evidências em [PROGRESSO.md](PROGRESSO.md).

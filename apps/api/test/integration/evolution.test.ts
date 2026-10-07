@@ -700,17 +700,17 @@ it('armazenamento soma conteúdo UTF-8 e arquivos únicos, incluindo dados retid
   expect(empty.items[0].total_bytes).toBe(0);
 });
 it('cria contato completo com vários e-mails e vínculos, isolado por tenant', async () => {
+  const company = await call('POST', '/api/companies', member, {
+    name: 'Empresa QA',
+    cnpj: '12345678000190',
+    addresses: [{ cep: '01001000', street: 'Praça da Sé' }],
+  });
   const result = await call('POST', '/api/contacts', member, {
     name: 'José QA',
+    companies: [{ id: company.json().id, name: 'Empresa QA' }],
     emails: [
       {
         email: ' Pessoa-' + suffix + '@apmail.local ',
-        links: [
-          {
-            company: { name: 'Empresa QA', cnpj: '12345678000190' },
-            address: { cep: '01001000', street: 'Praça da Sé' },
-          },
-        ],
       },
       { email: 'outro-' + suffix + '@apmail.local' },
     ],
@@ -742,43 +742,19 @@ it('impede duplicidade normalizada, inclusive criação concorrente', async () =
     .execute();
   expect(rows).toHaveLength(1);
 });
-it('admin controla exibição e usuário vê o contato inteiro por uma caixa autorizada', async () => {
-  const detail = (await call('GET', '/api/contacts/' + contact)).json();
+it('agenda não depende das permissões de caixa e conserva isolamento', async () => {
+  const detail = (await call('GET', '/api/contacts/' + contact, member)).json();
+  expect(detail.emails).toHaveLength(2);
+  expect(detail.companies).toHaveLength(1);
+  expect((await call('GET', '/api/contacts/' + contact, foreign)).statusCode).toBe(404);
   expect(
     (
-      await call('PUT', '/api/contacts/' + contact, member, {
-        ...detail,
-        visibility: 'selected',
-        mailbox_ids: [box],
+      await call('POST', '/api/contacts', member, {
+        name: 'Outro nome',
+        emails: [{ email: detail.emails[0].email }],
       })
     ).statusCode,
-  ).toBe(403);
-  expect(
-    (
-      await call('PUT', '/api/contacts/' + contact, owner, {
-        ...detail,
-        visibility: 'selected',
-        mailbox_ids: [otherBox],
-      })
-    ).statusCode,
-  ).toBe(200);
-  expect((await call('GET', '/api/contacts/' + contact, member)).statusCode).toBe(404);
-  const duplicate = await call('POST', '/api/contacts', member, {
-    name: 'Outro nome',
-    emails: [{ email: detail.emails[0].email }],
-  });
-  expect(duplicate.statusCode).toBe(409);
-  expect(duplicate.body).not.toContain('José');
-  expect(
-    (
-      await call('PUT', '/api/contacts/' + contact, owner, {
-        ...detail,
-        visibility: 'selected',
-        mailbox_ids: [box, otherBox],
-      })
-    ).statusCode,
-  ).toBe(200);
-  expect((await call('GET', '/api/contacts/' + contact, member)).json().emails).toHaveLength(2);
+  ).toBe(409);
 });
 it('supervisor começa como membro e recebe apenas capacidades explícitas', async () => {
   expect(

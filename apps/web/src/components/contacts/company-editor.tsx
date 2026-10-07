@@ -15,12 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
-import {
-  DirectoryHeader,
-  DirectoryVisibility,
-  useDirectoryControl,
-  useDirectorySearch,
-} from './directory-fields';
+import { DirectoryHeader, useDirectorySearch } from './directory-fields';
 import { AddressFields, blankAddress } from './address-fields';
 import { toast } from 'sonner';
 export function CompanyEditorDialog({
@@ -58,7 +53,7 @@ export function CompanyEditorDialog({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
+      <DialogContent className="flex max-h-[90dvh] flex-col gap-0 p-0 sm:max-w-4xl">
         <DirectoryHeader
           title={editing ? 'Editar empresa' : 'Nova empresa'}
           description="Cadastre os dados da empresa e seus endereços. Campos com * são obrigatórios."
@@ -78,16 +73,12 @@ export function CompanyEditorDialog({
                 ? {
                     ...initialLookup.data.company,
                     addresses: [initialLookup.data.address],
-                    visibility: 'all',
-                    mailbox_ids: [],
                   }
                 : {
                     name: '',
                     trade_name: '',
                     cnpj,
                     addresses: [],
-                    visibility: 'all',
-                    mailbox_ids: [],
                   })
             }
             onExisting={setEditing}
@@ -120,8 +111,7 @@ function CompanyForm({
   const form = useForm<CompanyInput>({ defaultValues: initial }),
     values = useWatch({ control: form.control, compute: () => form.getValues() }),
     tenant = useTenantId(),
-    client = useQueryClient(),
-    mayControl = useDirectoryControl();
+    client = useQueryClient();
   const [search, setSearch] = useState(cnpj),
     term = useDirectorySearch(search),
     [error, setError] = useState(initialError),
@@ -182,10 +172,6 @@ function CompanyForm({
         setFieldErrors({});
         try {
           const body = companySchema.parse(raw);
-          if (!mayControl) {
-            delete body.visibility;
-            delete body.mailbox_ids;
-          }
           const saved = await api<{ id: string }>(id ? '/companies/' + id : '/companies', {
             method: id ? 'PUT' : 'POST',
             body,
@@ -325,13 +311,6 @@ function CompanyForm({
             Adicionar endereço
           </Button>
         </section>
-        <DirectoryVisibility
-          value={values}
-          onChange={(next) => {
-            form.setValue('visibility', next.visibility);
-            form.setValue('mailbox_ids', next.mailbox_ids);
-          }}
-        />
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}

@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/command';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
-import { useTenantId } from '@/lib/auth';
+import { useTenantId, useUserId } from '@/lib/auth';
 
 const icons = {
   contact: Users,
@@ -69,7 +69,7 @@ export function GlobalSearch() {
     };
   }, []);
   const query = useQuery({
-    queryKey: ['global-search', tenant, term],
+    queryKey: ['global-search', tenant, useUserId(), term],
     queryFn: ({ signal }) =>
       api<GlobalSearchResponse>('/search?' + new URLSearchParams({ q: term }), { signal }),
     enabled: open && term.length >= 2,

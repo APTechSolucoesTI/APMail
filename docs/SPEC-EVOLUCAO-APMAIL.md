@@ -1,5 +1,7 @@
 # Evolução do APMail — especificação e plano de ação
 
+Entrega de 07/10/2026: [contatos, empresas, etiquetas e envio](PLANO-CONTATOS-ETIQUETAS-ENVIO.md). **Implementada no workspace; publicação pelo usuário.** Agenda de contatos/empresas para toda a tenância, endereços somente nas empresas, vínculos diretos ao contato, apelidos pessoais, escolha de destinatário/remetente e etiquetas pessoais/globais com cor livre. As confirmações novas substituem as decisões antigas de visibilidade e vínculos. Migration `0022_directory_labels.sql`; comportamento atual em [CONTATOS-BUSCA-GLOBAL.md](CONTATOS-BUSCA-GLOBAL.md). Complementos abaixo registram o histórico das entregas anteriores.
+
 Complemento local de 06/10/2026: [contatos, empresas e busca global](CONTATOS-BUSCA-GLOBAL.md). Formulário conforme o print, empresas opcionais no topo, múltiplos canais/vínculos, principais por estrela, consultas por Enter, cadastro independente de empresas e visibilidade por caixa. Stack existente e diretrizes visuais/acessíveis do AGENTS.md preservadas. Migrations `0020`/`0021`, publicação pelo usuário; as referências de produção abaixo descrevem entregas anteriores.
 
 Atualização: 05/10/2026. Base original: entrega `fase-9`. Status: **implementado, validado e publicado**. Evolução inicial `d48682c`; dashboard por papel, teste de conexão antes de salvar e assinatura CID publicados no commit `6d0f711`, em [APMail](https://apmail.aptechinfo.com.br:75). Evidências em [PROGRESSO](PROGRESSO.md).

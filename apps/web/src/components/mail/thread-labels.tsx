@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Tags } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { useTenantId } from '@/lib/auth';
+import { useTenantId, meQuery } from '@/lib/auth';
 import type { PersonalLabel } from '@/lib/organization';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
@@ -23,9 +23,14 @@ export function ThreadLabels({
 }) {
   const tenant = useTenantId(),
     client = useQueryClient(),
-    q = useQuery({ queryKey: ['labels', tenant], queryFn: () => api<PersonalLabel[]>('/labels') });
+    me = useQuery(meQuery).data,
+    q = useQuery({
+      queryKey: ['labels', tenant, me?.user.id],
+      queryFn: () => api<PersonalLabel[]>('/labels'),
+    });
   const [open, setOpen] = useState(false),
     [selection, setSelection] = useState<string[]>([]),
+    [globalChanges, setGlobalChanges] = useState<Record<string, boolean>>({}),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
   return (
@@ -36,6 +41,7 @@ export function ThreadLabels({
         if (v) {
           setSelection(labels.map((l) => l.id));
           setError('');
+          setGlobalChanges({});
         }
         setOpen(v);
       }}
@@ -47,7 +53,7 @@ export function ThreadLabels({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="max-h-96 space-y-3 overflow-y-auto" align="start">
-        <p className="text-sm font-semibold">Suas etiquetas</p>
+        <p className="text-sm font-semibold">Etiquetas pessoais e globais</p>
         {q.isLoading ? (
           <LoadingState />
         ) : q.error ? (
@@ -61,11 +67,13 @@ export function ThreadLabels({
             <label key={l.id} className="flex min-h-11 items-center gap-2">
               <Checkbox
                 checked={selection.includes(l.id)}
-                onCheckedChange={(v) =>
+                onCheckedChange={(v) => {
                   setSelection((ids) =>
                     v === true ? [...ids, l.id] : ids.filter((id) => id !== l.id),
-                  )
-                }
+                  );
+                  if (l.scope === 'tenant')
+                    setGlobalChanges((changes) => ({ ...changes, [l.id]: v === true }));
+                }}
               />
               <LabelBadge label={l} />
             </label>
@@ -77,7 +85,8 @@ export function ThreadLabels({
           </p>
         )}
         <p className="text-xs text-muted-foreground">
-          A seleção substituirá as etiquetas em {threadIds.length} conversa(s).
+          Pessoais: substituir a seleção em {threadIds.length} conversa(s). Globais: alterar somente
+          as opções que você marcou ou desmarcou.
         </p>
         <div className="flex gap-2">
           <Button
@@ -88,7 +97,15 @@ export function ThreadLabels({
               try {
                 await api('/mailboxes/' + mailboxId + '/threads/bulk', {
                   method: 'POST',
-                  body: { thread_ids: threadIds, action: 'labels', label_ids: selection },
+                  body: {
+                    thread_ids: threadIds,
+                    action: 'labels',
+                    label_ids: selection.filter(
+                      (id) => q.data?.find((l) => l.id === id)?.scope !== 'tenant',
+                    ),
+                    global_add: Object.keys(globalChanges).filter((id) => globalChanges[id]),
+                    global_remove: Object.keys(globalChanges).filter((id) => !globalChanges[id]),
+                  },
                 });
                 await Promise.all(
                   ['labels', 'threads', 'thread'].map((key) =>

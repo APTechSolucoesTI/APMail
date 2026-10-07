@@ -1413,9 +1413,70 @@ it('cria subpastas reais, preserva IDs ao renomear e protege pastas especiais e 
   ).id;
   await executeAction(await api('DELETE', '/api/folders/' + emptyId));
 }, 30000);
+it('regra pessoal aplica etiqueta global compartilhada e ignora referência excluída', async () => {
+  const labelResponse = await api('POST', '/api/labels', owner, {
+    name: 'Global regra ' + suffix.slice(0, 8),
+    color: '#12AB89',
+    scope: 'tenant',
+  });
+  expect(labelResponse.statusCode, labelResponse.body).toBe(201);
+  const labelId = labelResponse.json().id;
+  const ruleResponse = await api('POST', '/api/rules', editor, {
+    scope: 'personal',
+    mailbox_id: boxId,
+    name: 'Global automática',
+    is_active: true,
+    priority: 1,
+    match_mode: 'all',
+    stop_processing: false,
+    conditions: [{ field: 'subject', operator: 'contains', value: 'Global automation ' + suffix }],
+    actions: [{ type: 'add_label', label_id: labelId }],
+  });
+  expect(ruleResponse.statusCode, ruleResponse.body).toBe(201);
+  await appendOrganization('INBOX', 'Global automation ' + suffix, 'global-label-rule');
+  await sync();
+  const message = await db
+    .selectFrom('messages')
+    .select(['id', 'thread_id'])
+    .where('mailbox_id', '=', boxId)
+    .where('message_id_header', '=', '<global-label-rule-' + suffix + '@cliente.local>')
+    .executeTakeFirstOrThrow();
+  for (const user of [owner, editor, viewer]) {
+    const detail = await api('GET', '/api/threads/' + message.thread_id, user);
+    expect(detail.statusCode, detail.body).toBe(200);
+    expect(detail.json().labels).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: labelId, scope: 'tenant' })]),
+    );
+  }
+  const application = await db
+    .selectFrom('thread_personal_labels')
+    .selectAll()
+    .where('label_id', '=', labelId)
+    .execute();
+  expect(application).toHaveLength(1);
+  expect(application[0]!.user_id).toBeNull();
+  expect(application[0]!.applied_by).toBe(editor);
+  await handleRulesApply(r, ruleResponse.json().id, 30, 'global-repeat-' + suffix);
+  expect(
+    await db
+      .selectFrom('thread_personal_labels')
+      .selectAll()
+      .where('label_id', '=', labelId)
+      .execute(),
+  ).toHaveLength(1);
+  expect((await api('DELETE', '/api/labels/' + labelId, owner)).statusCode).toBe(204);
+  await handleRulesApply(r, ruleResponse.json().id, 30, 'global-deleted-' + suffix);
+  expect(
+    await db
+      .selectFrom('thread_personal_labels')
+      .selectAll()
+      .where('label_id', '=', labelId)
+      .execute(),
+  ).toHaveLength(0);
+}, 60000);
 it('aplica regras da caixa na ingestão e etiquetas pessoais apenas para o dono', async () => {
   ownLabel = (
-    await api('POST', '/api/labels', editor, { name: 'Orçamentos', color: 'teal' })
+    await api('POST', '/api/labels', editor, { name: 'Orçamentos', color: '#CCFBF1' })
   ).json().id;
   const base = {
     mailbox_id: boxId,
@@ -1658,7 +1719,7 @@ it('isola etiquetas, regras e pastas de outra empresa e aplica permissões no se
     .returning('id')
     .executeTakeFirstOrThrow();
   expect(
-    (await api('PATCH', '/api/labels/' + label.id, editor, { name: 'Vazada', color: 'blue' }))
+    (await api('PATCH', '/api/labels/' + label.id, editor, { name: 'Vazada', color: '#DBEAFE' }))
       .statusCode,
   ).toBe(404);
   expect(

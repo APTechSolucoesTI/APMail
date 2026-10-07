@@ -72,11 +72,6 @@ function Companies() {
           { id: 'trade_name', header: 'Nome fantasia', sortable: true },
           { id: 'cnpj', header: 'CNPJ', sortable: true, cell: (r) => r.cnpj || 'Não informado' },
           { id: 'addresses', header: 'Endereços', cell: (r) => String(r.addresses.length) },
-          {
-            id: 'visibility',
-            header: 'Exibição',
-            cell: (r) => (r.visibility === 'all' ? 'Todas as caixas' : 'Caixas selecionadas'),
-          },
         ]}
         rowActions={(row) => (
           <div className="flex gap-1">

@@ -1,14 +1,9 @@
+import { labelsService, validateLabelIds } from './labels.js';
 import { isTenantAdmin } from '@apmail/shared';
-import { sql } from 'kysely';
+export { replaceLabels, validateLabelIds, labelIdsSchema } from './labels.js';
 import { z } from 'zod';
-import { asJson, type Database } from '@apmail/db';
-import {
-  can,
-  mailRuleSchema,
-  personalLabelSchema,
-  toBullJobId,
-  type MailRuleInput,
-} from '@apmail/shared';
+import { asJson } from '@apmail/db';
+import { can, mailRuleSchema, toBullJobId, type MailRuleInput } from '@apmail/shared';
 import {
   requireTenant,
   notFound,
@@ -18,9 +13,7 @@ import {
 } from '../../authz/context.js';
 import { requireMailboxPerm } from '../../authz/guards.js';
 import { requireFolder } from '../../authz/folders.js';
-import { requireThread, mailEvents } from '../mail.js';
 import type { Resources } from '../resources.js';
-export const labelIdsSchema = z.object({ label_ids: z.array(z.uuid()).max(100) });
 export const folderNameSchema = z.object({
   name: z
     .string()
@@ -29,64 +22,7 @@ export const folderNameSchema = z.object({
     .max(100)
     .refine((s) => !/[\r\n\0/\\]/.test(s), 'Use um nome de pasta sem barras ou quebras de linha.'),
 });
-export async function validateLabelIds(
-  r: Resources,
-  c: ReturnType<typeof requireTenant>,
-  ids: string[],
-) {
-  const unique = [...new Set(ids)];
-  if (!unique.length) return unique;
-  const rows = await r.db
-    .selectFrom('personal_labels')
-    .select('id')
-    .where('tenant_id', '=', c.tenantId)
-    .where('user_id', '=', c.userId)
-    .where('id', 'in', unique)
-    .execute();
-  if (rows.length !== unique.length) throw notFound();
-  return unique;
-}
-export async function replaceLabels(
-  db: Database,
-  c: ReturnType<typeof requireTenant>,
-  threadIds: string[],
-  labels: string[],
-) {
-  await db
-    .deleteFrom('thread_personal_labels')
-    .where('tenant_id', '=', c.tenantId)
-    .where('user_id', '=', c.userId)
-    .where('thread_id', 'in', threadIds)
-    .execute();
-  if (labels.length)
-    await db
-      .insertInto('thread_personal_labels')
-      .values(
-        threadIds.flatMap((thread_id) =>
-          labels.map((label_id) => ({
-            thread_id,
-            label_id,
-            tenant_id: c.tenantId,
-            user_id: c.userId,
-          })),
-        ),
-      )
-      .onConflict((oc) => oc.columns(['thread_id', 'label_id']).doNothing())
-      .execute();
-}
 export function organizationService(r: Resources) {
-  const ownLabel = async (ctx: RequestContext | null, id: string) => {
-    const c = requireTenant(ctx);
-    const row = await r.db
-      .selectFrom('personal_labels')
-      .selectAll()
-      .where('id', '=', id)
-      .where('tenant_id', '=', c.tenantId)
-      .where('user_id', '=', c.userId)
-      .executeTakeFirst();
-    if (!row) throw notFound();
-    return { c, row };
-  };
   const ownRule = async (ctx: RequestContext | null, id: string) => {
     const c = requireTenant(ctx);
     const row = await r.db
@@ -285,67 +221,7 @@ export function organizationService(r: Resources) {
   };
   return {
     folderAction,
-    labels: async (ctx: RequestContext | null) => {
-      const c = requireTenant(ctx);
-      return r.db
-        .selectFrom('personal_labels as l')
-        .selectAll('l')
-        .select(
-          sql<number>`(select count(*)::int from thread_personal_labels tl join threads t on t.id=tl.thread_id where tl.label_id=l.id and tl.tenant_id=${c.tenantId} and tl.user_id=${c.userId} and t.deleted_at is null and (exists(select 1 from mailbox_members mm where mm.mailbox_id=t.mailbox_id and mm.user_id=${c.userId}) or ${isTenantAdmin(c.tenantRole)}))`.as(
-            'thread_count',
-          ),
-        )
-        .where('l.tenant_id', '=', c.tenantId)
-        .where('l.user_id', '=', c.userId)
-        .orderBy('l.name')
-        .execute();
-    },
-    saveLabel: async (ctx: RequestContext | null, id: string | null, body: unknown) => {
-      const c = id ? (await ownLabel(ctx, id)).c : requireTenant(ctx);
-      const b = personalLabelSchema.parse(body);
-      const duplicate = await r.db
-        .selectFrom('personal_labels')
-        .select('id')
-        .where('tenant_id', '=', c.tenantId)
-        .where('user_id', '=', c.userId)
-        .where('name', '=', b.name)
-        .where('id', '!=', id ?? '00000000-0000-0000-0000-000000000000')
-        .executeTakeFirst();
-      if (duplicate) throw conflict('Você já tem uma etiqueta com este nome.');
-      const row = id
-        ? await r.db
-            .updateTable('personal_labels')
-            .set(b)
-            .where('id', '=', id)
-            .where('tenant_id', '=', c.tenantId)
-            .where('user_id', '=', c.userId)
-            .returningAll()
-            .executeTakeFirstOrThrow()
-        : await r.db
-            .insertInto('personal_labels')
-            .values({ ...b, tenant_id: c.tenantId, user_id: c.userId })
-            .returningAll()
-            .executeTakeFirstOrThrow();
-      r.io.to('user:' + c.userId).emit('mailboxes:changed', {});
-      return row;
-    },
-    deleteLabel: async (ctx: RequestContext | null, id: string) => {
-      const { c } = await ownLabel(ctx, id);
-      await r.db
-        .deleteFrom('personal_labels')
-        .where('id', '=', id)
-        .where('tenant_id', '=', c.tenantId)
-        .where('user_id', '=', c.userId)
-        .execute();
-      r.io.to('user:' + c.userId).emit('mailboxes:changed', {});
-    },
-    threadLabels: async (ctx: RequestContext | null, id: string, body: unknown) => {
-      const { c, thread } = await requireThread(ctx, r, id);
-      const labels = await validateLabelIds(r, c, labelIdsSchema.parse(body).label_ids);
-      await r.db.transaction().execute((tx) => replaceLabels(tx, c, [id], labels));
-      mailEvents(r, thread.mailbox_id, [id], c.userId);
-      return { updated: 1 };
-    },
+    ...labelsService(r),
     rules: async (ctx: RequestContext | null, query: unknown) => {
       const c = requireTenant(ctx),
         q = z

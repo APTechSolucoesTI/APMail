@@ -1,6 +1,27 @@
 import { expect, it } from 'vitest';
 import { contactSchema, companySchema } from '../src/contacts.js';
 const base = { name: 'Contato', emails: [{ email: 'principal@example.com' }] };
+it('empresas são diretas, principais são únicos e apelido é opcional', () => {
+  const result = contactSchema.parse({
+    ...base,
+    nickname: ' Meu cliente ',
+    companies: [{ name: 'Empresa A', is_primary: true }, { name: 'Empresa B' }],
+  });
+  expect(result.nickname).toBe('Meu cliente');
+  expect(result.companies).toHaveLength(2);
+  expect(
+    contactSchema.safeParse({
+      ...base,
+      companies: [
+        { name: 'Empresa A', is_primary: true },
+        { name: 'Empresa B', is_primary: true },
+      ],
+    }).success,
+  ).toBe(false);
+  expect(
+    contactSchema.parse({ ...base, visibility: 'selected', mailbox_ids: [] }),
+  ).not.toHaveProperty('visibility');
+});
 it('empresa independente normaliza CNPJ e admite cadastro manual sem documento', () => {
   expect(
     companySchema.parse({

@@ -151,6 +151,27 @@ export interface ContactCompanyMailboxes {
   mailbox_id: string;
 }
 
+export interface ContactCompanyLinks {
+  tenant_id: string;
+  contact_id: string;
+  company_id: string;
+  is_primary: Generated<boolean>;
+}
+export interface ContactUserNicknames {
+  tenant_id: string;
+  contact_id: string;
+  user_id: string;
+  nickname: string;
+}
+export interface DirectoryLegacy {
+  id: Generated<string>;
+  tenant_id: string;
+  source: string;
+  source_key: string;
+  payload: Json;
+  deleted_at: Generated<Timestamp>;
+}
+
 export interface ContactEmailLinks {
   contact_id: string;
   is_primary_company: Generated<boolean>;
@@ -417,13 +438,15 @@ export interface PasswordResetTokens {
 }
 
 export interface PersonalLabels {
+  scope: Generated<'personal' | 'tenant'>;
+  created_by: string | null;
   color: string;
   created_at: Generated<Timestamp>;
   id: Generated<string>;
   name: string;
   tenant_id: string;
   updated_at: Generated<Timestamp>;
-  user_id: string;
+  user_id: string | null;
 }
 
 export interface PlatformAdmins {
@@ -668,11 +691,12 @@ export interface ThreadNotes {
 }
 
 export interface ThreadPersonalLabels {
+  applied_by: string | null;
   created_at: Generated<Timestamp>;
   label_id: string;
   tenant_id: string;
   thread_id: string;
-  user_id: string;
+  user_id: string | null;
 }
 
 export interface Threads {
@@ -771,6 +795,9 @@ export interface DB {
   contact_addresses: ContactAddresses;
   contact_companies: ContactCompanies;
   contact_company_mailboxes: ContactCompanyMailboxes;
+  contact_company_links: ContactCompanyLinks;
+  contact_user_nicknames: ContactUserNicknames;
+  directory_legacy: DirectoryLegacy;
   contact_email_links: ContactEmailLinks;
   contact_emails: ContactEmails;
   contact_mailboxes: ContactMailboxes;
