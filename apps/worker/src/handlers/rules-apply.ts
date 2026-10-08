@@ -36,6 +36,7 @@ export async function userCanMailbox(
   userId: string,
   perm: MailboxPerm,
 ) {
+  if (perm === 'send' && box.receiving_protocol === 'local') return false;
   const access = await r.db
     .selectFrom('tenant_members as tm')
     .leftJoin('mailbox_members as mm', (j) =>
@@ -63,7 +64,7 @@ type RuleRow = Selectable<DB['mail_rules']>;
 async function applyRule(
   r: WorkerResources,
   box: Mailbox,
-  client: ImapFlow,
+  client: ImapFlow | null,
   row: RuleRow,
   messageId: string,
 ) {
@@ -133,8 +134,10 @@ async function applyRule(
           .select(['id', 'user_id', 'scope'])
           .where('id', '=', action.label_id)
           .where('tenant_id', '=', box.tenant_id)
-          .where((eb) =>
-            eb.or([eb('scope', '=', 'tenant'), eb('user_id', '=', row.owner_user_id!)]),
+          .where('scope', '=', row.scope === 'personal' ? 'personal' : 'tenant')
+          .$if(row.scope === 'personal', (q) => q.where('user_id', '=', row.owner_user_id!))
+          .where(
+            sql<boolean>`(mailbox_mode='all' or exists(select 1 from label_mailboxes lm where lm.label_id=personal_labels.id and lm.tenant_id=personal_labels.tenant_id and lm.mailbox_id=${box.id}))`,
           )
           .executeTakeFirst();
         if (label) {
@@ -145,7 +148,7 @@ async function applyRule(
               label_id: label.id,
               tenant_id: box.tenant_id,
               user_id: label.user_id,
-              applied_by: row.owner_user_id!,
+              applied_by: actor,
             })
             .onConflict((oc) => oc.columns(['thread_id', 'label_id']).doNothing())
             .returning('label_id')
@@ -153,7 +156,7 @@ async function applyRule(
           if (label.scope === 'tenant' && inserted.length) {
             await audit(tx, {
               tenantId: box.tenant_id,
-              actorId: row.owner_user_id!,
+              actorId: actor,
               action: 'labels.applied',
               entityType: 'thread',
               entityId: msg.thread_id,
@@ -223,7 +226,23 @@ async function applyRule(
         !(await userCanReadFolder(r.db, box.tenant_id, box.id, actor, destination.id))
       )
         continue;
-      if (!folder || !msg.imap_uid || msg.pending_action)
+      if (
+        folder &&
+        (box.receiving_protocol !== 'imap' || msg.source_kind !== 'imap' || folder.is_local)
+      ) {
+        if (msg.pending_action) throw Error('A mensagem possui uma alteração pendente.');
+        const changes =
+          action.type === 'mark_flagged' ? { is_flagged: true } : { folder_id: destination!.id };
+        await r.db
+          .updateTable('messages')
+          .set(changes)
+          .where('id', '=', msg.id)
+          .where('tenant_id', '=', box.tenant_id)
+          .execute();
+        msg = { ...msg, ...changes };
+        continue;
+      }
+      if (!client || !folder || !msg.imap_uid || msg.pending_action)
         throw Error('A mensagem está aguardando sincronização antes de aplicar a regra.');
       const lock = await client.getMailboxLock(folder.imap_path);
       try {
@@ -353,7 +372,7 @@ async function applyRule(
   } else emitThreads(r, box.id, [msg.thread_id]);
   return true;
 }
-export async function applyPendingRules(r: WorkerResources, box: Mailbox, client: ImapFlow) {
+export async function applyPendingRules(r: WorkerResources, box: Mailbox, client: ImapFlow | null) {
   const rules = await r.db
     .selectFrom('mail_rules')
     .selectAll()
@@ -433,7 +452,7 @@ export async function handleRulesApply(
       if (!box) return;
       const t = await transports(r.db, box, r.env);
       try {
-        await t.imap.connect();
+        if (box.receiving_protocol === 'imap') await t.imap.connect();
         let cursor = '';
         const since = new Date(Date.now() - Math.min(365, Math.max(1, sinceDays)) * 86400000);
         for (;;) {
@@ -450,7 +469,14 @@ export async function handleRulesApply(
             .limit(200)
             .execute();
           if (!messages.length) break;
-          for (const msg of messages) await applyRule(r, box, t.imap, rule, msg.id);
+          for (const msg of messages)
+            await applyRule(
+              r,
+              box,
+              box.receiving_protocol === 'imap' ? t.imap : null,
+              rule,
+              msg.id,
+            );
           cursor = messages.at(-1)!.id;
         }
       } finally {

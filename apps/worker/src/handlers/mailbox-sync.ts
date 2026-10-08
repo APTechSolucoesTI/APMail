@@ -11,6 +11,7 @@ import { isConnectionError } from '../lib/errors.js';
 import { markMailboxError } from './mailbox-connection.js';
 import { emitThreads } from '../lib/events.js';
 import { applyPendingRules } from './rules-apply.js';
+import { handlePop3Sync } from './pop3-sync.js';
 export async function handleMailboxSync(r: WorkerResources, mailboxId: string, jobId: string) {
   return withMailboxLock(r.redis, mailboxId, jobId, async () => {
     const box = await r.db
@@ -29,6 +30,8 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
       .where('deleted_at', 'is', null)
       .executeTakeFirst();
     if (!tenant) return;
+    if (box.receiving_protocol === 'local') return;
+    if (box.receiving_protocol === 'pop3') return handlePop3Sync(r, box);
     const quotaState = await quotaResumeState(r, box.tenant_id, box.id);
     const quotaPaused = quotaState && !canResumeQuota(quotaState);
     if (
@@ -73,6 +76,7 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
               .updateTable('messages')
               .set({ deleted_at: new Date() })
               .where('folder_id', '=', folder.id)
+              .where('source_kind', '=', 'imap')
               .where('deleted_at', 'is', null)
               .returning('thread_id')
               .execute();

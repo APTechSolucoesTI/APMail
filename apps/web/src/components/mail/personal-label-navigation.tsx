@@ -15,8 +15,8 @@ export function PersonalLabelNavigation({
 }) {
   const user = useQuery(meQuery).data?.user.id;
   const q = useQuery({
-      queryKey: ['labels', useTenantId(), user],
-      queryFn: () => api<PersonalLabel[]>('/labels'),
+      queryKey: ['labels', useTenantId(), user, mailboxId],
+      queryFn: () => api<PersonalLabel[]>('/labels?mailbox_id=' + mailboxId),
     }),
     search = useLocation().search as { labelId?: string; view?: string };
   if (!q.data?.length) return null;
@@ -40,7 +40,7 @@ export function PersonalLabelNavigation({
           </span>
           <span
             className="shrink-0 font-mono text-xs tabular-nums"
-            aria-label={l.thread_count + ' conversas em todas as suas caixas'}
+            aria-label={l.thread_count + ' conversas nesta caixa'}
           >
             {l.thread_count ?? 0}
           </span>

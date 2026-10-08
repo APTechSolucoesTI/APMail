@@ -262,14 +262,6 @@ export function AppShell() {
           <ContactRound aria-hidden className="size-4 shrink-0" />
           Contatos
         </Link>
-        <Link
-          to="/companies"
-          className="flex min-h-11 items-center gap-2 rounded-md px-3 text-sm hover:bg-accent hover:text-accent-foreground"
-          activeProps={{ className: 'bg-accent text-accent-foreground' }}
-        >
-          <Building2 aria-hidden className="size-4" />
-          Empresas
-        </Link>
         <NavigationGroup id="mailboxes" label="Caixas de e-mail">
           {boxes.data?.map((b) => (
             <MailboxFolderNavigation key={b.id} box={b} onNavigate={() => setOpen(false)} />

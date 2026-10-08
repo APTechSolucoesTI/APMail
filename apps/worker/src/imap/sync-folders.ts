@@ -34,6 +34,7 @@ export async function syncFolders(r: WorkerResources, box: Mailbox, client: Imap
     .selectAll()
     .where('mailbox_id', '=', box.id)
     .where('tenant_id', '=', box.tenant_id)
+    .where('is_local', '=', false)
     .execute();
   for (const f of list) {
     const special_use =
@@ -89,6 +90,7 @@ export async function syncFolders(r: WorkerResources, box: Mailbox, client: Imap
         .updateTable('messages')
         .set({ deleted_at: new Date() })
         .where('folder_id', '=', f.id)
+        .where('source_kind', '=', 'imap')
         .where('deleted_at', 'is', null)
         .returning('thread_id')
         .execute();
@@ -107,6 +109,7 @@ export async function syncFolders(r: WorkerResources, box: Mailbox, client: Imap
     .where('mailbox_id', '=', box.id)
     .where('tenant_id', '=', box.tenant_id)
     .where('deleted_at', 'is', null)
+    .where('is_local', '=', false)
     .execute();
   for (const f of folders) {
     const parentPath = f.imap_path.includes(f.delimiter)

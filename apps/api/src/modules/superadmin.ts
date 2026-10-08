@@ -1,3 +1,4 @@
+import { columnFilters, columnOrder, localizedColumn } from './list-columns.js';
 import type { FastifyInstance } from 'fastify';
 import { assertMailboxConnection } from '../lib/mailbox-probe.js';
 import { z } from 'zod';
@@ -8,6 +9,7 @@ import {
   safeAuditMetadata,
   writeMailboxCredential,
   assertMailboxSlot,
+  ensureLocalFolders,
   type Json,
 } from '@apmail/db';
 import {
@@ -306,6 +308,15 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
     let query = r.db.selectFrom('tenants as t').where('t.deleted_at', 'is', null);
     if (q.search)
       query = query.where('t.name', 'ilike', '%' + q.search.replace(/[%_\\]/g, '\\$&') + '%');
+    const columns = {
+      name: sql`t.name`,
+      slug: sql`t.slug`,
+      created_at: sql`t.created_at`,
+      suspended_at: sql`case when t.suspended_at is null then 'Ativa' else 'Suspensa' end`,
+      users: sql`(select count(*) from tenant_members m where m.tenant_id=t.id and m.status='active')`,
+      mailboxes: sql`(select count(*) from mailboxes b where b.tenant_id=t.id and b.deleted_at is null)`,
+    };
+    query = query.where(columnFilters(req.query, columns));
     const count = await query
       .select((eb) => eb.fn.countAll<number>().as('n'))
       .executeTakeFirstOrThrow();
@@ -323,7 +334,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
           'mailboxes',
         ),
       ])
-      .orderBy('t.created_at', 'desc')
+      .orderBy(columnOrder(req.query, columns, sql`t.created_at desc`))
       .limit(q.pageSize)
       .offset((q.page - 1) * q.pageSize)
       .execute();
@@ -460,6 +471,26 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
           eb('full_name', 'ilike', '%' + q.search + '%'),
         ]),
       );
+    const columns = {
+      full_name: sql`users.full_name`,
+      email: sql`users.email`,
+      created_at: sql`users.created_at`,
+      last_login_at: sql`users.last_login_at`,
+      tenant_role: localizedColumn(
+        sql`(select m.role from tenant_members m where m.user_id=users.id and m.tenant_id=${q.tenant_id}::uuid)`,
+        {
+          owner: 'Proprietário',
+          admin: 'Administrador',
+          member: 'Membro',
+          supervisor: 'Supervisor',
+        },
+      ),
+      member_status: localizedColumn(
+        sql`(select m.status from tenant_members m where m.user_id=users.id and m.tenant_id=${q.tenant_id}::uuid)`,
+        { active: 'Ativo', disabled: 'Desativado' },
+      ),
+    };
+    query = query.where(columnFilters(req.query, columns));
     const count = await query
       .select((eb) => eb.fn.countAll<number>().as('n'))
       .executeTakeFirstOrThrow();
@@ -484,7 +515,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
           'member_status',
         ),
       )
-      .orderBy('created_at', 'desc')
+      .orderBy(columnOrder(req.query, columns, sql`created_at desc`))
       .limit(q.pageSize)
       .offset((q.page - 1) * q.pageSize)
       .execute();
@@ -505,6 +536,15 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
           eb('b.name', 'ilike', '%' + q.search + '%'),
         ]),
       );
+    const columns = {
+      name: sql`b.name`,
+      email_address: sql`b.email_address`,
+      tenant_name: sql`t.name`,
+      status: sql`b.status`,
+      created_at: sql`b.created_at`,
+      last_synced_at: sql`b.last_synced_at`,
+    };
+    query = query.where(columnFilters(req.query, columns));
     const count = await query
       .select((eb) => eb.fn.countAll<number>().as('n'))
       .executeTakeFirstOrThrow();
@@ -518,15 +558,31 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
         'b.last_synced_at',
         't.name as tenant_name',
       ])
-      .orderBy('b.created_at', 'desc')
+      .orderBy(columnOrder(req.query, columns, sql`b.created_at desc`))
       .limit(q.pageSize)
       .offset((q.page - 1) * q.pageSize)
       .execute();
     return { items, total: Number(count.n), page: q.page, pageSize: q.pageSize };
   });
   app.post('/api/superadmin/mailboxes', async (req, reply) => {
+    const input = req.body as Record<string, unknown>;
     const c = requireSuperAdmin(req.ctx),
-      b = mailboxSchema.extend({ tenant_id: z.uuid() }).parse(req.body);
+      b = mailboxSchema.extend({ tenant_id: z.uuid() }).parse(
+        input?.receiving_protocol === 'local'
+          ? {
+              ...input,
+              imap_host: 'local',
+              imap_port: 993,
+              imap_secure: true,
+              smtp_host: 'local',
+              smtp_port: 465,
+              smtp_secure: true,
+              username: input.email_address,
+              password: crypto.randomUUID(),
+              append_sent_copy: false,
+            }
+          : input,
+      );
     const { password, members: _members, sync_days, tenant_id, ...data } = b;
     void _members;
     const tenant = await r.db
@@ -538,7 +594,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
       .executeTakeFirst();
     if (!tenant) throw notFound();
     await assertMailboxSlot(r.db, tenant_id);
-    await assertMailboxConnection(r.env, b);
+    if (b.receiving_protocol !== 'local') await assertMailboxConnection(r.env, b);
     const box = await r.db.transaction().execute(async (tx) => {
       const row = await tx
         .insertInto('mailboxes')
@@ -546,20 +602,24 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
           ...data,
           tenant_id,
           created_by: c.userId,
+          ...(data.receiving_protocol === 'local' ? { status: 'active' as const } : {}),
           sync_since: new Date(Date.now() - sync_days * 86400000),
         })
         .returning('id')
         .executeTakeFirstOrThrow();
-      await writeMailboxCredential(
-        tx,
-        tenant_id,
-        row.id,
-        password,
-        r.env.CREDENTIALS_ENCRYPTION_KEY,
-      );
+      if (data.receiving_protocol !== 'local')
+        await writeMailboxCredential(
+          tx,
+          tenant_id,
+          row.id,
+          password,
+          r.env.CREDENTIALS_ENCRYPTION_KEY,
+        );
+      if (data.receiving_protocol !== 'imap') await ensureLocalFolders(tx, tenant_id, row.id);
       return row;
     });
-    await r.queues['mailbox-connection'].add('connect', { mailbox_id: box.id });
+    if (data.receiving_protocol !== 'local')
+      await r.queues['mailbox-connection'].add('connect', { mailbox_id: box.id });
     await record(c, 'platform.mailbox_created', tenant_id, { mailbox_id: box.id });
     return reply.code(201).send(box);
   });
@@ -574,6 +634,12 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
       .where('deleted_at', 'is', null)
       .executeTakeFirst();
     if (!box) throw notFound();
+    if (box.receiving_protocol === 'local')
+      throw new ApiError(
+        409,
+        'local_mailbox',
+        'Caixas de arquivo não possuem credenciais de provedor.',
+      );
     await assertMailboxConnection(r.env, { ...box, password: b.password });
     await writeMailboxCredential(
       r.db,
@@ -610,6 +676,14 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
     let query = r.db.selectFrom('platform_audit');
     if (q.tenant_id) query = query.where('tenant_id', '=', q.tenant_id);
     if (q.search) query = query.where('action', 'ilike', '%' + q.search + '%');
+    const columns = {
+      action: sql`platform_audit.action`,
+      actor_name: sql`(select full_name from users u where u.id=platform_audit.actor_id)`,
+      created_at: sql`platform_audit.created_at`,
+      tenant_id: sql`platform_audit.tenant_id`,
+      metadata: sql`platform_audit.metadata`,
+    };
+    query = query.where(columnFilters(req.query, columns));
     const count = await query
       .select((eb) => eb.fn.countAll<number>().as('n'))
       .executeTakeFirstOrThrow();
@@ -623,7 +697,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
         'platform_audit.created_at',
         'u.full_name as actor_name',
       ])
-      .orderBy('platform_audit.created_at', 'desc')
+      .orderBy(columnOrder(req.query, columns, sql`platform_audit.created_at desc`))
       .limit(q.pageSize)
       .offset((q.page - 1) * q.pageSize)
       .execute();
@@ -642,6 +716,15 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
           eb('level', 'ilike', '%' + q.search + '%'),
         ]),
       );
+    const columns = {
+      service: sql`service`,
+      level: sql`level`,
+      message: sql`message`,
+      created_at: sql`created_at`,
+      tenant_id: sql`tenant_id`,
+      request_id: sql`request_id`,
+    };
+    query = query.where(columnFilters(req.query, columns));
     const count = await query
       .select((eb) => eb.fn.countAll<number>().as('n'))
       .executeTakeFirstOrThrow();
@@ -656,7 +739,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
         'metadata',
         'created_at',
       ])
-      .orderBy('created_at', 'desc')
+      .orderBy(columnOrder(req.query, columns, sql`created_at desc`))
       .limit(q.pageSize)
       .offset((q.page - 1) * q.pageSize)
       .execute();

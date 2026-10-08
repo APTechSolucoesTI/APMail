@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { FolderManagement } from '@/components/mail/folder-controls';
 import { RuleManagement } from '@/components/settings/rule-management';
 import { z } from 'zod';
+import { MailArchivesPanel } from '@/components/settings/mail-archives-panel';
 export const Route = createFileRoute('/_app/settings/mailboxes_/$mailboxId')({
   beforeLoad: requireAdmin,
   component: MailboxSettings,
@@ -34,12 +35,13 @@ function MailboxSettings() {
       <PageHeader title={q.data.name} description={q.data.email_address} />
       <MailboxStatusBadge status={q.data.status} />
       <Tabs defaultValue="connection" className="mt-4">
-        <TabsList className="h-auto max-w-full flex-wrap">
+        <TabsList className="grid w-full grid-cols-2 gap-1 group-data-[orientation=horizontal]/tabs:h-auto sm:flex sm:w-fit sm:flex-wrap [&_[data-slot=tabs-trigger]]:h-11 [&_[data-slot=tabs-trigger]]:whitespace-normal">
           <TabsTrigger value="connection">Conexão</TabsTrigger>
           <TabsTrigger value="members">Membros</TabsTrigger>
           <TabsTrigger value="folders">Pastas</TabsTrigger>
           <TabsTrigger value="rules">Regras</TabsTrigger>
-          <TabsTrigger value="send">Envio</TabsTrigger>
+          {q.data.receiving_protocol !== 'local' && <TabsTrigger value="send">Envio</TabsTrigger>}
+          <TabsTrigger value="archives">Importação e backup</TabsTrigger>
         </TabsList>
         <TabsContent value="connection" className="max-w-2xl rounded-lg border bg-card p-4">
           <SchemaForm
@@ -56,10 +58,12 @@ function MailboxSettings() {
             defaults={{ ...q.data }}
             fields={[
               { name: 'name', label: 'Nome da caixa' },
-              ...connectionFields.map((f) =>
+              ...(q.data.receiving_protocol === 'local' ? [] : connectionFields).map((f) =>
                 f.name === 'password'
                   ? { ...f, label: 'Alterar senha (preencha somente para trocar)' }
-                  : f,
+                  : q.data?.receiving_protocol === 'pop3'
+                    ? { ...f, label: f.label.replace('IMAP', 'POP3') }
+                    : f,
               ),
             ]}
             onSubmit={async (b) => {
@@ -73,6 +77,9 @@ function MailboxSettings() {
         </TabsContent>
         <TabsContent value="members">
           <MailboxMembersPanel mailboxId={mailboxId} />
+        </TabsContent>
+        <TabsContent value="archives">
+          <MailArchivesPanel mailboxId={mailboxId} />
         </TabsContent>
         <TabsContent value="folders">
           <FolderManagement mailboxId={mailboxId} />

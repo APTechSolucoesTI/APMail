@@ -139,29 +139,16 @@ it('migra contatos existentes com cota cheia, preserva canais e atualiza a medi√
       [tenant],
     );
     await migrate(url);
-    const migratedCompany = (
-      await client.query('select visibility,addresses from contact_companies where id=$1', [
-        company,
-      ])
-    ).rows[0];
-    expect(migratedCompany.visibility).toBe('all');
-    expect(migratedCompany.addresses).toHaveLength(1);
-    expect(migratedCompany.addresses[0]).toMatchObject({ street: 'Rua migrada', cep: '01001000' });
+    expect(
+      (await client.query("select to_regclass('contact_companies') as relation")).rows[0].relation,
+    ).toBeNull();
     expect(
       (
-        await client.query('select mailbox_id from contact_company_mailboxes where company_id=$1', [
-          company,
+        await client.query('select company,scope,owner_user_id from contacts where id=$1', [
+          contact,
         ])
-      ).rows,
-    ).toEqual([]);
-    expect(
-      (
-        await client.query(
-          "select count(*)::int as n from storage_logical_payloads where relation_name='contact_company_mailboxes' and tenant_id=$1",
-          [tenant],
-        )
-      ).rows[0].n,
-    ).toBe(0);
+      ).rows[0],
+    ).toMatchObject({ scope: 'tenant', owner_user_id: null });
     expect(
       (await client.query('select phone,phones,job_title from contacts where id=$1', [contact]))
         .rows[0],
@@ -180,35 +167,10 @@ it('migra contatos existentes com cota cheia, preserva canais e atualiza a medi√
     expect(
       (
         await client.query(
-          'select count(*)::int as n from contact_company_links where contact_id=$1 and is_primary',
-          [contact],
-        )
-      ).rows[0].n,
-    ).toBe(1);
-    expect(
-      (
-        await client.query(
-          'select count(*)::int as n from contact_email_links where contact_id=$1',
-          [contact],
+          "select count(*)::int n from storage_logical_catalog where relation_name in ('contact_companies','directory_legacy','contact_company_links')",
         )
       ).rows[0].n,
     ).toBe(0);
-    expect(
-      (
-        await client.query(
-          "select payload->>'street' as street from directory_legacy where tenant_id=$1 and source='contact_addresses' and payload->>'id'=$2",
-          [tenant, standalone],
-        )
-      ).rows,
-    ).toEqual([{ street: 'Avulso preservado' }]);
-    expect(
-      (
-        await client.query(
-          "select count(*)::int as n from directory_legacy where tenant_id=$1 and source='contact_email_links'",
-          [tenant],
-        )
-      ).rows[0].n,
-    ).toBe(3);
     expect(
       (await client.query('select scope,color,user_id from personal_labels where id=$1', [label]))
         .rows[0],
@@ -227,13 +189,13 @@ it('migra contatos existentes com cota cheia, preserva canais e atualiza a medi√
           [tenant],
         )
       ).rows[0].n,
-    ).toBeGreaterThan(0);
+    ).toBe(0);
     await expect(
       client.query(
         'insert into contact_email_links(tenant_id,email_id,company_id,contact_id) values($1,$2,$3,$4)',
         [tenant, emails[0].id, company, contact],
       ),
-    ).rejects.toThrow('obsolete_contact_relationship');
+    ).rejects.toThrow('does not exist');
     const measured = (
       await client.query(
         "select p.metadata_bytes::text as actual,octet_length((to_jsonb(c)-catalog.excluded_columns)::text)::bigint::text as expected from storage_logical_payloads p join contacts c on p.row_key=jsonb_build_object('id',c.id)::text join storage_logical_catalog catalog on catalog.relation_name=p.relation_name where p.relation_name='contacts' and c.id=$1",
@@ -245,10 +207,10 @@ it('migra contatos existentes com cota cheia, preserva canais e atualiza a medi√
     expect(
       (
         await client.query(
-          "select count(*)::int as n from pg_trigger where tgname='storage_payload_track' and tgenabled='O' and tgrelid in ('contacts'::regclass,'contact_emails'::regclass,'contact_email_links'::regclass)",
+          "select count(*)::int as n from pg_trigger where tgname='storage_payload_track' and tgenabled='O' and tgrelid in ('contacts'::regclass,'contact_emails'::regclass)",
         )
       ).rows[0].n,
-    ).toBe(3);
+    ).toBe(2);
   } finally {
     await client.end();
     await rm(directory, { recursive: true, force: true });

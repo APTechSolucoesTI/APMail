@@ -1,0 +1,11 @@
+BEGIN:VCARD
+VERSION:4.0
+FN:Pessoa de Exemplo
+N:Exemplo;Pessoa;;;
+ORG:Empresa de exemplo
+TITLE:Analista
+EMAIL;PREF=1:pessoa@example.com
+TEL;TYPE=cell;PREF=1:tel:+5511999990000
+ADR;TYPE=work:;;Rua Exemplo;São Paulo;SP;01001000;Brasil
+NOTE:Substitua os dados de exemplo antes de importar.
+END:VCARD

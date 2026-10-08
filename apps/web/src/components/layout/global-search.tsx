@@ -11,7 +11,6 @@ import {
   Folder,
   Send,
   MessageSquare,
-  Building2,
 } from 'lucide-react';
 import { searchCategories, type GlobalSearchResponse, type SearchCategory } from '@apmail/shared';
 import {
@@ -24,10 +23,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { useTenantId, useUserId } from '@/lib/auth';
+import { searchDestination, uniqueSearchGroups } from '@/lib/global-search-navigation';
 
 const icons = {
   contact: Users,
-  company: Building2,
   email: Mail,
   mailbox: Inbox,
   setting: Settings,
@@ -76,7 +75,7 @@ export function GlobalSearch() {
     staleTime: 10000,
   });
   const current = value.trim() === term;
-  const groups = current ? query.data?.groups.filter((group) => group.items.length) : undefined;
+  const groups = current && query.data ? uniqueSearchGroups(query.data.groups) : undefined;
   return (
     <div
       ref={root}
@@ -151,7 +150,7 @@ export function GlobalSearch() {
                       onSelect={() => {
                         setOpen(false);
                         input.current?.blur();
-                        void navigate({ to: item.url });
+                        void navigate(searchDestination(item.url));
                       }}
                     >
                       <Icon aria-hidden className="mt-0.5 size-4" />

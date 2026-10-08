@@ -2,7 +2,7 @@ import { isTenantAdmin } from '@apmail/shared';
 import type { Kysely } from 'kysely';
 import type { DB } from '@apmail/db';
 import { can, canDelegate, type MailboxPerm, type MailboxRole } from '@apmail/shared';
-import { requireTenant, notFound, forbidden, type RequestContext } from './context.js';
+import { requireTenant, notFound, forbidden, ApiError, type RequestContext } from './context.js';
 export async function getMailboxRole(
   ctx: RequestContext,
   db: Kysely<DB>,
@@ -44,5 +44,21 @@ export async function requireMailboxPerm(
   const role = await getMailboxRole(ctx, db, id);
   if (!role) throw notFound();
   if (!can(role, perm) && !canDelegate(ctx.tenantRole, ctx.capabilities, perm)) throw forbidden();
+  if (
+    perm === 'send' &&
+    (
+      await db
+        .selectFrom('mailboxes')
+        .select('receiving_protocol')
+        .where('id', '=', id)
+        .where('tenant_id', '=', ctx.tenantId!)
+        .executeTakeFirst()
+    )?.receiving_protocol === 'local'
+  )
+    throw new ApiError(
+      403,
+      'local_mailbox',
+      'Caixas de arquivo não enviam e-mails. Use uma caixa conectada a SMTP.',
+    );
   return role;
 }

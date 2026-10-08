@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { LineChart, Line, CartesianGrid, XAxis, YAxis } from 'recharts';
-import type { StorageHistoryPoint } from '@apmail/shared';
+import type { StorageHistoryPoint, ListQuery } from '@apmail/shared';
 import { api } from '@/lib/api';
 import { formatStorageBytes, storageQuality } from '@/lib/storage-metering';
 import {
@@ -11,6 +12,7 @@ import {
   ChartLegendContent,
 } from '@/components/ui/chart';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
+import { ConfigurableTable } from '@/components/data/configurable-table';
 
 export function StorageHistory({
   tenantId,
@@ -21,6 +23,7 @@ export function StorageHistory({
   mailboxId?: string;
   period?: string;
 }) {
+  const [listQuery, setListQuery] = useState<ListQuery>({ page: 1, pageSize: 10, filters: {} });
   const query = useQuery({
     queryKey: ['platform', 'storage-history', tenantId, mailboxId, period],
     queryFn: ({ signal }) =>
@@ -96,40 +99,40 @@ export function StorageHistory({
           <summary className="cursor-pointer text-sm text-primary">
             Consultar valores exatos das medições
           </summary>
-          <div className="mt-3 max-h-64 overflow-auto rounded-md border">
-            <table className="w-full text-xs">
-              <caption className="sr-only">Histórico em bytes, sem arredondamento</caption>
-              <thead className="sticky top-0 bg-card">
-                <tr>
-                  <th className="p-2 text-left">Data e hora</th>
-                  <th className="p-2 text-right">Dados atribuídos</th>
-                  <th className="p-2 text-right">Arquivos</th>
-                  <th className="p-2 text-right">Dados lógicos</th>
-                  <th className="p-2 text-left">Qualidade</th>
-                </tr>
-              </thead>
-              <tbody>
-                {points.map((p) => (
-                  <tr key={p.measured_at} className="border-t">
-                    <td className="whitespace-nowrap p-2">
-                      {new Date(p.measured_at).toLocaleString('pt-BR')}
-                    </td>
-                    {(['attributed_bytes', 'file_bytes', 'logical_bytes'] as const).map((k) => (
-                      <td
-                        key={k}
-                        className="p-2 text-right tabular-nums"
-                        title={formatStorageBytes(p[k])}
-                      >
-                        {BigInt(p[k]).toLocaleString('pt-BR')} B
-                      </td>
-                    ))}
-                    <td className="p-2">
-                      {p.quality ? storageQuality[p.quality] : 'Não informada'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="mt-3">
+            <ConfigurableTable
+              listKey="platform-storage-history-values"
+              mode="client"
+              query={listQuery}
+              onQueryChange={setListQuery}
+              data={points.map((point) => ({ ...point, id: point.measured_at }))}
+              columns={[
+                {
+                  id: 'measured_at',
+                  header: 'Data e hora',
+                  hideable: false,
+                  cell: (point) => new Date(point.measured_at).toLocaleString('pt-BR'),
+                },
+                ...(['attributed_bytes', 'file_bytes', 'logical_bytes'] as const).map(
+                  (key, index) => ({
+                    id: key,
+                    header: ['Dados atribuídos (B)', 'Arquivos (B)', 'Dados lógicos (B)'][index]!,
+                    align: 'right' as const,
+                    cell: (point: StorageHistoryPoint) => (
+                      <span title={formatStorageBytes(point[key])}>
+                        {BigInt(point[key]).toLocaleString('pt-BR')}
+                      </span>
+                    ),
+                  }),
+                ),
+                {
+                  id: 'quality',
+                  header: 'Qualidade',
+                  cell: (point) =>
+                    point.quality ? storageQuality[point.quality] : 'Não informada',
+                },
+              ]}
+            />
           </div>
         </details>
       )}

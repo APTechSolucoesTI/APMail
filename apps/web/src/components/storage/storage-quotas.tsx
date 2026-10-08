@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
 
 const providerLabels = {
+  not_applicable: 'Não se aplica: caixa POP3 ou arquivo local. O limite do APMail continua válido.',
   pending: 'Aguardando consulta ao provedor',
   unsupported: 'O provedor não informa uma cota individual identificável para esta caixa',
   error: 'Não foi possível consultar a cota do provedor',

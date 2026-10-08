@@ -4,7 +4,7 @@ import { personalLabelSchema, isTenantAdmin, type ListQuery } from '@apmail/shar
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { meQuery, useTenantId } from '@/lib/auth';
+import { meQuery, useTenantId, type Mailbox } from '@/lib/auth';
 import type { PersonalLabel } from '@/lib/organization';
 import { PageHeader } from '@/components/layout/page-header';
 import { ConfigurableTable } from '@/components/data/configurable-table';
@@ -19,6 +19,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ColorPicker } from '@/components/forms/color-picker';
 import { LabelBadge } from './label-badge';
 export function LabelsSettings({
@@ -31,6 +32,10 @@ export function LabelsSettings({
   const tenant = useTenantId(),
     client = useQueryClient(),
     me = useQuery(meQuery).data;
+  const boxes = useQuery({
+    queryKey: ['mailboxes', tenant],
+    queryFn: () => api<Mailbox[]>('/mailboxes'),
+  });
   const admin = isTenantAdmin(me?.tenants.find((t) => t.id === tenant)?.role);
   const q = useQuery({
     queryKey: ['labels', tenant, me?.user.id],
@@ -53,7 +58,14 @@ export function LabelsSettings({
         actions={
           <Button
             onClick={() => {
-              setDraft({ id: '', name: '', color: '#1686A7', scope: 'personal' });
+              setDraft({
+                id: '',
+                name: '',
+                color: '#1686A7',
+                scope: 'personal',
+                mailbox_mode: 'all',
+                mailbox_ids: [],
+              });
               setError('');
             }}
           >
@@ -65,6 +77,7 @@ export function LabelsSettings({
       <ConfigurableTable
         listKey="labels"
         mode="client"
+        groupBy={(l) => (l.scope === 'tenant' ? 0 : 1)}
         data={q.data ?? []}
         query={query}
         onQueryChange={onQueryChange}
@@ -200,6 +213,43 @@ export function LabelsSettings({
                     <option value="tenant">Global da empresa — toda a equipe</option>
                   )}
                 </select>
+              </div>
+              <div className="space-y-3">
+                <Label htmlFor="label-mailbox-mode">Caixas onde a etiqueta vale</Label>
+                <select
+                  id="label-mailbox-mode"
+                  className="h-11 w-full rounded-md border bg-card px-3 text-sm"
+                  value={draft.mailbox_mode ?? 'all'}
+                  onChange={(e) =>
+                    setDraft({ ...draft, mailbox_mode: e.target.value as 'all' | 'selected' })
+                  }
+                >
+                  <option value="all">Todas as caixas elegíveis (inclui novas)</option>
+                  <option value="selected">Selecionar caixas</option>
+                </select>
+                {draft.mailbox_mode === 'selected' &&
+                  (boxes.data ?? []).map((box) => (
+                    <label key={box.id} className="flex min-h-11 items-center gap-2 text-sm">
+                      <Checkbox
+                        checked={draft.mailbox_ids?.includes(box.id) ?? false}
+                        onCheckedChange={(checked) =>
+                          setDraft({
+                            ...draft,
+                            mailbox_ids: checked
+                              ? [...(draft.mailbox_ids ?? []), box.id]
+                              : (draft.mailbox_ids ?? []).filter((id) => id !== box.id),
+                          })
+                        }
+                      />
+                      {box.name} ({box.email_address})
+                    </label>
+                  ))}
+                {draft.id && (
+                  <p className="text-xs text-muted-foreground">
+                    Ao retirar uma caixa, aplicações antigas ficam ocultas e regras afetadas são
+                    desativadas para revisão.
+                  </p>
+                )}
               </div>
               <ColorPicker
                 value={draft.color}

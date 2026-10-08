@@ -1,113 +1,91 @@
 import { z } from 'zod';
+import { parsePhoneNumberFromString } from 'libphonenumber-js/max';
 import { emailSchema } from './schemas/common.js';
+export const phoneSchema = z
+  .string()
+  .trim()
+  .max(40)
+  .transform((value, ctx) => {
+    const phone = /^[+\d\s().-]+$/.test(value)
+      ? parsePhoneNumberFromString(value, { defaultCountry: 'BR', extract: false })
+      : undefined;
+    if (!phone?.isValid()) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Informe um telefone válido com DDD ou código internacional.',
+      });
+      return z.NEVER;
+    }
+    return phone.number;
+  });
+const text = (max = 120) => z.string().trim().max(max).default('');
 export const contactAddressSchema = z.object({
-  cep: z.string().max(10).default(''),
-  street: z.string().trim().max(200).default(''),
-  number: z.string().trim().max(30).default(''),
-  complement: z.string().trim().max(120).default(''),
-  district: z.string().trim().max(120).default(''),
-  city: z.string().trim().max(120).default(''),
-  state: z.string().trim().max(30).default(''),
+  type: z.enum(['work', 'home', 'other']).default('home'),
+  cep: text(20),
+  street: text(200),
+  number: text(30),
+  complement: text(120),
+  district: text(),
+  city: text(),
+  state: text(80),
   country: z.string().trim().max(80).default('Brasil'),
 });
-export const contactCompanySchema = z.object({
-  id: z.uuid().optional(),
-  name: z.string().trim().min(2, 'Informe a razão social.').max(200),
-  trade_name: z.string().trim().max(200).default(''),
-  cnpj: z
-    .string()
-    .transform((s) => s.replace(/[.\-/\s]/g, '').toUpperCase())
-    .refine((s) => s === '' || /^[A-Z\d]{12}\d{2}$/.test(s), 'CNPJ deve ter 14 caracteres.')
-    .default(''),
-});
-export const companySchema = contactCompanySchema.omit({ id: true }).extend({
-  addresses: z.array(contactAddressSchema).max(50).default([]),
-});
-export type CompanyInput = z.infer<typeof companySchema>;
-export type CompanyDetail = CompanyInput & {
-  id: string;
-};
-export const contactLinkSchema = z
-  .object({
-    label: z.string().trim().max(80).default(''),
-    is_primary_company: z.boolean().optional(),
-    company: contactCompanySchema.nullable().default(null),
-    address: contactAddressSchema.nullable().default(null),
-  })
-  .refine((v) => v.company || v.address, 'Cadastre uma empresa ou endereço.')
-  .refine(
-    (v) => !v.is_primary_company || v.company,
-    'O vínculo principal precisa ter uma empresa.',
-  );
 export const contactPhoneSchema = z.object({
-  number: z.string().trim().min(1).max(40),
-  label: z.string().trim().max(80).default(''),
+  number: phoneSchema,
+  label: text(80),
   is_primary: z.boolean().optional(),
 });
 export const contactSchema = z
   .object({
-    name: z.string().trim().min(2, 'Informe o nome do contato.').max(120),
+    name: z.string().trim().min(2, 'Informe o nome completo do contato.').max(200),
     nickname: z.string().trim().max(120).optional(),
-    companies: z
-      .array(contactCompanySchema.extend({ is_primary: z.boolean().optional() }))
+    first_name: text(),
+    middle_name: text(),
+    last_name: text(),
+    prefix: text(40),
+    suffix: text(40),
+    company: text(200),
+    job_title: text(),
+    department: text(),
+    office: text(),
+    website: z
+      .union([z.literal(''), z.url().refine((v) => /^https?:\/\//i.test(v), 'Use http ou https.')])
+      .default(''),
+    birthday: z.union([z.literal(''), z.iso.date()]).default(''),
+    phone: z.union([z.literal(''), phoneSchema]).default(''),
+    phones: z.array(contactPhoneSchema).max(100).default([]),
+    addresses: z.array(contactAddressSchema).max(50).default([]),
+    notes: text(5000),
+    emails: z
+      .array(z.object({ email: emailSchema, label: text(80), is_primary: z.boolean().optional() }))
       .max(100)
       .default([]),
-    job_title: z.string().trim().max(120).optional(),
-    phone: z.string().trim().max(40).default(''),
-    phones: z.array(contactPhoneSchema).max(100).optional(),
-    notes: z.string().trim().max(5000).default(''),
-    emails: z
-      .array(
-        z.object({
-          email: emailSchema,
-          label: z.string().trim().max(80).default(''),
-          is_primary: z.boolean().optional(),
-          links: z
-            .array(contactLinkSchema)
-            .max(0, 'Vincule empresas diretamente ao contato; endereços ficam nas empresas.')
-            .default([]),
-        }),
-      )
-      .min(1, 'Cadastre ao menos um e-mail.')
-      .max(100)
-      .refine(
-        (items) => new Set(items.map((i) => i.email)).size === items.length,
-        'Há e-mails repetidos no contato.',
-      ),
+    expected_version: z.number().int().positive().optional(),
   })
   .superRefine((contact, ctx) => {
-    if (contact.emails.filter((e) => e.is_primary).length > 1)
+    if (!contact.emails.length && !contact.phones.length && !contact.phone)
       ctx.addIssue({
         code: 'custom',
         path: ['emails'],
-        message: 'Defina somente um e-mail principal.',
+        message: 'Cadastre ao menos um e-mail ou telefone válido.',
       });
-    if (contact.companies.filter((company) => company.is_primary).length > 1)
-      ctx.addIssue({
-        code: 'custom',
-        path: ['companies'],
-        message: 'Defina somente uma empresa principal.',
-      });
-    if ((contact.phones?.filter((p) => p.is_primary).length ?? 0) > 1)
-      ctx.addIssue({
-        code: 'custom',
-        path: ['phones'],
-        message: 'Defina somente um telefone principal.',
-      });
-    if (
-      contact.phones &&
-      new Set(contact.phones.map((p) => p.number.replace(/\D/g, '') || p.number.toLowerCase()))
-        .size !== contact.phones.length
-    )
-      ctx.addIssue({
-        code: 'custom',
-        path: ['phones'],
-        message: 'Há telefones repetidos no contato.',
-      });
+    for (const key of ['emails', 'phones'] as const) {
+      if (contact[key].filter((i) => i.is_primary).length > 1)
+        ctx.addIssue({ code: 'custom', path: [key], message: 'Defina somente um principal.' });
+      const values =
+        key === 'emails' ? contact.emails.map((i) => i.email) : contact.phones.map((i) => i.number);
+      if (new Set(values).size !== values.length)
+        ctx.addIssue({ code: 'custom', path: [key], message: 'Há valores repetidos no contato.' });
+    }
   });
 export type ContactInput = z.infer<typeof contactSchema>;
 export type ContactDetail = ContactInput & {
   id: string;
+  scope: 'tenant' | 'personal';
+  owner_user_id: string | null;
+  version: number;
   created_at: string;
   updated_at: string;
+  created_by_name: string;
+  updated_by_name: string;
 };

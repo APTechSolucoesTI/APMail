@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { MailboxStatusBadge } from '@/components/common/status-badge';
+import { MailArchivesPanel } from '@/components/settings/mail-archives-panel';
 export const connectionFields: FormField[] = [
   { name: 'username', label: 'Usuário' },
   {
@@ -34,6 +35,7 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
   const tenantId = useTenantId();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Record<string, unknown>>({
+    receiving_protocol: 'imap',
     imap_port: 993,
     imap_secure: true,
     smtp_port: 465,
@@ -65,7 +67,9 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
         <MailboxStatusBadge status={box.data?.status ?? 'pending'} />
         <p role="status" className="text-sm">
           {box.data?.status === 'active'
-            ? 'Caixa conectada! A importação dos e-mails começou.'
+            ? draft.receiving_protocol === 'local'
+              ? 'Caixa local criada. Escolha um backup abaixo para importar seus e-mails.'
+              : 'Caixa conectada! O recebimento de e-mails está habilitado.'
             : box.data?.status === 'error'
               ? (box.data.last_error ?? 'Não foi possível conectar. Confira os dados.')
               : 'Verificando conexão…'}
@@ -76,6 +80,7 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
           </Button>
         )}
         <Button onClick={onDone}>Concluir</Button>
+        <MailArchivesPanel mailboxId={boxId} />
       </div>
     );
   const next = (b: Record<string, unknown>) => {
@@ -100,51 +105,77 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
         ))}
       </ol>
       {step === 0 && (
-        <SchemaForm
-          schema={mailboxSchema.pick({ name: true, email_address: true }).extend({
-            aliases_input: z
-              .string()
-              .optional()
-              .refine(
-                (v) =>
-                  !v ||
-                  v
-                    .split(',')
-                    .map((s) => s.trim())
-                    .filter(Boolean)
-                    .every((a) => mailboxSchema.shape.email_address.safeParse(a).success),
-                'Confira os endereços dos aliases.',
-              ),
-          })}
-          defaults={{
-            ...draft,
-            aliases_input: Array.isArray(draft.aliases) ? draft.aliases.join(', ') : '',
-          }}
-          fields={[
-            { name: 'name', label: 'Nome da caixa' },
-            { name: 'email_address', label: 'Endereço de e-mail', type: 'email' },
-            {
-              name: 'aliases_input',
-              label: 'Aliases',
-              type: 'emails',
-              help: 'Separe endereços adicionais por vírgula.',
-            },
-          ]}
-          submitLabel="Próximo"
-          onSubmit={async (b) => {
-            const aliases = String(b.aliases_input ?? '')
-              .split(',')
-              .map((v) => v.trim())
-              .filter(Boolean);
-            mailboxSchema.shape.aliases.parse(aliases);
-            next({
-              name: b.name,
-              email_address: b.email_address,
-              username: draft.username ?? b.email_address,
-              aliases,
-            });
-          }}
-        />
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="receiving-protocol">Tipo da caixa</Label>
+            <select
+              id="receiving-protocol"
+              value={String(draft.receiving_protocol)}
+              onChange={(e) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  receiving_protocol: e.target.value,
+                  imap_port: e.target.value === 'pop3' ? 995 : 993,
+                }))
+              }
+              className="h-11 w-full rounded-md border border-input bg-card px-3 text-sm"
+            >
+              <option value="imap">IMAP e SMTP</option>
+              <option value="pop3">POP3 e SMTP</option>
+              <option value="local">Arquivo local (importar backup)</option>
+            </select>
+            <p className="text-xs text-muted-foreground">
+              POP3 recebe novas mensagens e mantém os e-mails no provedor. Arquivo local é
+              alimentado por backups e não envia mensagens.
+            </p>
+          </div>
+          <SchemaForm
+            schema={mailboxSchema.pick({ name: true, email_address: true }).extend({
+              aliases_input: z
+                .string()
+                .optional()
+                .refine(
+                  (v) =>
+                    !v ||
+                    v
+                      .split(',')
+                      .map((s) => s.trim())
+                      .filter(Boolean)
+                      .every((a) => mailboxSchema.shape.email_address.safeParse(a).success),
+                  'Confira os endereços dos aliases.',
+                ),
+            })}
+            defaults={{
+              ...draft,
+              aliases_input: Array.isArray(draft.aliases) ? draft.aliases.join(', ') : '',
+            }}
+            fields={[
+              { name: 'name', label: 'Nome da caixa' },
+              { name: 'email_address', label: 'Endereço de e-mail', type: 'email' },
+              {
+                name: 'aliases_input',
+                label: 'Aliases',
+                type: 'emails',
+                help: 'Separe endereços adicionais por vírgula.',
+              },
+            ]}
+            submitLabel="Próximo"
+            onSubmit={async (b) => {
+              const aliases = String(b.aliases_input ?? '')
+                .split(',')
+                .map((v) => v.trim())
+                .filter(Boolean);
+              mailboxSchema.shape.aliases.parse(aliases);
+              next({
+                name: b.name,
+                email_address: b.email_address,
+                username: draft.username ?? b.email_address,
+                aliases,
+              });
+              if (draft.receiving_protocol === 'local') setStep(2);
+            }}
+          />
+        </div>
       )}
       {step === 1 && (
         <>
@@ -158,8 +189,13 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
               const p = PROVIDER_PRESETS.find((p) => p.name === e.target.value)!;
               setDraft((prev) => ({
                 ...prev,
-                imap_host: p.imap_host,
-                imap_port: 993,
+                imap_host:
+                  prev.receiving_protocol === 'pop3'
+                    ? p.name.includes('Gmail')
+                      ? 'pop.gmail.com'
+                      : p.imap_host
+                    : p.imap_host,
+                imap_port: prev.receiving_protocol === 'pop3' ? 995 : 993,
                 imap_secure: true,
                 smtp_host: p.smtp_host,
                 smtp_port: p.smtp_port,
@@ -188,7 +224,7 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
             {showPassword ? 'Ocultar senha' : 'Mostrar senha'}
           </Button>
           <SchemaForm
-            key={preset}
+            key={preset + String(draft.receiving_protocol)}
             schema={mailboxSchema.pick({
               username: true,
               password: true,
@@ -201,11 +237,22 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
             })}
             defaults={draft}
             fields={connectionFields.map((f) =>
-              f.name === 'password' ? { ...f, type: showPassword ? 'text' : 'password' } : f,
+              f.name === 'password'
+                ? { ...f, type: showPassword ? 'text' : 'password' }
+                : draft.receiving_protocol === 'pop3'
+                  ? { ...f, label: f.label.replace('IMAP', 'POP3') }
+                  : f,
             )}
-            submitLabel="Testar IMAP e SMTP e continuar"
+            submitLabel={
+              'Testar ' +
+              (draft.receiving_protocol === 'pop3' ? 'POP3' : 'IMAP') +
+              ' e SMTP e continuar'
+            }
             onSubmit={async (b) => {
-              await api('/mailboxes/test-connection', { method: 'POST', body: b });
+              await api('/mailboxes/test-connection', {
+                method: 'POST',
+                body: { ...b, receiving_protocol: draft.receiving_protocol },
+              });
               next(b);
             }}
           />
@@ -256,49 +303,71 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
           })}
           defaults={draft}
           fields={[
-            {
-              name: 'sync_days',
-              label: 'Importar e-mails dos últimos (dias)',
-              type: 'number',
-              help: 'Opções: 30, 90, 180 ou 365.',
-            },
+            ...(draft.receiving_protocol === 'imap'
+              ? [
+                  {
+                    name: 'sync_days',
+                    label: 'Importar e-mails dos últimos (dias)',
+                    type: 'number' as const,
+                    help: 'Opções: 30, 90, 180 ou 365.',
+                  },
+                ]
+              : []),
             {
               name: 'history_classify_days',
               label: 'Classificar filas do histórico dos últimos (dias)',
               type: 'number',
               help: 'De 0 a 90. Com 0, todo o histórico fica sem fila. Esta escolha vale somente para a importação inicial; novos e-mails são classificados normalmente.',
             },
-            {
-              name: 'append_sent_copy',
-              label: 'Salvar cópia na pasta Enviados',
-              type: 'checkbox',
-              help: 'Desative se o provedor já salva automaticamente e aparecerem duplicados.',
-            },
-            {
-              name: 'from_name_template',
-              label: 'Modelo do nome do remetente',
-              type: 'select',
-              options: [
-                '{mailbox_name}',
-                '{user_name} | {mailbox_name}',
-                '{user_name} - {tenant_name}',
-              ].map((value) => ({ value, label: value })),
-            },
+            ...(draft.receiving_protocol === 'imap'
+              ? [
+                  {
+                    name: 'append_sent_copy',
+                    label: 'Salvar cópia na pasta Enviados',
+                    type: 'checkbox' as const,
+                    help: 'Desative se o provedor já salva automaticamente e aparecerem duplicados.',
+                  },
+                ]
+              : []),
+            ...(draft.receiving_protocol === 'local'
+              ? []
+              : [
+                  {
+                    name: 'from_name_template',
+                    label: 'Modelo do nome do remetente',
+                    type: 'select' as const,
+                    options: [
+                      '{mailbox_name}',
+                      '{user_name} | {mailbox_name}',
+                      '{user_name} - {tenant_name}',
+                    ].map((value) => ({ value, label: value })),
+                  },
+                ]),
           ]}
-          submitLabel="Testar e salvar caixa"
-          renderPreview={(values) => (
-            <p className="text-xs text-muted-foreground">
-              Prévia do remetente:{' '}
-              {renderFromName(String(values.from_name_template ?? draft.from_name_template), {
-                user_name: me.data?.user.full_name ?? '',
-                mailbox_name: String(draft.name ?? ''),
-                tenant_name:
-                  me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id)?.name ?? '',
-              })}
-            </p>
-          )}
+          submitLabel={
+            draft.receiving_protocol === 'local' ? 'Criar caixa local' : 'Testar e salvar caixa'
+          }
+          renderPreview={
+            draft.receiving_protocol === 'local'
+              ? undefined
+              : (values) => (
+                  <p className="text-xs text-muted-foreground">
+                    Prévia do remetente:{' '}
+                    {renderFromName(String(values.from_name_template ?? draft.from_name_template), {
+                      user_name: me.data?.user.full_name ?? '',
+                      mailbox_name: String(draft.name ?? ''),
+                      tenant_name:
+                        me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id)?.name ??
+                        '',
+                    })}
+                  </p>
+                )
+          }
           onSubmit={async (b) => {
-            const body = mailboxSchema.parse({ ...draft, ...b, members });
+            const body =
+              draft.receiving_protocol === 'local'
+                ? { ...draft, ...b, members }
+                : mailboxSchema.parse({ ...draft, ...b, members });
             const result = await api<Mailbox>(boxId ? '/mailboxes/' + boxId : '/mailboxes', {
               method: boxId ? 'PATCH' : 'POST',
               body,
@@ -311,7 +380,12 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
         />
       )}
       {step > 0 && (
-        <Button variant="ghost" onClick={() => setStep((s) => s - 1)}>
+        <Button
+          variant="ghost"
+          onClick={() =>
+            setStep((s) => (s === 2 && draft.receiving_protocol === 'local' ? 0 : s - 1))
+          }
+        >
           Voltar
         </Button>
       )}

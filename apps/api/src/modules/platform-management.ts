@@ -23,6 +23,7 @@ type Recorder = (
 ) => Promise<void>;
 const paramsSchema = z.object({ id: z.uuid() });
 const configColumns = [
+  'receiving_protocol',
   'id',
   'tenant_id',
   'name',
@@ -176,7 +177,7 @@ export async function registerPlatformManagement(
       { id } = paramsSchema.parse(req.params);
     const b = mailboxSchema
       .partial()
-      .omit({ members: true, sync_days: true })
+      .omit({ members: true, sync_days: true, receiving_protocol: true })
       .extend({
         tenant_id: z.uuid(),
         // PATCH must preserve omitted fields; Zod defaults also run inside optional fields.
@@ -200,7 +201,7 @@ export async function registerPlatformManagement(
     if (!box) throw notFound();
     const changed =
       !!password || connectionKeys.some((key) => key in data && data[key] !== box[key]);
-    if (changed)
+    if (changed && box.receiving_protocol !== 'local')
       await assertMailboxConnection(r.env, {
         ...box,
         ...data,
@@ -211,14 +212,20 @@ export async function registerPlatformManagement(
     await r.db.transaction().execute(async (tx) => {
       await tx
         .updateTable('mailboxes')
-        .set({ ...data, ...(changed ? { status: 'pending' as const, last_error: null } : {}) })
+        .set({
+          ...data,
+          ...(changed && box.receiving_protocol !== 'local'
+            ? { status: 'pending' as const, last_error: null }
+            : {}),
+        })
         .where('id', '=', id)
         .where('tenant_id', '=', tenant_id)
         .execute();
       if (password)
         await writeMailboxCredential(tx, tenant_id, id, password, r.env.CREDENTIALS_ENCRYPTION_KEY);
     });
-    if (changed) await r.queues['mailbox-connection'].add('connect', { mailbox_id: id });
+    if (changed && box.receiving_protocol !== 'local')
+      await r.queues['mailbox-connection'].add('connect', { mailbox_id: id });
     r.io.to('tenant:' + tenant_id).emit('mailboxes:changed', {});
     await record(c, 'platform.mailbox_updated', tenant_id, {
       mailbox_id: id,

@@ -22,10 +22,10 @@ export async function readMailboxQuotas(r: Resources, tenant: string, id?: strin
   return (
     await sql<
       MailboxQuota & { provider_identity: string | null }
-    >`select b.id as mailbox_id,b.tenant_id,b.name,b.email_address,
+    >`select b.id as mailbox_id,b.tenant_id,b.name,b.email_address,b.receiving_protocol,
     storage_quota_usage(b.tenant_id,b.id)::text as used_bytes,l.allocated_bytes::text,
-    l.paused_at,l.sync_checkpoint,coalesce(l.provider_status,'pending') as provider_status,
-    l.provider_used_bytes::text,l.provider_limit_bytes::text,l.provider_identity,l.provider_checked_at
+    l.paused_at,l.sync_checkpoint,case when b.receiving_protocol!='imap' then 'not_applicable' else coalesce(l.provider_status,'pending') end as provider_status,
+    case when b.receiving_protocol='imap' then l.provider_used_bytes::text end as provider_used_bytes,case when b.receiving_protocol='imap' then l.provider_limit_bytes::text end as provider_limit_bytes,l.provider_identity,l.provider_checked_at
     from mailboxes b left join mailbox_storage_limits l on l.mailbox_id=b.id
     where b.tenant_id=${tenant}::uuid and b.deleted_at is null and (${id ?? null}::uuid is null or b.id=${id ?? null}::uuid)
     order by b.name,b.id`.execute(r.db)
@@ -90,7 +90,7 @@ async function readTenantQuota(r: Resources, tenant: string): Promise<TenantQuot
         .reduce((s, b) => s + BigInt(b.provider_limit_bytes!), 0n)
         .toString(),
       known: known.length,
-      total: boxes.length,
+      total: boxes.filter((b) => b.receiving_protocol === 'imap').length,
       checked_at: checked,
     },
     mailboxes: boxes.map((b) => {
@@ -104,6 +104,22 @@ async function readTenantQuota(r: Resources, tenant: string): Promise<TenantQuot
 export async function registerStorageQuotas(app: FastifyInstance, r: Resources) {
   const tenantParam = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
   const resume = async (tenant: string) => {
+    const imports = await r.db
+      .updateTable('mail_archive_imports')
+      .set({ state: 'queued', last_error: null, updated_at: new Date() })
+      .where('tenant_id', '=', tenant)
+      .where('state', '=', 'paused')
+      .where('storage_path', 'is not', null)
+      .returning('id')
+      .execute();
+    for (const task of imports)
+      await r.queues['mail-archive']
+        .add(
+          'resume',
+          { import_id: task.id },
+          { attempts: 3, backoff: { type: 'exponential', delay: 10000 } },
+        )
+        .catch(() => app.log.warn('Importação será retomada pelo agendador.'));
     const boxes = await r.db
       .selectFrom('mailboxes')
       .select('id')

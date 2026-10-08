@@ -25,6 +25,7 @@ export type Me = {
   preferences: Preferences;
 };
 export type Mailbox = {
+  receiving_protocol?: 'imap' | 'pop3' | 'local';
   id: string;
   name: string;
   email_address: string;
@@ -44,8 +45,12 @@ export type Mailbox = {
   from_name_template: string;
   append_sent_copy: boolean;
 };
-export const canMailbox = (box: Pick<Mailbox, 'role' | 'permissions'>, permission: MailboxPerm) =>
-  box.permissions?.includes(permission) ?? can(box.role, permission);
+export const canMailbox = (
+  box: Pick<Mailbox, 'role' | 'permissions' | 'receiving_protocol'>,
+  permission: MailboxPerm,
+) =>
+  (permission !== 'send' || box.receiving_protocol !== 'local') &&
+  (box.permissions?.includes(permission) ?? can(box.role, permission));
 export const meQuery = { queryKey: ['me'], queryFn: () => api<Me>('/auth/me'), retry: false };
 export const useUserId = () => useQuery(meQuery).data?.user.id;
 export async function requireUser() {

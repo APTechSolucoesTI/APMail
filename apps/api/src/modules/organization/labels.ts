@@ -1,3 +1,4 @@
+import { requireMailboxPerm } from '../../authz/guards.js';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { audit, lockStorageTenant, type Database } from '@apmail/db';
@@ -17,7 +18,13 @@ export const labelIdsSchema = z.object({
   global_add: z.array(z.uuid()).max(100).default([]),
   global_remove: z.array(z.uuid()).max(100).default([]),
 });
-export async function validateLabelIds(r: Resources, c: Context, ids: string[]) {
+export async function validateLabelIds(
+  r: Resources,
+  c: Context,
+  ids: string[],
+  mailboxId?: string,
+  scope?: 'tenant' | 'personal',
+) {
   const unique = [...new Set(ids)];
   if (!unique.length) return unique;
   const rows = await r.db
@@ -26,6 +33,12 @@ export async function validateLabelIds(r: Resources, c: Context, ids: string[]) 
     .where('tenant_id', '=', c.tenantId)
     .where((eb) => eb.or([eb('scope', '=', 'tenant'), eb('user_id', '=', c.userId)]))
     .where('id', 'in', unique)
+    .$if(!!scope, (q) => q.where('scope', '=', scope!))
+    .$if(!!mailboxId, (q) =>
+      q.where(
+        sql<boolean>`(mailbox_mode='all' or exists(select 1 from label_mailboxes lm where lm.label_id=personal_labels.id and lm.mailbox_id=${mailboxId} and lm.tenant_id=personal_labels.tenant_id))`,
+      ),
+    )
     .execute();
   if (rows.length !== unique.length) throw notFound();
   return unique;
@@ -57,6 +70,25 @@ export async function replaceLabels(
     globalAdd.some((id) => globalRemove.includes(id))
   )
     throw conflict('A alteração das etiquetas globais é inválida.');
+  const boxes = await db
+    .selectFrom('threads')
+    .select('mailbox_id')
+    .distinct()
+    .where('tenant_id', '=', c.tenantId)
+    .where('id', 'in', threadIds)
+    .execute();
+  for (const box of boxes) {
+    const available = await db
+      .selectFrom('personal_labels')
+      .select('id')
+      .where('tenant_id', '=', c.tenantId)
+      .where('id', 'in', all.length ? all : ['00000000-0000-0000-0000-000000000000'])
+      .where(
+        sql<boolean>`(mailbox_mode='all' or exists(select 1 from label_mailboxes lm where lm.label_id=personal_labels.id and lm.mailbox_id=${box.mailbox_id} and lm.tenant_id=personal_labels.tenant_id))`,
+      )
+      .execute();
+    if (available.length !== all.length) throw notFound();
+  }
   // Personal replacement cannot touch another owner or shared selections.
   await db
     .deleteFrom('thread_personal_labels')
@@ -120,22 +152,24 @@ export function labelsService(r: Resources) {
       .to(scope === 'tenant' ? 'tenant:' + c.tenantId : 'user:' + c.userId)
       .emit('mailboxes:changed', {});
   return {
-    labels: async (ctx: RequestContext | null) => {
+    labels: async (ctx: RequestContext | null, query: unknown = {}) => {
       const c = requireTenant(ctx);
+      const { mailbox_id } = z.object({ mailbox_id: z.uuid().optional() }).parse(query);
+      if (mailbox_id) await requireMailboxPerm(c, r.db, mailbox_id, 'read');
       // Apply folder grants before counts; never leak hidden conversations via labels.
       const result = await sql`with recursive boxes as (
         select b.id,(${isTenantAdmin(c.tenantRole)} or mm.role='mailbox_admin' or not mm.restrict_to_folders) as full_access
         from mailboxes b left join mailbox_members mm on mm.mailbox_id=b.id and mm.tenant_id=b.tenant_id and mm.user_id=${c.userId}
-        where b.tenant_id=${c.tenantId} and b.deleted_at is null and (${isTenantAdmin(c.tenantRole)} or mm.user_id is not null)
+        where b.tenant_id=${c.tenantId} and b.deleted_at is null and (${mailbox_id ?? null}::uuid is null or b.id=${mailbox_id ?? null}::uuid) and (${isTenantAdmin(c.tenantRole)} or mm.user_id is not null)
       ), permitted as (
         select f.id,f.mailbox_id from folders f join boxes b on b.id=f.mailbox_id where f.tenant_id=${c.tenantId} and f.deleted_at is null
         and (b.full_access or exists(select 1 from folder_permissions p where p.folder_id=f.id and p.mailbox_id=f.mailbox_id and p.tenant_id=f.tenant_id and p.user_id=${c.userId}))
         union select f.id,f.mailbox_id from folders f join permitted p on p.id=f.parent_id and p.mailbox_id=f.mailbox_id where f.tenant_id=${c.tenantId} and f.deleted_at is null
       ), visible as (
-        select distinct m.thread_id from messages m join boxes b on b.id=m.mailbox_id join threads t on t.id=m.thread_id and t.tenant_id=m.tenant_id
+        select distinct m.thread_id,m.mailbox_id from messages m join boxes b on b.id=m.mailbox_id join threads t on t.id=m.thread_id and t.tenant_id=m.tenant_id
         where m.tenant_id=${c.tenantId} and m.deleted_at is null and t.deleted_at is null and (b.full_access or exists(select 1 from permitted p where p.id=m.folder_id and p.mailbox_id=m.mailbox_id))
-      ) select l.id,l.name,l.color,l.scope,l.user_id,(select count(*)::int from thread_personal_labels tl join visible v on v.thread_id=tl.thread_id where tl.label_id=l.id and tl.tenant_id=l.tenant_id) as thread_count
-      from personal_labels l where l.tenant_id=${c.tenantId} and (l.scope='tenant' or l.user_id=${c.userId}) order by l.name,l.id`.execute(
+      ) select l.id,l.name,l.color,l.scope,l.user_id,l.mailbox_mode,array(select lm.mailbox_id from label_mailboxes lm join boxes b on b.id=lm.mailbox_id where lm.label_id=l.id and lm.tenant_id=l.tenant_id) as mailbox_ids,(select count(*)::int from thread_personal_labels tl join visible v on v.thread_id=tl.thread_id where tl.label_id=l.id and tl.tenant_id=l.tenant_id and (l.mailbox_mode='all' or exists(select 1 from label_mailboxes lm where lm.label_id=l.id and lm.mailbox_id=v.mailbox_id and lm.tenant_id=l.tenant_id))) as thread_count
+      from personal_labels l where l.tenant_id=${c.tenantId} and (l.scope='tenant' or l.user_id=${c.userId}) and (${mailbox_id ?? null}::uuid is null or l.mailbox_mode='all' or exists(select 1 from label_mailboxes lm where lm.label_id=l.id and lm.tenant_id=l.tenant_id and lm.mailbox_id=${mailbox_id ?? null}::uuid)) order by (l.scope='tenant') desc,l.name,l.id`.execute(
         r.db,
       );
       return result.rows;
@@ -145,11 +179,24 @@ export function labelsService(r: Resources) {
         c = existing?.c ?? requireTenant(ctx);
       const b = personalLabelSchema.parse({
         ...existing?.row,
+        mailbox_ids: existing
+          ? (
+              await r.db
+                .selectFrom('label_mailboxes')
+                .select('mailbox_id')
+                .where('tenant_id', '=', c.tenantId)
+                .where('label_id', '=', existing.row.id)
+                .execute()
+            ).map((row) => row.mailbox_id)
+          : [],
         ...z.record(z.string(), z.unknown()).parse(body),
       });
       if (existing && b.scope !== existing.row.scope)
         throw conflict('O tipo de uma etiqueta existente não pode ser alterado.');
       if (b.scope === 'tenant' && !isTenantAdmin(c.tenantRole)) throw forbidden();
+      if (b.mailbox_mode === 'selected' && !b.mailbox_ids.length)
+        throw conflict('Selecione ao menos uma caixa para a etiqueta.');
+      for (const mailboxId of b.mailbox_ids) await requireMailboxPerm(c, r.db, mailboxId, 'read');
       const row = await r.db.transaction().execute(async (tx) => {
         await lockStorageTenant(tx, c.tenantId);
         const duplicate = await tx
@@ -169,7 +216,7 @@ export function labelsService(r: Resources) {
         const result = id
           ? await tx
               .updateTable('personal_labels')
-              .set({ name: b.name, color: b.color })
+              .set({ name: b.name, color: b.color, mailbox_mode: b.mailbox_mode })
               .where('id', '=', id)
               .where('tenant_id', '=', c.tenantId)
               .returningAll()
@@ -177,13 +224,35 @@ export function labelsService(r: Resources) {
           : await tx
               .insertInto('personal_labels')
               .values({
-                ...b,
+                name: b.name,
+                color: b.color,
+                scope: b.scope,
+                mailbox_mode: b.mailbox_mode,
                 tenant_id: c.tenantId,
                 user_id: b.scope === 'personal' ? c.userId : null,
                 created_by: c.userId,
               })
               .returningAll()
               .executeTakeFirstOrThrow();
+        await tx
+          .deleteFrom('label_mailboxes')
+          .where('tenant_id', '=', c.tenantId)
+          .where('label_id', '=', result.id)
+          .execute();
+        if (b.mailbox_mode === 'selected')
+          await tx
+            .insertInto('label_mailboxes')
+            .values(
+              [...new Set(b.mailbox_ids)].map((mailbox_id) => ({
+                tenant_id: c.tenantId,
+                label_id: result.id,
+                mailbox_id,
+              })),
+            )
+            .execute();
+        await sql`update mail_rules mr set is_active=false,review_reason='Etiqueta indisponível nesta caixa. Revise a regra.' where mr.tenant_id=${c.tenantId} and exists(select 1 from jsonb_array_elements(mr.actions) a where a->>'type'='add_label' and a->>'label_id'=${result.id}::text) and ${b.mailbox_mode === 'selected'} and not mr.mailbox_id=any(${b.mailbox_ids}::uuid[])`.execute(
+          tx,
+        );
         if (b.scope === 'tenant')
           await audit(tx, {
             tenantId: c.tenantId,
@@ -203,6 +272,9 @@ export function labelsService(r: Resources) {
       const { c, row } = await own(ctx, id);
       await r.db.transaction().execute(async (tx) => {
         await lockStorageTenant(tx, c.tenantId);
+        await sql`update mail_rules mr set is_active=false,review_reason='Etiqueta removida. Revise a regra.' where mr.tenant_id=${c.tenantId} and exists(select 1 from jsonb_array_elements(mr.actions) a where a->>'type'='add_label' and a->>'label_id'=${id}::text)`.execute(
+          tx,
+        );
         await tx
           .deleteFrom('personal_labels')
           .where('tenant_id', '=', c.tenantId)
@@ -223,7 +295,12 @@ export function labelsService(r: Resources) {
     threadLabels: async (ctx: RequestContext | null, id: string, body: unknown) => {
       const { c, thread } = await requireThread(ctx, r, id),
         b = labelIdsSchema.parse(body);
-      await validateLabelIds(r, c, [...b.label_ids, ...b.global_add, ...b.global_remove]);
+      await validateLabelIds(
+        r,
+        c,
+        [...b.label_ids, ...b.global_add, ...b.global_remove],
+        thread.mailbox_id,
+      );
       await r.db
         .transaction()
         .execute((tx) => replaceLabels(tx, c, [id], b.label_ids, b.global_add, b.global_remove));

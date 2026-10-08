@@ -65,6 +65,7 @@ export function storagePercentageBytes(percent: string, cap: string): string {
   ).toString();
 }
 export type MailboxQuota = {
+  receiving_protocol?: 'imap' | 'pop3' | 'local';
   mailbox_id: string;
   tenant_id: string;
   name: string;
@@ -83,7 +84,7 @@ export type MailboxQuota = {
     tenant_limit: string | null;
     mailbox_limit: string | null;
   } | null;
-  provider_status: 'pending' | 'available' | 'unsupported' | 'error';
+  provider_status: 'pending' | 'available' | 'unsupported' | 'error' | 'not_applicable';
   provider_used_bytes: string | null;
   provider_limit_bytes: string | null;
   provider_checked_at: string | null;

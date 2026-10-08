@@ -1,3 +1,4 @@
+import { tableParameters } from '@/lib/table-query';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import type {
@@ -44,6 +45,8 @@ export function PlatformOverviewDashboard({
     mailbox: { page: 1, pageSize: 10, filters: {} },
     growth: { page: 1, pageSize: 10, filters: {} },
     boxGrowth: { page: 1, pageSize: 10, filters: {} },
+    queues: { page: 1, pageSize: 10, filters: {} },
+    activity: { page: 1, pageSize: 10, filters: {} },
   });
   const overview = useQuery({
     queryKey: ['platform', 'overview', period],
@@ -508,45 +511,67 @@ export function PlatformOverviewDashboard({
           {data.counts.mailbox_errors} caixas com erro · {data.counts.mailbox_pending} caixas
           pendentes · {data.counts.sync_delayed} sincronizações atrasadas.
         </p>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {data.queues.map((v) => (
-            <article key={v.name} className="rounded-md border p-3">
-              <h3 className="break-words text-sm font-semibold">{v.name}</h3>
-              <p className="mt-2 text-xs">
-                Espera: {v.waiting ?? 'Indisponível'} · Em execução: {v.active ?? 'Indisponível'}
-              </p>
-              <p className="mt-1 text-xs">
-                Agendadas: {v.delayed ?? 'Indisponível'} · Falhas: {v.failed ?? 'Indisponível'}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Mais antiga:{' '}
-                {v.oldest_waiting_at
-                  ? new Date(v.oldest_waiting_at).toLocaleString('pt-BR')
-                  : v.waiting === null
-                    ? 'Indisponível'
-                    : 'Sem tarefa em espera'}
-              </p>
-            </article>
-          ))}
-        </div>
+        <ConfigurableTable
+          listKey="platform-operational-queues"
+          mode="client"
+          query={rankQueries.queues!}
+          onQueryChange={(query) => setRankQueries((current) => ({ ...current, queues: query }))}
+          data={data.queues.map((value) => ({ ...value, id: value.name }))}
+          columns={[
+            { id: 'name', header: 'Fila', hideable: false },
+            {
+              id: 'waiting',
+              header: 'Em espera',
+              align: 'right',
+              cell: (value) => value.waiting ?? 'Indisponível',
+            },
+            {
+              id: 'active',
+              header: 'Em execução',
+              align: 'right',
+              cell: (value) => value.active ?? 'Indisponível',
+            },
+            {
+              id: 'delayed',
+              header: 'Agendadas',
+              align: 'right',
+              cell: (value) => value.delayed ?? 'Indisponível',
+            },
+            {
+              id: 'failed',
+              header: 'Falhas',
+              align: 'right',
+              cell: (value) => value.failed ?? 'Indisponível',
+            },
+            {
+              id: 'oldest_waiting_at',
+              header: 'Espera mais antiga',
+              cell: (value) =>
+                value.oldest_waiting_at
+                  ? new Date(value.oldest_waiting_at).toLocaleString('pt-BR')
+                  : 'Sem tarefa em espera',
+            },
+          ]}
+        />
       </section>
       <section className="space-y-3 rounded-lg border bg-card p-4">
         <h2 className="text-xl font-semibold">Atividade recente de gestão</h2>
-        {data.audit.length ? (
-          data.audit.map((v) => (
-            <div key={v.id} className="flex flex-wrap justify-between gap-2 border-b py-2 text-sm">
-              <span>
-                {v.action}
-                {v.tenant_name ? ' · ' + v.tenant_name : ''}
-              </span>
-              <time dateTime={v.created_at} className="text-xs text-muted-foreground">
-                {new Date(v.created_at).toLocaleString('pt-BR')}
-              </time>
-            </div>
-          ))
-        ) : (
-          <p className="text-sm text-muted-foreground">Nenhuma atividade registrada.</p>
-        )}
+        <ConfigurableTable
+          listKey="platform-recent-activity"
+          mode="client"
+          query={rankQueries.activity!}
+          onQueryChange={(query) => setRankQueries((current) => ({ ...current, activity: query }))}
+          data={data.audit}
+          columns={[
+            { id: 'action', header: 'Ação', hideable: false },
+            { id: 'tenant_name', header: 'Empresa' },
+            {
+              id: 'created_at',
+              header: 'Data e hora',
+              cell: (value) => new Date(value.created_at).toLocaleString('pt-BR'),
+            },
+          ]}
+        />
       </section>
     </div>
   );
@@ -568,12 +593,14 @@ export function PlatformIntegrity({
   tenantId?: string;
   onChange: (q: ListQuery) => void;
 }) {
+  const [runsQuery, setRunsQuery] = useState<ListQuery>({ page: 1, pageSize: 10, filters: {} });
   const q = useQuery({
     queryKey: ['platform', 'integrity', tenantId, query],
     queryFn: ({ signal }) =>
       api<ListResult<IntegrityRow>>(
         '/superadmin/metering/integrity?' +
           new URLSearchParams({
+            ...tableParameters(query),
             page: String(query.page),
             pageSize: String(query.pageSize),
             search: query.search ?? '',
@@ -645,14 +672,25 @@ export function PlatformIntegrity({
         ) : runs.isLoading ? (
           <LoadingState />
         ) : (
-          <div className="mt-3 space-y-2">
-            {runs.data?.map((v) => (
-              <p key={v.id} className="text-sm">
-                {new Date(v.created_at).toLocaleString('pt-BR')} · {v.mode} · {v.state} ·{' '}
-                {v.checked_files} arquivos · {v.error_count} erros
-              </p>
-            ))}
-          </div>
+          <ConfigurableTable
+            listKey="platform-scan-runs"
+            mode="client"
+            query={runsQuery}
+            onQueryChange={setRunsQuery}
+            data={runs.data ?? []}
+            columns={[
+              {
+                id: 'created_at',
+                header: 'Data e hora',
+                hideable: false,
+                cell: (r) => new Date(r.created_at).toLocaleString('pt-BR'),
+              },
+              { id: 'mode', header: 'Modo' },
+              { id: 'state', header: 'Estado' },
+              { id: 'checked_files', header: 'Arquivos', align: 'right' },
+              { id: 'error_count', header: 'Erros', align: 'right' },
+            ]}
+          />
         )}
       </details>
     </section>

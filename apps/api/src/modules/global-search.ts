@@ -12,7 +12,6 @@ import {
 } from '@apmail/shared';
 import { requireTenant } from '../authz/context.js';
 import { contactVisible, contactSearch, contactNickname } from './contacts.js';
-import { companyVisible, companySearch } from './companies.js';
 import type { Resources } from './resources.js';
 
 type Row = {
@@ -48,10 +47,6 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
       const readableMessage = sql<boolean>`(b.full_access or exists(select 1 from allowed_folders f where f.id=m.folder_id and f.mailbox_id=m.mailbox_id))`;
       const queries: [SearchCategory, RawBuilder<Row>][] = [
         [
-          'company',
-          sql<Row>`select cc.id,cc.name as title,concat_ws(' · ',nullif(cc.trade_name,''),cc.cnpj) as description from contact_companies cc where cc.tenant_id=${c.tenantId} and ${companyVisible(c)} and ${companySearch(q)} order by cc.name,cc.id limit 6`,
-        ],
-        [
           'contact',
           sql<Row>`select contacts.id,contacts.name as title,concat_ws(' · ',nullif(${contactNickname(c)},''),coalesce((select e.email from contact_emails e where e.tenant_id=contacts.tenant_id and e.contact_id=contacts.id order by e.is_primary desc,e.email limit 1),'')) as description
         from contacts where contacts.tenant_id=${c.tenantId} and ${contactVisible(c)} and ${contactSearch(q, c)} order by contacts.name,contacts.id limit 6`,
@@ -72,7 +67,7 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
         ],
         [
           'folder',
-          sql<Row>`${scope} select f.id,f.mailbox_id,f.name as title,b.name as description from folders f join allowed_folders a on a.id=f.id join boxes b on b.id=f.mailbox_id where ${matches(sql`f.name||' '||b.name`)} order by f.name,f.id limit 6`,
+          sql<Row>`${scope} select distinct f.id,f.mailbox_id,f.name as title,b.name as description from folders f join allowed_folders a on a.id=f.id join boxes b on b.id=f.mailbox_id where ${matches(sql`f.name||' '||b.name`)} order by title,f.id limit 6`,
         ],
         [
           'label',
@@ -102,7 +97,6 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
         ['/settings/rules', 'Regras', 'Minhas regras e regras da caixa'],
         ['/dashboard', 'Dashboard', 'Indicadores e atendimentos'],
         ['/contacts', 'Contatos', 'Pessoas, empresas e canais de contato'],
-        ['/companies', 'Empresas', 'CNPJ, razão social, nome fantasia e endereços'],
         ['/scheduled', 'Envios', 'Rascunhos, agendados e falhas'],
         ...(isTenantAdmin(c.tenantRole)
           ? [
@@ -123,10 +117,10 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
         .execute(async (tx) => {
           const groups: GlobalSearchResponse['groups'] = [];
           for (const [category, query] of queries) {
-            const { rows } = await query.execute(tx);
+            const result = await query.execute(tx);
+            const rows = [...new Map(result.rows.map((row) => [row.id, row])).values()];
             const items: GlobalSearchItem[] = rows.slice(0, 5).map((row) => {
               let url = '/contacts?contactId=' + row.id;
-              if (category === 'company') url = '/companies?companyId=' + row.id;
               if (category === 'mailbox') url = '/mail/' + row.id;
               if (category === 'email')
                 url =

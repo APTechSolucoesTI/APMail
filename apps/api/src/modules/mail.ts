@@ -12,6 +12,9 @@ import { replaceLabels, validateLabelIds, labelIdsSchema } from './organization/
 import { bulkQueue } from './thread-operations/service.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 export const threadListSchema = z.object({
+  columns: z.string().max(16000).optional(),
+  column_sort: z.string().max(80).optional(),
+  column_direction: z.enum(['asc', 'desc']).optional(),
   view: z.enum(['folder', 'queue', 'label', 'search']).default('folder'),
   folder_id: z.uuid().optional(),
   queue: z
@@ -29,7 +32,7 @@ export const threadListSchema = z.object({
   page_size: z.coerce
     .number()
     .refine((v) => [10, 20, 30, 50, 100].includes(v))
-    .default(50),
+    .default(10),
 });
 export async function requireThread(
   ctx: RequestContext | null,
@@ -286,6 +289,10 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         .where('tl.tenant_id', '=', c.tenantId)
         .where((eb) => eb.or([eb('l.scope', '=', 'tenant'), eb('l.user_id', '=', c.userId)]))
         .where('tl.thread_id', '=', thread.id)
+        .where(
+          sql<boolean>`(l.mailbox_mode='all' or exists(select 1 from label_mailboxes lm where lm.label_id=l.id and lm.mailbox_id=${thread.mailbox_id} and lm.tenant_id=l.tenant_id))`,
+        )
+        .orderBy(sql`(l.scope='tenant')`, 'desc')
         .orderBy('l.name')
         .execute(),
       is_pinned: state?.is_pinned ?? false,

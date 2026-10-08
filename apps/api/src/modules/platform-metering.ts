@@ -1,3 +1,4 @@
+import { columnFilters, columnOrder, localizedColumn } from './list-columns.js';
 import type { FastifyInstance } from 'fastify';
 import { sql, type Kysely } from 'kysely';
 import { PassThrough } from 'node:stream';
@@ -15,6 +16,9 @@ import { requireSuperAdmin, notFound, ApiError } from '../authz/context.js';
 import type { Resources } from './resources.js';
 
 const querySchema = z.object({
+  columns: z.string().max(16000).optional(),
+  column_sort: z.string().max(80).optional(),
+  column_direction: z.enum(['asc', 'desc']).optional(),
   scope: z.enum(['tenants', 'mailboxes', 'platform', 'unassigned']).default('tenants'),
   tenant_id: z.uuid().optional(),
   mailbox_id: z.uuid().optional(),
@@ -140,6 +144,35 @@ async function listUsage(
   pageSize = q.pageSize,
 ): Promise<MeteringResult> {
   const scope = q.scope === 'tenants' ? 'tenant' : q.scope === 'mailboxes' ? 'mailbox' : q.scope;
+  const columns = Object.fromEntries(
+    [
+      'name',
+      'tenant_name',
+      'email_address',
+      'status',
+      'quality',
+      'measured_at',
+      'retained_deleted',
+      'growth_bytes',
+      'last_synced_at',
+      'baseline_at',
+    ]
+      .map((key) => [key, key === 'growth_bytes' ? sql`growth_bytes::numeric` : sql.ref(key)])
+      .concat(
+        [
+          'attributed_bytes',
+          'file_bytes',
+          'logical_bytes',
+          'allocated_bytes',
+          'retained_bytes',
+          'messages',
+          'discrepancies',
+          'files',
+          'shared_file_bytes',
+          'shared_logical_bytes',
+        ].map((key) => [key, sql`(usage->>${key})::numeric`]),
+      ),
+  );
   const sort = ['name', 'tenant_name', 'last_synced_at'].includes(q.sort)
     ? sql.ref(q.sort)
     : q.sort === 'growth_bytes'
@@ -172,8 +205,27 @@ async function listUsage(
     where s.scope=${scope} ${q.tenant_id ? sql`and s.tenant_id=${q.tenant_id}::uuid` : sql``} ${q.mailbox_id ? sql`and s.mailbox_id=${q.mailbox_id}::uuid` : sql``}
   ), filtered as (
     select * from base where (unaccent(name) ilike unaccent(${'%' + q.search + '%'}) or unaccent(tenant_name) ilike unaccent(${'%' + q.search + '%'}) or unaccent(email_address) ilike unaccent(${'%' + q.search + '%'}))
+      and ${columnFilters(q, {
+        ...columns,
+        quality: localizedColumn(sql`quality`, {
+          pending: 'Pendente',
+          partial: 'Parcial',
+          verified: 'Verificada',
+        }),
+        status: localizedColumn(sql`status`, {
+          active: 'Ativa',
+          disabled: 'Desativada',
+          error: 'Erro',
+          connecting: 'Conectando',
+          suspended: 'Suspensa',
+        }),
+        retained_deleted: localizedColumn(sql`retained_deleted`, {
+          true: 'Retido',
+          false: 'Ativo',
+        }),
+      })}
       ${q.quality.includes('all') ? sql`` : sql`and quality in (${sql.join(q.quality)})`} ${q.retained === 'all' ? sql`` : sql`and retained_deleted=${q.retained === 'retained'}`}
-  ), paged as (select * from filtered order by ${sort} ${q.direction === 'asc' ? sql`asc nulls last` : sql`desc nulls last`},id limit ${pageSize} offset ${(q.page - 1) * pageSize})
+  ), paged as (select * from filtered order by ${columnOrder(q, columns, sql`${sort} ${q.direction === 'asc' ? sql`asc nulls last` : sql`desc nulls last`}`)},id limit ${pageSize} offset ${(q.page - 1) * pageSize})
   select coalesce((select jsonb_agg((to_jsonb(p)-'usage')||p.usage) from paged p),'[]'::jsonb) as items,
     (select jsonb_build_object('id',s.scope_id,'tenant_id',s.tenant_id,'mailbox_id',null,'scope','tenant','name',t.name,'tenant_name',t.name,'email_address',null,'status',case when t.suspended_at is null then 'active' else 'suspended' end,'retained_deleted',t.deleted_at is not null,'categories',s.categories,'measured_at',s.measured_at,'formula_version',s.formula_version,'quality',s.quality,
       'growth_bytes',case when bl.measured_at<s.measured_at and s.quality='verified' then ((s.usage->>'attributed_bytes')::numeric-(bl.usage->>'attributed_bytes')::numeric)::text else null end,'baseline_at',bl.measured_at)||s.usage
@@ -251,10 +303,10 @@ export async function registerPlatformMetering(app: FastifyInstance, r: Resource
     await validateScope(r.db, q);
     const result = (
       await sql`with filtered as (select d.id,d.code,d.tenant_id,d.mailbox_id,t.name as tenant_name,b.name as mailbox_name,d.first_seen_at,d.last_seen_at
-      from storage_discrepancies d left join tenants t on t.id=d.tenant_id left join mailboxes b on b.id=d.mailbox_id where resolved_at is null
+      from storage_discrepancies d left join tenants t on t.id=d.tenant_id left join mailboxes b on b.id=d.mailbox_id where resolved_at is null and ${columnFilters(req.query, { code: sql`d.code`, tenant_name: sql`t.name`, mailbox_name: sql`b.name`, first_seen_at: sql`d.first_seen_at`, last_seen_at: sql`d.last_seen_at` })}
       ${q.tenant_id ? sql`and d.tenant_id=${q.tenant_id}::uuid` : sql``} ${q.mailbox_id ? sql`and d.mailbox_id=${q.mailbox_id}::uuid` : sql``}
       and (d.code ilike ${'%' + q.search + '%'} or unaccent(t.name) ilike unaccent(${'%' + q.search + '%'})))
-      select coalesce((select jsonb_agg(p) from (select * from filtered order by last_seen_at desc,id limit ${q.pageSize} offset ${(q.page - 1) * q.pageSize}) p),'[]'::jsonb) as items,(select count(*)::integer from filtered) as total`.execute(
+      select coalesce((select jsonb_agg(p) from (select * from filtered order by ${columnOrder(req.query, { code: sql`code`, tenant_name: sql`tenant_name`, mailbox_name: sql`mailbox_name`, first_seen_at: sql`first_seen_at`, last_seen_at: sql`last_seen_at` }, sql`last_seen_at desc`)},id limit ${q.pageSize} offset ${(q.page - 1) * q.pageSize}) p),'[]'::jsonb) as items,(select count(*)::integer from filtered) as total`.execute(
         r.db,
       )
     ).rows[0]!;

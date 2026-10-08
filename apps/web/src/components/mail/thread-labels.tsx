@@ -25,8 +25,8 @@ export function ThreadLabels({
     client = useQueryClient(),
     me = useQuery(meQuery).data,
     q = useQuery({
-      queryKey: ['labels', tenant, me?.user.id],
-      queryFn: () => api<PersonalLabel[]>('/labels'),
+      queryKey: ['labels', tenant, me?.user.id, mailboxId],
+      queryFn: () => api<PersonalLabel[]>('/labels?mailbox_id=' + mailboxId),
     });
   const [open, setOpen] = useState(false),
     [selection, setSelection] = useState<string[]>([]),

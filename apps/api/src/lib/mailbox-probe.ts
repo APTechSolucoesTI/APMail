@@ -4,8 +4,10 @@ import { mailboxSchema } from '@apmail/shared';
 import type { z } from 'zod';
 import type { ApiEnv } from '../env.js';
 import { ApiError } from '../authz/context.js';
+import { Pop3Client } from '@apmail/db';
 
 export const connectionSchema = mailboxSchema.pick({
+  receiving_protocol: true,
   username: true,
   password: true,
   imap_host: true,
@@ -52,7 +54,24 @@ export async function assertMailboxConnection(env: ApiEnv, b: Connection) {
   const results = await Promise.allSettled([
     (async () => {
       try {
-        await imap.connect();
+        if (b.receiving_protocol === 'pop3') {
+          const pop = new Pop3Client({
+            host: b.imap_host,
+            port: b.imap_port,
+            secure: b.imap_secure,
+            username: b.username,
+            password: b.password,
+            allowInsecure: insecure(b.imap_host),
+            timeout: 10000,
+          });
+          try {
+            await pop.connect();
+            await pop.list();
+            await pop.quit();
+          } finally {
+            pop.close();
+          }
+        } else await imap.connect();
       } finally {
         imap.close();
       }
@@ -66,7 +85,9 @@ export async function assertMailboxConnection(env: ApiEnv, b: Connection) {
     })(),
   ]);
   const failed = results.flatMap((result, index) =>
-    result.status === 'rejected' ? [index === 0 ? 'IMAP' : 'SMTP'] : [],
+    result.status === 'rejected'
+      ? [index === 0 ? (b.receiving_protocol === 'pop3' ? 'POP3' : 'IMAP') : 'SMTP']
+      : [],
   );
   if (failed.length)
     throw new ApiError(
@@ -74,5 +95,9 @@ export async function assertMailboxConnection(env: ApiEnv, b: Connection) {
       'connection_failed',
       `Não foi possível autenticar a conexão ${failed.join(' e ')}. Confira servidor, porta, TLS, usuário e senha. A caixa não foi salva.`,
     );
-  return { imap: true, smtp: true };
+  return {
+    imap: b.receiving_protocol === 'imap',
+    pop3: b.receiving_protocol === 'pop3',
+    smtp: true,
+  };
 }

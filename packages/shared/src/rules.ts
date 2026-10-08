@@ -21,6 +21,8 @@ export const personalLabelSchema = z.object({
     .regex(/^#[0-9a-fA-F]{6}$/, 'Informe uma cor hexadecimal, como #1686A7.')
     .transform((s) => s.toUpperCase()),
   scope: z.enum(['personal', 'tenant']).default('personal'),
+  mailbox_mode: z.enum(['all', 'selected']).default('all'),
+  mailbox_ids: z.array(z.uuid()).max(100).default([]),
 });
 export const ruleConditionSchema = z
   .object({
@@ -44,6 +46,7 @@ export const ruleConditionSchema = z
     { message: 'Escolha um operador e valor válidos para o campo.' },
   );
 export const mailboxRuleActionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('add_label'), label_id: z.uuid() }),
   z.object({ type: z.literal('move_to_folder'), folder_id: z.uuid() }),
   z.object({ type: z.literal('mark_flagged') }),
   z.object({ type: z.literal('assign_to'), user_id: z.uuid() }),

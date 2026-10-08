@@ -1,3 +1,4 @@
+import { tableParameters } from '@/lib/table-query';
 import { useState } from 'react';
 import { useTenantId, meQuery } from '@/lib/auth';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
@@ -63,6 +64,7 @@ function Audit() {
       api<{ items: Entry[]; total: number }>(
         '/audit-logs?' +
           new URLSearchParams({
+            ...tableParameters(query),
             page: String(query.page),
             pageSize: String(query.pageSize),
             ...(query.search ? { search: query.search } : {}),

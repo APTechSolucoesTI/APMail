@@ -51,7 +51,7 @@ function Mailboxes() {
     <>
       <PageHeader
         title="Caixas de e-mail"
-        description="Conecte servidores IMAP/SMTP e distribua os acessos."
+        description="Conecte IMAP/POP3 e SMTP ou crie caixas locais para importar backups."
         actions={
           <Button onClick={() => setOpen(true)}>
             <Plus />
@@ -80,6 +80,16 @@ function Mailboxes() {
         mode="client"
         columns={[
           { id: 'name', header: 'Nome', sortable: true, hideable: false },
+          {
+            id: 'receiving_protocol',
+            header: 'Tipo',
+            cell: (b) =>
+              b.receiving_protocol === 'pop3'
+                ? 'POP3'
+                : b.receiving_protocol === 'local'
+                  ? 'Arquivo local'
+                  : 'IMAP',
+          },
           {
             id: 'email_address',
             header: 'E-mail',

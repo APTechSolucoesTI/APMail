@@ -141,7 +141,20 @@ export function RuleManagement({
       }
       columns={[
         { id: 'priority', header: 'Prioridade', align: 'right', sortable: true },
-        { id: 'name', header: 'Nome', hideable: false, sortable: true },
+        {
+          id: 'name',
+          header: 'Nome',
+          hideable: false,
+          sortable: true,
+          cell: (r) => (
+            <span>
+              {r.name}
+              {r.review_reason && (
+                <span className="block text-xs text-muted-foreground">{r.review_reason}</span>
+              )}
+            </span>
+          ),
+        },
         {
           id: 'mailbox_id',
           header: 'Caixa',
@@ -304,8 +317,11 @@ function RuleEditor({
       enabled: !!mailboxId,
     }),
     labels = useQuery({
-      queryKey: ['labels', tenant, useUserId()],
-      queryFn: () => api<PersonalLabel[]>('/labels'),
+      queryKey: ['labels', tenant, useUserId(), mailboxId],
+      queryFn: () =>
+        api<PersonalLabel[]>('/labels?mailbox_id=' + mailboxId).then((items) =>
+          items.filter((l) => l.scope === (rule.scope === 'personal' ? 'personal' : 'tenant')),
+        ),
     }),
     users = useQuery({
       queryKey: ['assignable', tenant, mailboxId],
@@ -330,6 +346,7 @@ function RuleEditor({
     rule.scope === 'personal'
       ? (['add_label', 'pin'] as const)
       : ([
+          'add_label',
           'move_to_folder',
           'mark_flagged',
           'assign_to',

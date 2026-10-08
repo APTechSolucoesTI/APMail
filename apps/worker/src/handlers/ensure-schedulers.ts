@@ -1,11 +1,34 @@
 import { toBullJobId } from '@apmail/shared';
 import type { WorkerResources } from '../resources.js';
 export async function ensureSchedulers(r: WorkerResources) {
-  const boxes = await r.db.selectFrom('mailboxes').select(['id', 'status', 'deleted_at']).execute();
+  const pendingArchives = await r.db
+    .selectFrom('mail_archive_imports')
+    .select('id')
+    .where('state', 'in', ['queued', 'running'])
+    .where('updated_at', '<', new Date(Date.now() - 300000))
+    .execute();
+  for (const task of pendingArchives)
+    await r.queues['mail-archive'].add(
+      'recover',
+      { import_id: task.id },
+      {
+        jobId: toBullJobId('archive-recover:' + task.id),
+        attempts: 3,
+        removeOnComplete: true,
+        removeOnFail: true,
+        backoff: { type: 'exponential', delay: 10000 },
+      },
+    );
+  const boxes = await r.db
+    .selectFrom('mailboxes')
+    .select(['id', 'status', 'deleted_at', 'receiving_protocol'])
+    .execute();
   const sync = r.queues['mailbox-sync'],
     connection = r.queues['mailbox-connection'];
   const active = new Set(
-    boxes.filter((b) => b.status === 'active' && !b.deleted_at).map((b) => b.id),
+    boxes
+      .filter((b) => b.status === 'active' && !b.deleted_at && b.receiving_protocol !== 'local')
+      .map((b) => b.id),
   );
   for (const scheduler of await sync.getJobSchedulers())
     if (scheduler.key.startsWith('sync:') && !active.has(scheduler.key.slice(5)))

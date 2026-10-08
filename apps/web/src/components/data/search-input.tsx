@@ -9,14 +9,19 @@ export function SearchInput({
   placeholder = 'Buscar registros…',
   debounce = 400,
   className,
+  id: providedId,
+  inputType = 'search',
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   debounce?: number;
   className?: string;
+  id?: string;
+  inputType?: 'search' | 'date' | 'number';
 }) {
-  const id = useId();
+  const generatedId = useId(),
+    id = providedId ?? generatedId;
   const [state, setState] = useState({ input: value, previous: value, lastSent: value });
   if (state.previous !== value) {
     setState({ ...state, previous: value, input: value === state.lastSent ? state.input : value });
@@ -36,16 +41,18 @@ export function SearchInput({
   };
   return (
     <div className={cn('relative min-w-56 flex-1', className)}>
-      <label htmlFor={id} className="sr-only">
-        {placeholder}
-      </label>
+      {!providedId && (
+        <label htmlFor={id} className="sr-only">
+          {placeholder}
+        </label>
+      )}
       <Search
         className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
         aria-hidden="true"
       />
       <Input
         id={id}
-        type="search"
+        type={inputType}
         value={input}
         onChange={(event) => {
           const text = event.target.value;

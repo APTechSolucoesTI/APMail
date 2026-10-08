@@ -1,3 +1,4 @@
+import { tableParameters } from '@/lib/table-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { z } from 'zod';
@@ -38,6 +39,7 @@ function Scheduled() {
     queryFn: () => api<Mailbox[]>('/mailboxes'),
   });
   const params = new URLSearchParams({
+    ...tableParameters(search),
     tab: search.tab,
     page: String(search.page),
     page_size: String(search.pageSize),

@@ -1,5 +1,29 @@
 # Publicação do APMail
 
+## Atualização vigente — POP3, caixas locais e backups (0024)
+
+Aplicar `0024_mail_archives_pop3.sql` após as migrations anteriores e atualizar API/web/worker juntos. Recriar imagem do worker: Debian Bookworm, Python/pypff e script de leitura PST/OST. Commit e deploy pelo usuário.
+
+1. Fazer backup do banco/volume e parar serviços antigos durante a migration.
+2. Executar `migrate` da nova imagem, confirmar código 0 e iniciar serviços com o mesmo `STORAGE_DIR`. Caixas/mensagens existentes permanecem IMAP; backfill da medição suporta cota cheia. **Não executar reset.**
+3. Testar POP3 e SMTP antes de salvar; conferir caixa local sem credenciais, importação pequena e download MBOX/ZIP EML.
+4. Conferir prévia de cota, pausa/retomada e acesso com usuários de outras caixas/empresas. Verificar o Nginx atualizado e limites/timeouts do proxy externo para arquivos grandes.
+
+Detalhes em [EMAILS-POP3-IMPORTACAO-BACKUP.md](EMAILS-POP3-IMPORTACAO-BACKUP.md). Exportação nativa PST/OST não foi adicionada; importação lê esses formatos por libpff. Agenda de contatos é independente dos backups de e-mail. A seção 0023 continua aplicável às mudanças de contatos/etiquetas.
+
+## Atualização vigente — contatos Outlook e etiquetas por caixa (0023)
+
+Publicação pelo usuário. Aplicar todas as migrations pendentes, incluindo `0023_contacts_outlook_label_mailboxes.sql`, e atualizar API/web/worker juntos. Esta entrega não publicou nem alterou produção.
+
+1. Preservar backup operacional de banco/arquivos e pausar API/worker anteriores durante a transição; eles ainda usam tabelas retiradas.
+2. Executar migrate da nova imagem e confirmar código 0 antes de iniciar os serviços. Em desenvolvimento, usar `corepack pnpm --filter @apmail/db migrate` com ambiente correto.
+3. A migração remove tabelas/vínculos/legado de empresas do diretório, conforme autorização para descartar testes. Preserva contatos/canais/apelidos e nome da empresa principal como texto quando disponível. **Não executar reset do banco.** Tenâncias, caixas e mensagens permanecem.
+4. Verificar Global/Individual em Configurações → Empresa. Padrão Global; mudanças só afetam novos contatos. Conferir privacidade com contas distintas, validação de canais e autoria/conflito de edição.
+5. Conferir globais primeiro, seleção de caixas e contadores por caixa. Revisar regras pessoais antigas com globais: ficam inativas com motivo; ajustar a etiqueta ou criar regra da caixa autorizada.
+6. Importar um modelo de teste pela interface, revisar prévia/relatório e conferir retomada. Conferir reconciliação de armazenamento após retirada do diretório e expiração de importações (24 horas).
+
+Migration 0023 é transacional, não modifica 0022 nem limites/checkpoints de sincronização. Backfill funciona com cota cheia; novas gravações mantêm bloqueios de capacidade. Recuperação para versão antiga exige backup compatível, não downgrade isolado de API/worker. As instruções seguintes de 0022 são históricas e foram substituídas nos conceitos de diretório por esta seção.
+
 ## Entrega local de 07/10/2026 — contatos, etiquetas e envio
 
 Aplicar `0022_directory_labels.sql` após todas as migrations anteriores. Publicar API, web e worker da mesma versão. Commit e deploy pelo usuário; esta implementação não alterou produção.

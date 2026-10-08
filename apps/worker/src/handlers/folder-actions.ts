@@ -34,22 +34,17 @@ export async function handleFolderAction(
         .where('tenant_id', '=', action.tenant_id)
         .where('deleted_at', 'is', null)
         .executeTakeFirstOrThrow();
-      const p = z
+      let t: Awaited<ReturnType<typeof transports>> | undefined;
+      try {
+        const p = z
           .object({
             folder_id: z.uuid().optional(),
             imap_path: z.string().optional(),
             name: z.string().optional(),
             parent_id: z.uuid().nullable().optional(),
           })
-          .parse(action.payload),
-        t = await transports(r.db, box, r.env);
-      try {
-        if (box.status !== 'active') throw Error('Caixa indisponível.');
-        await r.db
-          .updateTable('mail_actions')
-          .set({ status: 'processing', attempts: action.attempts + 1 })
-          .where('id', '=', action.id)
-          .execute();
+          .parse(action.payload);
+        if (box.status !== 'active') throw new UnrecoverableError('Caixa indisponível.');
         if (
           action.requested_by &&
           (await r.db
@@ -59,6 +54,102 @@ export async function handleFolderAction(
             .executeTakeFirst())
         )
           throw new UnrecoverableError('O superadmin não pode alterar pastas.');
+        await r.db
+          .updateTable('mail_actions')
+          .set({ status: 'processing', attempts: action.attempts + 1 })
+          .where('id', '=', action.id)
+          .execute();
+        const referenceFolder = p.folder_id ?? p.parent_id;
+        const localFolder = referenceFolder
+          ? await r.db
+              .selectFrom('folders')
+              .select('is_local')
+              .where('id', '=', referenceFolder)
+              .where('tenant_id', '=', box.tenant_id)
+              .where('mailbox_id', '=', box.id)
+              .where('deleted_at', 'is', null)
+              .executeTakeFirst()
+          : null;
+        if (box.receiving_protocol !== 'imap' || localFolder?.is_local) {
+          await r.db.transaction().execute(async (tx) => {
+            if (action.type === 'create_folder')
+              await tx
+                .insertInto('folders')
+                .values({
+                  tenant_id: box.tenant_id,
+                  mailbox_id: box.id,
+                  name: p.name!,
+                  imap_path: p.imap_path!,
+                  parent_id: p.parent_id ?? null,
+                  is_local: true,
+                })
+                .onConflict((oc) =>
+                  oc
+                    .columns(['mailbox_id', 'imap_path'])
+                    .where('deleted_at', 'is', null)
+                    .doNothing(),
+                )
+                .execute();
+            else if (action.type === 'delete_folder') {
+              const occupied = await tx
+                .selectFrom('messages')
+                .select('id')
+                .where('folder_id', '=', p.folder_id!)
+                .where('tenant_id', '=', box.tenant_id)
+                .where('deleted_at', 'is', null)
+                .executeTakeFirst();
+              const child = await tx
+                .selectFrom('folders')
+                .select('id')
+                .where('parent_id', '=', p.folder_id!)
+                .where('deleted_at', 'is', null)
+                .executeTakeFirst();
+              if (occupied || child) throw new Error('Esvazie a pasta antes de excluir.');
+              await tx
+                .updateTable('folders')
+                .set({ deleted_at: new Date() })
+                .where('id', '=', p.folder_id!)
+                .where('tenant_id', '=', box.tenant_id)
+                .where('special_use', 'is', null)
+                .execute();
+            } else {
+              const folder = await tx
+                .selectFrom('folders')
+                .selectAll()
+                .where('id', '=', p.folder_id!)
+                .where('tenant_id', '=', box.tenant_id)
+                .executeTakeFirstOrThrow();
+              if (folder.special_use) throw new Error('Pasta especial não pode ser alterada.');
+              const all = await tx
+                .selectFrom('folders')
+                .selectAll()
+                .where('mailbox_id', '=', box.id)
+                .where('tenant_id', '=', box.tenant_id)
+                .where('is_local', '=', true)
+                .execute();
+              for (const f of all)
+                if (f.id === folder.id || f.imap_path.startsWith(folder.imap_path + '/'))
+                  await tx
+                    .updateTable('folders')
+                    .set({
+                      imap_path: p.imap_path! + f.imap_path.slice(folder.imap_path.length),
+                      ...(f.id === folder.id ? { name: p.name! } : {}),
+                    })
+                    .where('id', '=', f.id)
+                    .execute();
+            }
+            await tx
+              .updateTable('mail_actions')
+              .set({ status: 'done', processed_at: new Date(), last_error: null })
+              .where('id', '=', action.id)
+              .execute();
+          });
+          r.io
+            .to('mailbox:' + box.id)
+            .emit('folders:changed', { mailbox_id: box.id, action_id: action.id, status: 'done' });
+          return;
+        }
+        t = await transports(r.db, box, r.env);
         await t.imap.connect();
         const remote = await t.imap.list();
         if (action.type === 'create_folder') {
@@ -172,7 +263,7 @@ export async function handleFolderAction(
         }
         throw error;
       } finally {
-        await t.close();
+        await t?.close();
       }
     },
     30000,

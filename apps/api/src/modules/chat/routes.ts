@@ -15,6 +15,7 @@ import { requireTenant } from '../../authz/context.js';
 import { onlineUsers } from '../../plugins/tenant-presence.js';
 import {
   conversations,
+  conversationList,
   createDirect,
   createGroup,
   changeGroup,
@@ -29,6 +30,7 @@ export function registerChat(app: FastifyInstance, r: Resources) {
   app.get('/api/chat/presence', async (req) => ({
     online_user_ids: await onlineUsers(r, requireTenant(req.ctx).tenantId),
   }));
+  app.get('/api/chat/conversations/list', (req) => conversationList(r, req.ctx, req.query));
   app.get('/api/chat/conversations', (req) => conversations(r, req.ctx));
   app.post('/api/chat/conversations/direct', (req) =>
     createDirect(r, req.ctx, directConversationSchema.parse(req.body).user_id),

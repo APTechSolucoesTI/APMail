@@ -7,11 +7,13 @@ export const QUEUE_NAMES = [
   'system-email',
   'maintenance',
   'storage-metering',
+  'mail-archive',
 ] as const;
 export type QueueName = (typeof QUEUE_NAMES)[number];
 export type QueuePayloads = {
   'mailbox-sync': { mailbox_id: string };
   'mailbox-connection': { mailbox_id: string };
+  'mail-archive': { import_id: string };
   'outbox-send': { outbox_id: string };
   'mail-actions': { action_id: string };
   'rules-apply': { rule_id: string; since_days: number };

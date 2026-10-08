@@ -36,6 +36,11 @@ function Tenant() {
         <ErrorState onRetry={() => void q.refetch()} />
       ) : (
         <section className="max-w-2xl rounded-lg border bg-card p-4">
+          <p className="mb-4 rounded-md border bg-secondary p-3 text-sm">
+            O modo da agenda vale somente para novos contatos. Contatos existentes mantêm sua
+            visibilidade. Contatos individuais anteriores nunca serão compartilhados ao selecionar
+            Global.
+          </p>
           <SchemaForm
             cancelLabel="Cancelar"
             schema={z.object({
@@ -43,9 +48,18 @@ function Tenant() {
               timezone: timezoneSchema,
               settings: tenantSettingsSchema,
             })}
-            defaults={{ ...q.data }}
+            defaults={{ ...q.data, settings: { contact_mode: 'tenant', ...q.data?.settings } }}
             fields={[
               { name: 'name', label: 'Nome da empresa' },
+              {
+                name: 'settings.contact_mode',
+                label: 'Modo de novos contatos',
+                type: 'select',
+                options: [
+                  { value: 'tenant', label: 'Global — compartilhados com a empresa' },
+                  { value: 'personal', label: 'Individual — privados por usuário' },
+                ],
+              },
               { name: 'timezone', label: 'Fuso horário', type: 'timezone' },
               {
                 name: 'settings.max_attachment_mb',

@@ -1,3 +1,4 @@
+import { columnFilters, columnOrder } from './list-columns.js';
 import { isTenantAdmin } from '@apmail/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -515,6 +516,16 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         ]),
       );
     }
+    const columns = {
+      action: sql`a.action`,
+      actor_name: sql`u.full_name`,
+      entity_type: sql`a.entity_type`,
+      created_at: sql`a.created_at`,
+    };
+    query = query.where(columnFilters(req.query, columns));
+    query = query.where(
+      sql<boolean>`not (a.entity_type='contact' and ((a.metadata->>'scope'='personal' and a.actor_id is distinct from ${c.userId}::uuid) or exists(select 1 from contacts c where c.id=a.entity_id and c.scope='personal' and c.owner_user_id<>${c.userId})))`,
+    );
     const count = await query
       .select((eb) => eb.fn.countAll<number>().as('n'))
       .executeTakeFirstOrThrow();
@@ -528,7 +539,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         'a.created_at',
         'u.full_name as actor_name',
       ])
-      .orderBy('a.created_at', 'desc')
+      .orderBy(columnOrder(req.query, columns, sql`a.created_at desc`))
       .orderBy('a.id', 'desc')
       .offset((q.page - 1) * q.pageSize)
       .limit(q.pageSize)

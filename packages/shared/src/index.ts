@@ -19,3 +19,5 @@ export * from './global-search.js';
 export * from './platform-storage.js';
 export * from './platform-metering.js';
 export * from './storage-quotas.js';
+export * from './contact-import.js';
+export * from './mail-archives.js';

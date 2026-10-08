@@ -3,6 +3,7 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { sql } from 'kysely';
+import { contactSchema } from '@apmail/shared';
 import { createDb, migrate } from '@apmail/db';
 import { buildApp } from '../../src/app.js';
 import { envSchema } from '../../src/env.js';
@@ -18,8 +19,6 @@ const db = createDb(url),
   member = randomUUID(),
   foreign = randomUUID(),
   platform = randomUUID();
-const firstCompany = randomUUID(),
-  secondCompany = randomUUID();
 const box = randomUUID(),
   privateBox = randomUUID(),
   foreignBox = randomUUID(),
@@ -56,7 +55,18 @@ const call = (
       cookie: cookies.get(user) ?? '',
       ...(body ? { 'content-type': 'application/json' } : {}),
     },
-    ...(body ? { payload: JSON.stringify(body) } : {}),
+    ...(body
+      ? {
+          payload: JSON.stringify(
+            method === 'PUT' && path.startsWith('/api/contacts/')
+              ? contactSchema.parse({
+                  ...(body as object),
+                  expected_version: (body as { version?: number }).version,
+                })
+              : body,
+          ),
+        }
+      : {}),
   });
 const search = (q: string, user = member) =>
   call('GET', '/api/search?' + new URLSearchParams({ q }), user);
@@ -194,18 +204,6 @@ beforeAll(async () => {
     .values([
       { tenant_id: tenant, user_id: member, name: 'My Needle', color: '#CCFBF1' },
       { tenant_id: tenant, user_id: owner, name: 'Other Needle', color: '#CCFBF1' },
-    ])
-    .execute();
-  await db
-    .insertInto('contact_companies')
-    .values([
-      {
-        id: firstCompany,
-        tenant_id: tenant,
-        name: 'First Needle',
-        addresses: JSON.stringify([{ street: 'Rua A', city: 'São Paulo' }]),
-      },
-      { id: secondCompany, tenant_id: tenant, name: 'Second Needle' },
     ])
     .execute();
 }, 120000);
@@ -424,10 +422,7 @@ it('troca de remetente preserva anexos, CID, medição e rascunho em falha de co
 const payload = {
   name: 'Pessoa Áção Needle',
   job_title: 'Gestor',
-  companies: [
-    { id: firstCompany, name: 'First Needle', is_primary: true },
-    { id: secondCompany, name: 'Second Needle' },
-  ],
+  company: 'First Needle',
   emails: [
     { email: 'one-' + tenant + '@qa.local', is_primary: true },
     { email: 'two-' + tenant + '@qa.local' },
@@ -445,35 +440,33 @@ it('salva múltiplos canais e troca os principais, incluindo empresas sem CNPJ',
   const detail = (await call('GET', '/api/contacts/' + contact, member)).json();
   expect(detail.phones).toHaveLength(2);
   expect(detail.emails).toHaveLength(2);
-  expect(detail.phone).toBe('(11) 99999-0000');
+  expect(detail.phone).toBe('+5511999990000');
   detail.emails.forEach((e: { is_primary: boolean }) => {
     e.is_primary = false;
   });
   detail.emails[1].is_primary = true;
-  detail.companies.forEach((company: { id: string; is_primary: boolean }) => {
-    company.is_primary = company.id === secondCompany;
-  });
+  detail.company = 'Second Needle';
   detail.phones[0].is_primary = false;
   detail.phones[1].is_primary = true;
   delete detail.visibility;
   delete detail.mailbox_ids;
-  const updated = await call('PUT', '/api/contacts/' + contact, member, detail);
+  const updated = await call('PUT', '/api/contacts/' + contact, member, {
+    ...detail,
+    scope: undefined,
+    owner_user_id: undefined,
+    expected_version: detail.version,
+  });
   expect(updated.statusCode, updated.body).toBe(200);
   const reread = (await call('GET', '/api/contacts/' + contact, member)).json();
   expect(reread.emails[0].email).toBe(payload.emails[1]!.email);
-  expect(reread.phone).toBe('11 3333-2222');
-  expect(reread.companies.find((company: { is_primary: boolean }) => company.is_primary).name).toBe(
-    'Second Needle',
-  );
+  expect(reread.phone).toBe('+551133332222');
+  expect(reread.company).toBe('Second Needle');
   const rows = (await call('GET', '/api/contacts?search=Pessoa', member)).json().items;
   expect(rows.find((r: { id: string }) => r.id === contact)).toMatchObject({
     primary_email: payload.emails[1]!.email,
-    primary_company: 'Second Needle',
+    company: 'Second Needle',
     job_title: 'Gestor',
   });
-  expect(
-    await db.selectFrom('contact_companies').select('id').where('tenant_id', '=', tenant).execute(),
-  ).toHaveLength(2);
 });
 it('preserva a regra de e-mail único e recusa múltiplos principais ou telefones duplicados', async () => {
   expect(
@@ -502,21 +495,33 @@ it('preserva a regra de e-mail único e recusa múltiplos principais ou telefone
     ).statusCode,
   ).toBe(400);
 });
-it('lista e vincula somente empresas dos contatos visíveis, sem duplicar empresa sem CNPJ', async () => {
-  const companies = (await call('GET', '/api/contacts/companies?search=Second', member)).json()
-    .items;
-  expect(companies).toHaveLength(1);
+it('autocompleta empresa/cargo e bloqueia nomes globais normalizados', async () => {
   const result = await call('POST', '/api/contacts', member, {
-    name: 'Another contact',
+    name: 'Outro Nome Completo',
+    company: '  second needle  ',
+    job_title: 'gestor',
     emails: [{ email: randomUUID() + '@qa.local' }],
-    companies: [companies[0]],
   });
   expect(result.statusCode, result.body).toBe(201);
+  expect((await call('GET', '/api/contacts/' + result.json().id, member)).json()).toMatchObject({
+    company: 'Second Needle',
+    job_title: 'Gestor',
+  });
   expect(
-    await db.selectFrom('contact_companies').select('id').where('tenant_id', '=', tenant).execute(),
-  ).toHaveLength(2);
-  expect((await call('GET', '/api/contacts/companies', foreign)).json().items).toHaveLength(0);
+    (await call('GET', '/api/contacts/suggestions?field=company&search=Needle', member)).json()
+      .items,
+  ).toContain('Second Needle');
+  expect(
+    (
+      await call('POST', '/api/contacts', member, {
+        ...payload,
+        name: ' pessoa acao   needle ',
+        emails: [{ email: randomUUID() + '@qa.local' }],
+      })
+    ).statusCode,
+  ).toBe(409);
 });
+
 it('busca global não revela caixas, pastas, mensagens nem etiquetas sem acesso', async () => {
   const result = await search('needle');
   expect(result.statusCode, result.body).toBe(200);
@@ -546,22 +551,16 @@ it('busca global não revela caixas, pastas, mensagens nem etiquetas sem acesso'
       .groups.find((g: { category: string }) => g.category === 'email').items.length,
   ).toBeGreaterThan(0);
 });
-it('agenda completa é compartilhada na tenância e não concede mensagens restritas', async () => {
-  const company = (
-    await call('POST', '/api/companies', owner, {
-      name: 'Shared Company',
-      addresses: [{ street: 'Rua compartilhada' }],
-    })
-  ).json();
+it('agenda global é compartilhada e não concede mensagens restritas', async () => {
   const created = await call('POST', '/api/contacts', owner, {
     name: 'Shared Contact',
+    company: 'Shared Company',
     emails: [{ email: randomUUID() + '@qa.local' }],
-    companies: [{ id: company.id, name: 'Shared Company' }],
-    phones: [{ number: '555777' }],
+    phones: [{ number: '11 95555-7777' }],
   });
   expect(created.statusCode, created.body).toBe(201);
   expect((await call('GET', '/api/contacts/' + created.json().id, member)).statusCode).toBe(200);
-  for (const term of ['Shared Company', '555777'])
+  for (const term of ['Shared Company', '95555'])
     expect(
       (await search(term)).json().groups.find((g: { category: string }) => g.category === 'contact')
         .items.length,
@@ -679,7 +678,7 @@ it('telefones novos contam na cota e uma falha não altera o cadastro', async ()
   try {
     const result = await call('PUT', '/api/contacts/' + contact, owner, {
       ...detail,
-      phones: [...detail.phones, { number: '555-222-111', label: 'Extra' }],
+      phones: [...detail.phones, { number: '11 98888-9999', label: 'Extra' }],
     });
     expect(result.statusCode, result.body).toBe(409);
     expect((await call('GET', '/api/contacts/' + contact, owner)).json().phones).toHaveLength(2);
@@ -689,103 +688,80 @@ it('telefones novos contam na cota e uma falha não altera o cadastro', async ()
     );
   }
 });
-it('cadastra empresa independente, pesquisa no mesmo campo e vincula sem duplicar', async () => {
-  const created = await call('POST', '/api/companies', member, {
-    name: 'Razão Árvore',
-    trade_name: 'Fantasia Directory',
-    cnpj: '12.345.678/0001-99',
-    addresses: [
-      { cep: '01001000', street: 'Rua QA' },
-      { cep: '20000000', street: 'Rua B' },
-    ],
-  });
-  expect(created.statusCode, created.body).toBe(201);
-  const companyId = created.json().id;
-  for (const term of [
-    'razao arvore',
-    'Fantasia Directory',
-    '12.345.678/0001-99',
-    '12345678000199',
-  ]) {
-    const result = await call(
-      'GET',
-      '/api/companies?' + new URLSearchParams({ search: term }),
-      member,
-    );
-    expect(result.statusCode, result.body).toBe(200);
-    expect(result.json().items.some((r: { id: string }) => r.id === companyId)).toBe(true);
-  }
-  const company = (await call('GET', '/api/companies/' + companyId, member)).json();
-  expect(company.addresses).toHaveLength(2);
-  expect(company.visibility).toBe('all');
-  const linked = await call('POST', '/api/contacts', member, {
-    name: 'Contato Directory',
-    emails: [{ email: randomUUID() + '@qa.local' }],
-    companies: [company],
-  });
-  expect(linked.statusCode, linked.body).toBe(201);
+it('agenda individual é privada inclusive para admin e modos novos não convertem antigos', async () => {
   expect(
-    (
-      await call('POST', '/api/companies', member, {
-        name: 'Duplicate CNPJ',
-        cnpj: '12345678000199',
-      })
-    ).statusCode,
-  ).toBe(409);
-  expect(
-    (
-      await call('PUT', '/api/companies/' + companyId, member, {
-        ...company,
-        name: 'Razão revisada',
-        visibility: undefined,
-        mailbox_ids: undefined,
-      })
-    ).statusCode,
+    (await call('PATCH', '/api/tenant', owner, { settings: { contact_mode: 'personal' } }))
+      .statusCode,
   ).toBe(200);
-  expect(
-    (await call('GET', '/api/contacts/' + linked.json().id, member)).json().companies[0].name,
-  ).toBe('Razão revisada');
-  expect((await call('DELETE', '/api/companies/' + companyId, owner)).statusCode).toBe(409);
-  expect(
-    (await search('Razão revisada'))
-      .json()
-      .groups.find((g: { category: string }) => g.category === 'company').items[0].url,
-  ).toContain('companyId=');
-});
-it('empresas são compartilhadas com membros da tenância e isoladas das demais', async () => {
-  const created = await call('POST', '/api/companies', member, {
-    name: 'Directory Shared',
-    addresses: [{ street: 'Endereço único' }],
-  });
-  expect(created.statusCode, created.body).toBe(201);
-  const id = created.json().id;
-  expect((await call('GET', '/api/companies/' + id, owner)).statusCode).toBe(200);
-  expect((await call('GET', '/api/companies/' + id, foreign)).statusCode).toBe(404);
-  expect(
-    (await call('GET', '/api/companies?search=Directory Shared', member)).json().items,
-  ).toHaveLength(1);
-  expect((await call('DELETE', '/api/companies/' + id, member)).statusCode).toBe(403);
-  expect((await call('DELETE', '/api/companies/' + id, owner)).statusCode).toBe(200);
-});
-
-it('contato sem empresa não recebe endereço e conserva unicidade do e-mail', async () => {
   const email = randomUUID() + '@qa.local',
-    body = { name: 'Sem empresa', emails: [{ email }] };
-  const created = await call('POST', '/api/contacts', member, body);
-  expect(created.statusCode, created.body).toBe(201);
-  const detail = (await call('GET', '/api/contacts/' + created.json().id, member)).json();
-  expect(detail.companies).toHaveLength(0);
-  expect(detail.emails[0].links).toHaveLength(0);
-  expect(detail).not.toHaveProperty('addresses');
+    body = {
+      name: 'Privado Completo Exclusivo',
+      company: 'Privado Somente Meu',
+      emails: [{ email }],
+    };
+  const a = await call('POST', '/api/contacts', member, body),
+    b = await call('POST', '/api/contacts', owner, body);
+  expect(a.statusCode, a.body).toBe(201);
+  expect(b.statusCode, b.body).toBe(201);
+  expect((await call('GET', '/api/contacts/' + a.json().id, owner)).statusCode).toBe(404);
+  expect((await call('GET', '/api/contacts/' + b.json().id, member)).statusCode).toBe(404);
   expect((await call('POST', '/api/contacts', member, body)).statusCode).toBe(409);
   expect(
-    (
-      await call('POST', '/api/contacts', member, {
-        ...body,
-        emails: [{ email: randomUUID() + '@qa.local', links: [{ address: { street: 'Avulso' } }] }],
-      })
-    ).statusCode,
-  ).toBe(400);
+    (await call('PATCH', '/api/tenant', owner, { settings: { contact_mode: 'tenant' } }))
+      .statusCode,
+  ).toBe(200);
+  expect((await call('GET', '/api/contacts/' + a.json().id, owner)).statusCode).toBe(404);
+  const global = await call('POST', '/api/contacts', member, {
+    ...body,
+    name: 'Agora Global Completo',
+  });
+  expect(global.statusCode, global.body).toBe(201);
+  expect((await call('GET', '/api/contacts/' + global.json().id, owner)).statusCode).toBe(200);
+  expect((await call('DELETE', '/api/contacts/' + a.json().id, member)).statusCode).toBe(200);
+});
+
+it('importa CSV com validação, relatório e confirmação idempotente', async () => {
+  const email = randomUUID() + '@qa.local',
+    preview = await call('POST', '/api/contacts/import/preview', member, {
+      format: 'csv',
+      content:
+        'Full Name,E-mail Address,Mobile Phone\nImportação Nome Completo,' +
+        email +
+        ',11999990000\nInválido Nome,sem-email,123',
+    });
+  expect(preview.statusCode, preview.body).toBe(200);
+  expect(preview.json().valid).toBe(1);
+  const path = '/api/contacts/import/' + preview.json().id + '/confirm',
+    confirm = await call('POST', path, member, { duplicates: 'skip' });
+  expect(confirm.statusCode, confirm.body).toBe(200);
+  expect(confirm.json().cursor).toBe(2);
+  expect(confirm.json().results.map((r: { status: string }) => r.status)).toEqual([
+    'created',
+    'invalid',
+  ]);
+  expect((await call('POST', path, member, { duplicates: 'skip' })).json().cursor).toBe(2);
+  expect((await call('GET', '/api/contacts?email=' + email, member)).json().total).toBe(1);
+  expect((await call('GET', '/api/contacts/import/' + preview.json().id, owner)).statusCode).toBe(
+    404,
+  );
+});
+
+it('contato telefônico permite endereço próprio sem empresa e valida canais na API', async () => {
+  const created = await call('POST', '/api/contacts', member, {
+    name: 'Telefone Sem Empresa',
+    phones: [{ number: '11 98888-7777' }],
+    addresses: [{ street: 'Rua Avulsa' }],
+  });
+  expect(created.statusCode, created.body).toBe(201);
+  const detail = (await call('GET', '/api/contacts/' + created.json().id, member)).json();
+  expect(detail.emails).toHaveLength(0);
+  expect(detail.addresses[0].street).toBe('Rua Avulsa');
+  for (const invalid of [{ emails: [{ email: 'errado' }] }, { phones: [{ number: '123' }] }])
+    expect(
+      (await call('POST', '/api/contacts', member, { name: 'Nome Inválido Completo', ...invalid }))
+        .statusCode,
+    ).toBe(400);
+  expect((await call('GET', '/api/companies', owner)).statusCode).toBe(404);
 });
 
 it('agenda também é acessível a membros sem caixas', async () => {
@@ -797,7 +773,7 @@ it('agenda também é acessível a membros sem caixas', async () => {
   try {
     expect((await call('GET', '/api/contacts/' + contact, owner)).statusCode).toBe(200);
     expect((await call('GET', '/api/contacts/' + contact, member)).statusCode).toBe(200);
-    expect((await call('GET', '/api/companies', owner)).statusCode).toBe(200);
+
     expect((await call('GET', '/api/contacts', member)).json().total).toBeGreaterThan(0);
   } finally {
     await db
@@ -862,4 +838,232 @@ it('histórico retorna somente pastas permitidas, sem ampliar acesso pela agenda
   expect(result.body).toContain('Visible Áção Needle');
   expect(result.body).not.toContain('Secret');
   expect(result.json().total).toBe(1);
+});
+it('filtra contatos, e-mails, envios e chats antes da paginação e valida as colunas', async () => {
+  const columns = (values: Record<string, string[]>) =>
+    new URLSearchParams({ columns: JSON.stringify(values) });
+  const contacts = await call(
+    'GET',
+    '/api/contacts?pageSize=10&' + columns({ company: ['second'] }),
+    member,
+  );
+  expect(contacts.statusCode, contacts.body).toBe(200);
+  expect(contacts.json().total).toBe(2);
+  expect(
+    contacts.json().items.every((row: { company: string }) => row.company === 'Second Needle'),
+  ).toBe(true);
+  expect((await call('GET', '/api/contacts?columns=invalid', member)).statusCode).toBe(400);
+  expect(
+    (await call('GET', '/api/contacts?' + columns({ owner_user_id: ['x'] }), member)).statusCode,
+  ).toBe(400);
+  const mail = await call(
+    'GET',
+    '/api/mailboxes/' + box + '/threads?view=search&' + columns({ subject: ['Visible'] }),
+    member,
+  );
+  expect(mail.statusCode, mail.body).toBe(200);
+  expect(mail.json().total).toBe(1);
+  expect(mail.body).not.toContain('Secret');
+  const sent = await call(
+    'GET',
+    '/api/outbox?tab=drafts&' + columns({ subject: ['Channels own'] }),
+    member,
+  );
+  expect(sent.statusCode, sent.body).toBe(200);
+  expect(sent.json().total).toBe(1);
+  const chats = await call(
+    'GET',
+    '/api/chat/conversations/list?' + columns({ name: ['Channels'] }),
+    member,
+  );
+  expect(chats.statusCode, chats.body).toBe(200);
+  expect(chats.json().total).toBe(1);
+  expect(
+    (
+      await call('GET', '/api/chat/conversations/list?' + columns({ name: ['Channels'] }), owner)
+    ).json().total,
+  ).toBe(0);
+});
+it('etiqueta selecionada conta só sua caixa e regras separam pessoais de globais', async () => {
+  const created = await call('POST', '/api/labels', owner, {
+    name: 'Global somente caixa QA',
+    color: '#ABCDEF',
+    scope: 'tenant',
+    mailbox_mode: 'selected',
+    mailbox_ids: [box],
+  });
+  expect(created.statusCode, created.body).toBe(201);
+  const labelId = created.json().id;
+  expect(
+    (await call('PATCH', '/api/labels/' + labelId, owner, { color: '#1686A7' })).statusCode,
+  ).toBe(200);
+  expect(
+    (await call('GET', '/api/labels?mailbox_id=' + privateBox, owner))
+      .json()
+      .some((label: { id: string }) => label.id === labelId),
+  ).toBe(false);
+  expect(
+    (
+      await call('POST', '/api/labels', member, {
+        name: 'Privada caixa alheia',
+        color: '#ABCDEF',
+        mailbox_mode: 'selected',
+        mailbox_ids: [privateBox],
+      })
+    ).statusCode,
+  ).toBe(404);
+  expect(
+    (
+      await call('PUT', '/api/threads/' + thread + '/labels', member, {
+        label_ids: [],
+        global_add: [labelId],
+      })
+    ).statusCode,
+  ).toBe(200);
+  const listed = (await call('GET', '/api/labels?mailbox_id=' + box, member)).json();
+  expect(listed.find((label: { id: string }) => label.id === labelId).thread_count).toBe(1);
+  const rule = {
+    mailbox_id: box,
+    scope: 'personal',
+    name: 'Escopo QA',
+    is_active: true,
+    priority: 100,
+    match_mode: 'all',
+    conditions: [{ field: 'subject', operator: 'contains', value: 'QA' }],
+    actions: [{ type: 'add_label', label_id: labelId }],
+    stop_processing: false,
+  };
+  expect((await call('POST', '/api/rules', member, rule)).statusCode).toBe(404);
+  const shared = await call('POST', '/api/rules', owner, { ...rule, scope: 'mailbox' });
+  expect(shared.statusCode, shared.body).toBe(201);
+  const personal = await call('POST', '/api/labels', owner, {
+    name: 'Pessoal QA regras',
+    color: '#ABCDEF',
+  });
+  expect(
+    (
+      await call('POST', '/api/rules', owner, {
+        ...rule,
+        scope: 'mailbox',
+        actions: [{ type: 'add_label', label_id: personal.json().id }],
+      })
+    ).statusCode,
+  ).toBe(404);
+  expect(
+    (await call('PATCH', '/api/labels/' + labelId, owner, { mailbox_ids: [privateBox] }))
+      .statusCode,
+  ).toBe(200);
+  const rules = (await call('GET', '/api/rules?scope=mailbox', owner)).json();
+  expect(rules.find((value: { id: string }) => value.id === shared.json().id)).toMatchObject({
+    is_active: false,
+    review_reason: expect.any(String),
+  });
+  expect(
+    (await call('GET', '/api/threads/' + thread, member))
+      .json()
+      .labels.some((label: { id: string }) => label.id === labelId),
+  ).toBe(false);
+});
+it('importação preserva canais e dados existentes e retoma após bloqueio de cota', async () => {
+  const email = randomUUID() + '@qa.local',
+    another = randomUUID() + '@qa.local';
+  const created = await call('POST', '/api/contacts', member, {
+    name: 'Nome Importação Atualização',
+    company: 'Empresa preservada',
+    emails: [{ email }, { email: another }],
+    phones: [{ number: '11988887777' }],
+    addresses: [{ street: 'Rua preservada' }],
+  });
+  expect(created.statusCode, created.body).toBe(201);
+  const preview = await call('POST', '/api/contacts/import/preview', member, {
+    format: 'csv',
+    content:
+      'Full Name,E-mail Address,Company\nNome Importação Atualização,' +
+      email +
+      ',\nNovo Quota Importação,' +
+      randomUUID() +
+      '@qa.local,Nova Empresa',
+  });
+  expect(preview.statusCode, preview.body).toBe(200);
+  expect(preview.json().rows[0].duplicate).toBe('existing');
+  const id = preview.json().id;
+  const used = (
+    await sql<{
+      bytes: string;
+    }>`select storage_quota_usage(${tenant}::uuid)::text as bytes`.execute(db)
+  ).rows[0]!.bytes;
+  await sql`update tenant_storage_limits set storage_limit_bytes=${used}::bigint where tenant_id=${tenant}::uuid`.execute(
+    db,
+  );
+  try {
+    expect(
+      (
+        await call('POST', '/api/contacts/import/' + id + '/confirm', member, {
+          duplicates: 'update',
+        })
+      ).statusCode,
+    ).toBe(409);
+    const progress = (await call('GET', '/api/contacts/import/' + id, member)).json();
+    expect(progress.cursor).toBeLessThan(2);
+    expect((await call('GET', '/api/contacts/imports', owner)).body).not.toContain(id);
+  } finally {
+    await sql`update tenant_storage_limits set storage_limit_bytes=null where tenant_id=${tenant}::uuid`.execute(
+      db,
+    );
+  }
+  const resumed = await call('POST', '/api/contacts/import/' + id + '/confirm', member, {
+    duplicates: 'update',
+  });
+  expect(resumed.statusCode, resumed.body).toBe(200);
+  expect(resumed.json().cursor).toBe(2);
+  const detail = (await call('GET', '/api/contacts/' + created.json().id, member)).json();
+  expect(detail.company).toBe('Empresa preservada');
+  expect(detail.emails).toHaveLength(2);
+  expect(detail.phones).toHaveLength(1);
+  expect(detail.addresses[0].street).toBe('Rua preservada');
+  expect(
+    (await call('POST', '/api/contacts/import/' + id + '/confirm', member, { duplicates: 'skip' }))
+      .statusCode,
+  ).toBe(409);
+});
+it('importação exige nova prévia após mudança do modo e edição detecta versão antiga', async () => {
+  const preview = await call('POST', '/api/contacts/import/preview', member, {
+    format: 'vcf',
+    content:
+      'BEGIN:VCARD\nVERSION:4.0\nFN:Nome VCF Modo QA\nEMAIL:' +
+      randomUUID() +
+      '@qa.local\nEND:VCARD',
+  });
+  expect(preview.statusCode, preview.body).toBe(200);
+  await call('PATCH', '/api/tenant', owner, { settings: { contact_mode: 'personal' } });
+  expect(
+    (
+      await call('POST', '/api/contacts/import/' + preview.json().id + '/confirm', member, {
+        duplicates: 'skip',
+      })
+    ).statusCode,
+  ).toBe(409);
+  await call('PATCH', '/api/tenant', owner, { settings: { contact_mode: 'tenant' } });
+  const old = (await call('GET', '/api/contacts/' + contact, member)).json();
+  expect(
+    (await call('PUT', '/api/contacts/' + contact, owner, { ...old, job_title: 'Versão recente' }))
+      .statusCode,
+  ).toBe(200);
+  expect(
+    (
+      await call('PUT', '/api/contacts/' + contact, member, {
+        ...old,
+        job_title: 'Versão obsoleta',
+      })
+    ).statusCode,
+  ).toBe(409);
+  const current = (await call('GET', '/api/contacts/' + contact, member)).json();
+  await call('PATCH', '/api/contacts/' + contact + '/nickname', member, {
+    nickname: 'Somente apelido',
+  });
+  expect((await call('GET', '/api/contacts/' + contact, member)).json()).toMatchObject({
+    version: current.version,
+    updated_at: current.updated_at,
+    updated_by_name: current.updated_by_name,
+  });
 });

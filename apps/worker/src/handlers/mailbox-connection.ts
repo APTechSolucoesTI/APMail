@@ -3,6 +3,7 @@ import type { WorkerResources } from '../resources.js';
 import { transports, type Mailbox } from '../imap/connect.js';
 import { connectionError } from '../lib/errors.js';
 import { refreshProviderQuota } from '../imap/provider-quota.js';
+import { pop3Client } from './pop3-sync.js';
 export async function markMailboxError(
   r: WorkerResources,
   box: Mailbox,
@@ -77,8 +78,19 @@ export async function handleMailboxConnection(r: WorkerResources, mailboxId: str
   const t = await transports(r.db, box, r.env);
   let smtp = false;
   try {
-    await t.imap.connect();
-    await refreshProviderQuota(r, box, t.imap);
+    if (box.receiving_protocol === 'pop3') {
+      const pop = await pop3Client(r, box);
+      try {
+        await pop.connect();
+        await pop.list();
+        await pop.quit();
+      } finally {
+        pop.close();
+      }
+    } else if (box.receiving_protocol === 'imap') {
+      await t.imap.connect();
+      await refreshProviderQuota(r, box, t.imap);
+    }
     smtp = true;
     await t.smtp.verify();
     const changed = await r.db

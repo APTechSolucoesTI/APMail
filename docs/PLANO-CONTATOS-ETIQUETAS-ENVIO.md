@@ -1,6 +1,10 @@
 # Plano de ação — contatos, empresas, etiquetas e envio
 
+> Plano histórico. A entrega [Contatos Outlook, listagens e etiquetas](PLANO-CONTATOS-OUTLOOK-LISTAGENS-ETIQUETAS.md) substitui empresas vinculadas, visibilidade da agenda e etiquetas/regras. Publicação atual usa migration 0023; consulte o plano vigente.
+
 Data: 07/10/2026. Status: **fases 1–6 implementadas no workspace; publicação pelo usuário**.
+
+Revisão posterior em planejamento: [contatos por usuário, importação Outlook, listagens e etiquetas por caixa](PLANO-CONTATOS-OUTLOOK-LISTAGENS-ETIQUETAS.md). Quando implementada, substituirá as regras deste documento sobre empresas como entidades, agenda sempre global e etiquetas globais em regras pessoais. O comportamento atual continua sendo o desta entrega.
 
 Este documento registra as regras aprovadas e implementadas. Elas substituem as regras anteriores de vínculos por e-mail, endereços de contato e visibilidade por caixa. O comportamento entregue está em [CONTATOS-BUSCA-GLOBAL.md](CONTATOS-BUSCA-GLOBAL.md). Sem commit, deploy, importação de contatos ou alteração de produção pelo assistente.
 

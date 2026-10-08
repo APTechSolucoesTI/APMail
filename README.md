@@ -1,8 +1,10 @@
 # APMail
 
-Gestão de e-mails compartilhados do Grupo AP. Aplicação própria com React, Fastify, PostgreSQL, Redis/BullMQ e integração IMAP/SMTP.
+Gestão de e-mails compartilhados do Grupo AP. Aplicação própria com React, Fastify, PostgreSQL, Redis/BullMQ e integração IMAP/POP3/SMTP.
 
-[Contatos, empresas e busca global](docs/CONTATOS-BUSCA-GLOBAL.md): empresas opcionais vinculadas diretamente ao contato, canais/principais por estrela, títulos de telefone, apelidos privados, informações da empresa sob demanda e endereços somente nas empresas. Agenda compartilhada na tenância, histórico restrito por caixa/pasta e escolha de destinatário/remetente antes da composição. Etiquetas pessoais e globais com qualquer cor RGB. Entrega local de 07/10/2026, migration `0022`; commit e deploy pelo usuário.
+[POP3, arquivos locais e backups](docs/EMAILS-POP3-IMPORTACAO-BACKUP.md): recebimento POP3 contínuo, caixas locais, importação PST/OST/MBOX/EML/EMLX/ZIP com cotas e checkpoint, backup MBOX/ZIP EML e correção da busca global. Migration `0024`; API/web/worker juntos, commit/deploy pelo usuário. Escrita nativa de PST/OST não está incluída.
+
+[Contatos Outlook, etiquetas e busca global](docs/CONTATOS-BUSCA-GLOBAL.md): agendas globais/individuais por usuário definidas para novos cadastros pelo admin, sem conversão retroativa; autoria/versão, apelido privado, Empresa/Cargo em texto com autocomplete e endereços próprios opcionais. CSV/VCF com prévia/validação/retomada; validação de e-mail/telefone e nomes globais repetidos bloqueados. Etiquetas globais primeiro e disponibilidade por caixa; regras pessoais só com pessoais, caixa só com globais. Filtros de coluna, ordenação, Colunas/paginação como padrão das listagens. Entrega local de 07/10/2026, migration `0023`; commit e deploy pelo usuário.
 
 Funcionalidades implementadas: múltiplas empresas, caixas compartilhadas IMAP/SMTP, permissões por papel e pasta, leitura segura de HTML e anexos, composição/resposta/encaminhamento, assinaturas, agendamento com Desfazer, etiquetas pessoais, regras, filas de atendimento, atribuição, SLA, notas/menções, dashboard, auditoria e chat em tempo real. Temas claro/escuro, interface responsiva e atalhos de teclado.
 
@@ -12,7 +14,7 @@ Evolução implementada: [especificação e plano](docs/SPEC-EVOLUCAO-APMAIL.md)
 
 Instalação APTech atual: **https://app.apmail.com.br**. Domínio/APP_URL, HTTPS, SMTP global e backup diário conferidos em 05/10/2026; cadastro público desativado. Após a limpeza de produção autorizada, existe somente o superadmin, sem empresas/caixas/mensagens. O painel `/superadmin` exige concessão global independente do papel na empresa. As novas métricas e o dashboard estão implementados localmente e dependem do commit/deploy pelo usuário. Use contas distintas para plataforma e operação de e-mails. Consulte [DEPLOY](docs/DEPLOY.md) para bootstrap, atualização e recuperação. Credenciais não são versionadas.
 
-Armazenamento e dashboard: [plano entregue](docs/PLANO-ARMAZENAMENTO-DASHBOARD-SUPERADMIN.md) e [operação/coleta](docs/OPERACAO-ARMAZENAMENTO.md). Medição lógica versionada, arquivos conferidos e deduplicados, compartilhamento/retenção, reconciliação, histórico e integridade por empresa/caixa. Banco físico e infraestrutura compartilhada ficam separados. Sem planos, cotas comerciais ou bloqueios por consumo. Fontes opcionais do host precisam ser configuradas no deploy.
+Armazenamento e dashboard: [plano entregue](docs/PLANO-ARMAZENAMENTO-DASHBOARD-SUPERADMIN.md) e [operação/coleta](docs/OPERACAO-ARMAZENAMENTO.md). Medição lógica versionada, arquivos conferidos e deduplicados, compartilhamento/retenção, reconciliação, histórico e integridade por empresa/caixa. Banco físico e infraestrutura compartilhada ficam separados. Sem planos comerciais atribuídos. Limites de armazenamento/caixas configurados pelo superadmin e bloqueios com checkpoint estão descritos em [cotas](docs/COTAS-ARMAZENAMENTO.md). Fontes opcionais do host precisam ser configuradas no deploy.
 
 ## Docker e Dokploy
 

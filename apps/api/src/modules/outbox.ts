@@ -1,3 +1,4 @@
+import { columnFilters, columnOrder, localizedColumn } from './list-columns.js';
 import { isTenantAdmin } from '@apmail/shared';
 import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
@@ -40,7 +41,7 @@ import { readableFolders, folderPredicate, requireFolder } from '../authz/folder
 import { requireThread } from './mail.js';
 import type { Resources } from './resources.js';
 import { moveDraftUploads } from './outbox-mailbox.js';
-import { contactSearch, contactNickname } from './contact-directory.js';
+import { contactSearch, contactNickname, contactVisible } from './contact-directory.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 const validation = (message: string) => new ApiError(400, 'validation_error', message);
 export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
@@ -435,13 +436,49 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     );
     if (q.mailbox_id) query = query.where('o.mailbox_id', '=', q.mailbox_id);
     if (q.search) query = query.where('o.subject', 'ilike', `%${q.search}%`);
+    const columns = {
+      subject: sql`o.subject`,
+      to_addresses: sql`(select string_agg(a->>'address',', ') from jsonb_array_elements(o.to_addresses) a)`,
+      created_by: sql`u.full_name`,
+      kind: sql`o.kind`,
+      status: sql`o.status`,
+      mailbox: sql`b.name`,
+      scheduled_at: sql`o.scheduled_at`,
+      send_after: sql`o.send_after`,
+      updated_at:
+        q.tab === 'scheduled' ? sql`coalesce(o.scheduled_at,o.updated_at)` : sql`o.updated_at`,
+      attempts: sql`o.attempts`,
+      last_error: sql`o.last_error`,
+    };
+    query = query.where(
+      columnFilters(req.query, {
+        ...columns,
+        updated_at:
+          q.tab === 'scheduled' ? sql`coalesce(o.scheduled_at,o.updated_at)` : columns.updated_at,
+        kind: localizedColumn(columns.kind, {
+          new: 'Novo',
+          reply: 'Resposta',
+          reply_all: 'Resposta a todos',
+          forward: 'Encaminhamento',
+        }),
+        status: localizedColumn(columns.status, {
+          draft: 'Rascunho',
+          queued: 'Na fila',
+          scheduled: 'Agendado',
+          sending: 'Enviando',
+          sent: 'Enviado',
+          failed: 'Falha',
+          canceled: 'Cancelado',
+        }),
+      }),
+    );
     const total = Number(
       (await query.select((eb) => eb.fn.countAll().as('n')).executeTakeFirst())?.n ?? 0,
     );
     const rows = await query
       .selectAll('o')
       .select(['b.name as mailbox_name', 'u.full_name as created_by_name'])
-      .orderBy('o.updated_at', 'desc')
+      .orderBy(columnOrder(req.query, columns, sql`o.updated_at desc`))
       .orderBy('o.id', 'asc')
       .limit(q.page_size)
       .offset((q.page - 1) * q.page_size)
@@ -580,7 +617,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         r.db,
       );
     const directory =
-      await sql<Address>`select e.email as address,contacts.name as name,${contactNickname(c)} as nickname,(select cc.name from contact_company_links l join contact_companies cc on cc.id=l.company_id and cc.tenant_id=l.tenant_id where l.contact_id=contacts.id and l.tenant_id=contacts.tenant_id and l.is_primary) as company_name from contacts join contact_emails e on e.contact_id=contacts.id and e.tenant_id=contacts.tenant_id where contacts.tenant_id=${c.tenantId} and ${contactSearch(q, c)} order by contacts.name,e.is_primary desc,e.email limit 12`.execute(
+      await sql<Address>`select e.email as address,contacts.name as name,${contactNickname(c)} as nickname,contacts.company as company_name from contacts join contact_emails e on e.contact_id=contacts.id and e.tenant_id=contacts.tenant_id where ${contactVisible(c)} and ${contactSearch(q, c)} order by contacts.name,e.is_primary desc,e.email limit 12`.execute(
         r.db,
       );
     return [

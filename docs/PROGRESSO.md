@@ -1,5 +1,37 @@
 # Progresso do APMail
 
+## Entrega local de 07/10/2026 — POP3, caixas locais e backups
+
+- POP3 com recebimento contínuo, teste POP3/SMTP antes de salvar, UIDL persistido, mensagens preservadas no provedor e pastas/ações locais. Arquivo local sem credenciais, com consulta/importação e envio por outra caixa conectada. Cadastro e gestão da plataforma oferecem os três tipos de caixa.
+- Importação PST/OST/MBOX/EML/EMLX/ZIP: prévia de bytes versus restante da empresa/caixa, bloqueio no servidor, aviso a partir de 90%, upload por stream/progresso, validação de tamanho/conteúdo, cota na conversão e cursor transacional. Retomada/cancelamento/recuperação de trabalhos, deduplicação por caixa e pastas importadas protegidas da sincronização IMAP. Sem importar contatos/calendários.
+- Arquivos de origem/MIME/anexos contabilizados por empresa/caixa, referências e auditoria. POP3/arquivo local sem quota do provedor; métricas de provedor da empresa consideram IMAP. Checkpoint POP3 retomado após ampliar capacidade, sem baixar novamente mensagens já registradas/excluídas.
+- Backup MBOX e ZIP com EML; limpeza explícita de conteúdo já excluído, mantendo identificadores anti-duplicação e anexos usados em rascunhos. Falhas de limpeza conservam consumo e entram na manutenção. **Exportação nativa PST/OST não implementada; alternativa MBOX/EML apresentada ao usuário, aguardando resposta.**
+- Busca global deduplicada por categoria/ID, com pathname e query separados na navegação. Teste no navegador confirmou abrir pasta/busca/conversa mantendo parâmetros.
+- Migration `0024_mail_archives_pop3.sql`, worker Debian/Python/pypff e Nginx para streams/grandes uploads. [Detalhes e limitações](EMAILS-POP3-IMPORTACAO-BACKUP.md); [publicação](DEPLOY.md).
+- Validação: 83 testes unitários (15 do worker repetidos após ajustes do parser); oito integrações de importação/exportação/POP3/ações locais e três regressões selecionadas de IMAP (UIDVALIDITY, pastas e checkpoint); 52 integrações de API, incluindo correção e nova execução do teste de PATCH sem campos alteráveis; três de migrations. PST real do Apache Tika lido em contêiner temporário de QA: sete mensagens e um anexo, com MIME idêntico entre duas conversões. OST não teve fixture real ensaiada. Tipos, lint e build aprovados. Revisão em 32 cenários de tela (quatro telas × quatro larguras × dois temas), incluindo 24 cliques da busca global, sem violações axe A/AA, erros JavaScript ou overflow da página. Suíte completa do worker e build Docker completo não executados; runtime nativo do conversor testado isoladamente. Navegador usa fixtures sintéticas, PostgreSQL/Redis exclusivos de QA.
+- **Sem commit, push, deploy, reset ou alteração de dados/configuração da aplicação em produção.** Publicação pelo usuário exige versões conjuntas e migration 0024; mantém os dados existentes.
+
+## Entrega local de 07/10/2026 — contatos Outlook, listagens e etiquetas por caixa
+
+- Fases 0–6 implementadas do [plano vigente](PLANO-CONTATOS-OUTLOOK-LISTAGENS-ETIQUETAS.md). Global/Individual administrativo para futuros cadastros; escopos existentes imutáveis. Nomes globais normalizados e e-mails da agenda repetidos bloqueados. Individual privado inclusive perante admins. Apelidos próprios sem mudar autoria compartilhada.
+- Campos Outlook, autoria/data/hora/versão, Empresa/Cargo como texto e autocomplete visível, canais validados no formulário/API/importação e telefones E.164, endereços opcionais/CEP com Enter. Sem cadastro/tabela/API de empresas do diretório. URL antiga redireciona para Contatos.
+- CSV/VCF com exemplos, codificação/mapeamento/prévia, diagnóstico, duplicados/ambiguidade, preservação de campos/canais existentes, cursor transacional por linha e lotes 100. Interrupção entre lotes, cota cheia sem perder progresso, retomada/relatório privados por 24h e limpeza/contabilização.
+- ConfigurableTable ampliada para filtros por coluna, sort/Colunas/paginação em contatos, histórico, e-mails, envios, chat, configurações, dashboards e superadmin, incluindo valores de gráficos/histórico/filas. APIs filtram antes da paginação com whitelist/total; dados limitados/agregados no cliente. Preferências por usuário/listKey, também superadmin; colunas identificadoras preservadas.
+- Globais primeiro, etiquetas Todas/Selecionadas, menu/resultados/contadores por caixa/pasta. Revogar disponibilidade oculta aplicações, desativa regra incompatível e exige revisão. Minhas regras só pessoais próprias; caixa só globais; validação API/banco/worker.
+- Migration 0023 ensaiada do zero e em upgrade com cota cheia; remove diretório/legado de teste e atualiza catálogo/projeções sem reset geral. Autoria antiga só recuperada da auditoria comprovada.
+- Validação: 75 testes unitários; 43 integrações de API (21 contatos/busca + 22 evolução); três testes de migrations; quatro integrações selecionadas de worker (etiqueta global por regra, formato HTML, imagem CID e assinatura pessoal). Suíte completa do worker não executada nesta entrega. Tipos, lint e build aprovados. Revisão visual/a11y em 56 cenários (sete telas, quatro larguras, dois temas), sem erros JavaScript, overflow da página ou violações axe WCAG A/AA detectadas. Navegador usa fixtures sintéticas; banco/Redis/IMAP/SMTP exclusivos de QA.
+- **Sem commit, push, deploy, reset ou alteração de produção nesta entrega.** Aplicar migration 0023 e versões conjuntas de API/web/worker; instruções em [DEPLOY.md](DEPLOY.md).
+
+Os blocos de planejamento e entregas abaixo são históricos; regras atuais são as descritas nesta entrega.
+
+## Planejamento adicional de 07/10/2026 — contatos Outlook e etiquetas por caixa
+
+- Novo [plano](PLANO-CONTATOS-OUTLOOK-LISTAGENS-ETIQUETAS.md): modo Global/Individual de novos contatos definido pelo admin, obrigatório e por usuário, sem vínculo de visibilidade a caixa. Trocar modo não converte registros anteriores; aviso destacado ao admin.
+- Empresa/Cargo como texto com autocomplete, remoção do cadastro/tabelas de empresas do diretório, autoria/data/hora na ficha, múltiplos endereços opcionais e importação Outlook CSV/VCF com prévia.
+- Padrão de filtros/ordenação por coluna, configuração de colunas e paginação para todas as listagens. Etiquetas globais primeiro, seleção de caixas, menu/contadores por caixa e regras pessoais somente com pessoais; regras da caixa somente com globais.
+- Usuário dispensou preservação dos dados de teste retirados; não criar arquivo de legado para empresas antigas. Pontos de unicidade individual e tratamento de nomes globais aguardam confirmação no plano.
+- **Somente documentação; nenhuma implementação, migração ou alteração de dados nesta etapa.**
+
 ## Entrega de 07/10/2026 — contatos, etiquetas e envio (local)
 
 - Fases 1–6 do [plano aprovado](PLANO-CONTATOS-ETIQUETAS-ENVIO.md) implementadas. Empresas vinculadas diretamente ao contato, endereços exclusivamente nas empresas, agenda compartilhada na tenância, títulos de telefone, principais por estrela e balão Info com dados/endereço da empresa.

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { ContactEditorDialog } from '@/components/contacts/contact-editor';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { Pencil, Trash2, UserPlus } from 'lucide-react';
+import { ContactImportDialog } from '@/components/contacts/contact-import';
 import { toast } from 'sonner';
 type Row = {
   id: string;
@@ -19,7 +20,8 @@ type Row = {
   emails: string[];
   nickname: string;
   job_title: string;
-  primary_company: string | null;
+  company: string;
+  scope: 'tenant' | 'personal';
   primary_email: string | null;
 };
 export const Route = createFileRoute('/_app/contacts')({
@@ -37,6 +39,7 @@ function Contacts() {
     isTenantAdmin(tenant?.role) ||
     canDelegate(tenant?.role ?? null, tenant?.capabilities, 'contacts_manage');
   const [editing, setEditing] = useState<string | null | undefined>(undefined);
+  const [importing, setImporting] = useState(false);
   const selected = editing !== undefined ? editing : query.contactId;
   const q = useQuery({
     queryKey: ['contacts', tenantId, me?.user.id, query],
@@ -47,7 +50,14 @@ function Contacts() {
             page: String(query.page),
             pageSize: String(query.pageSize),
             search: query.search ?? '',
-            sort: query.sort?.key === 'created_at' ? 'created_at' : 'name',
+            sort: query.sort?.key ?? 'name',
+            columns: JSON.stringify(
+              Object.fromEntries(
+                Object.entries(query.filters)
+                  .filter(([k]) => k.startsWith('column:'))
+                  .map(([k, v]) => [k.slice(7), v]),
+              ),
+            ),
             direction: query.sort?.direction ?? 'asc',
           }),
         { signal },
@@ -58,12 +68,17 @@ function Contacts() {
     <>
       <PageHeader
         title="Contatos"
-        description="Pessoas, empresas e canais de contato compartilhados pela sua empresa."
+        description="Contatos globais da empresa e sua agenda individual."
         actions={
-          <Button onClick={() => setEditing(null)}>
-            <UserPlus />
-            Novo contato
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setImporting(true)}>
+              Importar
+            </Button>
+            <Button onClick={() => setEditing(null)}>
+              <UserPlus />
+              Novo contato
+            </Button>
+          </div>
         }
       />
       <ConfigurableTable
@@ -80,15 +95,23 @@ function Contacts() {
         onRetry={() => void q.refetch()}
         columns={[
           { id: 'name', header: 'Nome', hideable: false, sortable: true },
-          { id: 'nickname', header: 'Meu apelido' },
+          { id: 'nickname', header: 'Meu apelido', sortable: true },
           {
-            id: 'primary_company',
-            header: 'Empresa principal',
-            cell: (r) => r.primary_company ?? 'Sem empresa',
+            id: 'scope',
+            header: 'Visibilidade',
+            cell: (r) => (r.scope === 'tenant' ? 'Global' : 'Individual'),
+            sortable: true,
+          },
+          {
+            id: 'company',
+            header: 'Empresa',
+            sortable: true,
+            cell: (r) => r.company || 'Sem empresa',
           },
           {
             id: 'emails',
             header: 'E-mails',
+            sortable: true,
             cell: (r) => (
               <span title={r.emails.join(', ')}>
                 {r.primary_email ?? r.emails[0]}
@@ -96,8 +119,8 @@ function Contacts() {
               </span>
             ),
           },
-          { id: 'phone', header: 'Telefone' },
-          { id: 'job_title', header: 'Cargo', defaultVisible: false },
+          { id: 'phone', header: 'Telefone', sortable: true },
+          { id: 'job_title', header: 'Cargo', sortable: true, defaultVisible: false },
         ]}
         rowActions={(row) => (
           <div className="flex gap-1">
@@ -109,7 +132,7 @@ function Contacts() {
             >
               <Pencil />
             </Button>
-            {mayControl && (
+            {(mayControl || row.scope === 'personal') && (
               <ConfirmDialog
                 trigger={
                   <Button variant="ghost" size="icon" aria-label={'Excluir ' + row.name}>
@@ -129,6 +152,7 @@ function Contacts() {
           </div>
         )}
       />
+      {importing && <ContactImportDialog onClose={() => setImporting(false)} />}
       {selected !== undefined && (
         <ContactEditorDialog
           id={selected ?? undefined}

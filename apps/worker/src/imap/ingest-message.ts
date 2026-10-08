@@ -13,7 +13,7 @@ import {
   lockStorageTenant,
 } from '@apmail/db';
 import { isAutomated, type Address } from '@apmail/shared';
-import type { Selectable } from 'kysely';
+import type { Selectable, Kysely } from 'kysely';
 import type { WorkerResources } from '../resources.js';
 import type { Mailbox } from './connect.js';
 function addresses(value: AddressObject | AddressObject[] | undefined): Address[] {
@@ -28,15 +28,35 @@ export async function ingestMessage(
   box: Mailbox,
   folder: Selectable<DB['folders']>,
   msg: FetchMessageObject,
+  external?: {
+    kind: 'archive' | 'pop3';
+    key: string;
+    historical: boolean;
+    persisted?: (tx: Kysely<DB>, imported: boolean) => Promise<void>;
+  },
 ): Promise<string> {
   const duplicate = await r.db
     .selectFrom('messages')
     .select('thread_id')
-    .where('folder_id', '=', folder.id)
-    .where('imap_uid', '=', String(msg.uid))
-    .where('deleted_at', 'is', null)
+    .$if(!external, (q) =>
+      q
+        .where('folder_id', '=', folder.id)
+        .where('imap_uid', '=', String(msg.uid))
+        .where('deleted_at', 'is', null),
+    )
+    .$if(!!external, (q) =>
+      q
+        .where('mailbox_id', '=', box.id)
+        .where('tenant_id', '=', box.tenant_id)
+        .where('source_kind', '=', external!.kind)
+        .where('source_key', '=', external!.key),
+    )
     .executeTakeFirst();
-  if (duplicate) return duplicate.thread_id;
+  if (duplicate) {
+    if (external?.persisted)
+      await r.db.transaction().execute((tx) => external.persisted!(tx, false));
+    return duplicate.thread_id;
+  }
   const parsed = msg.source
     ? await simpleParser(msg.source, { keepCidLinks: true, skipHtmlToText: true })
     : null;
@@ -46,6 +66,21 @@ export async function ingestMessage(
     address: (env?.from?.[0]?.address ?? '').toLowerCase(),
   };
   const header = parsed?.messageId ?? env?.messageId ?? `<apmail-${randomUUID()}@apmail.local>`;
+  if (external?.kind === 'archive' && parsed?.messageId) {
+    const existing = await r.db
+      .selectFrom('messages')
+      .select('thread_id')
+      .where('tenant_id', '=', box.tenant_id)
+      .where('mailbox_id', '=', box.id)
+      .where('message_id_header', '=', parsed.messageId)
+      .where('deleted_at', 'is', null)
+      .executeTakeFirst();
+    if (existing) {
+      if (external.persisted)
+        await r.db.transaction().execute((tx) => external.persisted!(tx, false));
+      return existing.thread_id;
+    }
+  }
   const sentCopy = await r.db
     .selectFrom('messages')
     .select(['id', 'thread_id'])
@@ -53,9 +88,10 @@ export async function ingestMessage(
     .where('mailbox_id', '=', box.id)
     .where('message_id_header', '=', header)
     .where('imap_uid', 'is', null)
+    .where('source_kind', '=', 'imap')
     .where('deleted_at', 'is', null)
     .executeTakeFirst();
-  if (sentCopy) {
+  if (sentCopy && !external) {
     await r.db
       .updateTable('messages')
       .set({ folder_id: folder.id, imap_uid: msg.uid, size_bytes: msg.size ?? 0 })
@@ -84,6 +120,7 @@ export async function ingestMessage(
       ? msg.internalDate
       : null;
   const isHistorical =
+    external?.historical ??
     prior?.is_historical ??
     (!!box.import_started_at &&
       (internalDate
@@ -133,6 +170,12 @@ export async function ingestMessage(
           .set({ history_queue_eligible: eligible })
           .where('id', '=', threadId)
           .execute();
+      const rawPath =
+        external && msg.source ? `mail-raw/${box.tenant_id}/${box.id}/${id}.eml` : null;
+      if (rawPath && msg.source) {
+        await r.storage.withDatabase(trx).writeFile(rawPath, msg.source);
+        written.push(rawPath);
+      }
       await trx
         .insertInto('messages')
         .values({
@@ -140,11 +183,14 @@ export async function ingestMessage(
           to_addresses: asJson(metadata.to_addresses),
           cc_addresses: asJson(metadata.cc_addresses),
           id,
+          source_kind: external?.kind ?? 'imap',
+          source_key: external?.key ?? null,
+          raw_storage_path: rawPath,
           is_historical: isHistorical,
           folder_id: folder.id,
           rules_inbox: folder.special_use === 'inbox',
           thread_id: threadId,
-          imap_uid: msg.uid,
+          imap_uid: external ? null : msg.uid,
           message_id_header: header,
           from_name: from.name,
           bcc_addresses: asJson(addresses(parsed?.bcc)),
@@ -192,6 +238,7 @@ export async function ingestMessage(
         null,
       );
       await assertStorageCapacity(trx, box.tenant_id, box.id);
+      if (external?.persisted) await external.persisted(trx, true);
       return threadId;
     });
   } catch (error) {

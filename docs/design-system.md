@@ -264,7 +264,7 @@ Regras: componentes usam **somente** classes semânticas (`bg-card`, `text-muted
 Anatomia: (1) cabeçalho da página com `h1`, descrição opcional e ação primária à direita; (2) toolbar: busca (debounce 400 ms), filtros em popover com contador, botão `Colunas` (ícone `Settings2`), ações em lote quando houver seleção; (3) resumo "início–fim de total" + paginação; (4) tabela com cabeçalho sticky (cabeçalho 11 px/600/caixa alta, altura 32 px; célula 12 px, `py-1.5 px-2`; hover `bg-muted/50`; seleção `bg-muted`); (5) estados: loading (skeleton), atualização (mantém dados + indicador discreto), vazio, sem resultado (com "Limpar filtros (N)"), erro ("Tentar novamente"), sem permissão; (6) paginação inferior.
 
 - Paginação padrão **10**, opções **10, 20, 30, 50, 100**. Filtro/ordenação/tamanho voltam à página 1. Estado refletido na URL (search params).
-- A lista de conversas usa padrão **10** por página, conforme a instrução AGENTS.md mais recente. A API preserva o padrão 50 para clientes que não enviam o tamanho explicitamente.
+- A lista de conversas usa padrão **10** por página, conforme a instrução AGENTS.md mais recente. A API também usa 10 quando o tamanho não é informado.
 - Ordenação: nenhuma → asc → desc → nenhuma; `aria-sort` no `<th>`.
 - Ações por linha: `Eye` (Visualizar), `Pencil` (Editar), `Trash2` (Excluir, cor destrutiva, com confirmação), `Ellipsis` (Mais ações). Botão `icon` 32×32 com `aria-label` e tooltip. Máximo 3 ações expostas.
 - Preferências de colunas persistidas por usuário em `table_preferences` com `list_key` exclusivo (lista de `list_key` na seção 13). Botão "Restaurar padrão". Pelo menos uma coluna de identificação sempre visível.
@@ -305,3 +305,7 @@ export type ListResult<T> = { items: T[]; total: number; page: number; pageSize:
 ---
 
 Etiquetas pessoais: cores azul, índigo, verde, âmbar, vermelho e cinza reutilizam os tokens de feedback correspondentes. Verde petróleo usa label-teal-bg/fg (#CCFBF1/#115E59 no claro, #134E4A/#99F6E4 no escuro); ciano usa label-cyan-bg/fg (#CFFAFE/#155E75 no claro, #164E63/#A5F3FC no escuro). Toda etiqueta inclui seu nome, com contraste AA nos dois temas.
+
+## Revisão das listagens — 07/10/2026
+
+Todas as listagens de registros usam ConfigurableTable ou contrato equivalente: filtros digitáveis em cada coluna, ordenação, Colunas (visibilidade/ordem/tamanho), paginação superior/inferior e identificação sempre visível. Filtros de coluna usam `filters["column:<id>"]`; APIs recebem `columns` JSON, `column_sort` e `column_direction` validados contra whitelist. Contatos usam `sort`/`direction` equivalentes; e-mails preservam URL da caixa/fila/pasta/etiqueta e painel de leitura. Preferências são privadas por usuário/listKey, incluindo superadmin; menus/autocomplete/texto de conversa mantêm interação própria. Dados não limitados são filtrados no servidor antes da paginação/total; detalhes de gráficos, amostras e catálogos já limitados podem usar cliente. Temas claro/escuro, filtros móveis, navegação por teclado, redução de movimento e estados de dados são mantidos.

@@ -1413,7 +1413,7 @@ it('cria subpastas reais, preserva IDs ao renomear e protege pastas especiais e 
   ).id;
   await executeAction(await api('DELETE', '/api/folders/' + emptyId));
 }, 30000);
-it('regra pessoal aplica etiqueta global compartilhada e ignora referência excluída', async () => {
+it('regra da caixa aplica etiqueta global compartilhada e ignora referência excluída', async () => {
   const labelResponse = await api('POST', '/api/labels', owner, {
     name: 'Global regra ' + suffix.slice(0, 8),
     color: '#12AB89',
@@ -1421,8 +1421,8 @@ it('regra pessoal aplica etiqueta global compartilhada e ignora referência excl
   });
   expect(labelResponse.statusCode, labelResponse.body).toBe(201);
   const labelId = labelResponse.json().id;
-  const ruleResponse = await api('POST', '/api/rules', editor, {
-    scope: 'personal',
+  const ruleResponse = await api('POST', '/api/rules', owner, {
+    scope: 'mailbox',
     mailbox_id: boxId,
     name: 'Global automática',
     is_active: true,
@@ -1455,7 +1455,7 @@ it('regra pessoal aplica etiqueta global compartilhada e ignora referência excl
     .execute();
   expect(application).toHaveLength(1);
   expect(application[0]!.user_id).toBeNull();
-  expect(application[0]!.applied_by).toBe(editor);
+  expect(application[0]!.applied_by).toBe(owner);
   await handleRulesApply(r, ruleResponse.json().id, 30, 'global-repeat-' + suffix);
   expect(
     await db

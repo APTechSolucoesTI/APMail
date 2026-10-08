@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Star, X, ChevronsUpDown, Plus } from 'lucide-react';
-import { isTenantAdmin, canDelegate } from '@apmail/shared';
+import { isTenantAdmin, canDelegate, phoneSchema, emailSchema } from '@apmail/shared';
 import { meQuery, useTenantId } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -100,12 +100,27 @@ export function ChannelPicker({
   error?: string;
 }) {
   const [value, setValue] = useState(''),
-    [open, setOpen] = useState(false);
+    [open, setOpen] = useState(false),
+    [validationError, setValidationError] = useState('');
   const email = kind === 'email',
-    label = email ? 'E-mails *' : 'Telefones (opcional)';
+    label = email ? 'E-mails' : 'Telefones';
   const add = () => {
     if (value.trim()) {
-      onAdd(value.trim());
+      const parsed = (email ? emailSchema : phoneSchema).safeParse(value);
+      if (!parsed.success) {
+        setValidationError(parsed.error.issues[0]!.message);
+        return;
+      }
+      if (
+        items.some(
+          (item) => (email ? emailSchema : phoneSchema).safeParse(item.value).data === parsed.data,
+        )
+      ) {
+        setValidationError('Este canal já foi cadastrado.');
+        return;
+      }
+      setValidationError('');
+      onAdd(parsed.data);
       setValue('');
     }
   };
@@ -162,6 +177,11 @@ export function ChannelPicker({
               <Plus aria-hidden className="size-4" />
             </Button>
           </div>
+          {validationError && (
+            <p role="alert" className="text-sm text-destructive">
+              {validationError}
+            </p>
+          )}
           {items.map((item, index) => (
             <div key={index} className="space-y-2">
               <Label htmlFor={kind + '-' + index}>
@@ -173,9 +193,11 @@ export function ChannelPicker({
                 value={item.value}
                 onChange={(e) => onEdit(index, e.target.value)}
               />
-              {!email && (
+              {onEditLabel && (
                 <div className="space-y-2">
-                  <Label htmlFor={'phone-title-' + index}>Título do telefone {index + 1}</Label>
+                  <Label htmlFor={'phone-title-' + index}>
+                    {email ? 'Título do e-mail' : 'Título do telefone'} {index + 1}
+                  </Label>
                   <Input
                     id={'phone-title-' + index}
                     value={item.label ?? ''}

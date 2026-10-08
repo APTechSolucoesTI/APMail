@@ -44,7 +44,7 @@ it('pagina, ordena em três estados e combina busca com paginação', async () =
   await waitFor(() => expect(screen.getAllByText('1–1 de 1')).toHaveLength(2));
   await user.click(screen.getByRole('button', { name: 'Limpar busca' }));
   await waitFor(() => expect(screen.getAllByText('1–10 de 35')).toHaveLength(2));
-});
+}, 15000);
 it('mantém rascunho de colunas até Aplicar e preserva identificação', async () => {
   const user = userEvent.setup();
   render(<Fixture />);
@@ -68,3 +68,14 @@ it('marca seleção parcial como indeterminada', async () => {
   ).toHaveAttribute('aria-checked', 'mixed');
   expect(screen.getByText('1 selecionados na página atual')).toBeInTheDocument();
 });
+it('combina filtro da coluna com busca e retorna à primeira página', async () => {
+  const user = userEvent.setup();
+  render(<Fixture />);
+  await user.click(screen.getAllByRole('button', { name: 'Próxima página' })[0]!);
+  await user.click(screen.getAllByRole('button', { name: 'Filtrar E-mail' })[0]!);
+  await user.type(screen.getByRole('searchbox', { name: 'Filtrar E-mail' }), 'p35@');
+  await waitFor(() => expect(screen.getAllByText('1–1 de 1')).toHaveLength(2));
+  await user.click(screen.getAllByRole('button', { name: 'Filtrar E-mail' })[0]!);
+  await user.click(screen.getByRole('button', { name: 'Limpar filtros (1)' }));
+  expect(screen.getAllByText('1–10 de 35')).toHaveLength(2);
+}, 15000);

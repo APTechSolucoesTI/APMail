@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { columnFilters, columnOrder } from '../list-columns.js';
 import { sql, type Selectable } from 'kysely';
 import { asJson, createNotification, type ChatMessages, type Database } from '@apmail/db';
 import {
@@ -194,17 +196,42 @@ export async function changeGroup(
   await changed(r, c.tenantId, id, [c.userId]);
   return { ok: true };
 }
-export async function conversations(r: Resources, ctx: RequestContext | null) {
-  const c = requireTenant(ctx);
-  return (
-    await sql<ChatConversation>`select cc.id,cc.type,cc.name,
+function conversationQuery(c: TenantContext) {
+  return sql<ChatConversation>`select cc.id,cc.type,cc.name,
     coalesce((select jsonb_agg(jsonb_build_object('id',u.id,'full_name',u.full_name,'avatar_url',case when u.avatar_path is not null then '/api/avatars/'||u.id||'?v='||extract(epoch from u.updated_at)::bigint else null end) order by u.full_name,u.id) from chat_participants cp join users u on u.id=cp.user_id join tenant_members tm on tm.tenant_id=cp.tenant_id and tm.user_id=cp.user_id and tm.status='active' where cp.conversation_id=cc.id and cp.tenant_id=${c.tenantId} and cp.left_at is null),'[]') participants,
     (select jsonb_build_object('body',case when m.deleted_at is not null then '' else m.body end,'sender_name',u.full_name,'sender_id',u.id,'created_at',m.created_at,'is_shared',m.shared_thread_id is not null,'deleted',m.deleted_at is not null) from chat_messages m join users u on u.id=m.sender_id where m.conversation_id=cc.id and m.tenant_id=${c.tenantId} order by m.created_at desc,m.id desc limit 1) last_message,
     (select count(*)::int from chat_messages m where m.conversation_id=cc.id and m.tenant_id=${c.tenantId} and m.sender_id!=${c.userId} and m.deleted_at is null and m.created_at>=mine.joined_at and (mine.last_read_at is null or m.created_at>mine.last_read_at)) unread_count
-    from chat_conversations cc join chat_participants mine on mine.conversation_id=cc.id and mine.user_id=${c.userId} and mine.tenant_id=${c.tenantId} and mine.left_at is null where cc.tenant_id=${c.tenantId} order by cc.last_message_at desc nulls last,cc.id`.execute(
-      r.db,
-    )
-  ).rows;
+    from chat_conversations cc join chat_participants mine on mine.conversation_id=cc.id and mine.user_id=${c.userId} and mine.tenant_id=${c.tenantId} and mine.left_at is null where cc.tenant_id=${c.tenantId} order by cc.last_message_at desc nulls last,cc.id`;
+}
+export async function conversations(r: Resources, ctx: RequestContext | null) {
+  return (await conversationQuery(requireTenant(ctx)).execute(r.db)).rows;
+}
+export async function conversationList(r: Resources, ctx: RequestContext | null, input: unknown) {
+  const c = requireTenant(ctx),
+    q = z
+      .object({
+        page: z.coerce.number().int().min(1).default(1),
+        pageSize: z.coerce
+          .number()
+          .refine((n) => [10, 20, 30, 50, 100].includes(n))
+          .default(10),
+        search: z.string().max(200).default(''),
+      })
+      .parse(input);
+  const columns = {
+    name: sql`display_name`,
+    preview: sql`last_message->>'body'`,
+    unread_count: sql`unread_count`,
+    last_message_at: sql`last_message->>'created_at'`,
+    type: sql`type`,
+  };
+  const result = await sql<{
+    items: ChatConversation[];
+    total: number;
+  }>`with base as (${conversationQuery(c)}),named as(select *,case when type='direct' then coalesce((select p->>'full_name' from jsonb_array_elements(participants) p where p->>'id'<>${c.userId}::text limit 1),name) else name end as display_name from base),filtered as(select * from named where ${columnFilters(input, columns)} and unaccent(display_name) ilike unaccent(${'%' + q.search + '%'})),paged as(select * from filtered order by ${columnOrder(input, columns, sql`last_message->>'created_at' desc nulls last`)},id limit ${q.pageSize} offset ${(q.page - 1) * q.pageSize}) select coalesce((select jsonb_agg(p) from paged p),'[]'::jsonb) as items,(select count(*)::int from filtered) as total`.execute(
+    r.db,
+  );
+  return { ...result.rows[0], page: q.page, pageSize: q.pageSize };
 }
 async function serialize(db: Database, row: MessageRow): Promise<ChatMessage> {
   const user = await db

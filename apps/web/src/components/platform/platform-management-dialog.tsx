@@ -1,4 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { Label } from '@/components/ui/label';
 import { z } from 'zod';
 import {
   emailSchema,
@@ -87,6 +89,16 @@ export function PlatformManagementDialog({
       ),
     enabled: dialog?.kind === 'mailbox-edit',
   });
+  const [protocolChoice, setProtocolChoice] = useState<{
+    dialog: ManagementDialog | null;
+    value: string;
+  }>({ dialog: null, value: 'imap' });
+  const mailboxProtocol =
+    dialog?.kind === 'mailbox-edit'
+      ? String(config.data?.receiving_protocol ?? 'imap')
+      : protocolChoice.dialog === dialog
+        ? protocolChoice.value
+        : 'imap';
   return (
     <Dialog
       open={!!dialog}
@@ -229,77 +241,146 @@ export function PlatformManagementDialog({
           ) : dialog.kind === 'mailbox-edit' && (config.error || !config.data) ? (
             <ErrorState onRetry={() => void config.refetch()} />
           ) : (
-            <SchemaForm
-              key={dialog.kind + ':' + dialog.row?.id}
-              schema={
-                dialog.kind === 'mailbox-create'
-                  ? mailboxSchema.omit({ members: true })
-                  : mailboxSchema
-                      .omit({ members: true, sync_days: true, password: true })
-                      .extend({ password: z.string().max(256).optional() })
-              }
-              defaults={
-                dialog.kind === 'mailbox-create'
-                  ? {
-                      imap_port: 993,
-                      imap_secure: true,
-                      smtp_port: 465,
-                      smtp_secure: true,
-                      sync_days: 90,
-                      history_classify_days: 0,
-                      aliases: [],
-                      append_sent_copy: true,
-                      from_name_template: '{mailbox_name}',
-                    }
-                  : { ...config.data, password: '' }
-              }
-              fields={[
-                { name: 'name', label: 'Nome da caixa' },
-                { name: 'email_address', label: 'E-mail da caixa', type: 'email' },
-                ...connectionFields.map((field) =>
-                  field.name === 'password' && dialog.kind === 'mailbox-edit'
-                    ? { ...field, help: 'Deixe em branco para manter a senha atual.' }
-                    : field,
-                ),
-                {
-                  name: 'from_name_template',
-                  label: 'Nome exibido nos envios',
-                  help: 'Use {mailbox_name} e {user_name} para personalizar.',
-                },
-                { name: 'append_sent_copy', label: 'Salvar cópia em Enviados', type: 'checkbox' },
-                ...(dialog.kind === 'mailbox-create'
-                  ? [
-                      {
-                        name: 'sync_days',
-                        label: 'Importar histórico (30, 90, 180 ou 365 dias)',
-                        type: 'number' as const,
+            <div className="space-y-4">
+              {dialog.kind === 'mailbox-create' ? (
+                <div className="space-y-2">
+                  <Label htmlFor="platform-mailbox-protocol">Tipo da caixa</Label>
+                  <select
+                    id="platform-mailbox-protocol"
+                    value={mailboxProtocol}
+                    onChange={(e) => setProtocolChoice({ dialog, value: e.target.value })}
+                    className="h-11 w-full rounded-md border border-input bg-card px-3 text-sm"
+                  >
+                    <option value="imap">IMAP e SMTP</option>
+                    <option value="pop3">POP3 e SMTP</option>
+                    <option value="local">Arquivo local</option>
+                  </select>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Tipo:{' '}
+                  {mailboxProtocol === 'local' ? 'Arquivo local' : mailboxProtocol.toUpperCase()}
+                </p>
+              )}
+              <SchemaForm
+                key={dialog.kind + ':' + dialog.row?.id + ':' + mailboxProtocol}
+                schema={
+                  dialog.kind === 'mailbox-create'
+                    ? mailboxProtocol === 'local'
+                      ? mailboxSchema.pick({
+                          name: true,
+                          email_address: true,
+                          aliases: true,
+                          from_name_template: true,
+                          history_classify_days: true,
+                          sync_days: true,
+                          append_sent_copy: true,
+                        })
+                      : mailboxSchema.omit({ members: true })
+                    : mailboxProtocol === 'local'
+                      ? mailboxSchema
+                          .pick({
+                            name: true,
+                            email_address: true,
+                            aliases: true,
+                            history_classify_days: true,
+                          })
+                          .partial()
+                      : mailboxSchema
+                          .omit({ members: true, sync_days: true, password: true })
+                          .extend({ password: z.string().max(256).optional() })
+                }
+                defaults={
+                  dialog.kind === 'mailbox-create'
+                    ? {
+                        receiving_protocol: mailboxProtocol,
+                        imap_port: mailboxProtocol === 'pop3' ? 995 : 993,
+                        imap_secure: true,
+                        smtp_port: 465,
+                        smtp_secure: true,
+                        sync_days: 90,
+                        history_classify_days: 0,
+                        aliases: [],
+                        append_sent_copy: true,
+                        from_name_template: '{mailbox_name}',
+                      }
+                    : { ...config.data, password: '' }
+                }
+                fields={[
+                  { name: 'name', label: 'Nome da caixa' },
+                  { name: 'email_address', label: 'E-mail da caixa', type: 'email' },
+                  ...(mailboxProtocol === 'local' ? [] : connectionFields).map((field) =>
+                    field.name === 'password' && dialog.kind === 'mailbox-edit'
+                      ? { ...field, help: 'Deixe em branco para manter a senha atual.' }
+                      : mailboxProtocol === 'pop3'
+                        ? { ...field, label: field.label.replace('IMAP', 'POP3') }
+                        : field,
+                  ),
+                  ...(mailboxProtocol === 'local'
+                    ? []
+                    : [
+                        {
+                          name: 'from_name_template',
+                          label: 'Nome exibido nos envios',
+                          help: 'Use {mailbox_name} e {user_name} para personalizar.',
+                        },
+                      ]),
+                  ...(mailboxProtocol === 'imap'
+                    ? [
+                        {
+                          name: 'append_sent_copy',
+                          label: 'Salvar cópia em Enviados no provedor',
+                          type: 'checkbox' as const,
+                        },
+                      ]
+                    : []),
+                  ...(dialog.kind === 'mailbox-create'
+                    ? [
+                        ...(mailboxProtocol === 'imap'
+                          ? [
+                              {
+                                name: 'sync_days',
+                                label: 'Importar histórico (30, 90, 180 ou 365 dias)',
+                                type: 'number' as const,
+                              },
+                            ]
+                          : []),
+                        {
+                          name: 'history_classify_days',
+                          label: 'Classificar filas dos últimos dias (0–90)',
+                          type: 'number' as const,
+                          help: '0 mantém o histórico sem fila.',
+                        },
+                      ]
+                    : []),
+                ]}
+                submitLabel={
+                  dialog.kind === 'mailbox-create'
+                    ? mailboxProtocol === 'local'
+                      ? 'Adicionar arquivo local'
+                      : 'Testar conexão e adicionar'
+                    : 'Salvar alterações'
+                }
+                onSubmit={async (b) => {
+                  await api(
+                    '/superadmin/mailboxes' +
+                      (dialog.kind === 'mailbox-edit' ? '/' + dialog.row?.id : ''),
+                    {
+                      method: dialog.kind === 'mailbox-edit' ? 'PATCH' : 'POST',
+                      body: {
+                        ...b,
+                        ...(dialog.kind === 'mailbox-create'
+                          ? { receiving_protocol: mailboxProtocol }
+                          : {}),
+                        tenant_id: dialog.tenantId,
+                        password: b.password || undefined,
                       },
-                      {
-                        name: 'history_classify_days',
-                        label: 'Classificar filas dos últimos dias (0–90)',
-                        type: 'number' as const,
-                        help: '0 mantém o histórico sem fila.',
-                      },
-                    ]
-                  : []),
-              ]}
-              submitLabel={
-                dialog.kind === 'mailbox-create'
-                  ? 'Testar conexão e adicionar'
-                  : 'Salvar alterações'
-              }
-              onSubmit={async (b) => {
-                await api(
-                  '/superadmin/mailboxes' +
-                    (dialog.kind === 'mailbox-edit' ? '/' + dialog.row?.id : ''),
-                  {
-                    method: dialog.kind === 'mailbox-edit' ? 'PATCH' : 'POST',
-                    body: { ...b, tenant_id: dialog.tenantId, password: b.password || undefined },
-                  },
-                );
-                await onSaved();
-              }}
-            />
+                    },
+                  );
+                  await onSaved();
+                }}
+              />
+            </div>
           ))}
       </DialogContent>
     </Dialog>

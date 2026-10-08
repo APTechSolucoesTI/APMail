@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { useRouterState, useNavigate } from '@tanstack/react-router';
 import { Keyboard } from 'lucide-react';
-import { can } from '@apmail/shared';
-import type { Mailbox } from '@/lib/auth';
+import { canMailbox, type Mailbox } from '@/lib/auth';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { Button } from '@/components/ui/button';
 import {
@@ -27,7 +26,7 @@ export function KeyboardHelp({ mailboxes }: { mailboxes: Mailbox[] }) {
   const [open, setOpen] = useState(false),
     path = useRouterState({ select: (state) => state.location.pathname }),
     navigate = useNavigate(),
-    box = mailboxes.find((b) => b.status === 'active' && can(b.role, 'send'));
+    box = mailboxes.find((b) => b.status === 'active' && canMailbox(b, 'send'));
   useKeyboardShortcuts({
     '?': () => setOpen(true),
     ...(!path.startsWith('/mail/') && box

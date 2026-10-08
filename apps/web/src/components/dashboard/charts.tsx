@@ -11,10 +11,13 @@ import {
 } from 'recharts';
 import {
   QUEUE_LABELS,
+  type ListQuery,
   type DailyVolume,
   type FolderVolume,
   type DashboardQueue,
 } from '@apmail/shared';
+import { useState } from 'react';
+import { ConfigurableTable } from '@/components/data/configurable-table';
 import {
   ChartContainer,
   ChartTooltip,
@@ -28,6 +31,7 @@ const volumeConfig = {
 };
 const dayLabel = (day: string) => day.slice(8, 10) + '/' + day.slice(5, 7);
 export function VolumeChart({ data }: { data: DailyVolume[] }) {
+  const [query, setQuery] = useState<ListQuery>({ page: 1, pageSize: 10, filters: {} });
   return (
     <>
       <ChartContainer config={volumeConfig} className="h-64 w-full aspect-auto">
@@ -60,38 +64,24 @@ export function VolumeChart({ data }: { data: DailyVolume[] }) {
         <summary className="cursor-pointer rounded-sm py-2 focus-visible:ring-2 focus-visible:ring-ring">
           Ver valores por dia
         </summary>
-        <div className="max-h-64 overflow-auto">
-          <table className="w-full">
-            <caption className="sr-only">Volume diário</caption>
-            <thead>
-              <tr>
-                <th scope="col" className="text-left">
-                  Dia
-                </th>
-                <th scope="col" className="text-right">
-                  Recebidos
-                </th>
-                <th scope="col" className="text-right">
-                  Enviados
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((row) => (
-                <tr key={row.day} className="border-t">
-                  <td className="py-1">{dayLabel(row.day)}</td>
-                  <td className="text-right tabular-nums">{row.received}</td>
-                  <td className="text-right tabular-nums">{row.sent}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ConfigurableTable
+          listKey="dashboard-volume-days"
+          mode="client"
+          query={query}
+          onQueryChange={setQuery}
+          data={data.map((value) => ({ ...value, id: value.day }))}
+          columns={[
+            { id: 'day', header: 'Dia', hideable: false, cell: (value) => dayLabel(value.day) },
+            { id: 'received', header: 'Recebidos', align: 'right' },
+            { id: 'sent', header: 'Enviados', align: 'right' },
+          ]}
+        />
       </details>
     </>
   );
 }
 export function FolderChart({ data }: { data: FolderVolume[] }) {
+  const [query, setQuery] = useState<ListQuery>({ page: 1, pageSize: 10, filters: {} });
   const rows = data.slice(0, 10).map((row, index) => ({ ...row, key: String(index + 1) }));
   return (
     <>
@@ -120,17 +110,18 @@ export function FolderChart({ data }: { data: FolderVolume[] }) {
           </Bar>
         </BarChart>
       </ChartContainer>
-      <ol className="mt-2 space-y-2 text-xs">
-        {rows.map((row) => (
-          <li key={row.key} className="flex gap-2">
-            <span className="font-mono text-muted-foreground">{row.key}.</span>
-            <span className="min-w-0 flex-1 break-words">
-              {row.mailbox_name} · {row.folder_name}
-            </span>
-            <span className="shrink-0 tabular-nums">{row.received}</span>
-          </li>
-        ))}
-      </ol>
+      <ConfigurableTable
+        listKey="dashboard-folder-volume-values"
+        mode="client"
+        query={query}
+        onQueryChange={setQuery}
+        data={rows.map((row) => ({ ...row, id: row.key }))}
+        columns={[
+          { id: 'mailbox_name', header: 'Caixa', hideable: false },
+          { id: 'folder_name', header: 'Pasta' },
+          { id: 'received', header: 'Recebidos', align: 'right' },
+        ]}
+      />
     </>
   );
 }

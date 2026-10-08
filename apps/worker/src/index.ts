@@ -6,6 +6,8 @@ import { createQueues, createDb, Storage, audit, asJson } from '@apmail/db';
 import { Emitter } from '@socket.io/redis-emitter';
 import { handleMailboxConnection } from './handlers/mailbox-connection.js';
 import { handleMailboxSync } from './handlers/mailbox-sync.js';
+import { handleMailArchive } from './handlers/mail-archive.js';
+import { cleanupMailArchiveFiles } from './handlers/mail-archive-maintenance.js';
 import { handleMailAction } from './handlers/mail-actions.js';
 import { handleOutboxSend } from './handlers/outbox-send.js';
 import { handleRulesApply } from './handlers/rules-apply.js';
@@ -75,6 +77,7 @@ const workers = QUEUE_NAMES.map(
         if (name === 'system-email') return sendSystemEmail(job.name, job.data);
         if (name === 'mailbox-connection') return handleMailboxConnection(r, job.data.mailbox_id);
         if (name === 'mailbox-sync') return handleMailboxSync(r, job.data.mailbox_id, job.id!);
+        if (name === 'mail-archive') return handleMailArchive(r, job.data.import_id, job.id!);
         if (name === 'outbox-send') return handleOutboxSend(r, job.data.outbox_id, job);
         if (name === 'rules-apply')
           return handleRulesApply(
@@ -92,7 +95,10 @@ const workers = QUEUE_NAMES.map(
           );
         if (name === 'maintenance' && job.name === 'ensure-schedulers') return ensureSchedulers(r);
         if (name === 'maintenance' && job.name === 'sweep-outbox') return sweepOutbox(r);
-        if (name === 'maintenance' && job.name === 'cleanup-uploads') return cleanupUploads(r);
+        if (name === 'maintenance' && job.name === 'cleanup-uploads') {
+          await cleanupMailArchiveFiles(r);
+          return cleanupUploads(r);
+        }
         if (name === 'maintenance' && job.name === 'recompute-all') return recomputeAll(r);
         if (name === 'maintenance' && job.name === 'cleanup-auth') {
           const now = new Date();
@@ -125,6 +131,7 @@ const workers = QUEUE_NAMES.map(
             .deleteFrom('operational_logs')
             .where('created_at', '<', new Date(Date.now() - 30 * 86400000))
             .execute();
+          await db.deleteFrom('contact_imports').where('expires_at', '<', now).execute();
           await db.deleteFrom('sessions').where('expires_at', '<', now).execute();
           await db.deleteFrom('password_reset_tokens').where('expires_at', '<', now).execute();
           await db

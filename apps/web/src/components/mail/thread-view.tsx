@@ -35,7 +35,7 @@ export function ThreadView({
   mailboxId: string;
   folders: Folder[];
   onClose: () => void;
-  onCompose: (mode: string) => void;
+  onCompose?: (mode: string) => void;
 }) {
   const tenantId = useTenantId(),
     client = useQueryClient(),
@@ -164,7 +164,7 @@ export function ThreadView({
                         setActing(true);
                         try {
                           await api('/outbox/' + o.id + '/cancel', { method: 'POST' });
-                          onCompose('draft:' + o.id);
+                          onCompose?.('draft:' + o.id);
                         } catch (e) {
                           toast.error((e as Error).message);
                         } finally {

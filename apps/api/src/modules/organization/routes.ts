@@ -44,7 +44,7 @@ export async function registerOrganizationRoutes(app: FastifyInstance, r: Resour
       ),
     };
   });
-  app.get('/api/labels', (req) => s.labels(req.ctx));
+  app.get('/api/labels', (req) => s.labels(req.ctx, req.query));
   app.post('/api/labels', async (req, res) =>
     res.code(201).send(await s.saveLabel(req.ctx, null, req.body)),
   );

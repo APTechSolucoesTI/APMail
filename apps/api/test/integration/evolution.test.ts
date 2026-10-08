@@ -699,15 +699,11 @@ it('armazenamento soma conteúdo UTF-8 e arquivos únicos, incluindo dados retid
   ).json();
   expect(empty.items[0].total_bytes).toBe(0);
 });
-it('cria contato completo com vários e-mails e vínculos, isolado por tenant', async () => {
-  const company = await call('POST', '/api/companies', member, {
-    name: 'Empresa QA',
-    cnpj: '12345678000190',
-    addresses: [{ cep: '01001000', street: 'Praça da Sé' }],
-  });
+it('cria contato completo com vários e-mails e endereços, isolado por tenant', async () => {
   const result = await call('POST', '/api/contacts', member, {
     name: 'José QA',
-    companies: [{ id: company.json().id, name: 'Empresa QA' }],
+    company: 'Empresa QA',
+    addresses: [{ street: 'Praça da Sé', city: 'São Paulo', type: 'work' }],
     emails: [
       {
         email: ' Pessoa-' + suffix + '@apmail.local ',
@@ -745,7 +741,7 @@ it('impede duplicidade normalizada, inclusive criação concorrente', async () =
 it('agenda não depende das permissões de caixa e conserva isolamento', async () => {
   const detail = (await call('GET', '/api/contacts/' + contact, member)).json();
   expect(detail.emails).toHaveLength(2);
-  expect(detail.companies).toHaveLength(1);
+  expect(detail.company).toBe('Empresa QA');
   expect((await call('GET', '/api/contacts/' + contact, foreign)).statusCode).toBe(404);
   expect(
     (
@@ -1026,35 +1022,30 @@ it('gestão global edita capacidades e caixas sem promover o próprio ator', asy
   };
   expect((await call('POST', '/api/rules', member, rule)).statusCode).toBe(404);
 });
-it('consulta CNPJ usa fonte alternativa e valida CEP sem impedir preenchimento manual', async () => {
+it('consulta CEP e retira a consulta CNPJ do diretório de contatos', async () => {
   const cnpj = '12345678000195',
     cache = new Redis(redisUrl);
-  await cache.del('lookup:cnpj:' + cnpj);
-  const fetch = vi
-    .spyOn(globalThis, 'fetch')
-    .mockResolvedValueOnce(new Response('indisponível', { status: 403 }))
-    .mockResolvedValueOnce(
-      Response.json({
-        razao_social: 'Empresa de consulta QA',
-        nome_fantasia: 'QA',
-        cep: '01001000',
-        municipio: 'São Paulo',
-        uf: 'SP',
-      }),
-    );
+  await cache.del('lookup:cep:01001000');
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+    Response.json({
+      logradouro: 'Praça da Sé',
+      localidade: 'São Paulo',
+      uf: 'SP',
+    }),
+  );
   try {
-    const result = await call('GET', '/api/contacts/lookup/cnpj/' + cnpj, owner);
+    expect((await call('GET', '/api/contacts/lookup/cnpj/' + cnpj, owner)).statusCode).toBe(404);
+    const result = await call('GET', '/api/contacts/lookup/cep/01001000', owner);
     expect(result.statusCode, result.body).toBe(200);
     expect(result.json()).toMatchObject({
-      source: 'Minha Receita',
-      company: { name: 'Empresa de consulta QA', cnpj },
-      address: { city: 'São Paulo' },
+      source: 'ViaCEP',
+      address: { city: 'São Paulo', street: 'Praça da Sé' },
     });
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect((await call('GET', '/api/contacts/lookup/cep/123', owner)).statusCode).toBe(400);
   } finally {
     fetch.mockRestore();
-    await cache.del('lookup:cnpj:' + cnpj);
+    await cache.del('lookup:cep:01001000');
     await cache.quit();
   }
 });

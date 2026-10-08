@@ -78,7 +78,6 @@ export async function handleMailAction(
           .set({ status: 'processing', attempts: action.attempts + 1 })
           .where('id', '=', action.id)
           .execute();
-        await t.imap.connect();
         const messages = await r.db
           .selectFrom('messages')
           .selectAll()
@@ -87,6 +86,8 @@ export async function handleMailAction(
           .where('mailbox_id', '=', box.id)
           .where('pending_action', '=', true)
           .execute();
+        if (box.receiving_protocol === 'imap' && messages.some((m) => m.source_kind === 'imap'))
+          await t.imap.connect();
         for (const m of messages) {
           threadIds.add(m.thread_id);
           const sourceId = payload.previous_folder_ids[m.id];
@@ -99,6 +100,20 @@ export async function handleMailAction(
                 .executeTakeFirst()
             : null;
           const sourceUid = payload.previous_uids[m.id] ?? m.imap_uid;
+          if (box.receiving_protocol !== 'imap' || m.source_kind !== 'imap' || source?.is_local) {
+            await r.db
+              .updateTable('messages')
+              .set({
+                pending_action: false,
+                ...(action.type === 'delete' && source?.special_use === 'trash'
+                  ? { deleted_at: new Date() }
+                  : {}),
+              })
+              .where('id', '=', m.id)
+              .where('tenant_id', '=', box.tenant_id)
+              .execute();
+            continue;
+          }
           if (!source || !sourceUid)
             throw new Error('Mensagem ainda não está disponível no servidor.');
           const sourceLock = await t.imap.getMailboxLock(source.imap_path);

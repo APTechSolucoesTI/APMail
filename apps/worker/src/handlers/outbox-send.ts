@@ -261,7 +261,7 @@ export async function handleOutboxSend(
           );
           throw e;
         }
-        if (box.append_sent_copy && sent)
+        if (box.receiving_protocol === 'imap' && box.append_sent_copy && sent)
           try {
             await transport!.imap.connect();
             await transport!.imap.append(sent.imap_path, mime.raw, ['\\Seen']);

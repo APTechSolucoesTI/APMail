@@ -1,7 +1,6 @@
 import { z } from 'zod';
 export const searchCategories = {
   contact: 'Contatos',
-  company: 'Empresas',
   email: 'E-mails',
   mailbox: 'Caixas de entrada',
   setting: 'Configurações',

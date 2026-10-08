@@ -14,12 +14,10 @@ export function allowInsecure(host: string, env: WorkerEnv): boolean {
   );
 }
 export async function transports(db: Kysely<DB>, box: Mailbox, env: WorkerEnv) {
-  const pass = await readMailboxCredential(
-    db,
-    box.tenant_id,
-    box.id,
-    env.CREDENTIALS_ENCRYPTION_KEY,
-  );
+  const pass =
+    box.receiving_protocol === 'local'
+      ? ''
+      : await readMailboxCredential(db, box.tenant_id, box.id, env.CREDENTIALS_ENCRYPTION_KEY);
   const auth = { user: box.username, pass };
   const imap = new ImapFlow({
     host: box.imap_host,

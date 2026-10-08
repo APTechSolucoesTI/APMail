@@ -2,7 +2,7 @@ import { labelsService, validateLabelIds } from './labels.js';
 import { isTenantAdmin } from '@apmail/shared';
 export { replaceLabels, validateLabelIds, labelIdsSchema } from './labels.js';
 import { z } from 'zod';
-import { asJson } from '@apmail/db';
+import { asJson, lockStorageTenant } from '@apmail/db';
 import { can, mailRuleSchema, toBullJobId, type MailRuleInput } from '@apmail/shared';
 import {
   requireTenant,
@@ -57,7 +57,14 @@ export function organizationService(r: Resources) {
           .executeTakeFirst();
         if (!f) throw notFound();
         await requireFolder(c, r.db, b.mailbox_id, f.id);
-      } else if (a.type === 'add_label') await validateLabelIds(r, c, [a.label_id]);
+      } else if (a.type === 'add_label')
+        await validateLabelIds(
+          r,
+          c,
+          [a.label_id],
+          b.mailbox_id,
+          b.scope === 'personal' ? 'personal' : 'tenant',
+        );
       else if (a.type === 'assign_to') {
         const target = await r.db
           .selectFrom('tenant_members as tm')
@@ -133,7 +140,7 @@ export function organizationService(r: Resources) {
         .where('deleted_at', 'is', null)
         .executeTakeFirst();
       if (exists) throw conflict('Já existe uma pasta com este nome.');
-      payload = { name: b.name, parent_id: b.parent_id, imap_path: path };
+      payload = { review_reason: null, name: b.name, parent_id: b.parent_id, imap_path: path };
     } else {
       const folder = await r.db
         .selectFrom('folders')
@@ -268,25 +275,43 @@ export function organizationService(r: Resources) {
       await validateRule(c, b);
       const { id: unused, ...input } = b;
       void unused;
-      const values = { ...input, conditions: asJson(b.conditions), actions: asJson(b.actions) };
-      const row = id
-        ? await r.db
-            .updateTable('mail_rules')
-            .set(values)
-            .where('id', '=', id)
-            .where('tenant_id', '=', c.tenantId)
-            .returningAll()
-            .executeTakeFirstOrThrow()
-        : await r.db
-            .insertInto('mail_rules')
-            .values({
-              ...values,
-              tenant_id: c.tenantId,
-              owner_user_id: b.scope === 'personal' ? c.userId : null,
-              created_by: c.userId,
-            })
-            .returningAll()
-            .executeTakeFirstOrThrow();
+      const values = {
+        ...input,
+        review_reason: null,
+        conditions: asJson(b.conditions),
+        actions: asJson(b.actions),
+      };
+      const row = await r.db.transaction().execute(async (tx) => {
+        await lockStorageTenant(tx, c.tenantId);
+        for (const action of b.actions) {
+          if (action.type === 'add_label')
+            await validateLabelIds(
+              { ...r, db: tx },
+              c,
+              [action.label_id],
+              b.mailbox_id,
+              b.scope === 'personal' ? 'personal' : 'tenant',
+            );
+        }
+        return id
+          ? await tx
+              .updateTable('mail_rules')
+              .set(values)
+              .where('id', '=', id)
+              .where('tenant_id', '=', c.tenantId)
+              .returningAll()
+              .executeTakeFirstOrThrow()
+          : await tx
+              .insertInto('mail_rules')
+              .values({
+                ...values,
+                tenant_id: c.tenantId,
+                owner_user_id: b.scope === 'personal' ? c.userId : null,
+                created_by: c.userId,
+              })
+              .returningAll()
+              .executeTakeFirstOrThrow();
+      });
       if (z.boolean().default(false).parse(raw.apply_existing)) await enqueueRule(row.id);
       return row;
     },

@@ -119,71 +119,15 @@ export interface ChatParticipants {
   user_id: string;
 }
 
-export interface ContactAddresses {
-  cep: Generated<string>;
-  city: Generated<string>;
-  complement: Generated<string>;
-  country: Generated<string>;
-  district: Generated<string>;
-  id: Generated<string>;
-  number: Generated<string>;
-  state: Generated<string>;
-  street: Generated<string>;
-  tenant_id: string;
-}
-
-export interface ContactCompanies {
-  addresses: Generated<JsonValue>;
-  visibility: Generated<string>;
-  created_at: Generated<Timestamp>;
-  updated_at: Generated<Timestamp>;
-  cnpj: string | null;
-  id: Generated<string>;
-  name: string;
-  queried_at: Timestamp | null;
-  source: string | null;
-  tenant_id: string;
-  trade_name: Generated<string>;
-}
-export interface ContactCompanyMailboxes {
-  tenant_id: string;
-  company_id: string;
-  mailbox_id: string;
-}
-
-export interface ContactCompanyLinks {
-  tenant_id: string;
-  contact_id: string;
-  company_id: string;
-  is_primary: Generated<boolean>;
-}
 export interface ContactUserNicknames {
   tenant_id: string;
   contact_id: string;
   user_id: string;
   nickname: string;
 }
-export interface DirectoryLegacy {
-  id: Generated<string>;
-  tenant_id: string;
-  source: string;
-  source_key: string;
-  payload: Json;
-  deleted_at: Generated<Timestamp>;
-}
-
-export interface ContactEmailLinks {
-  contact_id: string;
-  is_primary_company: Generated<boolean>;
-  address_id: string | null;
-  company_id: string | null;
-  email_id: string;
-  id: Generated<string>;
-  label: Generated<string>;
-  tenant_id: string;
-}
 
 export interface ContactEmails {
+  agenda_user_id: string | null;
   is_primary: Generated<boolean>;
   contact_id: string;
   email: string;
@@ -192,13 +136,22 @@ export interface ContactEmails {
   tenant_id: string;
 }
 
-export interface ContactMailboxes {
-  contact_id: string;
-  mailbox_id: string;
-  tenant_id: string;
-}
-
 export interface Contacts {
+  scope: Generated<'tenant' | 'personal'>;
+  owner_user_id: string | null;
+  updated_by: string | null;
+  version: Generated<number>;
+  company: Generated<string>;
+  first_name: Generated<string>;
+  middle_name: Generated<string>;
+  last_name: Generated<string>;
+  prefix: Generated<string>;
+  suffix: Generated<string>;
+  department: Generated<string>;
+  office: Generated<string>;
+  website: Generated<string>;
+  birthday: Generated<string>;
+  addresses: Generated<JsonValue>;
   job_title: Generated<string>;
   phones: Generated<JsonValue>;
   created_at: Generated<Timestamp>;
@@ -220,6 +173,7 @@ export interface FolderPermissions {
 }
 
 export interface Folders {
+  is_local: Generated<boolean>;
   created_at: Generated<Timestamp>;
   deleted_at: Timestamp | null;
   delimiter: Generated<string>;
@@ -279,6 +233,7 @@ export interface MailboxCredentials {
 }
 
 export interface Mailboxes {
+  receiving_protocol: Generated<'imap' | 'pop3' | 'local'>;
   aliases: Generated<string[]>;
   append_sent_copy: Generated<boolean>;
   created_at: Generated<Timestamp>;
@@ -318,6 +273,7 @@ export interface MailboxMembers {
 }
 
 export interface MailRules {
+  review_reason: string | null;
   actions: Json;
   conditions: Json;
   created_at: Generated<Timestamp>;
@@ -337,6 +293,9 @@ export interface MailRules {
 }
 
 export interface Messages {
+  source_kind: Generated<'imap' | 'pop3' | 'archive'>;
+  source_key: string | null;
+  raw_storage_path: string | null;
   bcc_addresses: Generated<Json>;
   body_html: string | null;
   body_text: Generated<string>;
@@ -438,6 +397,7 @@ export interface PasswordResetTokens {
 }
 
 export interface PersonalLabels {
+  mailbox_mode: Generated<'all' | 'selected'>;
   scope: Generated<'personal' | 'tenant'>;
   created_by: string | null;
   color: string;
@@ -568,23 +528,6 @@ export interface StorageLogicalPayloads {
   relation_name: string;
   retained: boolean;
   row_key: string;
-  tenant_id: string | null;
-}
-
-export interface StorageLogicalRows {
-  body_bytes: Int8 | null;
-  category: string | null;
-  mailbox_id: string | null;
-  metadata_bytes: Int8 | null;
-  tenant_id: string | null;
-}
-
-export interface StorageLogicalRowsV2 {
-  body_bytes: Int8 | null;
-  category: string | null;
-  mailbox_id: string | null;
-  metadata_bytes: Int8 | null;
-  retained: boolean | null;
   tenant_id: string | null;
 }
 
@@ -787,20 +730,43 @@ export interface Users {
 }
 
 export interface DB {
+  mail_archive_imports: {
+    id: Generated<string>;
+    tenant_id: string;
+    mailbox_id: string;
+    created_by: string;
+    filename: string;
+    format: string;
+    size_bytes: Int8;
+    storage_path: string | null;
+    state: Generated<string>;
+    cursor: Generated<number>;
+    imported: Generated<number>;
+    skipped: Generated<number>;
+    last_error: string | null;
+    created_at: Generated<Timestamp>;
+    updated_at: Generated<Timestamp>;
+  };
+  label_mailboxes: { tenant_id: string; label_id: string; mailbox_id: string };
+  contact_imports: {
+    duplicates: string | null;
+    id: Generated<string>;
+    tenant_id: string;
+    user_id: string;
+    mode: string;
+    rows: JsonValue;
+    results: Generated<JsonValue>;
+    cursor: Generated<number>;
+    created_at: Generated<Timestamp>;
+    expires_at: Generated<Timestamp>;
+  };
   attachments: Attachments;
   audit_logs: AuditLogs;
   chat_conversations: ChatConversations;
   chat_messages: ChatMessages;
   chat_participants: ChatParticipants;
-  contact_addresses: ContactAddresses;
-  contact_companies: ContactCompanies;
-  contact_company_mailboxes: ContactCompanyMailboxes;
-  contact_company_links: ContactCompanyLinks;
   contact_user_nicknames: ContactUserNicknames;
-  directory_legacy: DirectoryLegacy;
-  contact_email_links: ContactEmailLinks;
   contact_emails: ContactEmails;
-  contact_mailboxes: ContactMailboxes;
   contacts: Contacts;
   folder_permissions: FolderPermissions;
   folders: Folders;
@@ -828,8 +794,6 @@ export interface DB {
   storage_discrepancies: StorageDiscrepancies;
   storage_logical_catalog: StorageLogicalCatalog;
   storage_logical_payloads: StorageLogicalPayloads;
-  storage_logical_rows: StorageLogicalRows;
-  storage_logical_rows_v2: StorageLogicalRowsV2;
   storage_logical_rows_v3: StorageLogicalRowsV3;
   storage_operations: StorageOperations;
   storage_scan_runs: StorageScanRuns;

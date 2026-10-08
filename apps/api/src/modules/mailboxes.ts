@@ -10,6 +10,7 @@ import {
   writeMailboxCredential,
   readMailboxCredential,
   assertMailboxSlot,
+  ensureLocalFolders,
 } from '@apmail/db';
 import { assertMailboxConnection, connectionSchema } from '../lib/mailbox-probe.js';
 import { requireTenant, requireTenantAdmin, type RequestContext } from '../authz/context.js';
@@ -18,6 +19,7 @@ import { requireMember, setMailboxMember } from './tenants.js';
 import type { Resources } from './resources.js';
 // Lista explícita: nenhuma query deste módulo lê mailbox_credentials.
 const publicColumns = [
+  'receiving_protocol',
   'id',
   'tenant_id',
   'name',
@@ -58,7 +60,9 @@ async function details(ctx: RequestContext, r: Resources, id: string) {
     last_error: !isTenantAdmin(c.tenantRole) ? null : row.last_error,
     role,
     permissions: MAILBOX_PERMS.filter(
-      (p) => can(role, p) || canDelegate(c.tenantRole, c.capabilities, p),
+      (p) =>
+        (row.receiving_protocol !== 'local' || p !== 'send') &&
+        (can(role, p) || canDelegate(c.tenantRole, c.capabilities, p)),
     ),
   };
 }
@@ -89,7 +93,9 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
           last_error: !isTenantAdmin(c.tenantRole) ? null : box.last_error,
           role,
           permissions: MAILBOX_PERMS.filter(
-            (p) => can(role, p) || canDelegate(c.tenantRole, c.capabilities, p),
+            (p) =>
+              (box.receiving_protocol !== 'local' || p !== 'send') &&
+              (can(role, p) || canDelegate(c.tenantRole, c.capabilities, p)),
           ),
         });
     }
@@ -100,10 +106,26 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
   );
   app.post('/api/mailboxes', async (req, reply) => {
     const c = requireTenantAdmin(req.ctx);
-    const b = mailboxSchema.parse(req.body);
+    const input = req.body as Record<string, unknown>;
+    const b = mailboxSchema.parse(
+      input?.receiving_protocol === 'local'
+        ? {
+            ...input,
+            imap_host: 'local',
+            imap_port: 993,
+            imap_secure: true,
+            smtp_host: 'local',
+            smtp_port: 465,
+            smtp_secure: true,
+            username: input.email_address,
+            password: crypto.randomUUID(),
+            append_sent_copy: false,
+          }
+        : input,
+    );
     for (const m of b.members) await requireMember(c, r, m.user_id);
     await assertMailboxSlot(r.db, c.tenantId);
-    await assertMailboxConnection(r.env, b);
+    if (b.receiving_protocol !== 'local') await assertMailboxConnection(r.env, b);
     const { password, members, sync_days, ...data } = b;
     const box = await r.db.transaction().execute(async (tx) => {
       const row = await tx
@@ -112,17 +134,20 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
           ...data,
           tenant_id: c.tenantId,
           created_by: c.userId,
+          ...(data.receiving_protocol === 'local' ? { status: 'active' as const } : {}),
           sync_since: new Date(Date.now() - sync_days * 86400000),
         })
         .returning('id')
         .executeTakeFirstOrThrow();
-      await writeMailboxCredential(
-        tx,
-        c.tenantId,
-        row.id,
-        password,
-        r.env.CREDENTIALS_ENCRYPTION_KEY,
-      );
+      if (data.receiving_protocol !== 'local')
+        await writeMailboxCredential(
+          tx,
+          c.tenantId,
+          row.id,
+          password,
+          r.env.CREDENTIALS_ENCRYPTION_KEY,
+        );
+      if (data.receiving_protocol !== 'imap') await ensureLocalFolders(tx, c.tenantId, row.id);
       for (const m of members)
         await tx
           .insertInto('mailbox_members')
@@ -139,7 +164,8 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
       });
       return row;
     });
-    await r.queues['mailbox-connection'].add('connect', { mailbox_id: box.id });
+    if (data.receiving_protocol !== 'local')
+      await r.queues['mailbox-connection'].add('connect', { mailbox_id: box.id });
     r.io.to('tenant:' + c.tenantId).emit('mailboxes:changed', {});
     return reply.code(201).send(await details(c, r, box.id));
   });
@@ -147,7 +173,10 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
     const c = requireTenantAdmin(req.ctx);
     const { id } = z.object({ id: z.uuid() }).parse(req.params);
     await requireMailboxPerm(c, r.db, id, 'read');
-    const b = mailboxSchema.partial().omit({ members: true }).parse(req.body);
+    const b = mailboxSchema
+      .partial()
+      .omit({ members: true, receiving_protocol: true })
+      .parse(req.body);
     const { password, sync_days, ...data } = b;
     const previous = await r.db
       .selectFrom('mailboxes')
@@ -166,7 +195,7 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
         'smtp_secure',
         'username',
       ].some((k) => k in b);
-    if (changed)
+    if (changed && previous.receiving_protocol !== 'local')
       await assertMailboxConnection(r.env, {
         ...previous,
         ...b,
@@ -180,7 +209,9 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
         .set({
           ...data,
           ...(sync_days ? { sync_since: new Date(Date.now() - sync_days * 86400000) } : {}),
-          ...(changed ? { status: 'pending' as const, last_error: null } : {}),
+          ...(changed && previous.receiving_protocol !== 'local'
+            ? { status: 'pending' as const, last_error: null }
+            : {}),
         })
         .where('tenant_id', '=', c.tenantId)
         .where('id', '=', id)
@@ -212,7 +243,8 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
           ip: c.ip,
         });
     });
-    if (changed) await r.queues['mailbox-connection'].add('connect', { mailbox_id: id });
+    if (changed && previous.receiving_protocol !== 'local')
+      await r.queues['mailbox-connection'].add('connect', { mailbox_id: id });
     r.io.to('tenant:' + c.tenantId).emit('mailboxes:changed', {});
     return details(c, r, id);
   });
@@ -221,14 +253,29 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
       const c = requireTenantAdmin(req.ctx);
       const { id } = z.object({ id: z.uuid() }).parse(req.params);
       await requireMailboxPerm(c, r.db, id, 'read');
+      const box = await r.db
+        .selectFrom('mailboxes')
+        .select('receiving_protocol')
+        .where('id', '=', id)
+        .where('tenant_id', '=', c.tenantId)
+        .executeTakeFirstOrThrow();
       await r.db
         .updateTable('mailboxes')
-        .set({ status: action === 'disable' ? 'disabled' : 'pending', last_error: null })
+        .set({
+          status:
+            action === 'disable'
+              ? 'disabled'
+              : box.receiving_protocol === 'local'
+                ? 'active'
+                : 'pending',
+          last_error: null,
+        })
         .where('tenant_id', '=', c.tenantId)
         .where('id', '=', id)
         .execute();
       if (action === 'disable') await r.queues['mailbox-sync'].removeJobScheduler('sync:' + id);
-      else await r.queues['mailbox-connection'].add('connect', { mailbox_id: id });
+      else if (box.receiving_protocol !== 'local')
+        await r.queues['mailbox-connection'].add('connect', { mailbox_id: id });
       await audit(r.db, {
         tenantId: c.tenantId,
         actorId: c.userId,

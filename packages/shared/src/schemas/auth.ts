@@ -29,6 +29,7 @@ export const timezoneSchema = z.string().refine((v) => {
 }, 'Fuso horário inválido.');
 export const tenantSettingsSchema = z
   .object({
+    contact_mode: z.enum(['tenant', 'personal']).optional(),
     max_attachment_mb: z.number().int().min(1).max(25),
     sla_first_response_hours: z.number().int().min(1).max(720),
     default_sync_days: z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)]),
@@ -77,6 +78,7 @@ export const invitationSchema = z.object({
   mailbox_roles: z.array(z.object({ mailbox_id: z.uuid(), role: mailboxRoleSchema })).max(100),
 });
 export const mailboxSchema = z.object({
+  receiving_protocol: z.enum(['imap', 'pop3', 'local']).default('imap'),
   name: z.string().trim().min(2).max(80),
   email_address: emailSchema,
   aliases: z.array(emailSchema).max(30).default([]),

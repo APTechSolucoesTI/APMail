@@ -1,3 +1,4 @@
+import { tableParameters } from '@/lib/table-query';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ListQuery, MeteringResult, MeteredRow } from '@apmail/shared';
@@ -25,16 +26,18 @@ export function PlatformStorage({
   onChange: (query: ListQuery, scope: Scope, tenantId?: string) => void;
 }) {
   const client = useQueryClient(),
+    [categoryQuery, setCategoryQuery] = useState<ListQuery>({ page: 1, pageSize: 10, filters: {} }),
     [detail, setDetail] = useState<MeteredRow | null>(null),
     [exporting, setExporting] = useState(false);
   const params = new URLSearchParams({
+    ...tableParameters(query),
     period,
     scope,
     page: String(query.page),
     pageSize: String(query.pageSize),
     search: query.search ?? '',
     ...(tenantId ? { tenant_id: tenantId } : {}),
-    ...(query.sort ? { sort: query.sort.key, direction: query.sort.direction } : {}),
+
     quality: query.filters.quality?.join(',') || 'all',
     retained: query.filters.retained?.length === 1 ? query.filters.retained[0]! : 'all',
   });
@@ -373,30 +376,33 @@ export function PlatformStorage({
             <summary className="cursor-pointer text-sm text-primary">
               Consultar bytes exatos por categoria
             </summary>
-            <div className="mt-3 max-h-64 overflow-auto rounded-md border">
-              <table className="w-full text-xs">
-                <caption className="sr-only">Composição por categoria em bytes exatos</caption>
-                <thead className="sticky top-0 bg-card">
-                  <tr>
-                    <th className="p-2 text-left">Categoria</th>
-                    <th className="p-2 text-right">Dados lógicos (B)</th>
-                    <th className="p-2 text-right">Arquivos (B)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleDetail.categories.map((v) => (
-                    <tr key={v.category} className="border-t">
-                      <td className="p-2">{categoryLabels[v.category] ?? v.category}</td>
-                      <td className="p-2 text-right tabular-nums">
-                        {BigInt(v.logical_bytes).toLocaleString('pt-BR')}
-                      </td>
-                      <td className="p-2 text-right tabular-nums">
-                        {BigInt(v.file_bytes).toLocaleString('pt-BR')}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="mt-3">
+              <ConfigurableTable
+                listKey="platform-storage-category-bytes"
+                mode="client"
+                query={categoryQuery}
+                onQueryChange={setCategoryQuery}
+                data={visibleDetail.categories.map((value) => ({
+                  ...value,
+                  id: value.category,
+                  category: categoryLabels[value.category] ?? value.category,
+                }))}
+                columns={[
+                  { id: 'category', header: 'Categoria', hideable: false },
+                  {
+                    id: 'logical_bytes',
+                    header: 'Dados lógicos (B)',
+                    align: 'right',
+                    cell: (value) => BigInt(value.logical_bytes).toLocaleString('pt-BR'),
+                  },
+                  {
+                    id: 'file_bytes',
+                    header: 'Arquivos (B)',
+                    align: 'right',
+                    cell: (value) => BigInt(value.file_bytes).toLocaleString('pt-BR'),
+                  },
+                ]}
+              />
             </div>
           </details>
           <p className="text-sm text-muted-foreground">

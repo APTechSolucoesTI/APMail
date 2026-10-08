@@ -5,8 +5,14 @@ export type PersonalLabel = {
   color: string;
   scope?: 'personal' | 'tenant';
   thread_count?: number;
+  mailbox_mode?: 'all' | 'selected';
+  mailbox_ids?: string[];
 };
-export type MailRule = MailRuleInput & { id: string; created_at: string };
+export type MailRule = MailRuleInput & {
+  id: string;
+  created_at: string;
+  review_reason?: string | null;
+};
 export const LABEL_COLOR_NAMES = {
   teal: 'Verde petróleo',
   blue: 'Azul',
