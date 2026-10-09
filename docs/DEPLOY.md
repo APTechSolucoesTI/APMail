@@ -1,5 +1,13 @@
 # Publicação do APMail
 
+## Atualização vigente — lista de e-mails e envio de backups (0025)
+
+Publicar API/web/worker da mesma versão e aplicar `0025_archive_chunk_upload.sql`, após 0024. Ela adiciona progresso de envio e identificação do arquivo para retomada, preservando dados e a medição existente. Não executar reset; commit e deploy ficam com o usuário.
+
+O navegador passa a enviar blocos de até 4 MiB em `PATCH /api/mailboxes/:id/archive-imports/:taskId/upload`, com cabeçalho `Upload-Offset`. Conferir que proxies encaminham PATCH e esse cabeçalho. Nginx do projeto já encaminha ambos; POST por stream permanece para clientes anteriores/internos. API e worker continuam compartilhando o mesmo volume. Ensaiar uma interrupção e selecionar o mesmo arquivo novamente: o envio deve continuar do checkpoint. Envios legados sem arquivo recebido podem ser cancelados pela interface e refeitos.
+
+A lista operacional de e-mails voltou ao formato de conversas, com busca no topo, seleção e paginação. O padrão de filtros por coluna permanece nas outras listagens. Detalhes em [EMAILS-POP3-IMPORTACAO-BACKUP.md](EMAILS-POP3-IMPORTACAO-BACKUP.md).
+
 ## Atualização vigente — POP3, caixas locais e backups (0024)
 
 Aplicar `0024_mail_archives_pop3.sql` após as migrations anteriores e atualizar API/web/worker juntos. Recriar imagem do worker: Debian Bookworm, Python/pypff e script de leitura PST/OST. Commit e deploy pelo usuário.
@@ -213,3 +221,11 @@ Limpeza solicitada nesta entrega já executada no projeto `apmail-next-productio
 Backup anterior à limpeza: `/home/administrador/apmail-next/.data/backups/production/20261005T182009Z`. Banco e arquivos restaurados em laboratório independente e conferidos; RDB validado. Credenciais/chaves do backup permanecem privadas. O relatório `backup-report.json` registra conclusão/checksum/restauração sem conteúdo ou segredos. Os recursos de laboratório com dados copiados foram removidos.
 
 `APMAIL_BACKUP_LEAVE_STOPPED=true` é exclusivo de um procedimento operacional que prossegue com serviços parados, como o reset ensaiado nesta entrega. O cron normal não define essa variável e sempre retoma API/worker. Não executar novamente o script pontual de reset para atualizar o sistema; deploy normal preserva os cadastros criados após a limpeza.
+
+### Importação e exclusão definitiva — complemento local de 09/10/2026
+
+Aplicar `0025`–`0028` pelo migrador habitual, com **API/web/worker atualizados juntos**, preservando banco/volumes/APP_URL/segredos. `0025` habilita envio em blocos retomáveis; `0026` registra análise/tamanho MIME/progresso/bytes adicionados; `0027` adiciona estado de vínculo removido sem apagar autoria; `0028` persiste solicitações de limpeza definitiva. Não executar seed/reset. Contadores operacionais são excluídos da quota e o upgrade foi ensaiado com quota cheia.
+
+Há uma leitura adicional de cada backup para medir tamanho e quantidade; em PST/OST o conversor percorre o arquivo duas vezes no primeiro processamento. O tamanho final não é inferido do contêiner. Monitorar a origem recebida, o MIME extraído e o consumo atual no painel. Retomadas aproveitam análise concluída; dados históricos de métricas não são reconstruídos retroativamente. Envios legados incompletos podem ser cancelados e refeitos em blocos.
+
+Exclusão de caixa exige duas etapas e oferece backup; não excluir a caixa enquanto seu download não foi terminado e conferido. Backup IMAP contém somente conteúdo já salvo no APMail, sem buscar o que existe apenas no provedor. MBOX e ZIP/EML são reimportáveis; geração de PST/OST não disponível. `maintenance/purge-mailboxes` aguarda bloqueio da caixa, remove dados/arquivos da solicitação confirmada e registra auditoria. Agendador recupera solicitações pendentes; falhas conservam o consumo físico e aparecem na listagem de caixas. Auditoria/identificadores mínimos permanecem. Nenhuma exclusão efetiva ou atualização da aplicação foi realizada na produção nesta entrega; ações destrutivas foram ensaiadas somente em banco/armazenamento de QA exclusivos.

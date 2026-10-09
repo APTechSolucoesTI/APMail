@@ -1,6 +1,17 @@
 import { toBullJobId } from '@apmail/shared';
 import type { WorkerResources } from '../resources.js';
 export async function ensureSchedulers(r: WorkerResources) {
+  const purge = await r.db
+    .selectFrom('mailbox_purge_requests')
+    .select('mailbox_id')
+    .where('state', '!=', 'completed')
+    .executeTakeFirst();
+  if (purge)
+    await r.queues.maintenance.add(
+      'purge-mailboxes',
+      {},
+      { jobId: 'mailbox-purge-recover', removeOnComplete: true, removeOnFail: true },
+    );
   const pendingArchives = await r.db
     .selectFrom('mail_archive_imports')
     .select('id')

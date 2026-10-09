@@ -3,25 +3,36 @@ import { spawn } from 'node:child_process';
 import { dirname, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
-import { createInterface } from 'node:readline';
 import * as yauzl from 'yauzl';
 import { MAIL_MESSAGE_MAX_BYTES, MAIL_ARCHIVE_MAX_BYTES, mailArchiveFormat } from '@apmail/shared';
 
 export type ArchiveMessage = { raw: Buffer; folder: string };
-export async function* byteLines(stream: Readable): AsyncGenerator<Buffer> {
-  let pending = Buffer.alloc(0);
+export async function* byteLines(
+  stream: Readable,
+  maxBytes = MAIL_MESSAGE_MAX_BYTES,
+): AsyncGenerator<Buffer> {
+  let parts: Buffer[] = [],
+    size = 0;
   for await (const value of stream) {
     const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
-    pending = Buffer.concat([pending, chunk]);
-    let index: number;
-    while ((index = pending.indexOf(10)) >= 0) {
-      yield pending.subarray(0, index + 1);
-      pending = pending.subarray(index + 1);
+    let start = 0;
+    while (start < chunk.length) {
+      const newline = chunk.indexOf(10, start);
+      const end = newline < 0 ? chunk.length : newline + 1;
+      const part = chunk.subarray(start, end);
+      size += part.length;
+      if (size > maxBytes) throw new Error('Uma linha do arquivo excede o limite de leitura.');
+      parts.push(part);
+      start = end;
+      if (newline >= 0) {
+        const line = parts.length === 1 ? parts[0]! : Buffer.concat(parts, size);
+        parts = [];
+        size = 0;
+        yield line;
+      }
     }
-    if (pending.length > MAIL_MESSAGE_MAX_BYTES)
-      throw new Error('Uma linha do arquivo excede 50 MiB.');
   }
-  if (pending.length) yield pending;
+  if (size) yield Buffer.concat(parts, size);
 }
 async function boundedBuffer(stream: Readable) {
   const chunks: Buffer[] = [];
@@ -167,13 +178,24 @@ async function* pffMessages(filename: string): AsyncGenerator<ArchiveMessage> {
     if (diagnostics.length < 2048) diagnostics += value.toString();
   });
   const completed = new Promise<number | null>((resolve) => child.once('close', resolve));
-  const timeout = setTimeout(() => child.kill(), 30 * 60 * 1000);
-  const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
+  let timedOut = false;
+  const expire = () => {
+    timedOut = true;
+    child.kill();
+  };
+  let timeout = setTimeout(expire, 30 * 60 * 1000);
   try {
-    for await (const line of lines) {
+    // Await each envelope before reading more stdout: at most one encoded message,
+    // rather than a readline queue of messages while the database is slower.
+    for await (const line of byteLines(
+      child.stdout,
+      Math.ceil((MAIL_MESSAGE_MAX_BYTES * 4) / 3) + 4096,
+    )) {
+      clearTimeout(timeout);
+      timeout = setTimeout(expire, 30 * 60 * 1000);
       if (line.length > Math.ceil((MAIL_MESSAGE_MAX_BYTES * 4) / 3) + 4096)
         throw new Error('Uma mensagem PST/OST excede 50 MiB.');
-      const value = JSON.parse(line) as { folder: string; mime: string };
+      const value = JSON.parse(line.toString('utf8')) as { folder: string; mime: string };
       if (typeof value.mime !== 'string' || typeof value.folder !== 'string')
         throw new Error('Conversão PST/OST inválida.');
       yield { folder: value.folder, raw: Buffer.from(value.mime, 'base64') };
@@ -181,13 +203,15 @@ async function* pffMessages(filename: string): AsyncGenerator<ArchiveMessage> {
     const code = await completed;
     if (error || code !== 0)
       throw new Error(
-        error?.message === 'spawn python3 ENOENT'
-          ? 'Conversor PST/OST indisponível. Instale Python/pypff no worker.'
-          : 'Não foi possível ler PST/OST. O arquivo pode estar corrompido, criptografado ou usar uma versão não suportada.',
+        timedOut
+          ? 'O conversor PST/OST ficou 30 minutos sem produzir uma mensagem. Verifique o arquivo e retome a importação.'
+          : error?.message === 'spawn python3 ENOENT'
+            ? 'Conversor PST/OST indisponível. Instale Python/pypff no worker.'
+            : 'Não foi possível ler PST/OST. O arquivo pode estar corrompido, criptografado ou usar uma versão não suportada.',
       );
   } finally {
     clearTimeout(timeout);
-    lines.close();
+    child.stdout.destroy();
     child.kill();
   }
 }

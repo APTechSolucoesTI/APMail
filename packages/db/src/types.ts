@@ -37,7 +37,7 @@ export type MailboxRole = 'editor' | 'mailbox_admin' | 'viewer';
 
 export type MailboxStatus = 'active' | 'disabled' | 'error' | 'pending';
 
-export type MemberStatus = 'active' | 'disabled';
+export type MemberStatus = 'active' | 'disabled' | 'removed';
 
 export type MessageDirection = 'inbound' | 'outbound';
 
@@ -730,6 +730,15 @@ export interface Users {
 }
 
 export interface DB {
+  mailbox_purge_requests: {
+    mailbox_id: string;
+    tenant_id: string;
+    requested_by: string;
+    state: Generated<string>;
+    last_error: string | null;
+    created_at: Generated<Timestamp>;
+    updated_at: Generated<Timestamp>;
+  };
   mail_archive_imports: {
     id: Generated<string>;
     tenant_id: string;
@@ -739,6 +748,13 @@ export interface DB {
     format: string;
     size_bytes: Int8;
     storage_path: string | null;
+    uploaded_bytes: Generated<Int8>;
+    upload_fingerprint: string | null;
+    analyzed_messages: Generated<number>;
+    expanded_bytes: Generated<Int8>;
+    processed_bytes: Generated<Int8>;
+    added_storage_bytes: Generated<Int8>;
+    analyzed_at: Timestamp | null;
     state: Generated<string>;
     cursor: Generated<number>;
     imported: Generated<number>;

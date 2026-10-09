@@ -1,7 +1,6 @@
-import { ConfigurableTable } from '@/components/data/configurable-table';
-import { LabelBadge } from '@/components/mail/label-badge';
-import { QueueStatusBadge } from '@/components/common/status-badge';
-import { useState, useRef } from 'react';
+import { Pagination } from '@/components/data/pagination';
+import { ThreadListItem } from '@/components/mail/thread-list-item';
+import { useState, useRef, useEffect } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { RefreshCw, MailOpen, Mail, FolderOpen, CheckCircle2, RotateCcw } from 'lucide-react';
@@ -60,16 +59,6 @@ function MailPage() {
     enabled: search.view === 'label',
   });
   const query = new URLSearchParams({
-    columns: JSON.stringify(
-      Object.fromEntries(
-        Object.entries(search.columns)
-          .filter(([key]) => key.startsWith('column:'))
-          .map(([key, v]) => [key.slice(7), v]),
-      ),
-    ),
-    ...(search.columnSort
-      ? { column_sort: search.columnSort.key, column_direction: search.columnSort.direction }
-      : {}),
     view: search.view,
     assigned: search.assigned,
     sort: search.sort,
@@ -87,6 +76,19 @@ function MailPage() {
       api<{ items: Thread[]; total: number }>('/mailboxes/' + mailboxId + '/threads?' + query),
     placeholderData: keepPreviousData,
   });
+  useEffect(() => {
+    if (!threads.data || threads.isFetching || threads.isPlaceholderData) return;
+    const lastPage = Math.max(1, Math.ceil(threads.data.total / search.pageSize));
+    if (search.page > lastPage)
+      void navigate({ search: (previous) => ({ ...previous, page: lastPage }) });
+  }, [
+    threads.data,
+    threads.isFetching,
+    threads.isPlaceholderData,
+    search.page,
+    search.pageSize,
+    navigate,
+  ]);
   useSocketRoom('mailbox', mailboxId);
   const context = tenantId + mailboxId + query.toString(),
     [selection, setSelection] = useState<{ context: string; ids: string[] }>({
@@ -104,8 +106,6 @@ function MailPage() {
   const clearFilters = () =>
     change({
       q: undefined,
-      columns: {},
-      columnSort: undefined,
       unread: undefined,
       assigned: 'any',
       sort: 'recent',
@@ -361,103 +361,70 @@ function MailPage() {
           )}
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <ConfigurableTable
-          listKey="mail-threads"
-          showSearch={false}
-          mode="server"
-          data={items}
-          total={threads.data?.total ?? 0}
-          isLoading={threads.isLoading}
-          isFetching={threads.isFetching}
-          error={threads.error}
-          onRetry={() => void threads.refetch()}
-          query={{
-            page: search.page,
-            pageSize: search.pageSize,
-            search: search.q,
-            filters: search.columns,
-            sort: search.columnSort,
-          }}
-          onQueryChange={(q) =>
-            change({
-              page: q.page,
-              pageSize: q.pageSize,
-              q: q.search,
-              columns: q.filters,
-              columnSort: q.sort,
-            })
-          }
-          selectable
-          selectedIds={selected}
-          onSelectionChange={(ids) => setSelection({ context, ids })}
-          columns={[
-            {
-              id: 'subject',
-              header: 'Assunto',
-              hideable: false,
-              cell: (t) => (
-                <Button
-                  variant="ghost"
-                  className="h-auto min-w-48 max-w-64 justify-start whitespace-normal px-2 text-left text-xs sm:h-auto"
-                  aria-current={search.thread === t.id ? 'true' : undefined}
-                  onClick={() => change({ thread: t.id })}
-                >
-                  <span className={t.is_unread ? 'break-words font-semibold' : 'break-words'}>
-                    {t.is_unread && <span className="sr-only">Não lida: </span>}
-                    {t.subject || '(Sem assunto)'}
-                    {t.is_pinned ? ' · Fixada' : ''}
-                    {t.is_overdue ? ' · Atrasada' : ''}
-                    {t.has_attachments ? ' · Com anexos' : ''}
-                  </span>
+      <Pagination
+        page={search.page}
+        pageSize={search.pageSize}
+        total={threads.data?.total ?? 0}
+        onPageChange={(page) => change({ page })}
+      />
+      <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={threads.isFetching}>
+        {threads.isLoading ? (
+          <LoadingState />
+        ) : threads.error ? (
+          <ErrorState onRetry={() => void threads.refetch()} />
+        ) : !items.length ? (
+          <EmptyState
+            title={
+              search.q
+                ? 'Nenhum resultado para esta busca'
+                : search.unread
+                  ? 'Nenhuma conversa não lida'
+                  : search.view === 'queue'
+                    ? 'Nenhuma conversa nesta fila'
+                    : 'Esta pasta está vazia.'
+            }
+            description={
+              search.view === 'label'
+                ? 'Aplique esta etiqueta nas conversas que deseja organizar.'
+                : search.view === 'queue'
+                  ? 'As conversas aparecerão aqui conforme o atendimento.'
+                  : search.q
+                    ? 'Tente outro termo ou ajuste os filtros.'
+                    : 'As mensagens desta pasta aparecerão após a sincronização.'
+            }
+            action={
+              search.q || search.unread || search.assigned !== 'any' ? (
+                <Button variant="outline" onClick={clearFilters}>
+                  Limpar filtros
                 </Button>
-              ),
-            },
-            {
-              id: 'latest_from',
-              header: 'Remetente',
-              cell: (t) => (
-                <span title={t.latest_from.address}>
-                  {t.latest_from.name || t.latest_from.address}
-                </span>
-              ),
-            },
-            {
-              id: 'last_message_at',
-              header: 'Data e hora',
-              cell: (t) =>
-                t.last_message_at
-                  ? new Date(t.last_message_at).toLocaleString('pt-BR', {
-                      timeZone: me.data?.preferences.timezone,
-                    })
-                  : '',
-            },
-            {
-              id: 'queue_status',
-              header: 'Fila',
-              cell: (t) => <QueueStatusBadge status={t.queue_status} />,
-            },
-            {
-              id: 'assigned_to',
-              header: 'Responsável',
-              cell: (t) => t.assigned_to?.full_name ?? 'Sem responsável',
-            },
-            { id: 'message_count', header: 'Mensagens', align: 'right', defaultVisible: false },
-            {
-              id: 'labels',
-              header: 'Etiquetas',
-              sortable: false,
-              cell: (t) => (
-                <div className="flex flex-wrap gap-1">
-                  {t.labels.map((label) => (
-                    <LabelBadge key={label.id} label={label} />
-                  ))}
-                </div>
-              ),
-            },
-          ]}
-        />
+              ) : undefined
+            }
+          />
+        ) : (
+          items.map((t) => (
+            <ThreadListItem
+              key={t.id}
+              thread={t}
+              query={search.q}
+              selected={selected.includes(t.id)}
+              active={search.thread === t.id}
+              onSelect={(v) =>
+                setSelection({
+                  context,
+                  ids: v ? [...selected, t.id] : selected.filter((id) => id !== t.id),
+                })
+              }
+              onOpen={() => change({ thread: t.id })}
+            />
+          ))
+        )}
       </div>
+      <Pagination
+        page={search.page}
+        pageSize={search.pageSize}
+        total={threads.data?.total ?? 0}
+        onPageChange={(page) => change({ page })}
+      />
     </section>
   );
   const reading = search.thread ? (

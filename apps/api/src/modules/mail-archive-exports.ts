@@ -66,8 +66,12 @@ export async function registerMailArchiveExports(app: FastifyInstance, r: Resour
     async (req, reply) => {
       const c = requireTenantAdmin(req.ctx),
         { id } = z.object({ id: z.uuid() }).parse(req.params);
-      const { format, folder_id } = z
-        .object({ format: z.enum(['mbox', 'eml']).default('mbox'), folder_id: z.uuid().optional() })
+      const { format, folder_id, include_deleted } = z
+        .object({
+          format: z.enum(['mbox', 'eml']).default('mbox'),
+          folder_id: z.uuid().optional(),
+          include_deleted: z.enum(['true', 'false']).default('false'),
+        })
         .parse(req.query);
       await requireMailboxPerm(c, r.db, id, 'read');
       const box = await r.db
@@ -106,7 +110,14 @@ export async function registerMailArchiveExports(app: FastifyInstance, r: Resour
             .selectAll()
             .where('tenant_id', '=', c.tenantId)
             .where('mailbox_id', '=', id)
-            .where('deleted_at', 'is', null)
+            .$if(include_deleted !== 'true', (q) => q.where('deleted_at', 'is', null))
+            .where((eb) =>
+              eb.or([
+                eb('raw_storage_path', 'is not', null),
+                eb('body_text', '!=', ''),
+                eb('body_html', 'is not', null),
+              ]),
+            )
             .where('created_at', '<=', cutoff)
             .where('id', '>', cursor)
             .$if(!!folder_id, (q) => q.where('folder_id', '=', folder_id!))
@@ -134,7 +145,12 @@ export async function registerMailArchiveExports(app: FastifyInstance, r: Resour
           action: 'mail.exported',
           entityType: 'mailbox',
           entityId: id,
-          metadata: { format, exported, folder_id: folder_id ?? null },
+          metadata: {
+            format,
+            exported,
+            folder_id: folder_id ?? null,
+            include_deleted: include_deleted === 'true',
+          },
           ip: c.ip,
         }).catch(() => app.log.warn({ mailbox_id: id }, 'Registro da exportação pendente.'));
       if (format === 'mbox') {
@@ -164,14 +180,20 @@ export async function registerMailArchiveExports(app: FastifyInstance, r: Resour
             const folder = message.folder_id
               ? await r.db
                   .selectFrom('folders')
-                  .select('name')
+                  .select(['imap_path', 'delimiter'])
                   .where('id', '=', message.folder_id)
                   .where('tenant_id', '=', c.tenantId)
                   .executeTakeFirst()
               : null;
-            const directory = (folder?.name ?? 'Mensagens')
-              .replace(/[^\p{L}\p{N}._ -]/gu, '_')
-              .replace(/^\.+$/, 'Mensagens');
+            const directory =
+              (folder?.imap_path ?? 'Mensagens')
+                .split(folder?.delimiter || '/')
+                .flatMap((part) => part.split(/[\\/]+/))
+                .filter(Boolean)
+                .map((part) =>
+                  part.replace(/[^\p{L}\p{N}._ -]/gu, '_').replace(/^\.+$/, 'Mensagens'),
+                )
+                .join('/') || 'Mensagens';
             await new Promise<void>((resolve, reject) => {
               let source: Readable | undefined;
               const aborted = () => {

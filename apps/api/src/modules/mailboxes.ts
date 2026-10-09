@@ -11,9 +11,15 @@ import {
   readMailboxCredential,
   assertMailboxSlot,
   ensureLocalFolders,
+  lockStorageTenant,
 } from '@apmail/db';
 import { assertMailboxConnection, connectionSchema } from '../lib/mailbox-probe.js';
-import { requireTenant, requireTenantAdmin, type RequestContext } from '../authz/context.js';
+import {
+  requireTenant,
+  requireTenantAdmin,
+  conflict,
+  type RequestContext,
+} from '../authz/context.js';
 import { getMailboxRole, requireMailboxPerm } from '../authz/guards.js';
 import { requireMember, setMailboxMember } from './tenants.js';
 import type { Resources } from './resources.js';
@@ -168,6 +174,109 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
       await r.queues['mailbox-connection'].add('connect', { mailbox_id: box.id });
     r.io.to('tenant:' + c.tenantId).emit('mailboxes:changed', {});
     return reply.code(201).send(await details(c, r, box.id));
+  });
+  app.get('/api/mailbox-deletions', async (req) => {
+    const c = requireTenantAdmin(req.ctx);
+    return r.db
+      .selectFrom('mailbox_purge_requests as p')
+      .innerJoin('mailboxes as b', 'b.id', 'p.mailbox_id')
+      .select([
+        'p.mailbox_id',
+        'b.email_address',
+        'p.state',
+        'p.last_error',
+        'p.created_at',
+        'p.updated_at',
+      ])
+      .where('p.tenant_id', '=', c.tenantId)
+      .where('p.state', '!=', 'completed')
+      .orderBy('p.created_at', 'desc')
+      .limit(100)
+      .execute();
+  });
+  app.delete('/api/mailboxes/:id', async (req) => {
+    const c = requireTenantAdmin(req.ctx);
+    const { id } = z.object({ id: z.uuid() }).parse(req.params);
+    const body = z.object({ confirm: z.literal(true), confirmed_email: z.email() }).parse(req.body);
+    await requireMailboxPerm(c, r.db, id, 'read');
+    await r.db.transaction().execute(async (tx) => {
+      await lockStorageTenant(tx, c.tenantId);
+      const box = await tx
+        .selectFrom('mailboxes')
+        .select(['id', 'email_address'])
+        .where('tenant_id', '=', c.tenantId)
+        .where('id', '=', id)
+        .where('deleted_at', 'is', null)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      if (body.confirmed_email.toLowerCase() !== box.email_address.toLowerCase())
+        throw conflict('Digite exatamente o endereço da caixa para confirmar a exclusão.');
+      const deliveries = await tx
+        .selectFrom('outbox')
+        .select(['id', 'status'])
+        .where('mailbox_id', '=', id)
+        .where('tenant_id', '=', c.tenantId)
+        .forUpdate()
+        .execute();
+      if (deliveries.some((delivery) => delivery.status === 'sending'))
+        throw conflict('Há um e-mail sendo enviado. Aguarde a conclusão antes de excluir a caixa.');
+      const shared = (
+        await sql<{
+          used: boolean;
+        }>`select exists(select 1 from outbox o where o.tenant_id=${c.tenantId}::uuid and o.mailbox_id<>${id}::uuid and o.status in ('draft','queued','scheduled','sending','failed') and (exists(select 1 from attachments a where a.mailbox_id=${id}::uuid and o.attachments @> jsonb_build_array(jsonb_build_object('source','message_attachment','attachment_id',a.id::text))) or exists(select 1 from uploads u where u.mailbox_id=${id}::uuid and o.attachments @> jsonb_build_array(jsonb_build_object('source','upload','upload_id',u.id::text))))) as used`.execute(
+          tx,
+        )
+      ).rows[0]!.used;
+      if (shared)
+        throw conflict(
+          'Anexos desta caixa estão em uso em envios de outra caixa. Remova esses anexos ou conclua os envios antes de excluir.',
+        );
+      await tx
+        .updateTable('outbox')
+        .set({ status: 'canceled', job_id: null })
+        .where('mailbox_id', '=', id)
+        .where('tenant_id', '=', c.tenantId)
+        .where('status', 'in', ['queued', 'scheduled'])
+        .execute();
+      await tx
+        .updateTable('mailboxes')
+        .set({ status: 'disabled', deleted_at: new Date() })
+        .where('id', '=', id)
+        .where('tenant_id', '=', c.tenantId)
+        .execute();
+      await tx
+        .updateTable('mail_archive_imports')
+        .set({ state: 'cancelled', updated_at: new Date() })
+        .where('tenant_id', '=', c.tenantId)
+        .where('mailbox_id', '=', id)
+        .where('state', 'not in', ['completed', 'cancelled'])
+        .execute();
+      await tx
+        .deleteFrom('mailbox_credentials')
+        .where('mailbox_id', '=', id)
+        .where('tenant_id', '=', c.tenantId)
+        .execute();
+      await tx
+        .insertInto('mailbox_purge_requests')
+        .values({ mailbox_id: id, tenant_id: c.tenantId, requested_by: c.userId })
+        .execute();
+      await audit(tx, {
+        tenantId: c.tenantId,
+        actorId: c.userId,
+        action: 'mailbox.deleted',
+        entityType: 'mailbox',
+        entityId: id,
+        metadata: { email_address: box.email_address, permanent: true },
+        ip: c.ip,
+      });
+    });
+    await r.queues['mailbox-sync'].removeJobScheduler('sync:' + id).catch(() => undefined);
+    await r.queues.maintenance
+      .add('purge-mailboxes', {})
+      .catch(() => app.log.warn('Exclusão será retomada pelo agendador.'));
+    r.io.in('mailbox:' + id).socketsLeave('mailbox:' + id);
+    r.io.to('tenant:' + c.tenantId).emit('mailboxes:changed', {});
+    return { ok: true, cleanup_pending: true };
   });
   app.patch('/api/mailboxes/:id', async (req) => {
     const c = requireTenantAdmin(req.ctx);

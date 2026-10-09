@@ -3,7 +3,7 @@ import { isTenantAdmin } from '@apmail/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sql, type Kysely } from 'kysely';
-import { audit, auditChanges, safeAuditMetadata, type DB } from '@apmail/db';
+import { audit, auditChanges, safeAuditMetadata, lockStorageTenant, type DB } from '@apmail/db';
 import { AUDIT_ACTION_LABELS } from '@apmail/shared';
 import {
   tenantSettingsSchema,
@@ -31,6 +31,7 @@ export async function requireMember(ctx: RequestContext, r: Resources, userId: s
     .select(['id', 'role', 'status', 'capabilities'])
     .where('tenant_id', '=', c.tenantId)
     .where('user_id', '=', userId)
+    .where('status', '!=', 'removed')
     .executeTakeFirst();
   if (!row) throw notFound();
   return row;
@@ -245,6 +246,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         ),
       ])
       .where('m.tenant_id', '=', c.tenantId)
+      .where('m.status', '!=', 'removed')
       .orderBy('u.full_name')
       .execute();
     const invitations = await r.db
@@ -354,6 +356,67 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         ip: c.ip,
       });
     });
+    await emitAccessChanged(r, userId);
+    return { ok: true };
+  });
+  app.delete('/api/members/:userId', async (req) => {
+    const c = requireTenantAdmin(req.ctx);
+    const { userId } = z.object({ userId: z.uuid() }).parse(req.params);
+    z.object({ confirm: z.literal(true) }).parse(req.body);
+    if (userId === c.userId)
+      throw new ApiError(409, 'conflict', 'Você não pode remover seu próprio acesso.');
+    await r.db.transaction().execute(async (tx) => {
+      await lockStorageTenant(tx, c.tenantId);
+      const member = await requireMember(c, { ...r, db: tx }, userId);
+      if (member.role === 'owner' && c.tenantRole !== 'owner') throw forbidden();
+      await tx
+        .updateTable('tenant_members')
+        .set({ status: 'removed' })
+        .where('tenant_id', '=', c.tenantId)
+        .where('user_id', '=', userId)
+        .execute();
+      await tx
+        .deleteFrom('mailbox_members')
+        .where('tenant_id', '=', c.tenantId)
+        .where('user_id', '=', userId)
+        .execute();
+      const other = await tx
+        .selectFrom('tenant_members')
+        .select('tenant_id')
+        .where('user_id', '=', userId)
+        .where('status', '=', 'active')
+        .where('tenant_id', '!=', c.tenantId)
+        .executeTakeFirst();
+      await tx
+        .updateTable('users')
+        .set({ current_tenant_id: other?.tenant_id ?? null })
+        .where('id', '=', userId)
+        .where('current_tenant_id', '=', c.tenantId)
+        .execute();
+      const account = await tx
+        .selectFrom('users')
+        .select('email')
+        .where('id', '=', userId)
+        .executeTakeFirstOrThrow();
+      await tx
+        .updateTable('invitations')
+        .set({ revoked_at: new Date() })
+        .where('tenant_id', '=', c.tenantId)
+        .where('email', '=', account.email)
+        .where('accepted_at', 'is', null)
+        .where('revoked_at', 'is', null)
+        .execute();
+      await audit(tx, {
+        tenantId: c.tenantId,
+        actorId: c.userId,
+        action: 'member.removed',
+        entityType: 'user',
+        entityId: userId,
+        metadata: { previous_role: member.role },
+        ip: c.ip,
+      });
+    });
+    r.io.in('user:' + userId).disconnectSockets(true);
     await emitAccessChanged(r, userId);
     return { ok: true };
   });

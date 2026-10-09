@@ -17,10 +17,18 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { MailboxWizard } from '@/components/forms/mailbox-wizard';
+import { MailboxDeleteDialog } from '@/components/settings/mailbox-delete-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { api } from '@/lib/api';
 import { type Mailbox } from '@/lib/auth';
 import { requireAdmin } from '@/lib/settings';
-import { Plus, Settings, RefreshCw } from 'lucide-react';
+import { Plus, Settings, RefreshCw, HardDrive, Ellipsis, Trash2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 export const Route = createFileRoute('/_app/settings/mailboxes')({
@@ -30,6 +38,8 @@ export const Route = createFileRoute('/_app/settings/mailboxes')({
 });
 function Mailboxes() {
   const [open, setOpen] = useState(false);
+  const [deleting, setDeleting] = useState<Mailbox | null>(null);
+  const [toggling, setToggling] = useState<Mailbox | null>(null);
   const client = useQueryClient();
   const query = Route.useSearch();
   const navigate = useNavigate();
@@ -37,6 +47,14 @@ function Mailboxes() {
   const q = useQuery({
     queryKey: ['mailboxes', tenantId],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
+  });
+  const deletions = useQuery({
+    queryKey: ['mailbox-deletions', tenantId],
+    queryFn: () =>
+      api<
+        { mailbox_id: string; email_address: string; state: string; last_error: string | null }[]
+      >('/mailbox-deletions'),
+    refetchInterval: 5000,
   });
   const storage = useQuery({
     queryKey: ['storage-quota', 'tenant', tenantId],
@@ -53,10 +71,18 @@ function Mailboxes() {
         title="Caixas de e-mail"
         description="Conecte IMAP/POP3 e SMTP ou crie caixas locais para importar backups."
         actions={
-          <Button onClick={() => setOpen(true)}>
-            <Plus />
-            Conectar caixa
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link to="/settings/tenant" hash="storage-allocation">
+                <HardDrive aria-hidden />
+                Gerenciar armazenamento
+              </Link>
+            </Button>
+            <Button onClick={() => setOpen(true)}>
+              <Plus />
+              Conectar caixa
+            </Button>
+          </div>
         }
       />
       {storage.error && (
@@ -75,6 +101,13 @@ function Mailboxes() {
           </Button>
         </p>
       )}
+      {deletions.data?.map((d) => (
+        <p key={d.mailbox_id} role="status" className="mb-3 rounded-lg border bg-muted p-3 text-sm">
+          Exclusão definitiva de {d.email_address}:{' '}
+          {d.last_error ??
+            'aguardando a limpeza dos e-mails e arquivos. O espaço permanece contabilizado até a remoção física.'}
+        </p>
+      ))}
       <ConfigurableTable
         listKey="mailboxes"
         mode="client"
@@ -166,23 +199,52 @@ function Mailboxes() {
               description="A conexão será verificada com os dados atuais."
               onConfirm={() => action(b.id, 'reconnect')}
             />
-            <ConfirmDialog
-              trigger={
-                <Button variant="ghost" size="sm">
-                  {b.status === 'disabled' ? 'Reativar' : 'Desativar'}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label={'Mais ações de ' + b.name}>
+                  <Ellipsis />
                 </Button>
-              }
-              title={b.status === 'disabled' ? 'Reativar caixa?' : 'Desativar caixa?'}
-              description={
-                b.status === 'disabled'
-                  ? 'A conexão será verificada novamente.'
-                  : 'A sincronização e os novos envios serão suspensos.'
-              }
-              onConfirm={() => action(b.id, b.status === 'disabled' ? 'enable' : 'disable')}
-            />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => setToggling(b)}>
+                  {b.status === 'disabled' ? 'Reativar' : 'Desativar'}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(b)}>
+                  <Trash2 aria-hidden />
+                  Excluir caixa e conteúdos
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </>
         )}
       />
+      {deleting && (
+        <MailboxDeleteDialog
+          mailbox={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={async () => {
+            await client.invalidateQueries();
+          }}
+        />
+      )}
+      {toggling && (
+        <ConfirmDialog
+          open
+          onOpenChange={(v) => {
+            if (!v) setToggling(null);
+          }}
+          title={toggling.status === 'disabled' ? 'Reativar caixa?' : 'Desativar caixa?'}
+          description={
+            toggling.status === 'disabled'
+              ? 'A conexão será verificada novamente.'
+              : 'A sincronização e os novos envios serão suspensos. Os dados permanecem no sistema.'
+          }
+          onConfirm={() =>
+            action(toggling.id, toggling.status === 'disabled' ? 'enable' : 'disable')
+          }
+        />
+      )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>

@@ -1,7 +1,5 @@
 import { z } from 'zod';
 export const mailSearchSchema = z.object({
-  columns: z.record(z.string(), z.array(z.string())).default({}),
-  columnSort: z.object({ key: z.string(), direction: z.enum(['asc', 'desc']) }).optional(),
   view: z.enum(['folder', 'queue', 'label', 'search']).default('folder'),
   folderId: z.uuid().optional(),
   queue: z

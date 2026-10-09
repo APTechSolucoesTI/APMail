@@ -46,4 +46,6 @@ Globais aplicadas são compartilhadas na conversa, com deltas explícitos/audito
 
 Padrão ConfigurableTable: busca, filtros digitáveis no topo de colunas, ciclo asc/desc/sem ordenação, Colunas com visibilidade/ordem/tamanho, paginação superior/inferior, 10 inicial e 10/20/30/50/100. Identificação permanece visível. Preferências por usuário/listKey. Dados ilimitados são filtrados/ordenados antes da paginação no servidor; conjuntos agregados/limitados podem usar cliente. Mobile usa cards, ações em menu; temas claro/escuro e teclado.
 
+Exceção confirmada em 09/10/2026: listagens operacionais de e-mails mantêm o formato de conversas (`ThreadListItem`) e busca no topo, sem filtros por coluna/Colunas. Isso vale para caixa, pasta, fila, etiqueta e resultados da busca. Preservam seleção, data/hora, controles de responsável/leitura/ordem, paginação e painel de leitura.
+
 Migration 0023 remove somente empresas/vínculos/legado do antigo diretório de teste; preserva contatos, canais, apelidos, caixas e mensagens. Empresa principal vira texto quando disponível. Projeções/catalogação de consumo removem dados obsoletos, medem importações/vínculos e não cobram duas vezes. Backfill suporta cota previamente cheia. Publicar migration/API/web/worker juntos; conferir [DEPLOY.md](DEPLOY.md) e [PROGRESSO.md](PROGRESSO.md).

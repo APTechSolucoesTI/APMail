@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { Readable } from 'node:stream';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { Storage, audit, lockStorageTenant, assertStorageGrowth } from '@apmail/db';
@@ -9,6 +9,8 @@ import {
   archiveQuotaCheck,
   mailArchiveFormat,
   MAIL_ARCHIVE_MAX_BYTES,
+  MAIL_ARCHIVE_CHUNK_BYTES,
+  MAIL_ARCHIVE_FINGERPRINT_BYTES,
   toBullJobId,
 } from '@apmail/shared';
 import { requireTenantAdmin, ApiError, notFound, conflict } from '../authz/context.js';
@@ -21,6 +23,13 @@ const taskColumns = [
   'filename',
   'format',
   'size_bytes',
+  'uploaded_bytes',
+  'upload_fingerprint',
+  'analyzed_messages',
+  'expanded_bytes',
+  'processed_bytes',
+  'added_storage_bytes',
+  'analyzed_at',
   'state',
   'cursor',
   'imported',
@@ -90,6 +99,27 @@ function validateSignature(format: string, header: Buffer) {
       'O conteúdo não corresponde ao formato de e-mail selecionado.',
     );
 }
+async function validateFingerprint(
+  storage: Storage,
+  key: string,
+  size: number,
+  expected: string | null,
+) {
+  if (!expected) return;
+  const hash = createHash('sha256');
+  for (const range of [
+    { start: 0, end: Math.min(size, MAIL_ARCHIVE_FINGERPRINT_BYTES) - 1 },
+    { start: Math.max(0, size - MAIL_ARCHIVE_FINGERPRINT_BYTES), end: size - 1 },
+  ]) {
+    for await (const chunk of await storage.openReadStream(key, range)) hash.update(chunk);
+  }
+  if (hash.digest('hex') !== expected)
+    throw new ApiError(
+      422,
+      'archive_file_changed',
+      'O arquivo mudou durante o envio. Cancele esta importação e selecione o backup original.',
+    );
+}
 export async function registerMailArchives(app: FastifyInstance, r: Resources) {
   const storage = new Storage(r.env.STORAGE_DIR, r.db);
   const authorize = async (ctx: Parameters<typeof requireTenantAdmin>[0], input: unknown) => {
@@ -98,6 +128,20 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
     await requireMailboxPerm(c, r.db, p.id, 'read');
     return { c, ...p };
   };
+  const enqueue = async (id: string) =>
+    r.queues['mail-archive']
+      .add(
+        'import',
+        { import_id: id },
+        {
+          jobId: toBullJobId('archive:' + id + ':' + randomUUID()),
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 10000 },
+        },
+      )
+      .catch(() =>
+        app.log.warn({ import_id: id }, 'Importação aguarda recuperação pelo agendador.'),
+      );
   app.post('/api/mailboxes/:id/archive-imports/preflight', async (req) => {
     const { c, id } = await authorize(req.ctx, req.params);
     const b = archivePreflightSchema.parse(req.body);
@@ -138,6 +182,7 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
           filename: b.filename,
           format,
           size_bytes: b.size_bytes,
+          upload_fingerprint: b.upload_fingerprint ?? null,
         })
         .returning(taskColumns)
         .executeTakeFirstOrThrow();
@@ -154,9 +199,134 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
     });
     return reply.code(201).send(task);
   });
+  app.get('/api/mailboxes/:id/archive-imports/:taskId/upload', async (req) => {
+    const { c, id, taskId } = await authorize(req.ctx, req.params);
+    const task = await r.db
+      .selectFrom('mail_archive_imports')
+      .select(taskColumns)
+      .where('id', '=', taskId!)
+      .where('tenant_id', '=', c.tenantId)
+      .where('mailbox_id', '=', id)
+      .executeTakeFirst();
+    if (!task) throw notFound();
+    return task;
+  });
   await app.register(async (scope) => {
     scope.addContentTypeParser('application/octet-stream', (_req, payload, done) =>
       done(null, payload),
+    );
+    scope.patch(
+      '/api/mailboxes/:id/archive-imports/:taskId/upload',
+      {
+        bodyLimit: MAIL_ARCHIVE_CHUNK_BYTES,
+        config: { rateLimit: { max: 1200, timeWindow: '1 minute' } },
+      },
+      async (req) => {
+        const { c, id, taskId } = await authorize(req.ctx, req.params);
+        const offset = z
+          .string()
+          .regex(/^\d+$/)
+          .transform(Number)
+          .pipe(z.number().int().min(0).max(MAIL_ARCHIVE_MAX_BYTES))
+          .parse(req.headers['upload-offset']);
+        // Do not trust Content-Length or the streaming parser to enforce the block bound.
+        let bytes = 0;
+        const chunks: Buffer[] = [];
+        for await (const value of req.body as Readable) {
+          const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+          bytes += chunk.length;
+          if (bytes > MAIL_ARCHIVE_CHUNK_BYTES)
+            throw new ApiError(
+              413,
+              'archive_chunk_too_large',
+              'O bloco excede 4 MiB. Atualize a página e retome o envio.',
+            );
+          chunks.push(chunk);
+        }
+        if (!bytes)
+          throw new ApiError(422, 'archive_empty_chunk', 'O bloco de arquivo está vazio.');
+        const body = Buffer.concat(chunks, bytes);
+        const task = await r.db.transaction().execute(async (tx) => {
+          await lockStorageTenant(tx, c.tenantId);
+          const row = await tx
+            .selectFrom('mail_archive_imports')
+            .selectAll()
+            .where('id', '=', taskId!)
+            .where('tenant_id', '=', c.tenantId)
+            .where('mailbox_id', '=', id)
+            .forUpdate()
+            .executeTakeFirst();
+          if (!row) throw notFound();
+          if (row.state !== 'uploading')
+            throw conflict('Este upload já foi recebido ou encerrado.');
+          if (offset !== Number(row.uploaded_bytes))
+            throw new ApiError(
+              409,
+              'archive_upload_offset',
+              'O progresso do envio mudou. Consulte o checkpoint e retome o envio.',
+            );
+          const size = Number(row.size_bytes);
+          if (offset + bytes > size)
+            throw new ApiError(
+              413,
+              'archive_size_mismatch',
+              'O upload excede o tamanho informado.',
+            );
+          if (offset === 0) {
+            if (bytes < Math.min(size, 64))
+              throw new ApiError(
+                422,
+                'archive_header_incomplete',
+                'O primeiro bloco precisa conter o cabeçalho do arquivo.',
+              );
+            validateSignature(row.format, body.subarray(0, 512));
+          }
+          const key = `mail-imports/${c.tenantId}/${id}/${row.id}.${row.format}`;
+          // The logical checkpoint wins over any tail observed after a crashed transaction.
+          const stat = await storage.inspect(key);
+          if ((!stat && offset > 0) || (stat && stat.size < BigInt(offset)))
+            throw new ApiError(
+              422,
+              'archive_upload_missing',
+              'O arquivo recebido está incompleto no servidor. Cancele esta importação e envie o backup novamente.',
+            );
+          if (stat) {
+            const asset = await tx
+              .selectFrom('storage_assets')
+              .select('present_bytes')
+              .where('storage_key', '=', key)
+              .executeTakeFirst();
+            if (stat.size > BigInt(offset) || BigInt(asset?.present_bytes ?? -1) !== BigInt(offset))
+              await storage.withDatabase(tx).truncateFile(key, offset);
+          }
+          await archiveAdmission({ ...r, db: tx }, c.tenantId, id, size - offset);
+          const complete = offset + bytes === size;
+          await storage
+            .withDatabase(tx)
+            .appendFile(
+              key,
+              body,
+              offset,
+              complete
+                ? () => validateFingerprint(storage, key, size, row.upload_fingerprint)
+                : undefined,
+            );
+          return tx
+            .updateTable('mail_archive_imports')
+            .set({
+              storage_path: key,
+              uploaded_bytes: offset + bytes,
+              state: complete ? 'queued' : 'uploading',
+              last_error: null,
+              updated_at: new Date(),
+            })
+            .where('id', '=', row.id)
+            .returning(taskColumns)
+            .executeTakeFirstOrThrow();
+        });
+        if (task.state === 'queued') await enqueue(task.id);
+        return task;
+      },
     );
     scope.post(
       '/api/mailboxes/:id/archive-imports/:taskId/upload',
@@ -178,6 +348,8 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
             if (!row) throw notFound();
             if (row.state !== 'uploading')
               throw conflict('Este upload já foi recebido ou encerrado.');
+            if (Number(row.uploaded_bytes) > 0)
+              throw conflict('Retome este arquivo usando o envio em blocos.');
             const size = Number(row.size_bytes);
             await archiveAdmission({ ...r, db: tx }, c.tenantId, id, size);
             key = `mail-imports/${c.tenantId}/${id}/${row.id}.${row.format}`;
@@ -212,43 +384,36 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
               validateSignature(row!.format, header);
             }
             await storage.withDatabase(tx).writeFile(key, Readable.from(bounded()));
+            await validateFingerprint(storage, key, size, row.upload_fingerprint);
             return tx
               .updateTable('mail_archive_imports')
-              .set({ storage_path: key, state: 'queued', updated_at: new Date() })
+              .set({
+                storage_path: key,
+                uploaded_bytes: size,
+                state: 'queued',
+                updated_at: new Date(),
+              })
               .where('id', '=', row.id)
               .returning(taskColumns)
               .executeTakeFirstOrThrow();
           });
-          await r.queues['mail-archive']
-            .add(
-              'import',
-              { import_id: task.id },
-              {
-                jobId: toBullJobId('archive:' + task.id + ':' + randomUUID()),
-                attempts: 3,
-                backoff: { type: 'exponential', delay: 10000 },
-              },
-            )
-            .catch(() =>
-              app.log.warn(
-                { import_id: task.id },
-                'Importação aguarda recuperação pelo agendador.',
-              ),
-            );
+          await enqueue(task.id);
           return task;
         } catch (error) {
           if (key) await storage.removeFile(key).catch(() => undefined);
-          await r.db
-            .updateTable('mail_archive_imports')
-            .set({
-              state: 'failed',
-              last_error: 'Não foi possível receber o arquivo. Refaça a importação.',
-              updated_at: new Date(),
-            })
-            .where('id', '=', taskId!)
-            .where('tenant_id', '=', c.tenantId)
-            .where('state', '=', 'uploading')
-            .execute();
+          if (key)
+            await r.db
+              .updateTable('mail_archive_imports')
+              .set({
+                state: 'failed',
+                last_error: 'Não foi possível receber o arquivo. Refaça a importação.',
+                updated_at: new Date(),
+              })
+              .where('id', '=', taskId!)
+              .where('tenant_id', '=', c.tenantId)
+              .where('state', '=', 'uploading')
+              .where('uploaded_bytes', '=', '0')
+              .execute();
           throw error;
         }
       },
@@ -264,6 +429,7 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
       .where('mailbox_id', '=', id)
       .where('state', 'in', ['paused', 'failed'])
       .where('storage_path', 'is not', null)
+      .whereRef('uploaded_bytes', '=', 'size_bytes')
       .returning('id')
       .executeTakeFirst();
     if (!task) throw conflict('A importação não está disponível para retomada.');

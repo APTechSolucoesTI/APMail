@@ -307,3 +307,85 @@ it('serializa recomputações concorrentes e grava somente uma transição por m
     await db.destroy();
   }
 }, 30000);
+
+it('upgrades legacy archive checkpoints at full quota without charging upload bookkeeping', async () => {
+  const url = process.env.DATABASE_URL_TEST;
+  if (!url || !new URL(url).pathname.endsWith('_test') || process.env.NODE_ENV === 'production')
+    throw Error('Banco exclusivo de teste obrigatório.');
+  const directory = await mkdtemp(join(tmpdir(), 'apmail-upload-migration-'));
+  const source = new URL('../../migrations/', import.meta.url);
+  const client = new pg.Client({ connectionString: url });
+  await client.connect();
+  try {
+    await client.query('drop schema public cascade; create schema public;');
+    for (const file of await readdir(source))
+      if (/^\d{4}_.+\.sql$/.test(file) && file < '0025')
+        await copyFile(new URL(file, source), join(directory, file));
+    await migrate(url, pathToFileURL(directory + sep));
+    const tenant = randomUUID(),
+      user = randomUUID(),
+      box = randomUUID();
+    await client.query('insert into tenants(id,name,slug) values($1,$2,$3)', [
+      tenant,
+      'Upload migration QA',
+      'upload-' + tenant,
+    ]);
+    await client.query('insert into users(id,email,full_name,password_hash) values($1,$2,$3,$4)', [
+      user,
+      user + '@qa.local',
+      'QA',
+      'fixture',
+    ]);
+    await client.query(
+      "insert into mailboxes(id,tenant_id,name,email_address,username,imap_host,smtp_host,status) values($1,$2,'QA','qa@qa.local','qa','localhost','localhost','disabled')",
+      [box, tenant],
+    );
+    await client.query(
+      "insert into mail_archive_imports(tenant_id,mailbox_id,created_by,filename,format,size_bytes,state) values($1,$2,$3,'queued.eml','eml',1000,'queued'),($1,$2,$3,'uploading.eml','eml',1000,'uploading'),($1,$2,$3,'completed.eml','eml',1000,'completed')",
+      [tenant, box, user],
+    );
+    await client.query(
+      "insert into mail_archive_imports(tenant_id,mailbox_id,created_by,filename,format,size_bytes,state,storage_path) values($1,$2,$3,'failed.eml','eml',1000,'failed',$4)",
+      [tenant, box, user, `mail-imports/${tenant}/${box}/${randomUUID()}.eml`],
+    );
+    const before = (await client.query('select storage_quota_usage($1)::text bytes', [tenant]))
+      .rows[0].bytes;
+    await client.query(
+      'update tenant_storage_limits set storage_limit_bytes=$2 where tenant_id=$1',
+      [tenant, before],
+    );
+    await migrate(url);
+    expect(
+      (
+        await client.query(
+          'select filename,uploaded_bytes::text bytes,upload_fingerprint from mail_archive_imports order by filename',
+        )
+      ).rows,
+    ).toEqual([
+      { filename: 'completed.eml', bytes: '1000', upload_fingerprint: null },
+      { filename: 'failed.eml', bytes: '1000', upload_fingerprint: null },
+      { filename: 'queued.eml', bytes: '1000', upload_fingerprint: null },
+      { filename: 'uploading.eml', bytes: '0', upload_fingerprint: null },
+    ]);
+    await client.query(
+      "update mail_archive_imports set uploaded_bytes=100,analyzed_messages=10,expanded_bytes=5000,processed_bytes=2000,added_storage_bytes=4000,analyzed_at=now() where state='uploading'",
+    );
+    expect(
+      (await client.query('select storage_quota_usage($1)::text bytes', [tenant])).rows[0].bytes,
+    ).toBe(before);
+    expect(
+      (
+        await client.query(
+          "select p.metadata_bytes=octet_length((to_jsonb(r)-c.excluded_columns)::text) consistent from mail_archive_imports r join storage_logical_payloads p on p.relation_name='mail_archive_imports' and p.row_key=jsonb_build_object('id',r.id)::text join storage_logical_catalog c on c.relation_name=p.relation_name",
+        )
+      ).rows.every((row) => row.consistent),
+    ).toBe(true);
+    await expect(
+      client.query("update mail_archive_imports set uploaded_bytes=1001 where state='uploading'"),
+    ).rejects.toThrow();
+  } finally {
+    await client.end();
+    await rm(directory, { recursive: true, force: true });
+    await resetDatabase(url);
+  }
+}, 120000);

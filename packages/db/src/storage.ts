@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, rename, unlink, copyFile, realpath, lstat } from 'node:fs/promises';
+import { mkdir, rename, unlink, copyFile, realpath, lstat, open } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
@@ -128,8 +128,98 @@ export class Storage {
       throw error;
     }
   }
-  async openReadStream(relativePath: string): Promise<ReturnType<typeof createReadStream>> {
-    return createReadStream(await this.path(relativePath, false));
+  /** Append one bounded upload block under the caller's tenant lock. The database checkpoint
+   * is authoritative: truncate any tail left by a process crash or rolled-back transaction.
+   * Never rewrite the entire archive or create a second full-size copy. */
+  async appendFile(
+    relativePath: string,
+    source: Buffer,
+    offset: number,
+    validate?: () => Promise<void>,
+  ): Promise<void> {
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Offset inválido.');
+    if (this.db && !this.db.isTransaction) {
+      await this.db
+        .transaction()
+        .execute((tx) => this.withDatabase(tx).appendFile(relativePath, source, offset, validate));
+      return;
+    }
+    const check = await this.admission(relativePath);
+    await check(BigInt(offset + source.length));
+    const destination = await this.path(relativePath);
+    const handle = await open(destination, 'r+').catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT' || offset !== 0) throw error;
+      return open(destination, 'wx+', 0o600);
+    });
+    let operation: string | undefined;
+    let appended = false;
+    let failed = false;
+    try {
+      if ((await handle.stat()).size < offset) throw new Error('Arquivo de upload incompleto.');
+      await handle.truncate(offset);
+      operation = this.db ? await beginStorageOperation(this.db, relativePath, 'write') : undefined;
+      appended = true;
+      let written = 0;
+      while (written < source.length) {
+        const { bytesWritten } = await handle.write(
+          source,
+          written,
+          source.length - written,
+          offset + written,
+        );
+        if (!bytesWritten) throw new Error('Não foi possível gravar o arquivo.');
+        written += bytesWritten;
+      }
+      await handle.sync();
+      await validate?.();
+      if (this.db)
+        await observeStorageFile(
+          this.db,
+          relativePath,
+          await handle.stat({ bigint: true }),
+          operation,
+        );
+    } catch (error) {
+      failed = true;
+      if (appended) {
+        await handle.truncate(offset);
+        await handle.sync();
+      }
+      if (this.db && operation)
+        await failStorageOperation(this.db, operation).catch(() => undefined);
+      throw error;
+    } finally {
+      await handle.close();
+      if (failed && offset === 0) await unlink(destination).catch(() => undefined);
+    }
+  }
+  async openReadStream(
+    relativePath: string,
+    range?: { start: number; end: number },
+  ): Promise<ReturnType<typeof createReadStream>> {
+    return createReadStream(await this.path(relativePath, false), range);
+  }
+  /** Discard an unconfirmed upload tail, including any scanner observation of those bytes. */
+  async truncateFile(relativePath: string, bytes: number): Promise<void> {
+    if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error('Tamanho inválido.');
+    if (this.db && !this.db.isTransaction) {
+      await this.db
+        .transaction()
+        .execute((tx) => this.withDatabase(tx).truncateFile(relativePath, bytes));
+      return;
+    }
+    const owner = this.db ? await inferStorageOwner(this.db, relativePath) : null;
+    if (this.db && owner?.tenant) await lockStorageTenant(this.db, owner.tenant);
+    const handle = await open(await this.path(relativePath, false), 'r+');
+    try {
+      if ((await handle.stat()).size < bytes) throw new Error('Arquivo de upload incompleto.');
+      await handle.truncate(bytes);
+      await handle.sync();
+      if (this.db)
+        await observeStorageFile(this.db, relativePath, await handle.stat({ bigint: true }));
+    } finally {
+      await handle.close();
+    }
   }
   async removeFile(relativePath: string): Promise<void> {
     const destination = await this.path(relativePath, false);

@@ -496,6 +496,7 @@ function AllocationEditor({ data }: { data: TenantQuota }) {
     validation = 'A soma das cotas ultrapassa o limite definido pelo superadmin.';
   return (
     <form
+      id="storage-allocation"
       className="space-y-4 border-t pt-4"
       onSubmit={async (e) => {
         e.preventDefault();

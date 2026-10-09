@@ -1,14 +1,17 @@
 import { useRef, useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Download, Play, X } from 'lucide-react';
+import { Upload, Download, Play, X, Settings2 } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import {
   listQuerySchema,
   MAIL_ARCHIVE_MAX_BYTES,
   mailArchiveFormat,
   type MailArchiveTask,
+  type TenantQuota,
 } from '@apmail/shared';
-import { api, ApiError } from '@/lib/api';
+import { api } from '@/lib/api';
+import { archiveFingerprint, uploadArchiveBlocks } from '@/lib/mail-archive-upload';
 import { useTenantId, useUserId } from '@/lib/auth';
 import { formatStorageBytes } from '@/lib/storage-metering';
 import { Button } from '@/components/ui/button';
@@ -17,6 +20,7 @@ import { Label } from '@/components/ui/label';
 import { ConfigurableTable } from '@/components/data/configurable-table';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { StatusBadge, type StatusVariant } from '@/components/common/status-badge';
+import { StorageUsageBar } from '@/components/storage/storage-quotas';
 type Admission = {
   near_limit: boolean;
   tenant_remaining_bytes: string | null;
@@ -24,7 +28,7 @@ type Admission = {
   warning: string | null;
 };
 const states: Record<string, string> = {
-  uploading: 'Aguardando arquivo',
+  uploading: 'Envio incompleto',
   queued: 'Na fila',
   running: 'Importando',
   paused: 'Pausada pela cota',
@@ -53,13 +57,16 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
     [progress, setProgress] = useState(0),
     [exportFormat, setExportFormat] = useState('mbox'),
     [query, setQuery] = useState(() => listQuerySchema.parse({}));
-  const request = useRef<XMLHttpRequest | null>(null),
+  const [fingerprint, setFingerprint] = useState<string | null>(null);
+  const [uploadTask, setUploadTask] = useState<MailArchiveTask | null>(null);
+  const request = useRef<AbortController | null>(null),
     selection = useRef(0),
     fileInput = useRef<HTMLInputElement | null>(null);
   const [acting, setActing] = useState<string | null>(null);
   useEffect(
     () => () => {
       request.current?.abort();
+      selection.current++;
     },
     [],
   );
@@ -68,6 +75,13 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
     queryFn: () => api<MailArchiveTask[]>('/mailboxes/' + mailboxId + '/archive-imports'),
     refetchInterval: 5000,
   });
+  const capacity = useQuery({
+    queryKey: ['storage-quota', 'tenant', tenant],
+    queryFn: ({ signal }) => api<TenantQuota>('/tenant/storage', { signal }),
+    refetchInterval:
+      busy || tasks.data?.some((t) => ['queued', 'running'].includes(t.state)) ? 5000 : 30000,
+  });
+  const boxCapacity = capacity.data?.mailboxes.find((b) => b.mailbox_id === mailboxId);
   const refresh = async () => {
     await client.invalidateQueries({ queryKey: ['mail-archives', tenant, user, mailboxId] });
     await client.invalidateQueries({ queryKey: ['storage-quota'] });
@@ -75,6 +89,9 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
   const choose = async (value: File | null) => {
     const version = ++selection.current;
     setFile(value);
+    setUploadTask(null);
+    setFingerprint(null);
+    setProgress(0);
     setAdmission(null);
     setError('');
     setChecking(false);
@@ -89,9 +106,28 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
     }
     setChecking(true);
     try {
+      const hash = await archiveFingerprint(value);
+      const existing = await api<MailArchiveTask[]>('/mailboxes/' + mailboxId + '/archive-imports');
+      const pending = existing.find(
+        (task) =>
+          task.state === 'uploading' &&
+          task.upload_fingerprint === hash &&
+          task.filename === value.name &&
+          Number(task.size_bytes) === value.size,
+      );
+      if (version !== selection.current) return;
+      setFingerprint(hash);
+      setUploadTask(pending ?? null);
+      setProgress(Math.floor((Number(pending?.uploaded_bytes ?? 0) * 100) / value.size));
       const result = await api<Admission>(
         '/mailboxes/' + mailboxId + '/archive-imports/preflight',
-        { method: 'POST', body: { filename: value.name, size_bytes: value.size } },
+        {
+          method: 'POST',
+          body: {
+            filename: value.name,
+            size_bytes: value.size - Number(pending?.uploaded_bytes ?? 0),
+          },
+        },
       );
       if (version === selection.current) setAdmission(result);
     } catch (e) {
@@ -102,52 +138,55 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
     }
   };
   const upload = async () => {
-    if (!file || busy) return;
+    if (!file || !fingerprint || busy) return;
+    const controller = new AbortController();
+    request.current = controller;
     setBusy(true);
-    setProgress(0);
     setError('');
     try {
-      const info = await api<Admission>('/mailboxes/' + mailboxId + '/archive-imports/preflight', {
-        method: 'POST',
-        body: { filename: file.name, size_bytes: file.size },
-      });
-      setAdmission(info);
-      const task = await api<MailArchiveTask>('/mailboxes/' + mailboxId + '/archive-imports', {
-        method: 'POST',
-        body: { filename: file.name, size_bytes: file.size },
-      });
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        request.current = xhr;
-        xhr.open('POST', '/api/mailboxes/' + mailboxId + '/archive-imports/' + task.id + '/upload');
-        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-        xhr.withCredentials = true;
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
-        };
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else {
-            let message = 'Não foi possível receber o arquivo.';
-            try {
-              message = JSON.parse(xhr.responseText).error?.message ?? message;
-            } catch {
-              /* Empty proxy error. */
-            }
-            reject(new ApiError(xhr.status, 'archive_upload', message));
-          }
-        };
-        xhr.onerror = () =>
-          reject(new Error('A conexão foi interrompida. Refaça o envio do arquivo.'));
-        xhr.onabort = () => reject(new Error('Envio cancelado.'));
-        xhr.send(file);
-      });
+      let task = uploadTask
+        ? await api<MailArchiveTask>(
+            '/mailboxes/' + mailboxId + '/archive-imports/' + uploadTask.id + '/upload',
+            { signal: controller.signal },
+          )
+        : null;
+      if (!task || task.state === 'uploading') {
+        const info = await api<Admission>(
+          '/mailboxes/' + mailboxId + '/archive-imports/preflight',
+          {
+            method: 'POST',
+            signal: controller.signal,
+            body: {
+              filename: file.name,
+              size_bytes: file.size - Number(task?.uploaded_bytes ?? 0),
+            },
+          },
+        );
+        setAdmission(info);
+      }
+      if (!task) {
+        task = await api<MailArchiveTask>('/mailboxes/' + mailboxId + '/archive-imports', {
+          method: 'POST',
+          signal: controller.signal,
+          body: { filename: file.name, size_bytes: file.size, upload_fingerprint: fingerprint },
+        });
+        setUploadTask(task);
+      }
+      await uploadArchiveBlocks(mailboxId, task, file, controller.signal, setProgress);
       toast.success('Arquivo recebido. Acompanhe a importação abaixo.');
       setFile(null);
+      setUploadTask(null);
+      setFingerprint(null);
       setAdmission(null);
       if (fileInput.current) fileInput.current.value = '';
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Não foi possível importar.');
+      setError(
+        controller.signal.aborted
+          ? 'Envio interrompido. O progresso confirmado foi preservado. Clique em Continuar envio ou selecione o mesmo arquivo novamente para retomar.'
+          : e instanceof Error
+            ? e.message
+            : 'Não foi possível importar.',
+      );
     } finally {
       request.current = null;
       setBusy(false);
@@ -168,6 +207,45 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
   };
   return (
     <section className="space-y-6" aria-label="Importação e backup de e-mails">
+      <div className="space-y-4 rounded-lg border bg-card p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Capacidade para importar</h2>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/settings/tenant" hash="storage-allocation">
+              <Settings2 aria-hidden />
+              Gerenciar armazenamento
+            </Link>
+          </Button>
+        </div>
+        {capacity.data && boxCapacity ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <StorageUsageBar
+              label="APMail: esta caixa"
+              used={boxCapacity.used_bytes}
+              limit={boxCapacity.allocated_bytes}
+            />
+            <StorageUsageBar
+              label="APMail: empresa"
+              used={capacity.data.used_bytes}
+              limit={capacity.data.storage_limit_bytes}
+            />
+          </div>
+        ) : (
+          <p role="status" className="text-sm text-muted-foreground">
+            {capacity.error ? 'Não foi possível atualizar o consumo.' : 'Consultando consumo…'}
+            {capacity.error && (
+              <Button variant="ghost" size="sm" onClick={() => void capacity.refetch()}>
+                Tentar novamente
+              </Button>
+            )}
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Consumo real: arquivo de origem, mensagens, anexos e dados do sistema. O arquivo de origem
+          é liberado ao concluir ou cancelar. A exclusão de e-mails precisa da limpeza permanente
+          para liberar seus conteúdos.
+        </p>
+      </div>
       <div className="space-y-3 rounded-lg border bg-card p-4">
         <h2 className="text-lg font-semibold">Importar e-mails de um arquivo</h2>
         <p className="text-sm text-muted-foreground">
@@ -212,10 +290,12 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
           </p>
         )}
         <p className="text-xs text-muted-foreground">
-          O arquivo de origem ocupa espaço até a conclusão. A descompactação, os corpos e anexos
-          podem exigir capacidade adicional. Se a cota for atingida, a importação pausa e pode ser
-          retomada. Histórico importado segue a janela de classificação definida no cadastro da
-          caixa.
+          Após o envio, o sistema analisa o arquivo e informa o tamanho real das mensagens
+          extraídas, sem criar uma cópia descompactada no disco. Esse tamanho inclui duplicados e
+          difere do consumo final: corpos, anexos e dados do sistema também são armazenados. Se a
+          cota for atingida, a importação pausa e pode ser retomada. Histórico importado segue a
+          janela de classificação definida no cadastro da caixa. Para retomar um envio interrompido,
+          selecione novamente o mesmo arquivo; os blocos confirmados não serão enviados novamente.
         </p>
         {error && (
           <p role="alert" className="text-sm text-destructive">
@@ -236,12 +316,16 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
           </div>
         )}
         <div className="flex flex-wrap gap-2">
-          <Button disabled={!file || !admission || checking || busy} onClick={() => void upload()}>
-            <Upload aria-hidden /> {busy ? 'Enviando…' : 'Importar arquivo'}
+          <Button
+            disabled={!file || !fingerprint || !admission || checking || busy}
+            onClick={() => void upload()}
+          >
+            <Upload aria-hidden />{' '}
+            {busy ? 'Enviando…' : uploadTask ? 'Continuar envio' : 'Importar arquivo'}
           </Button>
           {busy && (
             <Button variant="outline" onClick={() => request.current?.abort()}>
-              Cancelar envio
+              Interromper envio
             </Button>
           )}
         </div>
@@ -317,9 +401,39 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
             cell: (t) => (
               <span>
                 <StatusBadge
-                  label={states[t.state] ?? t.state}
+                  label={
+                    t.state === 'running' && !t.analyzed_at
+                      ? 'Analisando arquivo'
+                      : (states[t.state] ?? t.state)
+                  }
                   variant={stateVariants[t.state] ?? 'neutral'}
                 />
+                {t.state === 'uploading' && (
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {formatStorageBytes(t.uploaded_bytes)} de {formatStorageBytes(t.size_bytes)}{' '}
+                    recebidos
+                  </span>
+                )}
+                {t.state === 'running' && !t.analyzed_at && (
+                  <span className="mt-1 block text-xs text-muted-foreground" role="status">
+                    {t.analyzed_messages ?? 0} mensagens analisadas ·{' '}
+                    {formatStorageBytes(t.expanded_bytes ?? '0')} extraídos
+                  </span>
+                )}
+                {t.analyzed_at && t.analyzed_messages > 0 && (
+                  <span className="mt-2 block min-w-36 space-y-1">
+                    <progress
+                      className="storage-quota-bar h-2 w-full"
+                      max={t.analyzed_messages}
+                      value={t.cursor}
+                      aria-label={'Processamento de ' + t.filename}
+                    />
+                    <span className="block text-xs text-muted-foreground">
+                      {t.cursor} de {t.analyzed_messages} mensagens ·{' '}
+                      {Math.floor((t.cursor * 100) / t.analyzed_messages)}%
+                    </span>
+                  </span>
+                )}
                 {t.last_error && (
                   <span
                     className={
@@ -336,9 +450,30 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
           },
           {
             id: 'size_bytes',
-            header: 'Tamanho',
+            header: 'Arquivo original',
             align: 'right',
             cell: (t) => formatStorageBytes(t.size_bytes),
+          },
+          {
+            id: 'expanded_bytes',
+            header: 'Mensagens extraídas',
+            align: 'right',
+            cell: (t) =>
+              t.analyzed_at
+                ? formatStorageBytes(t.expanded_bytes)
+                : t.state === 'running'
+                  ? `${formatStorageBytes(t.expanded_bytes ?? '0')} (parcial)`
+                  : 'Não analisado',
+          },
+          {
+            id: 'added_storage_bytes',
+            header: 'Adicionado ao APMail',
+            align: 'right',
+            cell: (t) => (
+              <span title="Crescimento real confirmado nas transações das mensagens: MIME, corpos, anexos e metadados das mensagens/conversas. Não inclui a origem, cadastros de pastas ou auditoria. Total histórico, sem descontar exclusões posteriores; as barras mostram o consumo atual completo.">
+                {formatStorageBytes(t.added_storage_bytes ?? '0')}
+              </span>
+            ),
           },
           { id: 'imported', header: 'Importados', align: 'right' },
           { id: 'skipped', header: 'Duplicados ignorados', align: 'right' },
@@ -350,17 +485,18 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
         ]}
         rowActions={(t) => (
           <>
-            {['paused', 'failed'].includes(t.state) && (
-              <Button
-                variant="ghost"
-                size="icon"
-                disabled={acting !== null}
-                aria-label={'Retomar ' + t.filename}
-                onClick={() => void action(t.id, 'resume').catch((e) => toast.error(e.message))}
-              >
-                <Play />
-              </Button>
-            )}
+            {['paused', 'failed'].includes(t.state) &&
+              Number(t.uploaded_bytes) === Number(t.size_bytes) && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={acting !== null}
+                  aria-label={'Retomar ' + t.filename}
+                  onClick={() => void action(t.id, 'resume').catch((e) => toast.error(e.message))}
+                >
+                  <Play />
+                </Button>
+              )}
             {!['completed', 'cancelled'].includes(t.state) && (
               <ConfirmDialog
                 trigger={

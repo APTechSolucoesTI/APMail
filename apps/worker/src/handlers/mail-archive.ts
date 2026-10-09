@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { sql } from 'kysely';
 import { resolve } from 'node:path';
 import { ensureLocalFolders, isStorageQuotaError, audit } from '@apmail/db';
 import { MAIL_MESSAGE_MAX_BYTES } from '@apmail/shared';
@@ -39,12 +40,51 @@ export async function handleMailArchive(r: WorkerResources, importId: string, jo
         .set({ state: 'running', last_error: null, updated_at: new Date() })
         .where('id', '=', task.id)
         .where('state', 'in', ['queued', 'running'])
-        .returning('cursor')
+        .returning(['cursor', 'analyzed_at'])
         .executeTakeFirst();
       if (!active) return;
       const affected = new Set<string>();
       let index = 0;
       try {
+        // Count the actual converted MIME without writing an expanded copy to disk.
+        // PST/OST container sizes and ZIP sizes cannot predict this reliably.
+        if (!active.analyzed_at) {
+          let messages = 0,
+            expanded = 0n,
+            lastProgress = 0;
+          const saveAnalysis = async (complete = false) => {
+            const saved = await r.db
+              .updateTable('mail_archive_imports')
+              .set({
+                analyzed_messages: messages,
+                expanded_bytes: expanded.toString(),
+                analyzed_at: complete ? new Date() : null,
+                updated_at: new Date(),
+              })
+              .where('id', '=', task.id)
+              .where('state', '=', 'running')
+              .returning('id')
+              .executeTakeFirst();
+            if (!saved) throw new Error('Importação interrompida.');
+            r.io
+              .to('mailbox:' + box.id)
+              .emit('mail:archive-progress', { mailbox_id: box.id, import_id: task.id });
+            lastProgress = Date.now();
+          };
+          await saveAnalysis();
+          for await (const item of readMailArchive(
+            resolve(r.env.STORAGE_DIR, task.storage_path!),
+            task.format,
+            task.filename,
+          )) {
+            messages++;
+            expanded += BigInt(item.raw.length);
+            if (messages % 25 === 0 || Date.now() - lastProgress >= 2000) await saveAnalysis();
+          }
+          if (!messages)
+            throw new Error('O arquivo não contém mensagens de e-mail em formato suportado.');
+          await saveAnalysis(true);
+        }
         if (!box.import_started_at) {
           box.import_started_at = new Date();
           await r.db
@@ -153,14 +193,16 @@ export async function handleMailArchive(r: WorkerResources, importId: string, jo
               kind: 'archive',
               key,
               historical: true,
-              persisted: async (tx, imported) => {
-                const { sql } = await import('kysely');
+              measureStorage: true,
+              persisted: async (tx, imported, addedStorageBytes = 0n) => {
                 const saved = await tx
                   .updateTable('mail_archive_imports')
                   .set({
                     cursor: index,
                     imported: sql`imported+${imported ? 1 : 0}`,
                     skipped: sql`skipped+${imported ? 0 : 1}`,
+                    processed_bytes: sql`processed_bytes+${item.raw.length}`,
+                    added_storage_bytes: sql`added_storage_bytes+${addedStorageBytes.toString()}::bigint`,
                     updated_at: new Date(),
                   })
                   .where('id', '=', task.id)

@@ -40,7 +40,13 @@ export function ThreadListItem({
         aria-label={'Selecionar ' + (thread.subject || 'conversa sem assunto')}
         onCheckedChange={(v) => onSelect(v === true)}
       />
-      <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-current={active ? 'true' : undefined}
+        aria-label={(thread.is_unread ? 'Não lida: ' : '') + (thread.subject || '(Sem assunto)')}
+        className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <div className="flex items-center gap-2">
           {thread.is_unread && (
             <span className="size-2 shrink-0 rounded-full bg-primary">

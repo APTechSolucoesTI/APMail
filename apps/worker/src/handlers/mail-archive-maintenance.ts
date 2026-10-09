@@ -1,5 +1,6 @@
 import type { WorkerResources } from '../resources.js';
 import { sql } from 'kysely';
+import { lockStorageTenant } from '@apmail/db';
 export async function cleanupMailArchiveFiles(r: WorkerResources) {
   const pending = await r.db
     .selectFrom('storage_assets')
@@ -17,13 +18,13 @@ export async function cleanupMailArchiveFiles(r: WorkerResources) {
       .catch(() => r.log.warn('Limpeza de backup pendente; bytes continuam contabilizados.'));
   const abandoned = await r.db
     .selectFrom('mail_archive_imports')
-    .select(['id', 'storage_path'])
+    .select(['id', 'tenant_id'])
     .where((eb) =>
       eb.or([
         eb.and([eb('state', '=', 'cancelled'), eb('storage_path', 'is not', null)]),
         eb.and([
           eb('state', '=', 'uploading'),
-          eb('created_at', '<', new Date(Date.now() - 36 * 3600000)),
+          eb('updated_at', '<', new Date(Date.now() - 36 * 3600000)),
         ]),
       ]),
     )
@@ -31,7 +32,31 @@ export async function cleanupMailArchiveFiles(r: WorkerResources) {
     .execute();
   for (const task of abandoned) {
     try {
-      if (task.storage_path) await r.storage.removeFile(task.storage_path);
+      await r.db.transaction().execute(async (tx) => {
+        await lockStorageTenant(tx, task.tenant_id);
+        const current = await tx
+          .selectFrom('mail_archive_imports')
+          .select(['id', 'storage_path'])
+          .where('id', '=', task.id)
+          .where((eb) =>
+            eb.or([
+              eb.and([eb('state', '=', 'cancelled'), eb('storage_path', 'is not', null)]),
+              eb.and([
+                eb('state', '=', 'uploading'),
+                eb('updated_at', '<', new Date(Date.now() - 36 * 3600000)),
+              ]),
+            ]),
+          )
+          .forUpdate()
+          .executeTakeFirst();
+        if (!current) return;
+        if (current.storage_path) await r.storage.withDatabase(tx).removeFile(current.storage_path);
+        await tx
+          .updateTable('mail_archive_imports')
+          .set({ state: 'cancelled', storage_path: null, updated_at: new Date() })
+          .where('id', '=', current.id)
+          .execute();
+      });
     } catch {
       r.log.warn(
         { import_id: task.id },
@@ -39,11 +64,5 @@ export async function cleanupMailArchiveFiles(r: WorkerResources) {
       );
       continue;
     }
-    await r.db
-      .updateTable('mail_archive_imports')
-      .set({ state: 'cancelled', storage_path: null, updated_at: new Date() })
-      .where('id', '=', task.id)
-      .where('state', 'in', ['cancelled', 'uploading'])
-      .execute();
   }
 }

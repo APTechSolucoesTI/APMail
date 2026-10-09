@@ -8,6 +8,7 @@ import { handleMailboxConnection } from './handlers/mailbox-connection.js';
 import { handleMailboxSync } from './handlers/mailbox-sync.js';
 import { handleMailArchive } from './handlers/mail-archive.js';
 import { cleanupMailArchiveFiles } from './handlers/mail-archive-maintenance.js';
+import { purgeMailboxes } from './handlers/mailbox-purge.js';
 import { handleMailAction } from './handlers/mail-actions.js';
 import { handleOutboxSend } from './handlers/outbox-send.js';
 import { handleRulesApply } from './handlers/rules-apply.js';
@@ -95,6 +96,7 @@ const workers = QUEUE_NAMES.map(
           );
         if (name === 'maintenance' && job.name === 'ensure-schedulers') return ensureSchedulers(r);
         if (name === 'maintenance' && job.name === 'sweep-outbox') return sweepOutbox(r);
+        if (name === 'maintenance' && job.name === 'purge-mailboxes') return purgeMailboxes(r);
         if (name === 'maintenance' && job.name === 'cleanup-uploads') {
           await cleanupMailArchiveFiles(r);
           return cleanupUploads(r);

@@ -56,6 +56,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
       .select(['role', 'capabilities'])
       .where('tenant_id', '=', tenant_id)
       .where('user_id', '=', id)
+      .where('status', '!=', 'removed')
       .executeTakeFirst();
     if (!member) throw notFound();
     const roles = await r.db
@@ -252,6 +253,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
       .innerJoin('tenants as t', 't.id', 'm.tenant_id')
       .select(['m.tenant_id', 'm.role', 'm.status', 't.name'])
       .where('m.user_id', '=', id)
+      .where('m.status', '!=', 'removed')
       .where('t.deleted_at', 'is', null)
       .orderBy('t.name')
       .execute();
@@ -265,6 +267,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
       .set({ status: b.status })
       .where('tenant_id', '=', b.tenant_id)
       .where('user_id', '=', id)
+      .where('status', '!=', 'removed')
       .returning('id')
       .executeTakeFirst();
     if (!changed) throw notFound();
@@ -460,6 +463,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
               .selectFrom('tenant_members as m')
               .select('m.user_id')
               .whereRef('m.user_id', '=', 'users.id')
+              .where('m.status', '!=', 'removed')
               .where('m.tenant_id', '=', q.tenant_id!),
           ),
         )

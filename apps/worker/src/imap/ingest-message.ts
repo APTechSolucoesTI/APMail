@@ -13,7 +13,7 @@ import {
   lockStorageTenant,
 } from '@apmail/db';
 import { isAutomated, type Address } from '@apmail/shared';
-import type { Selectable, Kysely } from 'kysely';
+import { sql, type Selectable, type Kysely } from 'kysely';
 import type { WorkerResources } from '../resources.js';
 import type { Mailbox } from './connect.js';
 function addresses(value: AddressObject | AddressObject[] | undefined): Address[] {
@@ -32,7 +32,8 @@ export async function ingestMessage(
     kind: 'archive' | 'pop3';
     key: string;
     historical: boolean;
-    persisted?: (tx: Kysely<DB>, imported: boolean) => Promise<void>;
+    measureStorage?: boolean;
+    persisted?: (tx: Kysely<DB>, imported: boolean, addedStorageBytes?: bigint) => Promise<void>;
   },
 ): Promise<string> {
   const duplicate = await r.db
@@ -158,6 +159,25 @@ export async function ingestMessage(
   try {
     return await r.db.transaction().execute(async (trx) => {
       await lockStorageTenant(trx, box.tenant_id);
+      const liveBox = await trx
+        .selectFrom('mailboxes')
+        .select('id')
+        .where('id', '=', box.id)
+        .where('tenant_id', '=', box.tenant_id)
+        .where('deleted_at', 'is', null)
+        .executeTakeFirst();
+      if (!liveBox) throw new Error('A caixa foi excluída.');
+      const usage = async () =>
+        BigInt(
+          (
+            await sql<{
+              bytes: string;
+            }>`select storage_quota_usage(${box.tenant_id}::uuid,${box.id}::uuid)::text as bytes`.execute(
+              trx,
+            )
+          ).rows[0]!.bytes,
+        );
+      const before = external?.measureStorage ? await usage() : 0n;
       const threadId = await resolveThread(trx, metadata, own);
       const hasMessage = await trx
         .selectFrom('messages')
@@ -238,7 +258,10 @@ export async function ingestMessage(
         null,
       );
       await assertStorageCapacity(trx, box.tenant_id, box.id);
-      if (external?.persisted) await external.persisted(trx, true);
+      if (external?.persisted) {
+        const growth = external.measureStorage ? (await usage()) - before : 0n;
+        await external.persisted(trx, true, growth > 0n ? growth : 0n);
+      }
       return threadId;
     });
   } catch (error) {

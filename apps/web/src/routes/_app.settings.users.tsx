@@ -20,7 +20,7 @@ import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { api } from '@/lib/api';
 import { requireSettingsCapability } from '@/lib/settings';
 import { isTenantAdmin } from '@apmail/shared';
-import { Pencil, UserPlus } from 'lucide-react';
+import { Pencil, UserPlus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { meQuery } from '@/lib/auth';
 type Member = {
@@ -216,6 +216,27 @@ function Users() {
               >
                 {m.status === 'active' ? 'Desativar' : 'Reativar'}
               </Button>
+              <ConfirmDialog
+                trigger={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive"
+                    disabled={m.user_id === me.data?.user.id}
+                    aria-label={'Remover da empresa: ' + m.full_name}
+                  >
+                    <Trash2 />
+                  </Button>
+                }
+                destructive
+                title="Remover usuário da empresa?"
+                description="O usuário sairá da equipe e perderá o acesso a esta empresa e às suas caixas. Seu acesso a outras empresas e o histórico de autoria são preservados. Para voltar, será necessário um novo convite. Contatos privados não serão compartilhados."
+                onConfirm={async () => {
+                  await api('/members/' + m.user_id, { method: 'DELETE', body: { confirm: true } });
+                  await refresh();
+                  toast.success('Usuário removido da empresa.');
+                }}
+              />
             </>
           ) : null
         }
