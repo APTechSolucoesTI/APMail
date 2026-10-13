@@ -37,6 +37,8 @@ import { KeyboardHelp } from './keyboard-help';
 import { GlobalSearch } from './global-search';
 import { useTheme } from './theme-provider';
 import { TableUserContext } from '@/hooks/use-table-preferences';
+import { BackgroundArchiveTransfers } from '@/components/settings/background-archive-transfers';
+import { stopArchiveTransfersForUser } from '@/lib/mail-archive-transfers';
 const settingsIcons: Record<string, typeof Mail> = {
   '/settings/profile': UserRound,
   '/settings/preferences': SlidersHorizontal,
@@ -50,6 +52,13 @@ const settingsIcons: Record<string, typeof Mail> = {
 };
 export function AppShell() {
   const me = useQuery(meQuery);
+  const transferUser = me.data?.user.id;
+  useEffect(
+    () => () => {
+      if (transferUser) stopArchiveTransfersForUser(transferUser);
+    },
+    [transferUser],
+  );
   const client = useQueryClient();
   const navigate = useNavigate();
   const boxes = useQuery({
@@ -71,7 +80,9 @@ export function AppShell() {
     socket.connect();
     socket.on('connect', () => {
       void client.invalidateQueries({ queryKey: ['mailboxes'] });
-      void client.invalidateQueries({ queryKey: ['me'] });
+      // A reconnect may happen while a route is checking the session. Keep its
+      // in-flight check alive so navigation cannot unmount an active transfer.
+      void client.invalidateQueries({ queryKey: ['me'] }, { cancelRefetch: false });
       void client.invalidateQueries({ queryKey: ['notifications'] });
       for (const key of [
         'threads',
@@ -158,7 +169,10 @@ export function AppShell() {
         }
       },
     );
-    socket.on('disconnect', () => void client.invalidateQueries({ queryKey: ['me'] }));
+    socket.on(
+      'disconnect',
+      () => void client.invalidateQueries({ queryKey: ['me'] }, { cancelRefetch: false }),
+    );
     const invalidate = (...keys: string[]) => {
       for (const key of keys) void client.invalidateQueries({ queryKey: [key] });
     };
@@ -199,6 +213,7 @@ export function AppShell() {
     );
     socket.on('notifications:changed', () => invalidate('notifications'));
     socket.on('mailbox:storage', () => invalidate('storage-quota'));
+    socket.on('mail:archive-progress', () => invalidate('mail-archives', 'storage-quota'));
     return () => {
       socket.removeAllListeners();
       socket.disconnect();
@@ -379,6 +394,7 @@ export function AppShell() {
                     className="h-11 max-w-36 rounded-md sm:max-w-48 border border-input bg-card px-2 text-sm"
                     value={me.data.current_tenant_id ?? ''}
                     onChange={async (e) => {
+                      stopArchiveTransfersForUser(me.data!.user.id);
                       await api('/me/current-tenant', {
                         method: 'PUT',
                         body: { tenant_id: e.target.value },
@@ -415,6 +431,7 @@ export function AppShell() {
                     size="icon"
                     aria-label="Sair"
                     onClick={async () => {
+                      stopArchiveTransfersForUser(me.data!.user.id);
                       await api('/auth/logout', { method: 'POST' });
                       client.clear();
                       await navigate({ to: '/login' });
@@ -425,6 +442,10 @@ export function AppShell() {
                 </div>
               </header>
               <main className="mx-auto max-w-screen-2xl p-4 sm:p-6">
+                <BackgroundArchiveTransfers
+                  userId={me.data.user.id}
+                  tenantId={me.data.current_tenant_id}
+                />
                 <Outlet />
               </main>
             </div>

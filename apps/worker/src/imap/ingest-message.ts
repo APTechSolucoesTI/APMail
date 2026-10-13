@@ -16,10 +16,13 @@ import { isAutomated, type Address } from '@apmail/shared';
 import { sql, type Selectable, type Kysely } from 'kysely';
 import type { WorkerResources } from '../resources.js';
 import type { Mailbox } from './connect.js';
+import { mailText } from '../lib/mail-text.js';
 function addresses(value: AddressObject | AddressObject[] | undefined): Address[] {
   return (Array.isArray(value) ? value : [value]).flatMap((v) =>
     (v?.value ?? []).flatMap((a) =>
-      a.address ? [{ name: a.name ?? '', address: a.address.toLowerCase() }] : [],
+      a.address
+        ? [{ name: mailText(a.name ?? ''), address: mailText(a.address).toLowerCase() }]
+        : [],
     ),
   );
 }
@@ -63,17 +66,19 @@ export async function ingestMessage(
     : null;
   const env = msg.envelope;
   const from = addresses(parsed?.from)[0] ?? {
-    name: env?.from?.[0]?.name ?? '',
-    address: (env?.from?.[0]?.address ?? '').toLowerCase(),
+    name: mailText(env?.from?.[0]?.name ?? ''),
+    address: mailText(env?.from?.[0]?.address ?? '').toLowerCase(),
   };
-  const header = parsed?.messageId ?? env?.messageId ?? `<apmail-${randomUUID()}@apmail.local>`;
+  const header = mailText(
+    parsed?.messageId ?? env?.messageId ?? `<apmail-${randomUUID()}@apmail.local>`,
+  );
   if (external?.kind === 'archive' && parsed?.messageId) {
     const existing = await r.db
       .selectFrom('messages')
       .select('thread_id')
       .where('tenant_id', '=', box.tenant_id)
       .where('mailbox_id', '=', box.id)
-      .where('message_id_header', '=', parsed.messageId)
+      .where('message_id_header', '=', header)
       .where('deleted_at', 'is', null)
       .executeTakeFirst();
     if (existing) {
@@ -100,9 +105,11 @@ export async function ingestMessage(
       .execute();
     return sentCopy.thread_id;
   }
-  const text = parsed
-    ? (parsed.text ?? htmlToText(parsed.html || ''))
-    : '(Mensagem muito grande para ser exibida no APMail. Abra no provedor de e-mail.)';
+  const text = mailText(
+    parsed
+      ? (parsed.text ?? htmlToText(parsed.html || ''))
+      : '(Mensagem muito grande para ser exibida no APMail. Abra no provedor de e-mail.)',
+  );
   const own = [box.email_address, ...box.aliases].map((a) => a.toLowerCase());
   const date = [parsed?.date, env?.date, msg.internalDate].find(
     (value) => value instanceof Date && !isNaN(value.getTime()),
@@ -136,21 +143,26 @@ export async function ingestMessage(
   const metadata = {
     tenant_id: box.tenant_id,
     mailbox_id: box.id,
-    subject: parsed?.subject ?? env?.subject ?? '',
+    subject: mailText(parsed?.subject ?? env?.subject ?? ''),
     message_at,
-    in_reply_to: parsed?.inReplyTo ?? env?.inReplyTo ?? null,
+    in_reply_to:
+      parsed?.inReplyTo || env?.inReplyTo
+        ? mailText(parsed?.inReplyTo ?? env?.inReplyTo ?? '')
+        : null,
     references_headers: (Array.isArray(parsed?.references)
       ? parsed.references
       : parsed?.references
         ? [parsed.references]
         : []
-    ).slice(-50),
+    )
+      .slice(-50)
+      .map(mailText),
     from_address: from.address,
     to_addresses: addresses(parsed?.to).length
       ? addresses(parsed?.to)
       : (env?.to ?? []).map((a) => ({
-          name: a.name ?? '',
-          address: (a.address ?? '').toLowerCase(),
+          name: mailText(a.name ?? ''),
+          address: mailText(a.address ?? '').toLowerCase(),
         })),
     cc_addresses: addresses(parsed?.cc),
   };
@@ -221,7 +233,7 @@ export async function ingestMessage(
             Object.fromEntries([...(parsed?.headers ?? [])].map(([k, v]) => [k, String(v)])),
           ),
           body_text: text,
-          body_html: sanitizeEmailHtml(parsed?.html || '', text),
+          body_html: mailText(sanitizeEmailHtml(mailText(parsed?.html || ''), text)),
           snippet: messageSnippet(text),
           has_attachments: !!parsed?.attachments.some(
             (a) => a.contentDisposition !== 'inline' || !a.cid,
@@ -242,10 +254,10 @@ export async function ingestMessage(
             tenant_id: box.tenant_id,
             mailbox_id: box.id,
             message_id: id,
-            filename: a.filename ?? 'anexo',
-            content_type: a.contentType,
+            filename: mailText(a.filename ?? 'anexo'),
+            content_type: mailText(a.contentType),
             size_bytes: a.size,
-            content_id: a.cid ?? null,
+            content_id: a.cid === undefined ? null : mailText(a.cid),
             is_inline: a.contentDisposition === 'inline' && !!a.cid,
             storage_path: path,
           })

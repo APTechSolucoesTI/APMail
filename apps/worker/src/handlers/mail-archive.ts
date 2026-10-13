@@ -8,6 +8,7 @@ import { ingestMessage } from '../imap/ingest-message.js';
 import { emitThreads } from '../lib/events.js';
 import { readMailArchive } from '../archives/read-mail-archive.js';
 import type { WorkerResources } from '../resources.js';
+import { mailText } from '../lib/mail-text.js';
 export async function handleMailArchive(r: WorkerResources, importId: string, jobId: string) {
   const task = await r.db
     .selectFrom('mail_archive_imports')
@@ -117,7 +118,7 @@ export async function handleMailArchive(r: WorkerResources, importId: string, jo
             throw new Error('Mensagem acima de 50 MiB.');
           const path =
             'local/importados/' +
-            item.folder
+            mailText(item.folder)
               .split(/[\\/]+/)
               .filter((p) => p && p !== '.' && p !== '..')
               .map((p) => p.slice(0, 100))
@@ -224,13 +225,30 @@ export async function handleMailArchive(r: WorkerResources, importId: string, jo
         }
         if (index === 0)
           throw new Error('O arquivo não contém mensagens de e-mail em formato suportado.');
-        await r.storage.removeFile(task.storage_path!);
-        await r.db
+        // Confirm completion before unlinking the source: a database failure must
+        // never leave a failed, resumable task without its original archive.
+        const completed = await r.db
           .updateTable('mail_archive_imports')
-          .set({ state: 'completed', storage_path: null, updated_at: new Date() })
+          .set({ state: 'completed', updated_at: new Date() })
           .where('id', '=', task.id)
           .where('state', '=', 'running')
-          .execute();
+          .returning('id')
+          .executeTakeFirst();
+        if (!completed) return;
+        try {
+          await r.storage.removeFile(task.storage_path!);
+          await r.db
+            .updateTable('mail_archive_imports')
+            .set({ storage_path: null, updated_at: new Date() })
+            .where('id', '=', task.id)
+            .where('state', '=', 'completed')
+            .execute();
+        } catch {
+          r.log.warn(
+            { import_id: task.id },
+            'Importação concluída; limpeza da origem será repetida.',
+          );
+        }
         await audit(r.db, {
           tenantId: box.tenant_id,
           actorId: task.created_by,
@@ -244,7 +262,7 @@ export async function handleMailArchive(r: WorkerResources, importId: string, jo
         const text = isStorageQuotaError(error)
           ? 'Importação pausada pela cota. Amplie ou redistribua o armazenamento e clique em Retomar. O checkpoint foi preservado.'
           : error instanceof Error && !/password|secret|token/i.test(error.message)
-            ? error.message.slice(0, 300)
+            ? mailText(error.message).slice(0, 300)
             : 'Não foi possível processar o arquivo de e-mail.';
         await r.db
           .updateTable('mail_archive_imports')

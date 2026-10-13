@@ -421,9 +421,10 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
   });
   app.post('/api/mailboxes/:id/archive-imports/:taskId/resume', async (req) => {
     const { c, id, taskId } = await authorize(req.ctx, req.params);
+    const resumedAt = new Date();
     const task = await r.db
       .updateTable('mail_archive_imports')
-      .set({ state: 'queued', last_error: null, updated_at: new Date() })
+      .set({ state: 'queued', last_error: null, updated_at: resumedAt })
       .where('id', '=', taskId!)
       .where('tenant_id', '=', c.tenantId)
       .where('mailbox_id', '=', id)
@@ -433,11 +434,31 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
       .returning('id')
       .executeTakeFirst();
     if (!task) throw conflict('A importação não está disponível para retomada.');
-    await r.queues['mail-archive'].add(
-      'import',
-      { import_id: task.id },
-      { attempts: 3, backoff: { type: 'exponential', delay: 10000 } },
-    );
+    try {
+      await r.queues['mail-archive'].add(
+        'import',
+        { import_id: task.id },
+        { attempts: 3, backoff: { type: 'exponential', delay: 10000 } },
+      );
+    } catch {
+      await r.db
+        .updateTable('mail_archive_imports')
+        .set({
+          state: 'failed',
+          last_error:
+            'Não foi possível acessar a fila. O progresso foi preservado; tente Retomar novamente.',
+          updated_at: new Date(),
+        })
+        .where('id', '=', task.id)
+        .where('state', '=', 'queued')
+        .where('updated_at', '=', resumedAt)
+        .execute();
+      throw new ApiError(
+        503,
+        'archive_queue_unavailable',
+        'A fila está temporariamente indisponível. O progresso foi preservado; tente Retomar novamente.',
+      );
+    }
     return { ok: true };
   });
   app.post('/api/mailboxes/:id/archive-imports/:taskId/cancel', async (req) => {

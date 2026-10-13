@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Download, Play, X, Settings2 } from 'lucide-react';
+import { Upload, Download, Play, X, Settings2, Loader2 } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import {
@@ -11,7 +11,13 @@ import {
   type TenantQuota,
 } from '@apmail/shared';
 import { api } from '@/lib/api';
-import { archiveFingerprint, uploadArchiveBlocks } from '@/lib/mail-archive-upload';
+import { archiveFingerprint } from '@/lib/mail-archive-upload';
+import {
+  clearArchiveTransfer,
+  interruptArchiveTransfer,
+  startArchiveTransfer,
+  useArchiveTransfers,
+} from '@/lib/mail-archive-transfers';
 import { useTenantId, useUserId } from '@/lib/auth';
 import { formatStorageBytes } from '@/lib/storage-metering';
 import { Button } from '@/components/ui/button';
@@ -53,19 +59,25 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
     [admission, setAdmission] = useState<Admission | null>(null),
     [error, setError] = useState(''),
     [checking, setChecking] = useState(false),
-    [busy, setBusy] = useState(false),
     [progress, setProgress] = useState(0),
     [exportFormat, setExportFormat] = useState('mbox'),
     [query, setQuery] = useState(() => listQuerySchema.parse({}));
   const [fingerprint, setFingerprint] = useState<string | null>(null);
   const [uploadTask, setUploadTask] = useState<MailArchiveTask | null>(null);
-  const request = useRef<AbortController | null>(null),
-    selection = useRef(0),
+  const selection = useRef(0),
     fileInput = useRef<HTMLInputElement | null>(null);
   const [acting, setActing] = useState<string | null>(null);
+  const transfers = useArchiveTransfers();
+  const scope = tenant && user ? { tenantId: tenant, userId: user, mailboxId } : null;
+  const transfer = transfers.find(
+    (t) =>
+      t.scope.tenantId === tenant && t.scope.userId === user && t.scope.mailboxId === mailboxId,
+  );
+  const busy = transfer?.status === 'sending';
+  const selectedFile = file ?? transfer?.file ?? null;
+  const selectedFingerprint = fingerprint ?? transfer?.fingerprint ?? null;
   useEffect(
     () => () => {
-      request.current?.abort();
       selection.current++;
     },
     [],
@@ -87,6 +99,7 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
     await client.invalidateQueries({ queryKey: ['storage-quota'] });
   };
   const choose = async (value: File | null) => {
+    if (scope) clearArchiveTransfer(scope);
     const version = ++selection.current;
     setFile(value);
     setUploadTask(null);
@@ -138,60 +151,20 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
     }
   };
   const upload = async () => {
-    if (!file || !fingerprint || busy) return;
-    const controller = new AbortController();
-    request.current = controller;
-    setBusy(true);
+    if (!scope || !selectedFile || !selectedFingerprint || busy) return;
     setError('');
-    try {
-      let task = uploadTask
-        ? await api<MailArchiveTask>(
-            '/mailboxes/' + mailboxId + '/archive-imports/' + uploadTask.id + '/upload',
-            { signal: controller.signal },
-          )
-        : null;
-      if (!task || task.state === 'uploading') {
-        const info = await api<Admission>(
-          '/mailboxes/' + mailboxId + '/archive-imports/preflight',
-          {
-            method: 'POST',
-            signal: controller.signal,
-            body: {
-              filename: file.name,
-              size_bytes: file.size - Number(task?.uploaded_bytes ?? 0),
-            },
-          },
-        );
-        setAdmission(info);
-      }
-      if (!task) {
-        task = await api<MailArchiveTask>('/mailboxes/' + mailboxId + '/archive-imports', {
-          method: 'POST',
-          signal: controller.signal,
-          body: { filename: file.name, size_bytes: file.size, upload_fingerprint: fingerprint },
-        });
-        setUploadTask(task);
-      }
-      await uploadArchiveBlocks(mailboxId, task, file, controller.signal, setProgress);
-      toast.success('Arquivo recebido. Acompanhe a importação abaixo.');
-      setFile(null);
-      setUploadTask(null);
-      setFingerprint(null);
-      setAdmission(null);
-      if (fileInput.current) fileInput.current.value = '';
-    } catch (e) {
-      setError(
-        controller.signal.aborted
-          ? 'Envio interrompido. O progresso confirmado foi preservado. Clique em Continuar envio ou selecione o mesmo arquivo novamente para retomar.'
-          : e instanceof Error
-            ? e.message
-            : 'Não foi possível importar.',
-      );
-    } finally {
-      request.current = null;
-      setBusy(false);
-      await refresh();
-    }
+    const sending = startArchiveTransfer(
+      scope,
+      selectedFile,
+      selectedFingerprint,
+      uploadTask ?? transfer?.task ?? null,
+    );
+    setFile(null);
+    setUploadTask(null);
+    setFingerprint(null);
+    setAdmission(null);
+    if (fileInput.current) fileInput.current.value = '';
+    await sending.catch(() => undefined);
   };
   const action = async (id: string, name: string) => {
     if (acting) return;
@@ -261,9 +234,9 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
           disabled={busy}
           onChange={(e) => void choose(e.target.files?.[0] ?? null)}
         />
-        {file && (
+        {selectedFile && (
           <p className="break-all text-sm">
-            {file.name} · {formatStorageBytes(String(file.size))}
+            {selectedFile.name} · {formatStorageBytes(String(selectedFile.size))}
           </p>
         )}
         {checking && (
@@ -289,42 +262,64 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
             Atenção: {admission.warning}
           </p>
         )}
-        <p className="text-xs text-muted-foreground">
-          Após o envio, o sistema analisa o arquivo e informa o tamanho real das mensagens
-          extraídas, sem criar uma cópia descompactada no disco. Esse tamanho inclui duplicados e
-          difere do consumo final: corpos, anexos e dados do sistema também são armazenados. Se a
-          cota for atingida, a importação pausa e pode ser retomada. Histórico importado segue a
-          janela de classificação definida no cadastro da caixa. Para retomar um envio interrompido,
-          selecione novamente o mesmo arquivo; os blocos confirmados não serão enviados novamente.
+        <p className="text-sm text-muted-foreground">
+          Você pode fechar este painel ou navegar pelo APMail durante o envio. Mantenha o APMail
+          aberto até o arquivo ser recebido. Depois, análise e importação continuam na fila do
+          servidor, mesmo com o navegador fechado.
         </p>
-        {error && (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer rounded-sm py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            Como funciona a importação e a retomada
+          </summary>
+          <p className="mt-2">
+            Após o envio, o sistema analisa o arquivo e informa o tamanho real das mensagens
+            extraídas, sem criar uma cópia descompactada no disco. Esse tamanho inclui duplicados e
+            difere do consumo final: corpos, anexos e dados do sistema também são armazenados. Se a
+            cota for atingida, a importação pausa e pode ser retomada. Histórico importado segue a
+            janela de classificação definida no cadastro da caixa. Para retomar um envio
+            interrompido, selecione novamente o mesmo arquivo; os blocos confirmados não serão
+            enviados novamente.
+          </p>
+        </details>
+        {(error || transfer?.error) && (
           <p role="alert" className="text-sm text-destructive">
-            {error}
+            {error || transfer?.error}
           </p>
         )}
         {busy && (
           <div className="space-y-2">
             <progress
-              value={progress}
+              value={transfer?.progress ?? progress}
               max={100}
               aria-label="Envio do arquivo"
               className="storage-quota-bar h-2 w-full"
             />
             <p role="status" className="text-sm">
-              Enviando arquivo: {progress}%
+              Enviando arquivo: {transfer?.progress ?? progress}%
             </p>
           </div>
         )}
         <div className="flex flex-wrap gap-2">
           <Button
-            disabled={!file || !fingerprint || !admission || checking || busy}
+            disabled={
+              !scope ||
+              !selectedFile ||
+              !selectedFingerprint ||
+              (!admission && !transfer?.file) ||
+              checking ||
+              busy
+            }
             onClick={() => void upload()}
           >
             <Upload aria-hidden />{' '}
-            {busy ? 'Enviando…' : uploadTask ? 'Continuar envio' : 'Importar arquivo'}
+            {busy
+              ? 'Enviando…'
+              : uploadTask || transfer?.file
+                ? 'Continuar envio'
+                : 'Importar arquivo'}
           </Button>
           {busy && (
-            <Button variant="outline" onClick={() => request.current?.abort()}>
+            <Button variant="outline" onClick={() => scope && interruptArchiveTransfer(scope)}>
               Interromper envio
             </Button>
           )}
@@ -444,6 +439,44 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
                     {t.last_error}
                   </span>
                 )}
+                {['paused', 'failed'].includes(t.state) &&
+                  Number(t.uploaded_bytes) === Number(t.size_bytes) && (
+                    <span className="mt-2 block space-y-2">
+                      <span className="block text-xs text-muted-foreground">
+                        {t.cursor} mensagens processadas foram preservadas. Não é necessário enviar
+                        o arquivo novamente.
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={acting !== null}
+                        aria-label={'Retomar ' + t.filename}
+                        onClick={() =>
+                          void action(t.id, 'resume')
+                            .then(() =>
+                              toast.success(
+                                'Importação na fila. O processamento continua do último registro confirmado.',
+                              ),
+                            )
+                            .catch((e: unknown) =>
+                              toast.error(
+                                e instanceof Error ? e.message : 'Não foi possível retomar.',
+                              ),
+                            )
+                        }
+                      >
+                        {acting === t.id ? (
+                          <Loader2
+                            className="animate-spin motion-reduce:animate-none"
+                            aria-hidden
+                          />
+                        ) : (
+                          <Play aria-hidden />
+                        )}
+                        {acting === t.id ? 'Retomando…' : 'Retomar'}
+                      </Button>
+                    </span>
+                  )}
               </span>
             ),
             value: (t) => states[t.state] ?? t.state,
@@ -485,18 +518,6 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
         ]}
         rowActions={(t) => (
           <>
-            {['paused', 'failed'].includes(t.state) &&
-              Number(t.uploaded_bytes) === Number(t.size_bytes) && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  disabled={acting !== null}
-                  aria-label={'Retomar ' + t.filename}
-                  onClick={() => void action(t.id, 'resume').catch((e) => toast.error(e.message))}
-                >
-                  <Play />
-                </Button>
-              )}
             {!['completed', 'cancelled'].includes(t.state) && (
               <ConfirmDialog
                 trigger={

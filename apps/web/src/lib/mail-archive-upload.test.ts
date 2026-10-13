@@ -39,6 +39,21 @@ const task = (
 });
 const file = (bytes: Buffer) =>
   new NodeFile([Uint8Array.from(bytes)], 'backup.pst') as unknown as File;
+it('does not request another upload when processing failed after the full file was received', async () => {
+  const received = task(10, 10, 'failed');
+  vi.mocked(api).mockResolvedValueOnce(received);
+  const progress = vi.fn();
+  expect(
+    await uploadArchiveBlocks(
+      'box',
+      received,
+      file(Buffer.alloc(10)),
+      new AbortController().signal,
+      progress,
+    ),
+  ).toEqual(received);
+  expect(progress).toHaveBeenLastCalledWith(100);
+});
 type Block = { offset: number; size: number; method: string; path: string };
 function transport(onSend: (block: Block, xhr: FakeXHR) => void) {
   const sent: Block[] = [];

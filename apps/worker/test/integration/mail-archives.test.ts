@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { mkdtemp, rm, readFile, appendFile } from 'node:fs/promises';
 import { sql } from 'kysely';
 import { Redis } from 'ioredis';
+import { Queue } from 'bullmq';
 import { Emitter } from '@socket.io/redis-emitter';
 import pino from 'pino';
 import { createDb, migrate, Storage, createQueues } from '@apmail/db';
@@ -13,6 +14,7 @@ import { envSchema as apiEnv } from '../../../api/src/env.js';
 import { envSchema as workerEnv } from '../../src/env.js';
 import { hashToken } from '../../../api/src/plugins/auth.js';
 import { handleMailArchive } from '../../src/handlers/mail-archive.js';
+import * as ingestion from '../../src/imap/ingest-message.js';
 import { purgeMailboxes } from '../../src/handlers/mailbox-purge.js';
 import { cleanupMailArchiveFiles } from '../../src/handlers/mail-archive-maintenance.js';
 import { readMailArchive } from '../../src/archives/read-mail-archive.js';
@@ -351,6 +353,127 @@ it('preserves per-message checkpoint at quota and resumes without duplicating th
       .execute(),
   ).toHaveLength(2);
 }, 30000);
+it('stores NUL-bearing mail as valid text and preserves its original MIME', async () => {
+  const raw = mime('nul-body', 'Antes\u0000depois');
+  const id = await upload(raw);
+  await handleMailArchive(r, id, 'nul-' + id);
+  expect(await state(id)).toMatchObject({ state: 'completed', cursor: 1, imported: 1 });
+  const saved = await db
+    .selectFrom('messages')
+    .selectAll()
+    .where('mailbox_id', '=', box)
+    .where('message_id_header', '=', '<nul-body@qa.example>')
+    .executeTakeFirstOrThrow();
+  expect(saved.body_text).toContain('Antes\uFFFDdepois');
+  expect(await readFile(join(dir, saved.raw_storage_path!))).toEqual(raw);
+});
+it('normalizes NUL in headers and attachment metadata without changing binary attachments', async () => {
+  const bytes = Buffer.from([0, 1, 2, 0, 255]);
+  const raw = Buffer.from(
+    `From: "Nome\u0000QA" <qa@example.com>\r\nTo: "Destino\u0000QA" <qa@example.com>\r\nMessage-ID: <nul-metadata@qa.example>\r\nSubject: Assunto\u0000QA\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=qa\r\n\r\n--qa\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>Texto\u0000QA</p>\r\n--qa\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename="anexo\u0000.bin"\r\nContent-Transfer-Encoding: base64\r\n\r\n${bytes.toString('base64')}\r\n--qa--\r\n`,
+  );
+  const id = await upload(raw);
+  await handleMailArchive(r, id, 'nul-metadata');
+  expect(await state(id)).toMatchObject({ state: 'completed', imported: 1 });
+  const message = await db
+    .selectFrom('messages')
+    .selectAll()
+    .where('mailbox_id', '=', box)
+    .where('message_id_header', '=', '<nul-metadata@qa.example>')
+    .executeTakeFirstOrThrow();
+  expect(JSON.stringify(message)).not.toContain('\\u0000');
+  expect(message.subject).toContain('Assunto\uFFFDQA');
+  const attachment = await db
+    .selectFrom('attachments')
+    .selectAll()
+    .where('message_id', '=', message.id)
+    .executeTakeFirstOrThrow();
+  expect(attachment.filename).not.toContain('\u0000');
+  expect(await readFile(join(dir, attachment.storage_path))).toEqual(bytes);
+  expect(await readFile(join(dir, message.raw_storage_path!))).toEqual(raw);
+});
+it('retains the checkpoint and original file across repeated failures and resumes without duplicates', async () => {
+  const raw = Buffer.concat([
+    toMbox(mime('failure-first'), new Date(), 'a@example.com'),
+    toMbox(mime('failure-second'), new Date(), 'a@example.com'),
+  ]);
+  const id = await upload(raw, 'recover.mbox');
+  const original = ingestion.ingestMessage;
+  const fault = vi.spyOn(ingestion, 'ingestMessage').mockImplementation(async (...args) => {
+    if (args[3].seq === 2) throw new Error('Falha temporária de armazenamento');
+    return original(...args);
+  });
+  try {
+    await handleMailArchive(r, id, 'failure-first-run');
+    const checkpoint = await state(id);
+    expect(checkpoint).toMatchObject({ state: 'failed', cursor: 1, imported: 1 });
+    await cleanupMailArchiveFiles(r);
+    expect(await readFile(join(dir, checkpoint.storage_path!))).toEqual(raw);
+    const queueFailure = vi
+      .spyOn(Queue.prototype, 'add')
+      .mockRejectedValueOnce(new Error('Fila indisponível'));
+    try {
+      expect(
+        (await call('POST', `/mailboxes/${box}/archive-imports/${id}/resume`)).statusCode,
+      ).toBe(503);
+      expect(await state(id)).toMatchObject({
+        state: 'failed',
+        cursor: 1,
+        imported: 1,
+        storage_path: checkpoint.storage_path,
+      });
+    } finally {
+      queueFailure.mockRestore();
+    }
+    expect((await call('POST', `/mailboxes/${box}/archive-imports/${id}/resume`)).statusCode).toBe(
+      200,
+    );
+    await handleMailArchive(r, id, 'failure-again');
+    expect(await state(id)).toMatchObject({ state: 'failed', cursor: 1, imported: 1 });
+    fault.mockRestore();
+    expect((await call('POST', `/mailboxes/${box}/archive-imports/${id}/resume`)).statusCode).toBe(
+      200,
+    );
+    await handleMailArchive(r, id, 'failure-recovered');
+    const completed = await state(id);
+    expect(completed).toMatchObject({ state: 'completed', cursor: 2, imported: 2, skipped: 0 });
+    expect(completed.analyzed_at).toEqual(checkpoint.analyzed_at);
+    expect(
+      await db
+        .selectFrom('messages')
+        .select('id')
+        .where('mailbox_id', '=', box)
+        .where('message_id_header', 'in', [
+          '<failure-first@qa.example>',
+          '<failure-second@qa.example>',
+        ])
+        .execute(),
+    ).toHaveLength(2);
+  } finally {
+    fault.mockRestore();
+  }
+}, 30000);
+it('keeps completion durable when source cleanup fails and retries cleanup separately', async () => {
+  const id = await upload(mime('cleanup-retry'));
+  const removal = vi
+    .spyOn(r.storage, 'removeFile')
+    .mockRejectedValueOnce(new Error('Arquivo ocupado'));
+  try {
+    await handleMailArchive(r, id, 'cleanup-retry');
+  } finally {
+    removal.mockRestore();
+  }
+  const completed = await state(id);
+  expect(completed).toMatchObject({ state: 'completed', cursor: 1, imported: 1 });
+  expect(completed.storage_path).not.toBeNull();
+  await cleanupMailArchiveFiles(r);
+  expect(await state(id)).toMatchObject({
+    state: 'completed',
+    storage_path: null,
+    cursor: 1,
+    imported: 1,
+  });
+});
 it('rejects mismatched upload content/size and cancels the retained source explicitly', async () => {
   const raw = mime('cancel'),
     id = await upload(raw);

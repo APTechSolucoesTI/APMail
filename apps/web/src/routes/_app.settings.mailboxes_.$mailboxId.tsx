@@ -17,12 +17,18 @@ import { FolderManagement } from '@/components/mail/folder-controls';
 import { RuleManagement } from '@/components/settings/rule-management';
 import { z } from 'zod';
 import { MailArchivesPanel } from '@/components/settings/mail-archives-panel';
+const mailboxSearch = z.object({
+  tab: z.enum(['connection', 'members', 'folders', 'rules', 'send', 'archives']).optional(),
+});
 export const Route = createFileRoute('/_app/settings/mailboxes_/$mailboxId')({
   beforeLoad: requireAdmin,
+  validateSearch: mailboxSearch,
   component: MailboxSettings,
 });
 function MailboxSettings() {
   const { mailboxId } = Route.useParams();
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   const client = useQueryClient();
   const q = useQuery({
     queryKey: ['mailbox', useTenantId(), mailboxId],
@@ -34,7 +40,14 @@ function MailboxSettings() {
     <>
       <PageHeader title={q.data.name} description={q.data.email_address} />
       <MailboxStatusBadge status={q.data.status} />
-      <Tabs defaultValue="connection" className="mt-4">
+      <Tabs
+        value={search.tab ?? 'connection'}
+        onValueChange={(tab) => {
+          const parsed = mailboxSearch.safeParse({ tab });
+          if (parsed.success) void navigate({ search: parsed.data, replace: true });
+        }}
+        className="mt-4"
+      >
         <TabsList className="grid w-full grid-cols-2 gap-1 group-data-[orientation=horizontal]/tabs:h-auto sm:flex sm:w-fit sm:flex-wrap [&_[data-slot=tabs-trigger]]:h-11 [&_[data-slot=tabs-trigger]]:whitespace-normal">
           <TabsTrigger value="connection">Conexão</TabsTrigger>
           <TabsTrigger value="members">Membros</TabsTrigger>

@@ -14,15 +14,23 @@ POP3 e arquivos locais exibem **Não aplicável** para cota do provedor; não co
 
 ## Importação
 
+Textos extraídos com caractere nulo (`0x00`) são normalizados antes de gravar no PostgreSQL: corpo, HTML, cabeçalhos, endereços, pastas e metadados de anexos. MIME original e arquivos binários permanecem intactos. Isso evita `invalid byte sequence for encoding "UTF8": 0x00` no meio de uma importação.
+
+O botão **Retomar** aparece diretamente junto às importações com falha ou pausadas, preservando cursor, contadores, análise e origem. Não é necessário reenviar o PST. A origem só é removida após confirmar a conclusão no banco; falha na limpeza é repetida separadamente. Falha ao acessar a fila também permite tentar Retomar novamente.
+
+O envio pertence à sessão do APMail: fechar o modal, trocar a aba de configuração ou navegar para outra tela não o interrompe. Um indicador global permite acompanhar o envio. Até o recebimento completo, mantenha o APMail aberto; após entrar na fila, o worker continua mesmo com o navegador fechado. Se o navegador fechar durante o envio, selecionar o mesmo arquivo retoma os blocos confirmados.
+
+Validação desta correção: 96 testes TypeScript/JavaScript, 11 regressões Python e 19 integrações com PostgreSQL/Redis locais. Inclui falhas repetidas na segunda mensagem, falha da fila, falha na limpeza, NUL em corpos/cabeçalhos/metadados e preservação binária de MIME/anexos. No navegador local, Retomar concluiu uma tarefa parcialmente gravada e um envio de 32 MiB terminou após fechar o painel e navegar para outra tela. Revisão em 1440×900, 768×1024 e 390×844, temas claro/escuro; lint, typecheck e build aprovados. Nenhuma migration ou dependência nova. A retomada da tarefa real em produção depende do deploy de API/web/worker pelo usuário; não cancelar nem reenviar essa tarefa.
+
 No cadastro e em **Configurações → Caixas de e-mail → caixa → Importação e backup**, para proprietário/admin da empresa. Superadmin gerencia configuração/cotas sem acessar conteúdos ou backups.
 
-| Entrada | Tratamento |
-|---|---|
+| Entrada   | Tratamento                                                                                             |
+| --------- | ------------------------------------------------------------------------------------------------------ |
 | PST / OST | libpff/pypff: reconstrução de MIME, pastas, cabeçalhos disponíveis, texto/HTML e anexos, incluindo CID |
-| MBOX | Mensagens sequenciais, com separadores e escape mboxrd |
-| EML | Mensagem MIME preservada |
-| EMLX | MIME após o cabeçalho de tamanho; plist não importado |
-| ZIP | EML/EMLX/MBOX e suas pastas internas; outros arquivos ignorados |
+| MBOX      | Mensagens sequenciais, com separadores e escape mboxrd                                                 |
+| EML       | Mensagem MIME preservada                                                                               |
+| EMLX      | MIME após o cabeçalho de tamanho; plist não importado                                                  |
+| ZIP       | EML/EMLX/MBOX e suas pastas internas; outros arquivos ignorados                                        |
 
 Somente e-mails, sem contatos/calendários/tarefas. Arquivos corrompidos, criptografados ou variantes PST/OST não suportadas podem falhar com diagnóstico na listagem. Extensão e assinatura são conferidas. ZIP recusa caminhos inválidos, links, senha, mais de 100.000 entradas ou expansão acima de 20 GiB.
 

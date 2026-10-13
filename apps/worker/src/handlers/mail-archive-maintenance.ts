@@ -21,7 +21,7 @@ export async function cleanupMailArchiveFiles(r: WorkerResources) {
     .select(['id', 'tenant_id'])
     .where((eb) =>
       eb.or([
-        eb.and([eb('state', '=', 'cancelled'), eb('storage_path', 'is not', null)]),
+        eb.and([eb('state', 'in', ['cancelled', 'completed']), eb('storage_path', 'is not', null)]),
         eb.and([
           eb('state', '=', 'uploading'),
           eb('updated_at', '<', new Date(Date.now() - 36 * 3600000)),
@@ -36,11 +36,14 @@ export async function cleanupMailArchiveFiles(r: WorkerResources) {
         await lockStorageTenant(tx, task.tenant_id);
         const current = await tx
           .selectFrom('mail_archive_imports')
-          .select(['id', 'storage_path'])
+          .select(['id', 'storage_path', 'state'])
           .where('id', '=', task.id)
           .where((eb) =>
             eb.or([
-              eb.and([eb('state', '=', 'cancelled'), eb('storage_path', 'is not', null)]),
+              eb.and([
+                eb('state', 'in', ['cancelled', 'completed']),
+                eb('storage_path', 'is not', null),
+              ]),
               eb.and([
                 eb('state', '=', 'uploading'),
                 eb('updated_at', '<', new Date(Date.now() - 36 * 3600000)),
@@ -53,7 +56,11 @@ export async function cleanupMailArchiveFiles(r: WorkerResources) {
         if (current.storage_path) await r.storage.withDatabase(tx).removeFile(current.storage_path);
         await tx
           .updateTable('mail_archive_imports')
-          .set({ state: 'cancelled', storage_path: null, updated_at: new Date() })
+          .set({
+            state: current.state === 'completed' ? 'completed' : 'cancelled',
+            storage_path: null,
+            updated_at: new Date(),
+          })
           .where('id', '=', current.id)
           .execute();
       });

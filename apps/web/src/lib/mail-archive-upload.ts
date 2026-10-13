@@ -146,10 +146,14 @@ export async function uploadArchiveBlocks(
       task = await api<MailArchiveTask>(path, { signal });
     }
   }
-  if (['cancelled', 'failed'].includes(task.state))
-    throw new Error('Esta importação foi encerrada. Selecione o arquivo para iniciar outra.');
+  if (task.state === 'cancelled')
+    throw new Error(
+      'Esta importação foi cancelada. As mensagens já importadas permanecem disponíveis.',
+    );
   if (Number(task.uploaded_bytes) !== file.size)
     throw new Error('O servidor não confirmou o recebimento completo do arquivo.');
+  // Processing can fail before the final upload response arrives. The source is
+  // already durable: expose Retomar instead of telling the user to upload again.
   progress(100);
   return task;
 }
