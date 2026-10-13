@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --exclude \"**/integration/**\"",
+    "test": "vitest run --exclude \"**/integration/**\" && pnpm test:pff",
+    "test:pff": "python3 -I -m unittest discover -s test/pff -p \"test_*.py\"",
     "test:integration": "vitest run test/integration",
     "dev": "tsx watch src/index.ts"
   },

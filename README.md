@@ -37,7 +37,7 @@ Requer Node 22.22.2 ou superior, pnpm 12.8.1 e Docker Compose.
 4. Execute `pnpm seed:dev` para preparar Empresa Demo e quatro usuários (senha exclusiva de desenvolvimento: `Senha@123`). Execute `pnpm dev`. A interface abre em localhost:5173; API em localhost:3001; demonstração em `/_dev/ui`.
 5. Mailpit: localhost:8025. GreenMail usa contas de teste da configuração Compose.
 
-Verificação: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:integration`, `pnpm build`. `pnpm db:reset` recria apenas o banco exclusivo de desenvolvimento; nunca execute contra dados reais.
+Verificação: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:integration`, `pnpm build`. Os testes de reconstrução PST/OST incluídos em `pnpm test` requerem `python3` no PATH, sem pypff para os casos unitários; leitura de arquivos reais requer pypff no worker. `pnpm db:reset` recria apenas o banco exclusivo de desenvolvimento; nunca execute contra dados reais.
 
 No servidor compartilhado, portas da infra podem ser alteradas pelas variáveis DEV_* descritas em [DECISOES](docs/DECISOES.md). Não reutilize Redis nem bancos de outros projetos para os testes.
 

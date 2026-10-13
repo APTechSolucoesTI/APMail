@@ -8,6 +8,8 @@ coverage/
 *.log
 playwright-report/
 test-results/
+__pycache__/
+*.py[cod]
 .tanstack/
 docker-compose.override.yml
 *.dump

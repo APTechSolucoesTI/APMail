@@ -14,6 +14,9 @@ import sys
 import pypff
 
 MAX_BYTES = 50 * 1024 * 1024
+MESSAGE_PROPERTIES = {0x001A, 0x0037, 0x0C1A, 0x0C1F, 0x1035, 0x5D01, 0x5D02}
+RECIPIENT_PROPERTIES = {0x0C15, 0x3001, 0x3003, 0x39FE}
+ATTACHMENT_PROPERTIES = {0x3704, 0x3705, 0x3707, 0x370E, 0x3712}
 
 def text(value):
     return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value or "")
@@ -24,18 +27,37 @@ def safe_get(item, field, default=None):
     except (AttributeError, IOError, ValueError):
         return default
 
-def record_properties(item):
+def record_values(record, fields):
+    """Read only needed metadata, not bodies or unrelated Outlook properties."""
+    values = {}
+    for entry_index in range(record.number_of_entries):
+        entry = record.get_entry(entry_index)
+        key = entry.entry_type
+        if key not in fields:
+            continue
+        value_type = entry.value_type
+        if value_type in (0x001E, 0x001F):
+            value = safe_get(entry, "data_as_string")
+            if value is None:
+                # Outlook metadata can contain unpaired UTF-16 surrogates.
+                # Preserve readable text with replacement characters instead
+                # of letting one malformed subject abort every email.
+                raw = safe_get(entry, "data")
+                if isinstance(raw, bytes):
+                    value = raw.decode("utf-16-le" if value_type == 0x001F else "cp1252", errors="replace").rstrip("\x00")
+            if value is not None:
+                values[key] = value
+        elif value_type in (0x0002, 0x0003):
+            value = safe_get(entry, "data_as_integer")
+            if value is not None:
+                values[key] = value
+    return values
+
+def record_properties(item, fields=MESSAGE_PROPERTIES):
     """MAPI properties cover messages without internet transport headers."""
     values = {}
     for index in range(safe_get(item, "number_of_record_sets", 0)):
-        record = item.get_record_set(index)
-        for entry_index in range(record.number_of_entries):
-            entry = record.get_entry(entry_index)
-            value_type = entry.value_type
-            if value_type in (0x001E, 0x001F):
-                values[entry.entry_type] = entry.data_as_string
-            elif value_type in (0x0002, 0x0003):
-                values[entry.entry_type] = entry.data_as_integer
+        values.update(record_values(item.get_record_set(index), fields))
     return values
 
 def convert(item):
@@ -46,11 +68,11 @@ def convert(item):
         if headers.get(key):
             message[key] = " ".join(str(headers.get(key)).splitlines())
     if not message.get("Subject"):
-        message["Subject"] = " ".join(text(safe_get(item, "subject")).splitlines())
+        message["Subject"] = " ".join(text(safe_get(item, "subject") or properties.get(0x0037)).splitlines())
     if not message.get("From"):
         sender = properties.get(0x5D01) or properties.get(0x5D02) or properties.get(0x0C1F) or ""
         if "@" in sender:
-            message["From"] = formataddr((text(safe_get(item, "sender_name")), sender))
+            message["From"] = formataddr((text(safe_get(item, "sender_name") or properties.get(0x0C1A)), sender))
     if not message.get("Message-ID") and properties.get(0x1035):
         message["Message-ID"] = properties[0x1035]
     recipients = {1: [], 2: [], 3: []}
@@ -58,13 +80,7 @@ def convert(item):
         child = item.get_sub_item(index)
         for record_index in range(safe_get(child, "number_of_record_sets", 0)):
             record = child.get_record_set(record_index)
-            row = {}
-            for entry_index in range(record.number_of_entries):
-                entry = record.get_entry(entry_index)
-                if entry.value_type in (0x001E, 0x001F):
-                    row[entry.entry_type] = entry.data_as_string
-                elif entry.value_type in (0x0002, 0x0003):
-                    row[entry.entry_type] = entry.data_as_integer
+            row = record_values(record, RECIPIENT_PROPERTIES)
             address = row.get(0x39FE) or row.get(0x3003) or ""
             kind = row.get(0x0C15, 1)
             if "@" in address and kind in recipients:
@@ -85,17 +101,37 @@ def convert(item):
     total = len(plain.encode()) + len(html.encode())
     for index in range(item.number_of_attachments):
         attachment = item.get_attachment(index)
+        props = record_properties(attachment, ATTACHMENT_PROPERTIES)
+        # PidTagAttachMethod = ATTACH_NONE is an Outlook placeholder, with no
+        # binary stream. Trying to read it makes libpff abort valid archives.
+        if props.get(0x3705) == 0:
+            continue
         size = safe_get(attachment, "size", 0)
         if total + size > MAX_BYTES:
             raise ValueError("attachment_too_large")
         data = attachment.read_buffer(size)
         total += len(data)
-        filename = text(safe_get(attachment, "long_filename")) or "anexo-%d" % (index + 1)
-        props = record_properties(attachment)
-        content_type = props.get(0x370E, "application/octet-stream")
+        filename = text(safe_get(attachment, "long_filename") or props.get(0x3707) or props.get(0x3704)) or "anexo-%d" % (index + 1)
+        content_type = props.get(0x370E) or "application/octet-stream"
         maintype, _, subtype = content_type.partition("/")
         cid = props.get(0x3712)
-        message.add_attachment(data, maintype=maintype or "application", subtype=subtype or "octet-stream", filename=filename, **({"cid": "<%s>" % cid.strip("<>"), "disposition": "inline"} if cid else {}))
+        options = {"filename": filename, **({"cid": "<%s>" % cid.strip("<>"), "disposition": "inline"} if cid else {})}
+        if maintype.lower() == "message":
+            # Python's MIME generator requires structured payloads for message/*.
+            # Raw bytes make delivery-status reports crash during as_bytes(),
+            # aborting the whole PST analysis before any messages are imported.
+            part = EmailMessage(policy=SMTP)
+            part["Content-Type"] = content_type
+            header = part["Content-Type"].fold(policy=SMTP).encode("ascii")
+            part = email.message_from_bytes(header + b"\r\n" + data, policy=SMTP)
+            part.add_header("Content-Disposition", options.get("disposition", "attachment"), filename=filename)
+            if cid:
+                part["Content-ID"] = options["cid"]
+            if message.get_content_type() != "multipart/mixed":
+                message.make_mixed()
+            message.attach(part)
+        else:
+            message.add_attachment(data, maintype=maintype or "application", subtype=subtype or "octet-stream", **options)
     message["X-APMail-Backup-Source"] = "pst-ost-reconstructed"
     # Stable boundaries keep the same PST/OST message hash across retries/reimports.
     digest = hashlib.sha256()
@@ -105,7 +141,7 @@ def convert(item):
         if not part.is_multipart():
             digest.update(part.get_payload(decode=True) or b"")
     for index, part in enumerate(parts):
-        if part.is_multipart():
+        if part.get_content_maintype() == "multipart":
             part.set_boundary("apmail-%s-%d" % (digest.hexdigest()[:48], index))
     raw = message.as_bytes()
     if len(raw) > MAX_BYTES:
@@ -119,7 +155,7 @@ def walk(folder, path, depth=0):
     current = "/".join(path + [name])
     for index in range(folder.number_of_sub_messages):
         item = folder.get_sub_message(index)
-        kind = str(record_properties(item).get(0x001A, "IPM.Note")).lower()
+        kind = str(record_properties(item, {0x001A}).get(0x001A, "IPM.Note")).lower()
         if not kind.startswith(("ipm.note", "report.ipm.note")):
             continue
         raw = convert(item)
