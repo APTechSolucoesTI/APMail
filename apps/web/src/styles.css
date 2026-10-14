@@ -2,6 +2,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  color-scheme: light;
   --brand-dark: #0d2b5e;
   --brand-medium: #1a6b8a;
   --brand-accent: #00c2cb;
@@ -68,6 +69,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --brand-medium: #168db8;
   --brand-accent: #47c4dd;
   --background: #060608;

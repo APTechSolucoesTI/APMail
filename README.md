@@ -6,6 +6,8 @@ Gestão de e-mails compartilhados do Grupo AP. Aplicação própria com React, F
 
 Listas operacionais de e-mails usam o formato de conversas e busca no topo; são a exceção ao padrão de filtros por coluna das demais listagens.
 
+[Navegação dos e-mails](docs/NAVEGACAO-EMAIL.md): pastas expansíveis, menu com largura ajustável por arraste e rolagem independente de menu, lista e leitura.
+
 [Contatos Outlook, etiquetas e busca global](docs/CONTATOS-BUSCA-GLOBAL.md): agendas globais/individuais por usuário definidas para novos cadastros pelo admin, sem conversão retroativa; autoria/versão, apelido privado, Empresa/Cargo em texto com autocomplete e endereços próprios opcionais. CSV/VCF com prévia/validação/retomada; validação de e-mail/telefone e nomes globais repetidos bloqueados. Etiquetas globais primeiro e disponibilidade por caixa; regras pessoais só com pessoais, caixa só com globais. Filtros de coluna, ordenação, Colunas/paginação como padrão das listagens. Entrega local de 07/10/2026, migration `0023`; commit e deploy pelo usuário.
 
 Funcionalidades implementadas: múltiplas empresas, caixas compartilhadas IMAP/SMTP, permissões por papel e pasta, leitura segura de HTML e anexos, composição/resposta/encaminhamento, assinaturas, agendamento com Desfazer, etiquetas pessoais, regras, filas de atendimento, atribuição, SLA, notas/menções, dashboard, auditoria e chat em tempo real. Temas claro/escuro, interface responsiva e atalhos de teclado.

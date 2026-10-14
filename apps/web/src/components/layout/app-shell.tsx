@@ -2,7 +2,7 @@ import { isTenantAdmin } from '@apmail/shared';
 import { canDelegate } from '@apmail/shared';
 import { NavigationGroup } from './navigation-group';
 import { useEffect, useState } from 'react';
-import { Link, Outlet, useNavigate } from '@tanstack/react-router';
+import { Link, Outlet, useNavigate, useLocation } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
 import { toast } from 'sonner';
@@ -39,6 +39,7 @@ import { useTheme } from './theme-provider';
 import { TableUserContext } from '@/hooks/use-table-preferences';
 import { BackgroundArchiveTransfers } from '@/components/settings/background-archive-transfers';
 import { stopArchiveTransfersForUser } from '@/lib/mail-archive-transfers';
+import { NavigationLayout } from './navigation-layout';
 const settingsIcons: Record<string, typeof Mail> = {
   '/settings/profile': UserRound,
   '/settings/preferences': SlidersHorizontal,
@@ -61,6 +62,7 @@ export function AppShell() {
   );
   const client = useQueryClient();
   const navigate = useNavigate();
+  const mailView = useLocation().pathname.startsWith('/mail/');
   const boxes = useQuery({
     queryKey: ['mailboxes', me.data?.current_tenant_id],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
@@ -344,111 +346,113 @@ export function AppShell() {
         <TableUserContext.Provider value={me.data.user.id}>
           <div
             data-density="compact"
-            className="flex min-h-dvh data-[density=comfortable]:[&_td]:py-2 data-[density=compact]:[&_td]:py-1.5"
+            className="h-dvh overflow-hidden data-[density=comfortable]:[&_td]:py-2 data-[density=compact]:[&_td]:py-1.5"
           >
-            <aside
-              className={
-                'sticky top-0 hidden h-dvh w-60 shrink-0 border-r bg-sidebar text-sidebar-foreground ' +
-                (sidebarVisible ? 'lg:block' : '')
-              }
-            >
-              {sidebar}
-            </aside>
-            <div className="min-w-0 flex-1">
-              <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-2 border-b bg-card px-4">
-                <div className="flex min-w-0 items-center gap-2">
-                  <Button
-                    className="hidden lg:inline-flex"
-                    variant="ghost"
-                    size="icon"
-                    aria-label={sidebarVisible ? 'Ocultar navegação' : 'Exibir navegação'}
-                    aria-expanded={sidebarVisible}
-                    onClick={() => {
-                      setSidebarVisible(!sidebarVisible);
-                      localStorage.setItem('apmail-sidebar', sidebarVisible ? 'hidden' : 'visible');
-                    }}
-                  >
-                    <Menu />
-                  </Button>
-                  <Sheet open={open} onOpenChange={setOpen}>
-                    <SheetTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Abrir navegação"
-                        className="lg:hidden"
-                      >
-                        <Menu />
-                      </Button>
-                    </SheetTrigger>
-                    <SheetContent side="left" className="p-0">
-                      <SheetTitle className="sr-only">Navegação APMail</SheetTitle>
-                      {sidebar}
-                    </SheetContent>
-                  </Sheet>
-                  <label htmlFor="company" className="sr-only">
-                    Empresa atual
-                  </label>
-                  <select
-                    id="company"
-                    className="h-11 max-w-36 rounded-md sm:max-w-48 border border-input bg-card px-2 text-sm"
-                    value={me.data.current_tenant_id ?? ''}
-                    onChange={async (e) => {
-                      stopArchiveTransfersForUser(me.data!.user.id);
-                      await api('/me/current-tenant', {
-                        method: 'PUT',
-                        body: { tenant_id: e.target.value },
-                      });
-                      await client.cancelQueries();
-                      client.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
-                      await client.invalidateQueries({ queryKey: ['me'] });
-                      await navigate({ to: '/' });
-                    }}
-                  >
-                    {me.data.tenants.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <GlobalSearch key={me.data.current_tenant_id} />
-                <div className="flex items-center gap-2">
-                  <KeyboardHelp mailboxes={boxes.data ?? []} />
-                  <NotificationBell />
-                  <Link
-                    to="/settings/profile"
-                    aria-label="Meu perfil"
-                    className="inline-flex min-h-11 min-w-11 items-center justify-center"
-                  >
-                    <UserAvatar
-                      name={me.data.user.full_name}
-                      src={me.data.user.avatar_url ?? undefined}
-                    />
-                  </Link>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Sair"
-                    onClick={async () => {
-                      stopArchiveTransfersForUser(me.data!.user.id);
-                      await api('/auth/logout', { method: 'POST' });
-                      client.clear();
-                      await navigate({ to: '/login' });
-                    }}
-                  >
-                    <LogOut />
-                  </Button>
-                </div>
-              </header>
-              <main className="mx-auto max-w-screen-2xl p-4 sm:p-6">
-                <BackgroundArchiveTransfers
-                  userId={me.data.user.id}
-                  tenantId={me.data.current_tenant_id}
-                />
-                <Outlet />
-              </main>
-            </div>
+            <NavigationLayout userId={me.data.user.id} visible={sidebarVisible} sidebar={sidebar}>
+              <div className="flex h-full min-h-0 min-w-0 flex-col">
+                <header className="z-20 flex min-h-16 shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card px-4">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Button
+                      className="hidden lg:inline-flex"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={sidebarVisible ? 'Ocultar navegação' : 'Exibir navegação'}
+                      aria-expanded={sidebarVisible}
+                      onClick={() => {
+                        setSidebarVisible(!sidebarVisible);
+                        localStorage.setItem(
+                          'apmail-sidebar',
+                          sidebarVisible ? 'hidden' : 'visible',
+                        );
+                      }}
+                    >
+                      <Menu />
+                    </Button>
+                    <Sheet open={open} onOpenChange={setOpen}>
+                      <SheetTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label="Abrir navegação"
+                          className="lg:hidden"
+                        >
+                          <Menu />
+                        </Button>
+                      </SheetTrigger>
+                      <SheetContent side="left" className="w-[90vw] max-w-sm p-0 sm:max-w-sm">
+                        <SheetTitle className="sr-only">Navegação APMail</SheetTitle>
+                        {sidebar}
+                      </SheetContent>
+                    </Sheet>
+                    <label htmlFor="company" className="sr-only">
+                      Empresa atual
+                    </label>
+                    <select
+                      id="company"
+                      className="h-11 max-w-36 rounded-md sm:max-w-48 border border-input bg-card px-2 text-sm"
+                      value={me.data.current_tenant_id ?? ''}
+                      onChange={async (e) => {
+                        stopArchiveTransfersForUser(me.data!.user.id);
+                        await api('/me/current-tenant', {
+                          method: 'PUT',
+                          body: { tenant_id: e.target.value },
+                        });
+                        await client.cancelQueries();
+                        client.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
+                        await client.invalidateQueries({ queryKey: ['me'] });
+                        await navigate({ to: '/' });
+                      }}
+                    >
+                      {me.data.tenants.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <GlobalSearch key={me.data.current_tenant_id} />
+                  <div className="flex items-center gap-2">
+                    <KeyboardHelp mailboxes={boxes.data ?? []} />
+                    <NotificationBell />
+                    <Link
+                      to="/settings/profile"
+                      aria-label="Meu perfil"
+                      className="inline-flex min-h-11 min-w-11 items-center justify-center"
+                    >
+                      <UserAvatar
+                        name={me.data.user.full_name}
+                        src={me.data.user.avatar_url ?? undefined}
+                      />
+                    </Link>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Sair"
+                      onClick={async () => {
+                        stopArchiveTransfersForUser(me.data!.user.id);
+                        await api('/auth/logout', { method: 'POST' });
+                        client.clear();
+                        await navigate({ to: '/login' });
+                      }}
+                    >
+                      <LogOut />
+                    </Button>
+                  </div>
+                </header>
+                <main
+                  className={
+                    'mx-auto flex min-h-0 w-full max-w-screen-2xl flex-1 flex-col p-4 sm:p-6 ' +
+                    (mailView ? 'overflow-hidden' : 'overflow-y-auto')
+                  }
+                >
+                  <BackgroundArchiveTransfers
+                    userId={me.data.user.id}
+                    tenantId={me.data.current_tenant_id}
+                  />
+                  <Outlet />
+                </main>
+              </div>
+            </NavigationLayout>
           </div>
         </TableUserContext.Provider>
       </TenantContext.Provider>

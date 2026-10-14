@@ -29,7 +29,7 @@ export function ThreadListItem({
   return (
     <article
       className={cn(
-        'flex items-start gap-2 border-b p-3 hover:bg-muted/50',
+        'relative flex items-start gap-2 border-b p-3 hover:bg-muted/50',
         active && 'bg-secondary',
         selected && 'bg-muted',
       )}

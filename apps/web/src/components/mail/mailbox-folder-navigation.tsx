@@ -42,28 +42,24 @@ export function MailboxFolderNavigation({
         </span>
       </Link>
       {active && (
-        <NavigationGroup id={'box-' + box.id} label="Exibir caixa">
-          <div className="ml-3 border-l pl-1">
-            <NavigationGroup id={'folders-' + box.id} label="Pastas">
-              <FolderTree
-                folders={folders.data ?? []}
-                mailboxId={box.id}
-                activeId={
-                  search.folderId ?? folders.data?.find((f) => f.special_use === 'inbox')?.id
-                }
-                onNavigate={onNavigate}
-                organize={can(box.role, 'organize')}
-              />
-              {can(box.role, 'organize') && <FolderControls mailboxId={box.id} />}
-            </NavigationGroup>
-            <NavigationGroup id={'labels-' + box.id} label="Minhas etiquetas">
-              <PersonalLabelNavigation mailboxId={box.id} onNavigate={onNavigate} />
-            </NavigationGroup>
-            <NavigationGroup id={'queues-' + box.id} label="Filas">
-              <QueueNavigation mailboxId={box.id} onNavigate={onNavigate} />
-            </NavigationGroup>
-          </div>
-        </NavigationGroup>
+        <div className="min-w-0">
+          <NavigationGroup id={'folders-' + box.id} label="Pastas">
+            <FolderTree
+              folders={folders.data ?? []}
+              mailboxId={box.id}
+              activeId={search.folderId ?? folders.data?.find((f) => f.special_use === 'inbox')?.id}
+              onNavigate={onNavigate}
+              organize={can(box.role, 'organize')}
+            />
+            {can(box.role, 'organize') && <FolderControls mailboxId={box.id} />}
+          </NavigationGroup>
+          <NavigationGroup id={'labels-' + box.id} label="Minhas etiquetas">
+            <PersonalLabelNavigation mailboxId={box.id} onNavigate={onNavigate} />
+          </NavigationGroup>
+          <NavigationGroup id={'queues-' + box.id} label="Filas">
+            <QueueNavigation mailboxId={box.id} onNavigate={onNavigate} />
+          </NavigationGroup>
+        </div>
       )}
     </div>
   );

@@ -38,10 +38,12 @@ export function FolderControls({
   mailboxId,
   folder,
   children,
+  compact = false,
 }: {
   mailboxId: string;
   folder?: Folder;
   children?: ReactNode;
+  compact?: boolean;
 }) {
   const client = useQueryClient(),
     socket = useContext(SocketContext);
@@ -108,7 +110,7 @@ export function FolderControls({
   return (
     <div className="min-w-0">
       <div
-        className="flex min-w-0 items-center gap-1"
+        className="group/folder-actions flex min-w-0 items-center gap-1"
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu(true);
@@ -128,6 +130,11 @@ export function FolderControls({
               size={children ? 'icon-sm' : 'sm'}
               disabled={!!pending}
               aria-label={folder ? 'Opções da pasta ' + folderLabel(folder) : 'Criar pasta'}
+              className={
+                compact
+                  ? 'size-11 shrink-0 lg:size-8 lg:opacity-0 lg:group-hover/folder-actions:opacity-100 lg:group-focus-within/folder-actions:opacity-100 data-[state=open]:opacity-100'
+                  : undefined
+              }
             >
               {children ? (
                 <Ellipsis />
