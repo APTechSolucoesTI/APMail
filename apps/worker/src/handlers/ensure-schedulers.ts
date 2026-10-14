@@ -1,6 +1,24 @@
 import { toBullJobId } from '@apmail/shared';
 import type { WorkerResources } from '../resources.js';
 export async function ensureSchedulers(r: WorkerResources) {
+  const exports = await r.db
+    .selectFrom('mail_archive_exports')
+    .select('id')
+    .where('state', 'in', ['queued', 'staging', 'converting'])
+    .where('updated_at', '<', new Date(Date.now() - 300000))
+    .execute();
+  for (const task of exports)
+    await r.queues['mail-archive'].add(
+      'export-pst-recover',
+      { export_id: task.id },
+      {
+        jobId: toBullJobId('pst-recover:' + task.id),
+        attempts: 3,
+        removeOnComplete: true,
+        removeOnFail: true,
+        backoff: { type: 'exponential', delay: 10000 },
+      },
+    );
   const purge = await r.db
     .selectFrom('mailbox_purge_requests')
     .select('mailbox_id')

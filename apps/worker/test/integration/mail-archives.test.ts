@@ -14,6 +14,7 @@ import { envSchema as apiEnv } from '../../../api/src/env.js';
 import { envSchema as workerEnv } from '../../src/env.js';
 import { hashToken } from '../../../api/src/plugins/auth.js';
 import { handleMailArchive } from '../../src/handlers/mail-archive.js';
+import { handlePstExport, cleanupPstExports } from '../../src/handlers/pst-export.js';
 import * as ingestion from '../../src/imap/ingest-message.js';
 import { purgeMailboxes } from '../../src/handlers/mailbox-purge.js';
 import { cleanupMailArchiveFiles } from '../../src/handlers/mail-archive-maintenance.js';
@@ -48,6 +49,8 @@ const env = {
   CREDENTIALS_ENCRYPTION_KEY: key,
   STORAGE_DIR: dir,
   NODE_ENV: 'test',
+  PST_EXPORT_COMMAND: process.env.PST_EXPORT_COMMAND_TEST ?? 'dotnet',
+  PST_EXPORT_DLL: process.env.PST_EXPORT_DLL_TEST ?? '/opt/pst/Mail2Pst.Cli.dll',
 };
 const app = await buildApp(apiEnv.parse(env));
 const connection = new Redis(redisUrl, { maxRetriesPerRequest: null }),
@@ -178,6 +181,212 @@ afterAll(async () => {
   await db.destroy();
   await rm(dir, { recursive: true, force: true });
 });
+it.skipIf(!process.env.PST_EXPORT_DLL_TEST)(
+  'exports a real PST with folders, Unicode, bodies and binary attachments; protects downloads and expires temporary data',
+  async () => {
+    const createdBox = await call('POST', '/mailboxes', {
+      receiving_protocol: 'local',
+      name: 'PST export QA',
+      email_address: 'pst-export@qa.example',
+      history_classify_days: 0,
+    });
+    expect(createdBox.statusCode, createdBox.body).toBe(201);
+    const target = createdBox.json().id;
+    const binary = Buffer.from([0, 1, 2, 3, 255, 0, 128]);
+    const rich = Buffer.from(
+      `From: "João QA" <sender@example.com>\r\nTo: Destino <pst-export@qa.example>\r\nDate: Wed, 07 Oct 2026 12:00:00 +0000\r\nMessage-ID: <pst-rich@qa.example>\r\nSubject: Contrato ação — PST\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=pstqa\r\n\r\n--pstqa\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\nOlá antes\u0000depois do corpo PST\r\n--pstqa\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename="contrato.bin"\r\nContent-Transfer-Encoding: base64\r\n\r\n${binary.toString('base64')}\r\n--pstqa--\r\n`,
+    );
+    const { ZipFile } = await import('yazl');
+    const zip = new ZipFile();
+    zip.addBuffer(rich, 'Projetos/Contratos/primeiro.eml');
+    zip.addBuffer(mime('pst-second', 'Conteúdo segunda mensagem'), 'Arquivo/segundo.eml');
+    zip.end();
+    const chunks: Buffer[] = [];
+    for await (const chunk of zip.outputStream)
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const imported = await upload(Buffer.concat(chunks), 'backup-pst.zip', target);
+    await handleMailArchive(r, imported, 'pst-source');
+    expect(await state(imported)).toMatchObject({ state: 'completed', imported: 2 });
+    expect(
+      (await call('POST', `/mailboxes/${target}/archive-exports`, { format: 'pst' }, member))
+        .statusCode,
+    ).toBe(403);
+    expect(
+      (await call('POST', `/mailboxes/${target}/archive-exports`, { format: 'pst' }, foreignOwner))
+        .statusCode,
+    ).toBe(404);
+    const response = await call('POST', `/mailboxes/${target}/archive-exports`, { format: 'pst' });
+    expect(response.statusCode, response.body).toBe(202);
+    const id = response.json().id;
+    const repeated = await call('POST', `/mailboxes/${target}/archive-exports`, { format: 'pst' });
+    expect(repeated.json().id).toBe(id);
+    await handlePstExport(
+      { ...r, env: { ...r.env, PST_EXPORT_COMMAND: join(dir, 'missing-converter') } },
+      id,
+      'pst-export-failure',
+    );
+    const paused = await db
+      .selectFrom('mail_archive_exports')
+      .selectAll()
+      .where('id', '=', id)
+      .executeTakeFirstOrThrow();
+    expect(paused).toMatchObject({ state: 'failed', prepared: 2 });
+    expect(paused.last_message_id).not.toBeNull();
+    const staged = await db
+      .selectFrom('mail_archive_export_files')
+      .selectAll()
+      .where('export_id', '=', id)
+      .where('kind', '=', 'source')
+      .execute();
+    const stagedContents = await Promise.all(
+      staged.map((f) => readFile(join(dir, f.storage_path))),
+    );
+    await cleanupPstExports(r);
+    expect(await Promise.all(staged.map((f) => readFile(join(dir, f.storage_path))))).toEqual(
+      stagedContents,
+    );
+    expect(
+      (await call('POST', `/mailboxes/${target}/archive-exports/${id}/resume`)).statusCode,
+    ).toBe(200);
+    await handlePstExport(r, id, 'pst-export-qa');
+    const task = await db
+      .selectFrom('mail_archive_exports')
+      .selectAll()
+      .where('id', '=', id)
+      .executeTakeFirstOrThrow();
+    expect(task, task.last_error ?? '').toMatchObject({
+      state: 'ready',
+      prepared: 2,
+      converted: 2,
+      warnings: 0,
+    });
+    const files = await db
+      .selectFrom('mail_archive_export_files')
+      .selectAll()
+      .where('export_id', '=', id)
+      .execute();
+    expect(files).toHaveLength(1);
+    expect(files[0]!.kind).toBe('pst');
+    const result = await call(
+      'GET',
+      `/mailboxes/${target}/archive-exports/${id}/files/${files[0]!.id}`,
+    );
+    expect(result.statusCode).toBe(200);
+    expect(result.rawPayload.subarray(0, 4).toString()).toBe('!BDN');
+    const downloadUrl = `/api/mailboxes/${target}/archive-exports/${id}/files/${files[0]!.id}`;
+    const range = await app.inject({
+      method: 'GET',
+      url: downloadUrl,
+      headers: { cookie: cookies.get(owner)!, range: 'bytes=0-15' },
+    });
+    expect(range.statusCode).toBe(206);
+    expect(range.rawPayload).toEqual(result.rawPayload.subarray(0, 16));
+    const invalidRange = await app.inject({
+      method: 'GET',
+      url: downloadUrl,
+      headers: { cookie: cookies.get(owner)!, range: 'bytes=999999999999-' },
+    });
+    expect(invalidRange.statusCode).toBe(416);
+    expect(
+      (
+        await call(
+          'GET',
+          `/mailboxes/${target}/archive-exports/${id}/files/${files[0]!.id}`,
+          undefined,
+          foreignOwner,
+        )
+      ).statusCode,
+    ).toBe(404);
+    const listed = await call('GET', `/mailboxes/${target}/archive-exports`);
+    expect(listed.body).not.toContain('storage_path');
+    const read = [];
+    for await (const item of readMailArchive(join(dir, files[0]!.storage_path), 'pst', 'backup'))
+      read.push(item);
+    expect(read).toHaveLength(2);
+    expect(read.some((item) => item.folder.includes('Projetos/Contratos'))).toBe(true);
+    const { simpleParser } = await import('mailparser');
+    const recovered = await Promise.all(read.map((item) => simpleParser(item.raw)));
+    const message = recovered.find((m) => m.subject === 'Contrato ação — PST');
+    expect(message).toBeDefined();
+    expect(message?.text).toContain('depois do corpo PST');
+    expect(message?.attachments[0]?.content).toEqual(binary);
+    expect(message?.from?.value[0]?.name).toBe('João QA');
+    await db
+      .updateTable('mail_archive_exports')
+      .set({ expires_at: new Date(Date.now() - 1000) })
+      .where('id', '=', id)
+      .execute();
+    expect(
+      (await call('GET', `/mailboxes/${target}/archive-exports/${id}/files/${files[0]!.id}`))
+        .statusCode,
+    ).toBe(404);
+    await cleanupPstExports(r);
+    expect(
+      (
+        await db
+          .selectFrom('mail_archive_exports')
+          .select('state')
+          .where('id', '=', id)
+          .executeTakeFirstOrThrow()
+      ).state,
+    ).toBe('expired');
+    expect(await r.storage.inspect(files[0]!.storage_path)).toBeNull();
+    expect(
+      await db.selectFrom('messages').select('id').where('mailbox_id', '=', target).execute(),
+    ).toHaveLength(2);
+  },
+  120000,
+);
+it.skipIf(!process.env.PST_EXPORT_DLL_TEST)(
+  'exports an empty mailbox and discards only its generated files',
+  async () => {
+    const response = await call('POST', `/mailboxes/${box}/archive-exports`, { format: 'pst' });
+    expect(response.statusCode, response.body).toBe(202);
+    const id: string = response.json().id;
+    await handlePstExport(r, id, 'empty-pst');
+    const task = await db
+      .selectFrom('mail_archive_exports')
+      .selectAll()
+      .where('id', '=', id)
+      .executeTakeFirstOrThrow();
+    expect(task, task.last_error ?? '').toMatchObject({
+      state: 'ready',
+      total_messages: 0,
+      converted: 0,
+    });
+    const file = await db
+      .selectFrom('mail_archive_export_files')
+      .selectAll()
+      .where('export_id', '=', id)
+      .where('kind', '=', 'pst')
+      .executeTakeFirstOrThrow();
+    const messages = [];
+    for await (const item of readMailArchive(join(dir, file.storage_path), 'pst'))
+      messages.push(item);
+    expect(messages).toHaveLength(0);
+    expect((await call('POST', `/mailboxes/${box}/archive-exports/${id}/cancel`)).statusCode).toBe(
+      200,
+    );
+    expect(
+      (await call('GET', `/mailboxes/${box}/archive-exports/${id}/files/${file.id}`)).statusCode,
+    ).toBe(404);
+    await cleanupPstExports(r);
+    expect(await r.storage.inspect(file.storage_path)).toBeNull();
+    expect(
+      (
+        await db
+          .selectFrom('mail_archive_exports')
+          .select('state')
+          .where('id', '=', id)
+          .executeTakeFirstOrThrow()
+      ).state,
+    ).toBe('cancelled');
+    expect(
+      await db.selectFrom('folders').select('id').where('mailbox_id', '=', box).execute(),
+    ).toHaveLength(5);
+  },
+  120000,
+);
 it('creates local boxes, excludes provider quota and protects import/export by tenant/admin', async () => {
   const storage = await call('GET', `/mailboxes/${box}/storage`);
   expect(storage.json()).toMatchObject({

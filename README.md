@@ -2,7 +2,7 @@
 
 Gestão de e-mails compartilhados do Grupo AP. Aplicação própria com React, Fastify, PostgreSQL, Redis/BullMQ e integração IMAP/POP3/SMTP.
 
-[POP3, arquivos locais e backups](docs/EMAILS-POP3-IMPORTACAO-BACKUP.md): recebimento POP3 contínuo, caixas locais, importação PST/OST/MBOX/EML/EMLX/ZIP com cotas e checkpoint, backup MBOX/ZIP EML e correção da busca global. Migrations `0024`–`0028`; API/web/worker juntos, commit/deploy pelo usuário. Envio em blocos de 4 MiB retomáveis, medição das mensagens extraídas e consumo efetivamente adicionado. Distribuição de armazenamento acessível pela listagem/importação; exclusão definitiva de caixas com backup e duas confirmações; remoção de usuários da empresa. Escrita nativa de PST/OST não está incluída.
+[POP3, arquivos locais e backups](docs/EMAILS-POP3-IMPORTACAO-BACKUP.md): recebimento POP3 contínuo, caixas locais, importação PST/OST/MBOX/EML/EMLX/ZIP com cotas e checkpoint, backup PST nativo/MBOX/ZIP EML e correção da busca global. Migrations `0024`–`0029`; API/web/worker juntos, commit/deploy pelo usuário. Envio em blocos de 4 MiB retomáveis, medição das mensagens extraídas e consumo efetivamente adicionado. Distribuição de armazenamento acessível pela listagem/importação; exclusão definitiva de caixas com backup e duas confirmações; remoção de usuários da empresa. PST é gerado em segundo plano com pastas/anexos, retomada e download por 24 horas; OST não é exportado.
 
 Listas operacionais de e-mails usam o formato de conversas e busca no topo; são a exceção ao padrão de filtros por coluna das demais listagens.
 

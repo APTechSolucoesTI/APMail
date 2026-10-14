@@ -14,7 +14,7 @@ export async function inferStorageOwner(db: Kysely<DB>, key: string): Promise<Ow
   if (parts[0] === 'avatars')
     return { scope: 'platform', tenant: null, box: null, category: 'avatar' };
   if (
-    ['attachments', 'mail-raw', 'mail-imports'].includes(parts[0] ?? '') &&
+    ['attachments', 'mail-raw', 'mail-imports', 'mail-exports'].includes(parts[0] ?? '') &&
     uuid.test(parts[1] ?? '') &&
     uuid.test(parts[2] ?? '')
   ) {
@@ -31,11 +31,13 @@ export async function inferStorageOwner(db: Kysely<DB>, key: string): Promise<Ow
         box: parts[2]!,
         category: key.endsWith('.tmp')
           ? 'temporary'
-          : parts[0] === 'mail-raw'
-            ? 'mail_raw'
-            : parts[0] === 'mail-imports'
-              ? 'mail_import'
-              : 'attachment',
+          : parts[0] === 'mail-exports'
+            ? 'mail_export'
+            : parts[0] === 'mail-raw'
+              ? 'mail_raw'
+              : parts[0] === 'mail-imports'
+                ? 'mail_import'
+                : 'attachment',
       };
   }
   if (['uploads', 'signatures'].includes(parts[0] ?? '') && uuid.test(parts[1] ?? '')) {

@@ -67,6 +67,7 @@ export async function purgeMailboxes(r: WorkerResources) {
           await tx.deleteFrom('mail_rules').where('mailbox_id', '=', box.id).execute();
           await tx.deleteFrom('folders').where('mailbox_id', '=', box.id).execute();
           await tx.deleteFrom('mail_archive_imports').where('mailbox_id', '=', box.id).execute();
+          await tx.deleteFrom('mail_archive_exports').where('mailbox_id', '=', box.id).execute();
           await tx.deleteFrom('uploads').where('mailbox_id', '=', box.id).execute();
           await tx
             .updateTable('outbox')

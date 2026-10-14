@@ -6,6 +6,8 @@ export const envSchema = z.object({
   DATABASE_URL: z.url(),
   REDIS_URL: z.url(),
   APP_URL: z.url(),
+  PST_EXPORT_COMMAND: z.string().default('dotnet'),
+  PST_EXPORT_DLL: z.string().default('/opt/pst/Mail2Pst.Cli.dll'),
   LOG_LEVEL: z.string().default('info'),
   STORAGE_DIR: z.string().default('./.data/storage').transform(resolveWorkspacePath),
   SESSION_SECRET: z.string().refine((value) => Buffer.from(value, 'base64').length === 32),

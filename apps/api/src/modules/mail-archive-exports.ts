@@ -1,65 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import { Readable } from 'node:stream';
 import { z } from 'zod';
-import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { ZipFile } from 'yazl';
-import { Storage, audit, type DB } from '@apmail/db';
-import type { Selectable } from 'kysely';
-import type { Address } from '@apmail/shared';
+import { Storage, audit, toMbox, backupMime } from '@apmail/db';
 import { requireTenantAdmin, notFound } from '../authz/context.js';
 import { requireMailboxPerm } from '../authz/guards.js';
 import type { Resources } from './resources.js';
+import { registerPstExports } from './pst-exports.js';
 
-type Message = Selectable<DB['messages']>;
-export function toMbox(raw: Buffer, date: Date, sender: string) {
-  // mboxrd: quote every From separator, including already quoted body lines.
-  const escaped = raw
-    .toString('latin1')
-    .replace(/^(>*From )/gm, '>$1')
-    .replace(/\r?\n/g, '\n');
-  const from = sender.replace(/[^a-zA-Z0-9@._+-]/g, '') || 'apmail@localhost';
-  return Buffer.from(
-    `From ${from} ${date.toUTCString()}\n${escaped.replace(/\n*$/, '')}\n\n`,
-    'latin1',
-  );
-}
-async function mimeFor(r: Resources, storage: Storage, m: Message) {
-  if (m.raw_storage_path) return storage.openReadStream(m.raw_storage_path);
-  const attachments = await r.db
-    .selectFrom('attachments')
-    .selectAll()
-    .where('message_id', '=', m.id)
-    .where('tenant_id', '=', m.tenant_id)
-    .execute();
-  const files = [];
-  for (const a of attachments)
-    files.push({
-      filename: a.filename,
-      contentType: a.content_type,
-      cid: a.content_id ?? undefined,
-      contentDisposition: a.is_inline ? ('inline' as const) : ('attachment' as const),
-      content: await storage.openReadStream(a.storage_path),
-    });
-  return new MailComposer({
-    from: { name: m.from_name, address: m.from_address || 'unknown@localhost' },
-    to: m.to_addresses as unknown as Address[],
-    cc: m.cc_addresses as unknown as Address[],
-    bcc: m.bcc_addresses as unknown as Address[],
-    replyTo: m.reply_to_addresses as unknown as Address[],
-    subject: m.subject,
-    date: m.message_at,
-    messageId: m.message_id_header,
-    inReplyTo: m.in_reply_to ?? undefined,
-    references: m.references_headers,
-    text: m.body_text,
-    html: m.body_html || undefined,
-    attachments: files,
-    headers: { 'X-APMail-Backup-Source': 'reconstructed', 'X-APMail-Message-ID': m.id },
-  })
-    .compile()
-    .createReadStream();
-}
 export async function registerMailArchiveExports(app: FastifyInstance, r: Resources) {
+  await registerPstExports(app, r);
   app.get(
     '/api/mailboxes/:id/archive-export',
     { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
@@ -157,7 +107,7 @@ export async function registerMailArchiveExports(app: FastifyInstance, r: Resour
         reply.type('application/mbox');
         async function* output() {
           for await (const message of messages()) {
-            const raw = await mimeFor(r, storage, message);
+            const raw = await backupMime(r.db, storage, message);
             const chunks: Buffer[] = [];
             for await (const chunk of raw)
               chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -217,7 +167,7 @@ export async function registerMailArchiveExports(app: FastifyInstance, r: Resour
                 `${directory}/${message.id}.eml`,
                 { mtime: message.message_at },
                 (callback) => {
-                  void mimeFor(r, storage, message).then((stream) => {
+                  void backupMime(r.db, storage, message).then((stream) => {
                     source = stream;
                     stream.once('end', ended);
                     stream.once('error', failed);
@@ -245,3 +195,5 @@ export async function registerMailArchiveExports(app: FastifyInstance, r: Resour
     },
   );
 }
+
+export { toMbox } from '@apmail/db';

@@ -58,9 +58,19 @@ Duplicados: hash MIME na mesma caixa e, quando disponível, Message-ID contra me
 
 ## Backup e liberação de espaço
 
-Exportação nesta entrega: **MBOX** ou **EML em ZIP**, incluindo anexos disponíveis, por stream sem arquivo permanente no volume. ZIP conserva caminhos de pastas; MBOX reúne mensagens em um único arquivo. API aceita `folder_id` opcional. Por padrão não inclui excluídas; `include_deleted=true`, usado no backup anterior à exclusão da caixa, inclui mensagens excluídas cujo conteúdo ainda existe. Conteúdo já eliminado não pode ser recuperado pelo backup. A exportação não exclui conteúdo automaticamente.
+Exportação: **PST — Outlook**, **MBOX** ou **EML em ZIP**, incluindo mensagens e anexos disponíveis. MBOX/ZIP continuam por stream sem arquivo permanente no volume. ZIP conserva caminhos de pastas; MBOX reúne mensagens em um único arquivo. API aceita `folder_id` opcional. Por padrão não inclui excluídas; `include_deleted=true`, usado no backup anterior à exclusão da caixa, inclui mensagens excluídas cujo conteúdo ainda existe. Conteúdo já eliminado não pode ser recuperado pelo backup. A exportação não exclui conteúdo automaticamente.
 
-**Não há escrita nativa de PST/OST nesta versão.** O conversor baseado em [libpff](https://github.com/libyal/libpff) lê esses formatos; gerar PST exige uma integração de escrita diferente. MBOX e ZIP/EML podem ser reimportados diretamente no APMail. Para gerar PST de uma conta IMAP pelo Outlook, usar a [exportação de arquivo de dados da Microsoft](https://support.microsoft.com/en-us/outlook/export-emails-contacts-and-calendar-items-to-outlook-using-a-pst-file); esse arquivo contém os dados disponíveis no Outlook, não recupera conteúdo exclusivo do APMail. ZIP/MBOX nunca recebem extensão PST/OST.
+### PST nativo
+
+Em **Exportar backup**, selecione **PST — Outlook → Gerar PST**. A tarefa persistida entra na fila do servidor; fechar o painel, navegador ou computador do usuário não interrompe a geração. A lista **Backups PST** mostra progresso, falha com **Tentar novamente**, cancelamento e download autenticado. Apenas uma geração por caixa pode ficar ativa. Cada download fica disponível por **24 horas** após concluir; a manutenção remove arquivos expirados. Cancelar/descartar afeta somente os arquivos temporários dessa exportação.
+
+O worker prepara um MBOX por pasta com checkpoint por mensagem na mesma transação dos bytes confirmados. Após uma falha, a retomada aproveita as mensagens preparadas e reconstrói o PST incompleto. Reinício inesperado do worker é recuperado pelo agendador. Mensagens posteriores à solicitação não entram nesse backup; o conteúdo disponível na retomada é respeitado. Arquivos temporários, fontes e PST entram na cota da empresa/caixa. A admissão estima até três vezes o tamanho das mensagens mais 4 MiB; o crescimento real também é verificado. Libere/amplie a cota e retome se faltar espaço.
+
+A escrita usa o [CLI ContinuMail](https://github.com/ContinuMail/continumail-converter) com fonte/commit/hash fixados, compilado em .NET 8 e incluído na imagem do worker. [Configuração e licenças](../tools/pst-export/UPSTREAM.md). O PST conserva hierarquia de pastas, inclusive vazias, endereços, datas, textos, HTML e anexos/CID disponíveis. Usa os corpos normalizados do banco para evitar corte de texto em caracteres NUL de arquivos antigos; anexos binários mantêm os bytes. Relatórios MIME estruturados podem normalizar finais de linha. Não exporta contatos, calendários ou tarefas. Backups grandes são divididos em PSTs de aproximadamente **40 GiB**; baixe todas as partes. A geração só libera download se a contagem final coincidir com as mensagens preparadas, sem registros ignorados nem avisos de conversão. Trinta minutos sem evento do gerador encerram a tentativa, preservando as fontes para retomada.
+
+Rotas: `GET/POST /api/mailboxes/:id/archive-exports`, `POST .../:taskId/resume`, `POST .../:taskId/cancel` e `GET .../:taskId/files/:fileId`. Exigem proprietário/admin com leitura da caixa; revalidam empresa, caixa, arquivo, estado e validade. Caminhos internos não são expostos. Download suporta HTTP Range para continuação pelo cliente.
+
+**OST não é oferecido como formato de backup.** MBOX e ZIP/EML continuam disponíveis e podem ser reimportados diretamente. O conversor de leitura [libpff](https://github.com/libyal/libpff) permanece responsável pela importação PST/OST; o exportador PST é independente. ZIP/MBOX nunca recebem extensão PST/OST.
 
 POP3 e EML/EMLX/MBOX preservam MIME disponível. PST/OST e mensagens IMAP antigas são reconstruídos com corpos/anexos armazenados. Conteúdo que não foi armazenado no APMail não é recuperado do provedor pela exportação. Conferir o download antes de excluir.
 
@@ -81,14 +91,17 @@ Em **Configurações → Equipe e acessos**, a lixeira oferece **Remover da empr
 - Origens: `mail-imports/<tenant>/<mailbox>/<import-id>.<ext>`.
 - MIME: `mail-raw/<tenant>/<mailbox>/<message-id>.eml`.
 - Anexos: `attachments/<tenant>/<mailbox>/<message-id>/<attachment-id>`.
+- PST/fontes temporárias: `mail-exports/<tenant>/<mailbox>/<export-id>/`.
 - Catálogo/referências/consumo incluem bytes físicos e payload lógico, na empresa/caixa proprietária. Caminhos internos não aparecem na listagem.
 - Permissão atual e isolamento são verificados no servidor. Leitura de mensagens/anexos respeita conversa/pasta. Auditoria registra criação, conclusão, exportação, cancelamento e limpeza; logs não recebem conteúdo/credenciais.
 
-Dockerfile do worker usa Debian Bookworm em build/runtime e instala [python3-pypff](https://packages.debian.org/bookworm/python/python3-pypff). Inclui `apps/worker/scripts/read-pff.py`. Fora do Docker, instalar Python 3/pypff no mesmo ambiente do worker.
+Dockerfile do worker usa Debian Bookworm em build/runtime, instala [python3-pypff](https://packages.debian.org/bookworm/python/python3-pypff), inclui `apps/worker/scripts/read-pff.py` e compila/embute o gerador PST com runtime .NET 8. Fora do Docker, instalar Python 3/pypff e publicar o CLI indicado em `tools/pst-export/UPSTREAM.md`; configure `PST_EXPORT_COMMAND` e `PST_EXPORT_DLL`.
 
 `pnpm test` inclui os testes de regressão do reconstrutor MIME em Python. Requer `python3` no PATH; os testes unitários não exigem instalar pypff. Para executar somente esses casos: `pnpm --filter @apmail/worker test:pff`.
 
 Nginx aceita PATCH em blocos e mantém POST por stream para clientes internos/anteriores (20 GiB, timeout de uma hora, sem buffering na rota específica). O fluxo do navegador evita enviar um arquivo inteiro acima dos limites por requisição de proxies como [Cloudflare](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/4xx-client-error/error-413/). Exportação sem buffering e timeout ampliado. API e worker precisam do mesmo volume de armazenamento. Aplicar as migrations 0025–0028 junto da nova API/web/worker, sem reset. Importações antigas concluídas/na fila recebem checkpoint completo; envios antigos que não chegaram ao servidor podem ser cancelados e iniciados novamente. Métricas de processamento de importações antigas não são reconstruídas retroativamente; aparecem após a análise/retomada compatível.
+
+Para o exportador PST, aplicar também **0029_pst_exports.sql**, que adiciona tarefas, arquivos, índices de isolamento/atividade e referências de armazenamento, sem alterar mensagens existentes. Atualizar **API, web e worker** juntos. O Dokploy compila o gerador dentro da imagem; não é necessário Outlook no servidor. Em QA, o teste de integração nativo exige `PST_EXPORT_COMMAND_TEST` e `PST_EXPORT_DLL_TEST` apontando para o CLI publicado, além de `DATABASE_URL_TEST`, `REDIS_URL_TEST` e Python/pypff. Sem essas duas variáveis do gerador, esse caso nativo fica explicitamente ignorado.
 
 ## Busca global
 

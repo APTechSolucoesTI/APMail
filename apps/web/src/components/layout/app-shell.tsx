@@ -215,7 +215,9 @@ export function AppShell() {
     );
     socket.on('notifications:changed', () => invalidate('notifications'));
     socket.on('mailbox:storage', () => invalidate('storage-quota'));
-    socket.on('mail:archive-progress', () => invalidate('mail-archives', 'storage-quota'));
+    socket.on('mail:archive-progress', () =>
+      invalidate('mail-archives', 'pst-exports', 'storage-quota'),
+    );
     return () => {
       socket.removeAllListeners();
       socket.disconnect();

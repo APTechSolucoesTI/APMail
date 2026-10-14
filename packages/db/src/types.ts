@@ -729,7 +729,44 @@ export interface Users {
   updated_at: Generated<Timestamp>;
 }
 
+export interface MailArchiveExportFiles {
+  export_id: string;
+  filename: string;
+  folder_id: string | null;
+  folder_path: Generated<string[]>;
+  id: Generated<string>;
+  kind: string;
+  mailbox_id: string;
+  size_bytes: Generated<Int8>;
+  storage_path: string;
+  tenant_id: string;
+}
+
+export interface MailArchiveExports {
+  converted: Generated<number>;
+  created_at: Generated<Timestamp>;
+  created_by: string;
+  cutoff_at: Generated<Timestamp>;
+  expires_at: Generated<Timestamp>;
+  filename: string;
+  folder_id: string | null;
+  format: Generated<string>;
+  id: Generated<string>;
+  include_deleted: Generated<boolean>;
+  last_error: string | null;
+  last_message_id: string | null;
+  mailbox_id: string;
+  prepared: Generated<number>;
+  state: Generated<string>;
+  tenant_id: string;
+  total_messages: Generated<number>;
+  updated_at: Generated<Timestamp>;
+  warnings: Generated<number>;
+}
+
 export interface DB {
+  mail_archive_export_files: MailArchiveExportFiles;
+  mail_archive_exports: MailArchiveExports;
   mailbox_purge_requests: {
     mailbox_id: string;
     tenant_id: string;

@@ -27,6 +27,7 @@ import { ConfigurableTable } from '@/components/data/configurable-table';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { StatusBadge, type StatusVariant } from '@/components/common/status-badge';
 import { StorageUsageBar } from '@/components/storage/storage-quotas';
+import { PstExportJobs, usePstExportJobs } from './pst-export-jobs';
 type Admission = {
   near_limit: boolean;
   tenant_remaining_bytes: string | null;
@@ -67,6 +68,11 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
   const selection = useRef(0),
     fileInput = useRef<HTMLInputElement | null>(null);
   const [acting, setActing] = useState<string | null>(null);
+  const [creatingPst, setCreatingPst] = useState(false);
+  const pstExports = usePstExportJobs(mailboxId);
+  const generatingPst = pstExports.data?.some((task) =>
+    ['queued', 'staging', 'converting'].includes(task.state),
+  );
   const transfers = useArchiveTransfers();
   const scope = tenant && user ? { tenantId: tenant, userId: user, mailboxId } : null;
   const transfer = transfers.find(
@@ -342,15 +348,58 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
             >
               <option value="mbox">MBOX</option>
               <option value="eml">EML (ZIP)</option>
+              <option value="pst">PST — Outlook</option>
             </select>
           </div>
-          <Button asChild>
-            <a href={'/api/mailboxes/' + mailboxId + '/archive-export?format=' + exportFormat}>
-              <Download aria-hidden />
-              Baixar backup
-            </a>
-          </Button>
+          {exportFormat === 'pst' ? (
+            <Button
+              disabled={creatingPst || generatingPst}
+              onClick={async () => {
+                if (creatingPst || generatingPst) return;
+                setCreatingPst(true);
+                try {
+                  await api('/mailboxes/' + mailboxId + '/archive-exports', {
+                    method: 'POST',
+                    body: { format: 'pst' },
+                  });
+                  await client.invalidateQueries({ queryKey: ['pst-exports'] });
+                  toast.success('Geração do PST na fila. Você pode fechar este painel.');
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : 'Não foi possível iniciar a geração do PST.',
+                  );
+                } finally {
+                  setCreatingPst(false);
+                }
+              }}
+            >
+              {creatingPst ? (
+                <Loader2 className="animate-spin" aria-hidden />
+              ) : (
+                <Download aria-hidden />
+              )}
+              {creatingPst ? 'Solicitando…' : generatingPst ? 'PST em andamento' : 'Gerar PST'}
+            </Button>
+          ) : (
+            <Button asChild>
+              <a href={'/api/mailboxes/' + mailboxId + '/archive-export?format=' + exportFormat}>
+                <Download aria-hidden />
+                Baixar backup
+              </a>
+            </Button>
+          )}
         </div>
+        {exportFormat === 'pst' && (
+          <p className="text-sm text-muted-foreground">
+            O PST preserva pastas, mensagens e anexos para abrir no Outlook. A geração continua no
+            servidor ao fechar o painel. Usa espaço temporário na cota do APMail; o download fica
+            disponível por 24 horas. Backups acima de aproximadamente 40 GiB são divididos em
+            partes.
+          </p>
+        )}
+        <PstExportJobs mailboxId={mailboxId} />
         <p className="text-xs text-muted-foreground">
           POP3, EML, EMLX e MBOX preservam o MIME importado. PST, OST e mensagens IMAP antigas são
           reconstruídos com os corpos e anexos disponíveis. Confira o download antes de excluir
