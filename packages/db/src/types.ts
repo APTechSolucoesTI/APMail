@@ -293,9 +293,6 @@ export interface MailRules {
 }
 
 export interface Messages {
-  source_kind: Generated<'imap' | 'pop3' | 'archive'>;
-  source_key: string | null;
-  raw_storage_path: string | null;
   bcc_addresses: Generated<Json>;
   body_html: string | null;
   body_text: Generated<string>;
@@ -313,19 +310,25 @@ export interface Messages {
   is_automated: Generated<boolean>;
   is_flagged: Generated<boolean>;
   is_historical: Generated<boolean>;
+  is_mdn: Generated<boolean>;
   mailbox_id: string;
+  mdn_request: Json | null;
   message_at: Timestamp;
   message_id_header: string;
   outbox_id: string | null;
   pending_action: Generated<boolean>;
+  raw_storage_path: string | null;
   references_headers: Generated<string[]>;
   reply_to_addresses: Generated<Json>;
+  request_read_receipt: Generated<boolean>;
   rules_applied_at: Timestamp | null;
   rules_inbox: Generated<boolean>;
   search_vector: string | null;
   sent_by_user_id: string | null;
   size_bytes: Generated<number>;
   snippet: Generated<string>;
+  source_key: string | null;
+  source_kind: Generated<'imap' | 'pop3' | 'archive'>;
   subject: Generated<string>;
   tenant_id: string;
   thread_id: string;
@@ -363,6 +366,7 @@ export interface Outbox {
   bcc_addresses: Generated<Json>;
   body_html: Generated<string>;
   cc_addresses: Generated<Json>;
+  contact_prompt_handled: Generated<boolean>;
   created_at: Generated<Timestamp>;
   created_by: string;
   created_by_rule_id: string | null;
@@ -371,10 +375,12 @@ export interface Outbox {
   kind: Generated<OutboxKind>;
   last_error: string | null;
   mailbox_id: string;
+  mdn_original_message_id: string | null;
   message_id_header: string | null;
   recurrence_id: string | null;
   recurrence_sequence: number | null;
   reply_to_message_id: string | null;
+  request_read_receipt: Generated<boolean>;
   scheduled_at: Timestamp | null;
   send_after: Timestamp | null;
   sent_at: Timestamp | null;
@@ -714,6 +720,7 @@ export interface UserPreferences {
   notify_assignments: Generated<boolean>;
   notify_chat: Generated<boolean>;
   notify_mentions: Generated<boolean>;
+  request_read_receipt: Generated<boolean>;
   theme: Generated<string>;
   timezone: Generated<string>;
   updated_at: Generated<Timestamp>;
@@ -783,7 +790,35 @@ export interface MailScheduleSeries {
   updated_at: Generated<Timestamp>;
 }
 
+export interface MdnDecisions {
+  actor_id: string;
+  created_at: Generated<Timestamp>;
+  decision: string;
+  id: Generated<string>;
+  mailbox_id: string;
+  message_id_header: string;
+  notification_to: string;
+  original_message_id: string;
+  outbox_id: string | null;
+  recipient_address: string;
+  tenant_id: string;
+}
+
+export interface MdnReceipts {
+  disposition: string;
+  id: Generated<string>;
+  mailbox_id: string;
+  original_message_id: string;
+  receipt_message_id: string;
+  received_at: Generated<Timestamp>;
+  recipient_address: string;
+  reported_at: Timestamp | null;
+  tenant_id: string;
+}
+
 export interface DB {
+  mdn_decisions: MdnDecisions;
+  mdn_receipts: MdnReceipts;
   mail_schedule_series: MailScheduleSeries;
   mail_archive_export_files: MailArchiveExportFiles;
   mail_archive_exports: MailArchiveExports;

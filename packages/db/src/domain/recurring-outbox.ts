@@ -67,6 +67,7 @@ export async function advanceRecurringOutbox(db: Kysely<DB>, sentId: string, now
         thread_id: source.kind === 'new' ? null : source.thread_id,
         reply_to_message_id: source.reply_to_message_id,
         subject: source.subject,
+        request_read_receipt: source.request_read_receipt,
         body_html: source.body_html,
         signature_id: null,
         to_addresses: asJson(source.to_addresses),

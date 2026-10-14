@@ -44,6 +44,8 @@ import type { Resources } from './resources.js';
 import { moveDraftUploads } from './outbox-mailbox.js';
 import { addressSuggestions } from './address-suggestions.js';
 import { registerRecurringSchedules } from './recurring-schedules.js';
+import { resolveContacts } from './contact-resolution.js';
+import { uniqueAddresses, type Address } from '@apmail/shared';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 const validation = (message: string) => new ApiError(400, 'validation_error', message);
 export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
@@ -58,6 +60,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       .where('tenant_id', '=', c.tenantId)
       .executeTakeFirst();
     if (!row) throw notFound();
+    if (row.mdn_original_message_id) throw notFound();
     return { c, row };
   };
   const flags = async (c: RequestContext, row: OutboxRow) => {
@@ -303,11 +306,64 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     await validateRefs(c, body);
     const row = await r.db
       .insertInto('outbox')
-      .values({ ...values(body), tenant_id: c.tenantId, created_by: c.userId })
+      .values({
+        ...values(body),
+        tenant_id: c.tenantId,
+        created_by: c.userId,
+        contact_prompt_handled: false,
+      })
       .returningAll()
       .executeTakeFirstOrThrow();
     changed(row);
     return reply.code(201).send({ ...row, ...(await flags(c, row)) });
+  });
+  // Claim once after SMTP success; never couple contact errors to delivery.
+  app.post('/api/outbox/contact-prompts/next', async (req) => {
+    const c = requireTenant(req.ctx);
+    return r.db.transaction().execute(async (tx) => {
+      const rows = await tx
+        .selectFrom('outbox')
+        .selectAll()
+        .where('tenant_id', '=', c.tenantId)
+        .where('created_by', '=', c.userId)
+        .where('status', '=', 'sent')
+        .where('contact_prompt_handled', '=', false)
+        .where('mdn_original_message_id', 'is', null)
+        .where('created_by_rule_id', 'is', null)
+        .orderBy('sent_at', 'asc')
+        .orderBy('id')
+        .limit(20)
+        .forUpdate()
+        .skipLocked()
+        .execute();
+      const all = uniqueAddresses(
+        rows.flatMap((row) => [
+          ...(row.to_addresses as Address[]),
+          ...(row.cc_addresses as Address[]),
+          ...(row.bcc_addresses as Address[]),
+        ]),
+      );
+      const contacts = await resolveContacts(
+        tx,
+        c,
+        all.map((a) => a.address),
+      );
+      for (const row of rows) {
+        const addresses = uniqueAddresses([
+          ...(row.to_addresses as Address[]),
+          ...(row.cc_addresses as Address[]),
+          ...(row.bcc_addresses as Address[]),
+        ]);
+        await tx
+          .updateTable('outbox')
+          .set({ contact_prompt_handled: true })
+          .where('id', '=', row.id)
+          .execute();
+        const unknown = addresses.filter((a) => !contacts[a.address]);
+        if (unknown.length) return { id: row.id, addresses: unknown };
+      }
+      return null;
+    });
   });
   app.get('/api/outbox/:id', async (req) => {
     const { c, row } = await owned(req.ctx, idOf(req.params));
@@ -412,6 +468,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       .innerJoin('mailboxes as b', 'b.id', 'o.mailbox_id')
       .innerJoin('users as u', 'u.id', 'o.created_by')
       .where('o.tenant_id', '=', c.tenantId)
+      .where('o.mdn_original_message_id', 'is', null)
       .where(
         'o.mailbox_id',
         'in',

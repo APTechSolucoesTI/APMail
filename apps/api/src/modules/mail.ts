@@ -10,6 +10,8 @@ import type { Resources } from './resources.js';
 import { listThreads, queueCounts } from './mail-visibility-queries.js';
 import { replaceLabels, validateLabelIds, labelIdsSchema } from './organization/service.js';
 import { bulkQueue } from './thread-operations/service.js';
+import { registerReadReceipts } from './read-receipts.js';
+import { resolveContacts } from './contact-resolution.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 export const threadListSchema = z.object({
   columns: z.string().max(16000).optional(),
@@ -84,6 +86,7 @@ type FolderNode = {
   children: FolderNode[];
 };
 export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
+  await registerReadReceipts(app, r);
   app.get('/api/mailboxes/:id/folders', async (req) => {
     const id = idOf(req.params),
       c = requireTenant(req.ctx);
@@ -159,6 +162,9 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         'm.reply_to_addresses',
         'm.message_at',
         'm.direction',
+        'm.request_read_receipt',
+        'm.mdn_request',
+        'm.is_mdn',
         'm.is_automated',
         'm.snippet',
         'm.body_text',
@@ -203,6 +209,40 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       .where('thread_id', '=', thread.id)
       .where('user_id', '=', c.userId)
       .executeTakeFirst();
+    const decisions = messages.length
+      ? await r.db
+          .selectFrom('mdn_decisions as d')
+          .leftJoin('outbox as o', 'o.id', 'd.outbox_id')
+          .select(['d.message_id_header', 'd.decision', 'o.status', 'o.last_error'])
+          .where('d.tenant_id', '=', c.tenantId)
+          .where('d.mailbox_id', '=', thread.mailbox_id)
+          .where(
+            'd.message_id_header',
+            'in',
+            messages.map((m) => m.message_id_header),
+          )
+          .execute()
+      : [];
+    const receipts = messages.length
+      ? await r.db
+          .selectFrom('mdn_receipts')
+          .select([
+            'original_message_id',
+            'recipient_address',
+            'disposition',
+            'received_at',
+            'reported_at',
+          ])
+          .where('tenant_id', '=', c.tenantId)
+          .where('mailbox_id', '=', thread.mailbox_id)
+          .where(
+            'original_message_id',
+            'in',
+            messages.map((m) => m.id),
+          )
+          .orderBy('received_at', 'asc')
+          .execute()
+      : [];
     const assignee = thread.assigned_to
       ? await r.db
           .selectFrom('users')
@@ -233,7 +273,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       .executeTakeFirstOrThrow();
     const latest = messages.at(-1),
       inbound = messages.filter((m) => m.direction === 'inbound' && !m.is_automated),
-      outbound = messages.filter((m) => m.direction === 'outbound');
+      outbound = messages.filter((m) => m.direction === 'outbound' && !m.is_mdn);
     const visibleThread =
       scope === null
         ? thread
@@ -266,6 +306,16 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
             first_response_at: null,
           };
     return {
+      contacts: await resolveContacts(
+        r.db,
+        c,
+        messages.flatMap((m) => [
+          m.from_address,
+          ...(m.to_addresses as Address[]).map((a) => a.address),
+          ...(m.cc_addresses as Address[]).map((a) => a.address),
+          ...(m.reply_to_addresses as Address[]).map((a) => a.address),
+        ]),
+      ),
       thread: {
         ...visibleThread,
         assigned_to: assignee ?? null,
@@ -276,6 +326,8 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       },
       messages: messages.map((m) => ({
         ...m,
+        mdn_decision: decisions.find((d) => d.message_id_header === m.message_id_header) ?? null,
+        read_receipts: receipts.filter((receipt) => receipt.original_message_id === m.id),
         attachments: attachments.filter((a) => a.message_id === m.id),
         sent_by: m.sent_by_user_id ? { id: m.sent_by_user_id, full_name: m.sent_by_name } : null,
       })),
@@ -312,6 +364,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         .where('o.tenant_id', '=', c.tenantId)
         .where('o.thread_id', '=', thread.id)
         .where('o.status', 'in', ['queued', 'scheduled', 'sending'])
+        .where('o.mdn_original_message_id', 'is', null)
         .orderBy('o.send_after')
         .execute(),
       my_role: role,

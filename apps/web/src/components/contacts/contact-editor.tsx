@@ -1,40 +1,38 @@
 import { useState } from 'react';
-import { api } from '@/lib/api';
+import type { ContactIdentity } from '@apmail/shared';
+import { UserPlus, ContactRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { toast } from 'sonner';
+import { ContactAssociationDialog } from './contact-association-dialog';
 import { ContactEditorDialog } from './contact-form';
 export { ContactEditorDialog } from './contact-form';
-export function ContactSenderAction({ email, name }: { email: string; name: string }) {
-  const [editing, setEditing] = useState<{ id?: string } | null>(null),
-    [busy, setBusy] = useState(false);
+export function ContactSenderAction({
+  email,
+  name,
+  identity,
+}: {
+  email: string;
+  name: string;
+  identity?: ContactIdentity | null;
+}) {
+  const [open, setOpen] = useState(false);
   return (
     <>
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          try {
-            const data = await api<{ items: { id: string }[] }>(
-              '/contacts?' + new URLSearchParams({ email }),
-            );
-            setEditing(data.items[0] ? { id: data.items[0].id } : {});
-          } catch (e) {
-            toast.error(e instanceof Error ? e.message : 'Falha ao consultar contato.');
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        Contato
+      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        {identity ? <ContactRound /> : <UserPlus />}
+        {identity ? 'Ver contato' : 'Adicionar aos contatos'}
       </Button>
-      {editing && (
+      {open && identity && (
         <ContactEditorDialog
-          id={editing.id}
+          id={identity.id}
           email={email}
           name={name}
-          onClose={() => setEditing(null)}
+          onClose={() => setOpen(false)}
+        />
+      )}
+      {open && !identity && (
+        <ContactAssociationDialog
+          addresses={[{ address: email, name }]}
+          onClose={() => setOpen(false)}
         />
       )}
     </>

@@ -21,23 +21,36 @@ export async function sweepOutbox(r: WorkerResources) {
     }
   const stale = await r.db
     .selectFrom('outbox')
-    .select(['id', 'submit_count'])
+    .select(['id', 'submit_count', 'mdn_original_message_id'])
     .where('status', '=', 'sending')
     .where('updated_at', '<', new Date(Date.now() - 600000))
     .execute();
   for (const row of stale)
-    await r.db
-      .updateTable('outbox')
-      .set({
-        status: 'queued',
-        submit_count: row.submit_count + 1,
-        job_id: outboxJobId(row.id, row.submit_count + 1),
-        send_after: new Date(),
-      })
-      .where('id', '=', row.id)
-      .where('status', '=', 'sending')
-      .where('updated_at', '<', new Date(Date.now() - 600000))
-      .execute();
+    if (row.mdn_original_message_id)
+      await r.db
+        .updateTable('outbox')
+        .set({
+          status: 'failed',
+          last_error:
+            'Não foi possível determinar se o SMTP aceitou a confirmação. Ela não será repetida.',
+        })
+        .where('id', '=', row.id)
+        .where('status', '=', 'sending')
+        .where('updated_at', '<', new Date(Date.now() - 600000))
+        .execute();
+    else
+      await r.db
+        .updateTable('outbox')
+        .set({
+          status: 'queued',
+          submit_count: row.submit_count + 1,
+          job_id: outboxJobId(row.id, row.submit_count + 1),
+          send_after: new Date(),
+        })
+        .where('id', '=', row.id)
+        .where('status', '=', 'sending')
+        .where('updated_at', '<', new Date(Date.now() - 600000))
+        .execute();
   const rows = await r.db
     .selectFrom('outbox')
     .selectAll()

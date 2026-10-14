@@ -17,6 +17,8 @@ import { sql, type Selectable, type Kysely } from 'kysely';
 import type { WorkerResources } from '../resources.js';
 import type { Mailbox } from './connect.js';
 import { mailText } from '../lib/mail-text.js';
+import { readMdnRequest, isMdnReport, processMdnReceipt } from '../lib/mdn.js';
+import { emitThreads } from '../lib/events.js';
 function addresses(value: AddressObject | AddressObject[] | undefined): Address[] {
   return (Array.isArray(value) ? value : [value]).flatMap((v) =>
     (v?.value ?? []).flatMap((a) =>
@@ -225,13 +227,17 @@ export async function ingestMessage(
           imap_uid: external ? null : msg.uid,
           message_id_header: header,
           from_name: from.name,
+          mdn_request: parsed ? asJson(readMdnRequest(parsed, box)) : null,
+          is_mdn: parsed ? isMdnReport(parsed) : false,
           bcc_addresses: asJson(addresses(parsed?.bcc)),
           reply_to_addresses: asJson(addresses(parsed?.replyTo)),
           direction: own.includes(from.address) ? 'outbound' : 'inbound',
-          is_automated: isAutomated(
-            from.address,
-            Object.fromEntries([...(parsed?.headers ?? [])].map(([k, v]) => [k, String(v)])),
-          ),
+          is_automated:
+            (parsed ? isMdnReport(parsed) : false) ||
+            isAutomated(
+              from.address,
+              Object.fromEntries([...(parsed?.headers ?? [])].map(([k, v]) => [k, String(v)])),
+            ),
           body_text: text,
           body_html: mailText(sanitizeEmailHtml(mailText(parsed?.html || ''), text)),
           snippet: messageSnippet(text),
@@ -269,6 +275,10 @@ export async function ingestMessage(
         own.includes(from.address) ? 'outbound' : 'inbound',
         null,
       );
+      const confirmedThreads = parsed
+        ? await processMdnReceipt(trx, parsed, box.tenant_id, box.id, id)
+        : [];
+      if (confirmedThreads.length) emitThreads(r, box.id, confirmedThreads);
       await assertStorageCapacity(trx, box.tenant_id, box.id);
       if (external?.persisted) {
         const growth = external.measureStorage ? (await usage()) - before : 0n;

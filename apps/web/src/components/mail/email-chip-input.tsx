@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
 import { X, Mail, Loader2 } from 'lucide-react';
 import type { Address } from '@apmail/shared';
+import { resolveAddress } from '@apmail/shared';
+import { useContactResolution } from '@/lib/contact-resolution';
 import { api } from '@/lib/api';
 import { useTenantId, useUserId } from '@/lib/auth';
 import { Label } from '@/components/ui/label';
@@ -25,6 +27,7 @@ export function EmailChipInput({
   const [open, setOpen] = useState(false),
     [active, setActive] = useState(0);
   const field = useRef<HTMLInputElement>(null);
+  const resolved = useContactResolution(value.map((a) => a.address));
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(input), 350);
     return () => clearTimeout(timer);
@@ -83,11 +86,12 @@ export function EmailChipInput({
       <Label htmlFor={id}>{label}</Label>
       <div className="flex min-h-11 flex-wrap items-center gap-1 rounded-md border border-input bg-card p-1 focus-within:ring-2 focus-within:ring-ring">
         {value.map((a, i) => {
+          const identity = resolveAddress(a, resolved.data?.contacts ?? {});
           const valid = z.email().safeParse(a.address).success;
           return (
             <span
               key={i}
-              title={a.name ? a.name + ' <' + a.address + '>' : a.address}
+              title={identity.name + ' <' + a.address + '>'}
               className={
                 valid
                   ? 'flex max-w-full items-center rounded-sm bg-secondary px-2 text-xs text-secondary-foreground'
@@ -95,7 +99,7 @@ export function EmailChipInput({
               }
             >
               <span className="break-all">
-                {a.address}
+                {identity.contact ? identity.name + ' — ' + a.address : a.address}
                 {!valid ? ' (inválido)' : ''}
               </span>
               <Button

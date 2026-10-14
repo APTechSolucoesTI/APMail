@@ -1,4 +1,4 @@
-import type { Address, MailboxRole } from '@apmail/shared';
+import type { Address, MailboxRole, ContactResolution, MdnRequest } from '@apmail/shared';
 import type { PersonalLabel } from './organization';
 export type Folder = {
   id: string;
@@ -29,6 +29,9 @@ export type Thread = {
   is_overdue: boolean;
   has_scheduled: boolean;
   latest_from: { name: string; address: string };
+  latest_to?: Address[];
+  direction?: 'inbound' | 'outbound';
+  read_receipt_status?: 'waiting' | 'confirmed' | null;
 };
 export type Attachment = {
   id: string;
@@ -39,6 +42,17 @@ export type Attachment = {
   is_inline: boolean;
 };
 export type Message = {
+  direction?: 'inbound' | 'outbound';
+  request_read_receipt?: boolean;
+  mdn_request?: MdnRequest | null;
+  is_mdn?: boolean;
+  mdn_decision?: { decision: string; status: string | null; last_error: string | null } | null;
+  read_receipts?: {
+    recipient_address: string;
+    disposition: string;
+    received_at: string;
+    reported_at: string | null;
+  }[];
   id: string;
   folder_id: string | null;
   subject: string;
@@ -57,6 +71,7 @@ export type Message = {
   sent_by: { id: string; full_name: string } | null;
 };
 export type ThreadDetail = {
+  contacts?: ContactResolution;
   is_pinned_personal?: boolean;
   is_pinned_global?: boolean;
   labels: PersonalLabel[];

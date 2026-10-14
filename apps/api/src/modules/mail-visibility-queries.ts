@@ -6,6 +6,7 @@ import type { Resources } from './resources.js';
 import { threadListSchema } from './mail.js';
 import { notFound, requireTenant } from '../authz/context.js';
 import { readableFolders, folderPredicate } from '../authz/folders.js';
+import { resolveContacts } from './contact-resolution.js';
 export async function listThreads(
   r: Resources,
   c: ReturnType<typeof requireTenant>,
@@ -114,22 +115,33 @@ export async function listThreads(
   from eligible e join fm on fm.thread_id=e.id join tenants tenant on tenant.id=${c.tenantId} left join users u on u.id=e.assigned_to join lateral (select m.subject,m.from_name,m.from_address from messages m where m.thread_id=e.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter} order by m.message_at desc,m.id limit 1) latest on true
   where ${columnFilters(q, columns)} ${q.unread ? sql`and fm.last_inbound_at>coalesce(e.last_read_at,'-infinity'::timestamptz)` : sql``} ${q.queue === 'overdue' && q.view === 'queue' ? sql`and ${overdue}` : sql``}
  ), paged as (select * from matched order by ${listOrder} limit ${q.page_size} offset ${(q.page - 1) * q.page_size}), detailed as (
-  select p.*,latest.snippet,jsonb_build_object('name',latest.from_name,'address',latest.from_address) as latest_from,
+  select p.*,latest.snippet,jsonb_build_object('name',latest.from_name,'address',latest.from_address) as latest_from,latest.to_addresses as latest_to,latest.direction,
+   case when latest.request_read_receipt then case when exists(select 1 from mdn_receipts receipt where receipt.original_message_id=latest.id and receipt.disposition='displayed') then 'confirmed' else 'waiting' end else null end as read_receipt_status,
    coalesce((select array_agg(distinct address) from (
     select lower(m.from_address) as address from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter}
     union select lower(a->>'address') from messages m cross join lateral jsonb_array_elements(m.to_addresses||m.cc_addresses) a where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter}
    ) contacts where address<>lower(box.email_address) and not address=any(box.aliases)), '{}'::text[]) as participants,
    coalesce((select jsonb_agg(jsonb_build_object('id',l.id,'name',l.name,'color',l.color,'scope',l.scope) order by (l.scope='tenant') desc,l.name) from thread_personal_labels tl join personal_labels l on l.id=tl.label_id where tl.thread_id=p.id and tl.tenant_id=${c.tenantId} and (l.scope='tenant' or l.user_id=${c.userId}) and (l.mailbox_mode='all' or exists(select 1 from label_mailboxes lm where lm.label_id=l.id and lm.mailbox_id=${boxId} and lm.tenant_id=l.tenant_id))),'[]'::jsonb) as labels,
-   exists(select 1 from outbox o where o.thread_id=p.id and o.tenant_id=${c.tenantId} and o.status in ('scheduled','queued','sending')) as has_scheduled
+   exists(select 1 from outbox o where o.thread_id=p.id and o.tenant_id=${c.tenantId} and o.mdn_original_message_id is null and o.status in ('scheduled','queued','sending')) as has_scheduled
   from paged p join mailboxes box on box.id=${boxId} join lateral (
-   select m.subject,m.snippet,m.from_name,m.from_address from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter}
+   select m.id,m.subject,m.snippet,m.from_name,m.from_address,m.to_addresses,m.direction,m.request_read_receipt from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter}
    order by ${q.q?.trim() ? sql`(m.search_vector @@ websearch_to_tsquery('pt_unaccent',${q.q})) desc,` : sql``} m.message_at desc,m.id limit 1
   ) latest on true
  ) select coalesce((select jsonb_agg(to_jsonb(detailed) order by ${listOrder}) from detailed),'[]'::jsonb) as items,(select count(*)::int from matched) as total
  `;
   if (inspect) await inspect(query.compile(r.db));
   const result = await query.execute(r.db);
-  return { ...result.rows[0]!, page: q.page, page_size: q.page_size };
+  const data = result.rows[0]!;
+  const contacts = await resolveContacts(
+    r.db,
+    c,
+    data.items.flatMap((item) => [
+      (item.latest_from as { address: string }).address,
+      ...(item.latest_to as { address: string }[]).map((a) => a.address),
+      ...(item.participants as string[]),
+    ]),
+  );
+  return { ...data, contacts, page: q.page, page_size: q.page_size };
 }
 export async function queueCounts(r: Resources, c: ReturnType<typeof requireTenant>, id: string) {
   const scope = await readableFolders(c, r.db, id);

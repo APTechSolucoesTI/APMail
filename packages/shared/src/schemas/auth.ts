@@ -51,6 +51,7 @@ export const preferencesSchema = z
     notify_chat: z.boolean(),
     desktop_notifications: z.boolean(),
     load_remote_images: z.boolean(),
+    request_read_receipt: z.boolean(),
   })
   .partial();
 export const tableConfigSchema = z.object({

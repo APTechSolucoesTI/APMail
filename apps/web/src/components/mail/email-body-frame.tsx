@@ -42,25 +42,32 @@ export function EmailBodyFrame({
       "; base-uri 'none'; form-action 'none'";
     return {
       hasRemote,
-      srcDoc: `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>body{font:14px/1.5 Inter,system-ui,sans-serif;color:#111827;background:white;margin:0;padding:16px;overflow-wrap:anywhere}img{max-width:100%;height:auto}table{max-width:100%}blockquote{border-left:3px solid #E4E7EC;margin-left:0;padding-left:16px;color:#667085}a{color:#137A98}pre{white-space:pre-wrap}</style></head><body>${doc.body.innerHTML}</body></html>`,
+      srcDoc: `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>body{font:14px/1.5 Inter,system-ui,sans-serif;color:#111827;background:white;margin:0;overflow-wrap:anywhere}#apmail-content{display:flow-root;padding:16px}img{max-width:100%;height:auto}table{max-width:100%}blockquote{border-left:3px solid #E4E7EC;margin-left:0;padding-left:16px;color:#667085}a{color:#137A98}pre{white-space:pre-wrap}</style></head><body><div id="apmail-content">${doc.body.innerHTML}</div></body></html>`,
     };
   }, [html, cidMap, showImages, loadRemoteImages]);
   useEffect(() => {
     const element = frame.current;
     if (!element) return;
     let observer: ResizeObserver | undefined;
+    let animation: number | undefined;
     const update = () => {
-      const body = element.contentDocument?.body;
-      if (!body) return;
-      element.style.height = Math.max(80, body.scrollHeight + 4) + 'px';
+      animation = undefined;
+      const content = element.contentDocument?.getElementById('apmail-content');
+      if (!content) return;
+      // Measure intrinsic content rather than the viewport-influenced body.
+      const height = Math.max(80, Math.ceil(content.getBoundingClientRect().height)) + 'px';
+      if (element.style.height !== height) element.style.height = height;
+    };
+    const scheduleUpdate = () => {
+      if (animation === undefined) animation = requestAnimationFrame(update);
     };
     const loaded = () => {
       observer?.disconnect();
       update();
-      const body = element.contentDocument?.body;
-      if (body) {
-        observer = new ResizeObserver(update);
-        observer.observe(body);
+      const content = element.contentDocument?.getElementById('apmail-content');
+      if (content) {
+        observer = new ResizeObserver(scheduleUpdate);
+        observer.observe(content);
       }
     };
     element.addEventListener('load', loaded);
@@ -68,6 +75,7 @@ export function EmailBodyFrame({
     return () => {
       element.removeEventListener('load', loaded);
       observer?.disconnect();
+      if (animation !== undefined) cancelAnimationFrame(animation);
     };
   }, [srcDoc]);
   return (

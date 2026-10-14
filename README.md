@@ -2,6 +2,8 @@
 
 Gestão de e-mails compartilhados do Grupo AP. Aplicação própria com React, Fastify, PostgreSQL, Redis/BullMQ e integração IMAP/POP3/SMTP.
 
+[Contatos inteligentes e confirmação de leitura](docs/CONTATOS-MDN.md): resolução em lote de múltiplos endereços, criação/vinculação pelo leitor e sugestão somente após envio SMTP; solicitação e resposta MDN RFC 8098 com consentimento, correlação idempotente e preferência persistente. Migrations `0032`–`0034`; atualizar API, worker e web juntos.
+
 [Regras, destinatários e recorrência](docs/REGRAS-DESTINATARIOS-RECORRENCIA.md): correção do teste de regras e do cache de etiquetas; ações pessoais/compartilhadas, aplicação a todo o histórico, autocomplete por endereço e agendamentos recorrentes persistentes. Migrations `0030`–`0031`; API e worker aplicam migrations pendentes automaticamente na inicialização de produção.
 
 [POP3, arquivos locais e backups](docs/EMAILS-POP3-IMPORTACAO-BACKUP.md): recebimento POP3 contínuo, caixas locais, importação PST/OST/MBOX/EML/EMLX/ZIP com cotas e checkpoint, backup PST nativo/MBOX/ZIP EML e correção da busca global. Migrations `0024`–`0029`; API/web/worker juntos, commit/deploy pelo usuário. Envio em blocos de 4 MiB retomáveis, medição das mensagens extraídas e consumo efetivamente adicionado. Distribuição de armazenamento acessível pela listagem/importação; exclusão definitiva de caixas com backup e duas confirmações; remoção de usuários da empresa. PST é gerado em segundo plano com pastas/anexos, retomada e download por 24 horas; OST não é exportado.

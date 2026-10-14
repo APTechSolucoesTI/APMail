@@ -36,6 +36,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -50,6 +51,7 @@ import { LoadingState, ErrorState } from '@/components/data/data-state';
 type Attached = { ref: OutboxAttachment; filename: string; size_bytes: number };
 export type ComposerHandle = { saveDraft: () => Promise<void> };
 const blank = (id: string): OutboxInput => ({
+  request_read_receipt: false,
   mailbox_id: id,
   kind: 'new',
   to_addresses: [],
@@ -156,6 +158,7 @@ export function Composer({
       initialized.current ||
       !boxes.data ||
       !signatures.data ||
+      !me.data ||
       (draftId && !draft.data) ||
       (replyId && !conversation.data)
     )
@@ -164,7 +167,11 @@ export function Composer({
     queueMicrotask(() => {
       if (canceled || initialized.current) return;
       initialized.current = true;
-      let value = { ...blank(mailboxId), to_addresses: initialRecipient ? [initialRecipient] : [] },
+      let value = {
+          ...blank(mailboxId),
+          request_read_receipt: me.data?.preferences.request_read_receipt ?? false,
+          to_addresses: initialRecipient ? [initialRecipient] : [],
+        },
         content = '';
       if (draft.data) {
         value = outboxSchema.parse(draft.data);
@@ -645,6 +652,17 @@ export function Composer({
                   setData((d) => ({ ...d, subject }));
                 }}
               />
+              <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  checked={data.request_read_receipt}
+                  disabled={busy}
+                  onCheckedChange={(value) => {
+                    setEdited(true);
+                    setData((d) => ({ ...d, request_read_receipt: value === true }));
+                  }}
+                />
+                Solicitar confirmação de leitura
+              </label>
               <Label>Mensagem</Label>
               <RichTextEditor
                 value={body}

@@ -13,6 +13,7 @@ import {
 import { requireTenant } from '../authz/context.js';
 import { contactVisible, contactSearch, contactNickname } from './contacts.js';
 import type { Resources } from './resources.js';
+import { contactIdentitySql } from './contact-resolution.js';
 
 type Row = {
   id: string;
@@ -58,10 +59,10 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
         [
           'email',
           sql<Row>`${scope}, matching as (
-        select distinct on (t.id) t.id,b.id as mailbox_id,m.subject as title,concat_ws(' · ',m.from_name,m.from_address,b.name) as description,m.message_at
+        select distinct on (t.id) t.id,b.id as mailbox_id,m.subject as title,concat_ws(' · ',coalesce(${contactIdentitySql(c, sql`m.from_address`)},nullif(m.from_name,'')),m.from_address,b.name) as description,m.message_at
         from messages m join boxes b on b.id=m.mailbox_id join threads t on t.id=m.thread_id and t.tenant_id=m.tenant_id
         where m.tenant_id=${c.tenantId} and m.deleted_at is null and t.deleted_at is null and ${readableMessage}
-        and (m.search_vector @@ websearch_to_tsquery('pt_unaccent',${q}) or ${matches(sql`m.subject||' '||m.from_address`)})
+        and (m.search_vector @@ websearch_to_tsquery('pt_unaccent',${q}) or ${matches(sql`m.subject||' '||m.from_address`)} or ${matches(contactIdentitySql(c, sql`m.from_address`))})
         order by t.id,m.message_at desc,m.id)
         select id,mailbox_id,coalesce(nullif(title,''),'Sem assunto') as title,description from matching order by message_at desc,id limit 6`,
         ],

@@ -24,6 +24,12 @@ function Preferences() {
           defaults={{ ...q.data.preferences }}
           fields={[
             {
+              name: 'request_read_receipt',
+              label: 'Solicitar confirmação de leitura por padrão',
+              type: 'checkbox',
+              help: 'Ativar automaticamente a solicitação de confirmação de leitura ao escrever novos e-mails.',
+            },
+            {
               name: 'theme',
               label: 'Tema',
               type: 'select',

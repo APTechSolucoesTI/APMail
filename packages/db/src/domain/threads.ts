@@ -96,7 +96,7 @@ export async function refreshThreadAggregates(db: Database, threadId: string): P
     .execute();
   const messages = all.filter((m) => m.special_use !== 'trash' && m.special_use !== 'junk');
   const inbound = messages.filter((m) => m.direction === 'inbound' && !m.is_automated);
-  const outbound = messages.filter((m) => m.direction === 'outbound');
+  const outbound = messages.filter((m) => m.direction === 'outbound' && !m.is_mdn);
   const firstInbound = inbound[0]?.message_at ?? null,
     lastInbound = inbound.at(-1)?.message_at ?? null;
   const last = messages.at(-1);
@@ -158,6 +158,7 @@ export async function recomputeThreadStatus(
     .select('id')
     .where('thread_id', '=', threadId)
     .where('status', 'in', ['queued', 'scheduled', 'sending'])
+    .where('mdn_original_message_id', 'is', null)
     .executeTakeFirst();
   const to: QueueStatus = computeThreadStatus({ ...thread, has_pending_outbox: !!scheduled });
   const changed = to !== thread.queue_status;

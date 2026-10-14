@@ -10,6 +10,7 @@ import {
 import { Send, History, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { invalidateContactResolution } from '@/lib/contact-resolution';
 import { meQuery, useTenantId } from '@/lib/auth';
 import {
   Dialog,
@@ -224,6 +225,7 @@ function ContactForm({
       method: id ? 'PUT' : 'POST',
       body: parsed.data,
     });
+    await invalidateContactResolution(client);
     await Promise.all(
       [
         'contacts',

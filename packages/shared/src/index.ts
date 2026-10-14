@@ -23,3 +23,5 @@ export * from './storage-quotas.js';
 export * from './contact-import.js';
 export * from './mail-archives.js';
 export * from './pst-exports.js';
+export * from './contact-resolution.js';
+export * from './mdn.js';

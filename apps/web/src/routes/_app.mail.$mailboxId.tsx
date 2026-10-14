@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { RefreshCw, MailOpen, Mail, FolderOpen, CheckCircle2, RotateCcw } from 'lucide-react';
-import { can, QUEUE_LABELS } from '@apmail/shared';
+import { can, QUEUE_LABELS, type ContactResolution } from '@apmail/shared';
 import { toast } from 'sonner';
 import type { PersonalLabel } from '@/lib/organization';
 import { api } from '@/lib/api';
@@ -73,7 +73,9 @@ function MailPage() {
   const threads = useQuery({
     queryKey: ['threads', tenantId, mailboxId, query.toString()],
     queryFn: () =>
-      api<{ items: Thread[]; total: number }>('/mailboxes/' + mailboxId + '/threads?' + query),
+      api<{ items: Thread[]; total: number; contacts?: ContactResolution }>(
+        '/mailboxes/' + mailboxId + '/threads?' + query,
+      ),
     placeholderData: keepPreviousData,
   });
   useEffect(() => {
@@ -403,6 +405,7 @@ function MailPage() {
         ) : (
           items.map((t) => (
             <ThreadListItem
+              contacts={threads.data?.contacts}
               key={t.id}
               thread={t}
               query={search.q}

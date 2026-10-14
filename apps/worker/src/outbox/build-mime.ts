@@ -1,6 +1,7 @@
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { randomUUID } from 'node:crypto';
-import { renderFromName, type Address } from '@apmail/shared';
+import { renderFromName, mdnRequestSchema, type Address } from '@apmail/shared';
+import { buildMdn } from '../lib/mdn.js';
 import {
   resolveOutboxAttachments,
   prepareSignature,
@@ -11,6 +12,38 @@ import {
 import type { Mailbox } from '../imap/connect.js';
 import type { WorkerResources } from '../resources.js';
 export async function buildMime(r: WorkerResources, row: OutboxRow, box: Mailbox) {
+  if (row.mdn_original_message_id) {
+    const decision = await r.db
+      .selectFrom('mdn_decisions')
+      .selectAll()
+      .where('tenant_id', '=', row.tenant_id)
+      .where('mailbox_id', '=', row.mailbox_id)
+      .where('outbox_id', '=', row.id)
+      .where('decision', '=', 'confirm')
+      .executeTakeFirstOrThrow();
+    const source = await r.db
+      .selectFrom('messages')
+      .select('mdn_request')
+      .where('tenant_id', '=', row.tenant_id)
+      .where('mailbox_id', '=', row.mailbox_id)
+      .where('id', '=', decision.original_message_id)
+      .where('is_mdn', '=', false)
+      .executeTakeFirstOrThrow();
+    const request = mdnRequestSchema.parse(source.mdn_request);
+    if (
+      ![box.email_address, ...box.aliases].map((a) => a.toLowerCase()).includes(request.recipient)
+    )
+      throw new Error('send_permission_revoked');
+    const mime = buildMdn(request, row.message_id_header ?? undefined);
+    return {
+      ...mime,
+      bodyHtml: '',
+      inReplyTo: null,
+      references: [] as string[],
+      files: [] as Awaited<ReturnType<typeof resolveOutboxAttachments>>,
+      fromName: request.recipient,
+    };
+  }
   const user = await r.db
     .selectFrom('users')
     .select('full_name')
@@ -83,7 +116,10 @@ export async function buildMime(r: WorkerResources, row: OutboxRow, box: Mailbox
     messageId,
     inReplyTo,
     references,
-    headers: { 'X-APMail-Outbox-Id': row.id },
+    headers: {
+      'X-APMail-Outbox-Id': row.id,
+      ...(row.request_read_receipt ? { 'Disposition-Notification-To': box.email_address } : {}),
+    },
     attachments,
     disableUrlAccess: true,
   });

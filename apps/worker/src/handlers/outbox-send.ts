@@ -169,7 +169,7 @@ export async function handleOutboxSend(
               message_at: at,
               in_reply_to: mime.inReplyTo,
               references_headers: mime.references,
-              from_address: box.email_address,
+              from_address: row.mdn_original_message_id ? mime.fromName : box.email_address,
               to_addresses: row.to_addresses as Address[],
               cc_addresses: row.cc_addresses as Address[],
             };
@@ -191,6 +191,8 @@ export async function handleOutboxSend(
                 imap_uid: null,
                 message_id_header: mime.messageId,
                 from_name: mime.fromName,
+                is_mdn: !!row.mdn_original_message_id,
+                request_read_receipt: row.request_read_receipt,
                 to_addresses: asJson(row.to_addresses),
                 cc_addresses: asJson(row.cc_addresses),
                 bcc_addresses: asJson(row.bcc_addresses),
@@ -199,7 +201,7 @@ export async function handleOutboxSend(
                 body_text: text,
                 snippet: messageSnippet(text),
                 direction: 'outbound',
-                is_automated: !!row.created_by_rule_id,
+                is_automated: !!row.created_by_rule_id || !!row.mdn_original_message_id,
                 has_attachments: mime.files.some((f) => !f.is_inline),
                 size_bytes: mime.raw.length,
                 sent_by_user_id: row.created_by,
@@ -335,6 +337,7 @@ export async function handleOutboxSend(
     const auth = !!e.authenticationFailed || e.code === 'EAUTH' || e.responseCode === 535;
     const last =
       auth ||
+      !!row.mdn_original_message_id ||
       delivered ||
       isStorageQuotaError(error) ||
       job.attemptsMade + 1 >= (job.opts.attempts ?? 1) ||
@@ -373,9 +376,14 @@ export async function handleOutboxSend(
             tenant_id: row.tenant_id,
             user_id: row.created_by,
             type: 'send_failed',
-            title: `Não foi possível enviar: ${row.subject || '(sem assunto)'}`,
+            title: row.mdn_original_message_id
+              ? 'Não foi possível concluir a confirmação de leitura'
+              : `Não foi possível enviar: ${row.subject || '(sem assunto)'}`,
             body: message,
-            link: '/scheduled?tab=failed',
+            link:
+              row.mdn_original_message_id && row.thread_id
+                ? `/mail/${row.mailbox_id}?thread=${row.thread_id}`
+                : '/scheduled?tab=failed',
           })
           .execute();
     });

@@ -15,6 +15,7 @@ export type Preferences = {
   notify_chat: boolean;
   desktop_notifications: boolean;
   load_remote_images: boolean;
+  request_read_receipt?: boolean;
 };
 export type Me = {
   user: { id: string; email: string; full_name: string; avatar_url: string | null };

@@ -16,6 +16,7 @@ import { requireMailboxPerm } from '../authz/guards.js';
 import { readableFolders, folderPredicate } from '../authz/folders.js';
 import type { Resources } from './resources.js';
 import { registerContactImports } from './contact-imports.js';
+import { resolveContacts } from './contact-resolution.js';
 type Database = Kysely<DB> | Transaction<DB>;
 type Context = ReturnType<typeof requireTenant>;
 export const contactVisible = (c: Context) =>
@@ -243,6 +244,75 @@ export async function registerContactDirectory(app: FastifyInstance, r: Resource
   app.get('/api/contacts/mode', async (req) => ({
     mode: await contactMode(r.db, requireTenant(req.ctx).tenantId),
   }));
+  app.post('/api/contacts/resolve', async (req) => {
+    const c = requireTenant(req.ctx);
+    const { emails } = z
+      .object({ emails: z.array(emailSchema).max(500) })
+      .strict()
+      .parse(req.body);
+    return { contacts: await resolveContacts(r.db, c, emails) };
+  });
+  app.post('/api/contacts/from-message', async (req, res) => {
+    const c = requireTenant(req.ctx),
+      body = contactSchema.parse(req.body);
+    const row = await r.db.transaction().execute(async (tx) => {
+      await lockStorageTenant(tx, c.tenantId);
+      const existing = await resolveContacts(
+        tx,
+        c,
+        body.emails.map((e) => e.email),
+      );
+      if (Object.keys(existing).length)
+        throw conflict('Este endereço já está vinculado. Atualize a agenda para ver o contato.');
+      return saveContact(tx, c, null, body);
+    });
+    changed(c, row.scope);
+    return res.code(201).send({ id: row.id });
+  });
+  app.post('/api/contacts/:id/emails', async (req) => {
+    const c = requireTenant(req.ctx),
+      id = idOf(req.params);
+    const { email } = z.object({ email: emailSchema }).strict().parse(req.body);
+    const row = await r.db.transaction().execute(async (tx) => {
+      await lockStorageTenant(tx, c.tenantId);
+      const contact = await readContact(tx, c, id);
+      const existing = (await resolveContacts(tx, c, [email]))[email];
+      if (existing && existing.id !== id)
+        throw conflict('Este endereço já está vinculado a outro contato visível na sua agenda.');
+      if (contact.emails.some((e) => e.email.toLowerCase().trim() === email)) return contact;
+      if (contact.emails.length >= 100)
+        throw conflict('Este contato já possui o limite de 100 endereços.');
+      await tx
+        .insertInto('contact_emails')
+        .values({
+          tenant_id: c.tenantId,
+          contact_id: id,
+          email,
+          label: '',
+          is_primary: !contact.emails.length,
+          agenda_user_id: contact.owner_user_id,
+        })
+        .execute();
+      await tx
+        .updateTable('contacts')
+        .set({ version: sql`version+1`, updated_by: c.userId, updated_at: new Date() })
+        .where('tenant_id', '=', c.tenantId)
+        .where('id', '=', id)
+        .execute();
+      await audit(tx, {
+        tenantId: c.tenantId,
+        actorId: c.userId,
+        action: 'contact.updated',
+        entityType: 'contact',
+        entityId: id,
+        metadata: { operation: 'email_linked' },
+        ip: c.ip,
+      });
+      return contact;
+    });
+    changed(c, row.scope);
+    return { id };
+  });
   app.get('/api/contacts/suggestions', async (req) => {
     const c = requireTenant(req.ctx),
       q = z

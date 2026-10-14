@@ -40,6 +40,7 @@ import { TableUserContext } from '@/hooks/use-table-preferences';
 import { BackgroundArchiveTransfers } from '@/components/settings/background-archive-transfers';
 import { stopArchiveTransfersForUser } from '@/lib/mail-archive-transfers';
 import { NavigationLayout } from './navigation-layout';
+import { PostSendContacts } from '@/components/contacts/post-send-contacts';
 const settingsIcons: Record<string, typeof Mail> = {
   '/settings/profile': UserRound,
   '/settings/preferences': SlidersHorizontal,
@@ -122,6 +123,9 @@ export function AppShell() {
         'outbox',
         'shared-thread-access',
         'address-suggestions',
+        'contact-resolution',
+        'threads',
+        'thread',
         'dashboard',
         'global-search',
       ])
@@ -459,6 +463,7 @@ export function AppShell() {
                     tenantId={me.data.current_tenant_id}
                   />
                   <Outlet />
+                  <PostSendContacts />
                 </main>
               </div>
             </NavigationLayout>

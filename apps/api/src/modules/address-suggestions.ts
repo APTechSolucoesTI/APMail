@@ -72,6 +72,7 @@ export async function addressSuggestions(
     r.db,
   );
   const candidates: Suggestion[] = [
+    ...contacts.rows.map((row) => ({ ...row, source: 'contact' as const })),
     ...boxes.flatMap((box) =>
       [box.email_address, ...box.aliases].map((address) => ({
         address,
@@ -81,7 +82,6 @@ export async function addressSuggestions(
     ),
     ...users.rows.map((row) => ({ ...row, source: 'user' as const })),
     ...history.rows.map((row) => ({ ...row, source: 'history' as const })),
-    ...contacts.rows.map((row) => ({ ...row, source: 'contact' as const })),
   ];
   const normalized = (text: string) =>
     text

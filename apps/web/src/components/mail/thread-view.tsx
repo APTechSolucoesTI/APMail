@@ -221,6 +221,8 @@ export function ThreadView({
         <MessageCard
           key={m.id}
           message={m}
+          contacts={data.contacts}
+          timeZone={me.data?.preferences.timezone}
           expanded={
             i === data.messages.length - 1 || !data.last_read_at || m.message_at > data.last_read_at
           }

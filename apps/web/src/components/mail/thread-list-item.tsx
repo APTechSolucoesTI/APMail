@@ -8,6 +8,7 @@ import { LabelBadge } from './label-badge';
 import { SearchHighlight } from './search-highlight';
 import { useQuery } from '@tanstack/react-query';
 import { meQuery } from '@/lib/auth';
+import { resolveAddress, type ContactResolution } from '@apmail/shared';
 export function ThreadListItem({
   thread,
   selected,
@@ -15,6 +16,7 @@ export function ThreadListItem({
   onSelect,
   onOpen,
   query,
+  contacts = {},
 }: {
   thread: Thread;
   selected: boolean;
@@ -22,8 +24,14 @@ export function ThreadListItem({
   onSelect: (value: boolean) => void;
   onOpen: () => void;
   query?: string;
+  contacts?: ContactResolution;
 }) {
   const date = thread.last_message_at ? new Date(thread.last_message_at) : null;
+  const identity =
+    thread.direction === 'outbound' && thread.latest_to?.length
+      ? thread.latest_to[0]!
+      : thread.latest_from;
+  const sender = resolveAddress(identity, contacts);
   const timeZone = useQuery(meQuery).data?.preferences.timezone ?? 'America/Sao_Paulo';
   const fullTime = date?.toLocaleString('pt-BR', { timeZone });
   return (
@@ -55,11 +63,9 @@ export function ThreadListItem({
           )}
           <p
             className={cn('min-w-0 flex-1 truncate text-sm', thread.is_unread && 'font-semibold')}
-            title={thread.latest_from.name || thread.latest_from.address}
+            title={sender.name + ' — ' + identity.address}
           >
-            {thread.latest_from.name ||
-              thread.latest_from.address ||
-              thread.participants.join(', ')}
+            {sender.name || thread.participants.join(', ')}
           </p>
           {thread.message_count > 1 && (
             <span
@@ -87,6 +93,26 @@ export function ThreadListItem({
               .replace(',', '')}
           </time>
         </div>
+        <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+          <span className="min-w-0 truncate" title={identity.address}>
+            {identity.address}
+          </span>
+          {!sender.contact && identity.address && (
+            <span className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium">
+              Não cadastrado
+            </span>
+          )}
+          {thread.direction === 'outbound' && (thread.latest_to?.length ?? 0) > 1 && (
+            <span>+{thread.latest_to!.length - 1}</span>
+          )}
+        </div>
+        {thread.read_receipt_status && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            {thread.read_receipt_status === 'confirmed'
+              ? 'Leitura confirmada'
+              : 'Aguardando confirmação'}
+          </p>
+        )}
         <p
           className={cn('mt-1 truncate text-sm', thread.is_unread && 'font-semibold')}
           title={thread.subject}

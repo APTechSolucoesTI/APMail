@@ -13,6 +13,8 @@ import type { Message, Folder, Attachment } from '@/lib/mail';
 import { EmailBodyFrame } from './email-body-frame';
 import { MessageActions } from './message-actions';
 import { ContactSenderAction } from '@/components/contacts/contact-editor';
+import { resolveAddress, type ContactResolution } from '@apmail/shared';
+import { ReadReceipt } from './read-receipt';
 export function MessageCard({
   message,
   expanded,
@@ -22,6 +24,8 @@ export function MessageCard({
   mailboxId,
   folders,
   onCompose,
+  contacts = {},
+  timeZone = 'America/Sao_Paulo',
 }: {
   message: Message;
   expanded: boolean;
@@ -31,10 +35,21 @@ export function MessageCard({
   mailboxId: string;
   folders: Folder[];
   onCompose?: (mode: string) => void;
+  contacts?: ContactResolution;
+  timeZone?: string;
 }) {
   const [open, setOpen] = useState(expanded),
     [preview, setPreview] = useState<Attachment | null>(null);
-  const date = new Date(message.message_at).toLocaleString('pt-BR');
+  const date = new Date(message.message_at).toLocaleString('pt-BR', { timeZone });
+  const sender = resolveAddress(
+    { name: message.from_name, address: message.from_address },
+    contacts,
+  );
+  const contactAddress =
+    message.direction === 'outbound' && message.to_addresses.length
+      ? message.to_addresses[0]!
+      : { name: message.from_name, address: message.from_address };
+  const contactIdentity = resolveAddress(contactAddress, contacts);
   return (
     <article className="rounded-lg border bg-card text-card-foreground">
       <button
@@ -43,10 +58,10 @@ export function MessageCard({
         aria-expanded={open}
         className="flex w-full items-start gap-3 p-4 text-left hover:bg-muted/50"
       >
-        <UserAvatar name={message.from_name || message.from_address} size={32} />
+        <UserAvatar name={sender.name} size={32} />
         <div className="min-w-0 flex-1">
           <p className="break-all text-sm font-semibold">
-            {message.from_name || message.from_address}{' '}
+            {sender.name}{' '}
             {message.is_flagged && <Flag className="inline size-3" aria-label="Sinalizada" />}
           </p>
           <p className="truncate text-xs text-muted-foreground" title={message.from_address}>
@@ -65,23 +80,46 @@ export function MessageCard({
           {date}
         </time>
       </button>
-      <div className="flex justify-end border-t px-3">
-        <ContactSenderAction email={message.from_address} name={message.from_name} />
-      </div>
       {open && (
         <div className="space-y-3 border-t p-4">
+          {!message.is_mdn && (
+            <div className="flex justify-end">
+              <ContactSenderAction
+                email={contactAddress.address}
+                name={contactAddress.name}
+                identity={contactIdentity.contact}
+              />
+            </div>
+          )}
+          <ReadReceipt message={message} canSend={!!onCompose} timeZone={timeZone} />
           <details className="text-xs text-muted-foreground">
             <summary className="cursor-pointer">
               Para{' '}
-              {message.to_addresses.map((a) => a.name || a.address).join(', ') ||
+              {message.to_addresses.map((a) => resolveAddress(a, contacts).name).join(', ') ||
                 'destinatários não informados'}
             </summary>
             <p className="mt-2 break-all">
-              Para: {message.to_addresses.map((a) => a.address).join(', ')}
+              Para:{' '}
+              {message.to_addresses
+                .map((a) => {
+                  const resolved = resolveAddress(a, contacts);
+                  return resolved.name === a.address
+                    ? a.address
+                    : resolved.name + ' — ' + a.address;
+                })
+                .join(', ')}
             </p>
             {!!message.cc_addresses.length && (
               <p className="break-all">
-                Cc: {message.cc_addresses.map((a) => a.address).join(', ')}
+                Cc:{' '}
+                {message.cc_addresses
+                  .map((a) => {
+                    const resolved = resolveAddress(a, contacts);
+                    return resolved.name === a.address
+                      ? a.address
+                      : resolved.name + ' — ' + a.address;
+                  })
+                  .join(', ')}
               </p>
             )}
           </details>

@@ -11,6 +11,7 @@ export const outboxAttachmentSchema = z.discriminatedUnion('source', [
 ]);
 // Rascunhos podem estar incompletos; destinatários são obrigatórios apenas no submit.
 export const outboxSchema = z.object({
+  request_read_receipt: z.boolean().default(false),
   mailbox_id: z.uuid(),
   kind: z.enum(['new', 'reply', 'reply_all', 'forward']).default('new'),
   thread_id: z.uuid().nullable().optional(),
