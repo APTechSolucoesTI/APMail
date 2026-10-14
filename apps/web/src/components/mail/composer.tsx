@@ -12,6 +12,7 @@ import {
   type OutboxAttachment,
   type ReplyKind,
   type ReplyMessage,
+  type SendSchedule,
 } from '@apmail/shared';
 import { Send, Clock, Paperclip, X, Trash2, Minus, Maximize2, Minimize2 } from 'lucide-react';
 import { useMediaQuery } from '@/hooks/use-media-query';
@@ -128,7 +129,7 @@ export function Composer({
     savedJson = useRef(''),
     savePromise = useRef<Promise<Outbox> | null>(null),
     fileInput = useRef<HTMLInputElement>(null),
-    pendingSchedule = useRef<string | undefined>(undefined);
+    pendingSchedule = useRef<SendSchedule | undefined>(undefined);
   useComposingPresence(
     data.thread_id,
     ready &&
@@ -328,14 +329,15 @@ export function Composer({
       setBusy(false);
     }
   };
-  const submit = async (scheduled_at?: string, subjectConfirmed = false) => {
+  const submit = async (schedule?: SendSchedule, subjectConfirmed = false) => {
+    const scheduled_at = schedule?.scheduled_at;
     if (busy || uploads.length) return;
     try {
       const value = outboxSchema.parse(current.current);
       if (![...value.to_addresses, ...value.cc_addresses, ...value.bcc_addresses].length)
         throw Error('Informe ao menos um destinatário.');
       if (!value.subject.trim() && !subjectConfirmed) {
-        pendingSchedule.current = scheduled_at;
+        pendingSchedule.current = schedule;
         setConfirm('subject');
         return;
       }
@@ -343,7 +345,7 @@ export function Composer({
       const row = await save();
       await api('/outbox/' + row.id + '/submit', {
         method: 'POST',
-        body: scheduled_at ? { scheduled_at } : {},
+        body: schedule ?? {},
       });
       await client.invalidateQueries({ queryKey: ['outbox', tenant] });
       onClose();
@@ -811,13 +813,6 @@ export function Composer({
               </Button>
             </div>
           )}
-          <ScheduleDialog
-            open={schedule}
-            onClose={() => setSchedule(false)}
-            onSchedule={(v) => void submit(v)}
-            timezone={me.data?.preferences.timezone ?? 'America/Sao_Paulo'}
-            busy={busy}
-          />
           <AlertDialog
             open={!!confirm}
             onOpenChange={(v) => {
@@ -868,6 +863,13 @@ export function Composer({
           </AlertDialog>
         </DialogContent>
       </Dialog>
+      <ScheduleDialog
+        open={schedule}
+        onClose={() => setSchedule(false)}
+        onSchedule={(value) => void submit(value)}
+        timezone={me.data?.preferences.timezone ?? 'America/Sao_Paulo'}
+        busy={busy}
+      />
     </>
   );
 }

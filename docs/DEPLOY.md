@@ -1,5 +1,13 @@
 # Publicação do APMail
 
+## Atualização vigente — regras e recorrência (0030–0031)
+
+Atualizar API, web e worker juntos. A migration `0030_rules_recurring_schedules.sql` preserva os dados existentes e cria séries de envio recorrente, vínculo das ocorrências e fixação compartilhada. Foi aplicada e validada no banco local de testes. API e worker passam a executar o migrador antes de iniciar em produção, além do serviço `migrate` já existente no Compose. O migrador usa lock no PostgreSQL e controle de checksum; instâncias concorrentes não reaplicam migrations. Assim, o próximo deploy aplica também migrations anteriores pendentes, mesmo que o container `migrate` antigo já esteja concluído. Não requer reset nem execução manual de SQL.
+
+Detalhes de funcionamento e permissões em [REGRAS-DESTINATARIOS-RECORRENCIA.md](REGRAS-DESTINATARIOS-RECORRENCIA.md).
+
+A migration complementar `0031_recurrence_sequence_not_null.sql` exige numeração em cada ocorrência vinculada à série. Também foi aplicada no banco local de testes; integra o mesmo fluxo automático de publicação.
+
 ## Atualização vigente — lista de e-mails e envio de backups (0025)
 
 Publicar API/web/worker da mesma versão e aplicar `0025_archive_chunk_upload.sql`, após 0024. Ela adiciona progresso de envio e identificação do arquivo para retomada, preservando dados e a medição existente. Não executar reset; commit e deploy ficam com o usuário.

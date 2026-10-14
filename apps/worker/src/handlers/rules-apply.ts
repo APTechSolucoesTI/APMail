@@ -108,6 +108,7 @@ async function applyRule(
   )
     return false;
   let msg: Selectable<DB['messages']> = initialMessage;
+  let sharedChanged = false;
   const sourceFolder = msg.folder_id
     ? await r.db
         .selectFrom('folders')
@@ -126,6 +127,12 @@ async function applyRule(
   )
     return false;
   for (const action of rule.actions) {
+    if (
+      row.scope === 'personal' &&
+      ['move_to_folder', 'mark_flagged'].includes(action.type) &&
+      !(await userCanMailbox(r, box, row.owner_user_id!, 'organize'))
+    )
+      continue;
     if (action.type === 'add_label') {
       const appliedGlobal = await r.db.transaction().execute(async (tx) => {
         await lockStorageTenant(tx, box.tenant_id);
@@ -169,16 +176,24 @@ async function applyRule(
       });
       if (appliedGlobal) r.io.to('tenant:' + box.tenant_id).emit('labels:changed', {});
     } else if (action.type === 'pin') {
-      await r.db
-        .insertInto('thread_user_state')
-        .values({
-          thread_id: msg.thread_id,
-          tenant_id: box.tenant_id,
-          user_id: row.owner_user_id!,
-          is_pinned: true,
-        })
-        .onConflict((oc) => oc.columns(['thread_id', 'user_id']).doUpdateSet({ is_pinned: true }))
-        .execute();
+      if (row.scope === 'mailbox')
+        await r.db
+          .updateTable('threads')
+          .set({ is_pinned_global: true })
+          .where('id', '=', msg.thread_id)
+          .where('tenant_id', '=', box.tenant_id)
+          .execute();
+      else
+        await r.db
+          .insertInto('thread_user_state')
+          .values({
+            thread_id: msg.thread_id,
+            tenant_id: box.tenant_id,
+            user_id: row.owner_user_id!,
+            is_pinned: true,
+          })
+          .onConflict((oc) => oc.columns(['thread_id', 'user_id']).doUpdateSet({ is_pinned: true }))
+          .execute();
     } else if (action.type === 'exclude_from_queue') {
       await r.db
         .updateTable('threads')
@@ -240,6 +255,7 @@ async function applyRule(
           .where('tenant_id', '=', box.tenant_id)
           .execute();
         msg = { ...msg, ...changes };
+        sharedChanged = true;
         continue;
       }
       if (!client || !folder || !msg.imap_uid || msg.pending_action)
@@ -247,7 +263,13 @@ async function applyRule(
       const lock = await client.getMailboxLock(folder.imap_path);
       try {
         if (action.type === 'mark_flagged') {
-          await client.messageFlagsAdd([Number(msg.imap_uid)], ['\\Flagged'], { uid: true });
+          const flagged = await client.messageFlagsAdd([Number(msg.imap_uid)], ['\\Flagged'], {
+            uid: true,
+          });
+          if (!flagged)
+            throw new Error(
+              'O servidor não confirmou a sinalização. A regra será tentada novamente.',
+            );
           await r.db
             .updateTable('messages')
             .set({ is_flagged: true })
@@ -255,11 +277,16 @@ async function applyRule(
             .where('tenant_id', '=', box.tenant_id)
             .execute();
           msg = { ...msg, is_flagged: true };
+          sharedChanged = true;
         } else {
           const move = await client.messageMove([Number(msg.imap_uid)], destination!.imap_path, {
               uid: true,
             }),
             uid: number | null = move ? (move.uidMap?.get(Number(msg.imap_uid)) ?? null) : null;
+          if (!move)
+            throw new Error(
+              'O servidor não confirmou a movimentação. A regra será tentada novamente.',
+            );
           await r.db
             .updateTable('messages')
             .set({ folder_id: destination!.id, imap_uid: uid })
@@ -267,6 +294,7 @@ async function applyRule(
             .where('tenant_id', '=', box.tenant_id)
             .execute();
           msg = { ...msg, folder_id: destination!.id, imap_uid: uid === null ? null : String(uid) };
+          sharedChanged = true;
         }
       } finally {
         lock.release();
@@ -369,7 +397,8 @@ async function applyRule(
     r.io
       .to('user:' + row.owner_user_id)
       .emit('threads:changed', { mailbox_id: box.id, thread_ids: [msg.thread_id] });
-  } else emitThreads(r, box.id, [msg.thread_id]);
+  }
+  if (row.scope === 'mailbox' || sharedChanged) emitThreads(r, box.id, [msg.thread_id]);
   return true;
 }
 export async function applyPendingRules(r: WorkerResources, box: Mailbox, client: ImapFlow | null) {
@@ -417,7 +446,7 @@ export async function applyPendingRules(r: WorkerResources, box: Mailbox, client
 export async function handleRulesApply(
   r: WorkerResources,
   ruleId: string,
-  sinceDays: number,
+  sinceDays: number | null,
   jobId: string,
 ) {
   const rule = await r.db
@@ -450,11 +479,15 @@ export async function handleRulesApply(
         .where('deleted_at', 'is', null)
         .executeTakeFirst();
       if (!box) return;
-      const t = await transports(r.db, box, r.env);
+      // Local and POP3 rules act on stored messages; they do not require provider credentials.
+      const t = box.receiving_protocol === 'imap' ? await transports(r.db, box, r.env) : null;
       try {
-        if (box.receiving_protocol === 'imap') await t.imap.connect();
+        if (t) await t.imap.connect();
         let cursor = '';
-        const since = new Date(Date.now() - Math.min(365, Math.max(1, sinceDays)) * 86400000);
+        const since =
+          sinceDays === null
+            ? new Date(0)
+            : new Date(Date.now() - Math.min(365, Math.max(1, sinceDays)) * 86400000);
         for (;;) {
           const messages = await r.db
             .selectFrom('messages')
@@ -463,24 +496,17 @@ export async function handleRulesApply(
             .where('mailbox_id', '=', box.id)
             .where('direction', '=', 'inbound')
             .where('deleted_at', 'is', null)
-            .where('message_at', '>=', since)
+            .$if(sinceDays !== null, (query) => query.where('message_at', '>=', since))
             .where('id', '>', cursor || '00000000-0000-0000-0000-000000000000')
             .orderBy('id')
             .limit(200)
             .execute();
           if (!messages.length) break;
-          for (const msg of messages)
-            await applyRule(
-              r,
-              box,
-              box.receiving_protocol === 'imap' ? t.imap : null,
-              rule,
-              msg.id,
-            );
+          for (const msg of messages) await applyRule(r, box, t?.imap ?? null, rule, msg.id);
           cursor = messages.at(-1)!.id;
         }
       } finally {
-        await t.close();
+        await t?.close();
       }
     },
     30000,

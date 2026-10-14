@@ -2,7 +2,7 @@ import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { writeFile } from 'node:fs/promises';
 import pino from 'pino';
-import { createQueues, createDb, Storage, audit, asJson } from '@apmail/db';
+import { createQueues, createDb, Storage, audit, asJson, migrate } from '@apmail/db';
 import { Emitter } from '@socket.io/redis-emitter';
 import { handleMailboxConnection } from './handlers/mailbox-connection.js';
 import { handleMailboxSync } from './handlers/mailbox-sync.js';
@@ -22,6 +22,7 @@ import { QUEUE_NAMES, socketRedisKey } from '@apmail/shared';
 import { readEnv } from './env.js';
 import { requestStorageScan, reconcileStorage, collectPlatformResources } from '@apmail/db';
 const env = readEnv();
+if (env.NODE_ENV === 'production') await migrate(env.DATABASE_URL);
 let stopping = false;
 const db = createDb(env.DATABASE_URL);
 const sendSystemEmail = createSystemEmailHandler(env, db);
@@ -88,7 +89,7 @@ const workers = QUEUE_NAMES.map(
           return handleRulesApply(
             r,
             job.data.rule_id ?? job.data.ruleId,
-            job.data.since_days ?? job.data.sinceDays ?? 30,
+            job.data.since_days === null ? null : (job.data.since_days ?? job.data.sinceDays ?? 30),
             job.id!,
           );
         if (name === 'mail-actions')

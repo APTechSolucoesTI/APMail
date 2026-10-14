@@ -51,6 +51,7 @@ export async function purgeMailboxes(r: WorkerResources) {
             .where('mailbox_id', '=', box.id)
             .execute();
           await tx.deleteFrom('outbox').where('mailbox_id', '=', box.id).execute();
+          await tx.deleteFrom('mail_schedule_series').where('mailbox_id', '=', box.id).execute();
           await tx
             .updateTable('chat_messages')
             .set({ shared_thread_id: null })

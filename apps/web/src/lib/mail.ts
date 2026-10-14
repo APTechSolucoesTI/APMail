@@ -23,6 +23,7 @@ export type Thread = {
   queue_excluded?: boolean;
   is_unread: boolean;
   is_pinned: boolean;
+  is_pinned_global?: boolean;
   labels: PersonalLabel[];
   assigned_to: { id: string; full_name: string; avatar_url: string | null } | null;
   is_overdue: boolean;
@@ -56,6 +57,8 @@ export type Message = {
   sent_by: { id: string; full_name: string } | null;
 };
 export type ThreadDetail = {
+  is_pinned_personal?: boolean;
+  is_pinned_global?: boolean;
   labels: PersonalLabel[];
   thread: Thread;
   messages: Message[];

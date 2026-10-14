@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { useSocketRoom } from '@/hooks/use-socket-room';
+import { RecurringSchedules } from '@/components/mail/recurring-schedules';
 function OutboxRoom({ id }: { id: string }) {
   useSocketRoom('mailbox', id);
   return null;
@@ -89,6 +90,7 @@ function Scheduled() {
           <TabsTrigger value="failed">Com falha</TabsTrigger>
         </TabsList>
         <TabsContent value={search.tab}>
+          {search.tab === 'scheduled' && <RecurringSchedules mailboxId={search.mailboxId} />}
           <div className="mb-4 max-w-sm space-y-1">
             <Label htmlFor="outbox-mailbox">Caixa</Label>
             <select

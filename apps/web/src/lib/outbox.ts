@@ -10,6 +10,8 @@ export type Outbox = OutboxInput & {
   id: string;
   status: 'draft' | 'queued' | 'scheduled' | 'sending' | 'sent' | 'failed' | 'canceled';
   scheduled_at: string | null;
+  recurrence_id?: string | null;
+  recurrence_sequence?: number | null;
   send_after: string | null;
   updated_at: string;
   attempts: number;

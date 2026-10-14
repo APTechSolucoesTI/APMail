@@ -24,9 +24,10 @@ import {
   outboxSchema,
   signatureSchema,
   validateSchedule,
+  recurrenceSchema,
+  type Recurrence,
   can,
   type OutboxInput,
-  type Address,
 } from '@apmail/shared';
 import {
   requireTenant,
@@ -41,10 +42,12 @@ import { readableFolders, folderPredicate, requireFolder } from '../authz/folder
 import { requireThread } from './mail.js';
 import type { Resources } from './resources.js';
 import { moveDraftUploads } from './outbox-mailbox.js';
-import { contactSearch, contactNickname, contactVisible } from './contact-directory.js';
+import { addressSuggestions } from './address-suggestions.js';
+import { registerRecurringSchedules } from './recurring-schedules.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 const validation = (message: string) => new ApiError(400, 'validation_error', message);
 export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
+  await registerRecurringSchedules(app, r);
   const storage = new Storage(r.env.STORAGE_DIR, r.db);
   const owned = async (ctx: RequestContext | null, id: string) => {
     const c = requireTenant(ctx);
@@ -509,6 +512,14 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         if (!['queued', 'scheduled'].includes(row.status))
           throw conflict('O envio já começou ou não pode ser cancelado.');
         const result = await r.db.transaction().execute(async (tx) => {
+          await lockStorageTenant(tx, c.tenantId);
+          if (row.recurrence_id)
+            await tx
+              .updateTable('mail_schedule_series')
+              .set({ state: 'cancelled', updated_at: new Date() })
+              .where('id', '=', row.recurrence_id)
+              .where('tenant_id', '=', c.tenantId)
+              .execute();
           const updated = await tx
             .updateTable('outbox')
             .set({
@@ -516,6 +527,8 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
               job_id: null,
               send_after: null,
               scheduled_at: null,
+              recurrence_id: null,
+              recurrence_sequence: null,
             })
             .where('id', '=', row.id)
             .where('status', 'in', ['queued', 'scheduled'])
@@ -566,17 +579,57 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       if (files.reduce((n, f) => n + f.size_bytes, 0) > max * 1024 * 1024)
         throw validation(`Os anexos excedem o limite de ${max} MB.`);
       let scheduled: Date | null = null;
+      let recurrence: Recurrence | undefined;
       if (action === 'submit') {
-        const body = z.object({ scheduled_at: z.iso.datetime().optional() }).parse(req.body ?? {});
+        const body = z
+          .object({
+            scheduled_at: z.iso.datetime().optional(),
+            recurrence: recurrenceSchema.optional(),
+          })
+          .parse(req.body ?? {});
         if (body.scheduled_at)
           try {
             scheduled = validateSchedule(body.scheduled_at);
           } catch (e) {
             throw validation((e as Error).message);
           }
+        recurrence = body.recurrence;
+        if (recurrence && !scheduled)
+          throw validation('Escolha a data do primeiro envio recorrente.');
+        if (recurrence?.end_at && new Date(recurrence.end_at) < scheduled!)
+          throw validation('O término da recorrência deve ser após o primeiro envio.');
       }
       const sendAfter = scheduled ?? new Date(Date.now() + (action === 'submit' ? 10000 : 0));
       const updated = await r.db.transaction().execute(async (tx) => {
+        await lockStorageTenant(tx, c.tenantId);
+        if (row.recurrence_id) {
+          const active = await tx
+            .selectFrom('mail_schedule_series')
+            .select('id')
+            .where('id', '=', row.recurrence_id)
+            .where('tenant_id', '=', c.tenantId)
+            .where('state', '=', 'active')
+            .forUpdate()
+            .executeTakeFirst();
+          if (!active) throw conflict('Esta recorrência já foi encerrada. Crie um novo envio.');
+        }
+        const series = recurrence
+          ? await tx
+              .insertInto('mail_schedule_series')
+              .values({
+                tenant_id: c.tenantId,
+                mailbox_id: row.mailbox_id,
+                created_by: c.userId,
+                unit: recurrence.unit,
+                interval: recurrence.interval,
+                timezone: recurrence.timezone,
+                starts_at: scheduled!,
+                end_at: recurrence.end_at ? new Date(recurrence.end_at) : null,
+                max_occurrences: recurrence.max_occurrences ?? null,
+              })
+              .returning('id')
+              .executeTakeFirstOrThrow()
+          : null;
         const result = await tx
           .updateTable('outbox')
           .set({
@@ -587,6 +640,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
             attempts: action === 'retry' ? 0 : row.attempts,
             last_error: null,
             job_id: outboxJobId(row.id, row.submit_count + 1),
+            ...(series ? { recurrence_id: series.id, recurrence_sequence: 1 } : {}),
           })
           .where('id', '=', row.id)
           .where('status', '=', expected)
@@ -594,6 +648,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
           .returningAll()
           .executeTakeFirst();
         if (!result) throw conflict('Este envio já foi alterado.');
+        await assertStorageCapacity(tx, c.tenantId, row.mailbox_id);
         if (row.thread_id) await touchThreads(tx, [row.thread_id], 'schedule', c.userId);
         return result;
       });
@@ -606,25 +661,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       return updated;
     });
   app.get('/api/mailboxes/:id/address-suggestions', async (req) => {
-    const c = requireTenant(req.ctx),
-      id = idOf(req.params);
-    await requireMailboxPerm(c, r.db, id, 'read');
-    const scope = await readableFolders(c, r.db, id);
-    const { q } = z.object({ q: z.string().trim().max(100).default('') }).parse(req.query);
-    if (!q) return [];
-    const result =
-      await sql<Address>`select address,coalesce((array_agg(name order by message_at desc))[1],'') as name from (select m.from_address as address,m.from_name as name,m.message_at from messages m where m.tenant_id=${c.tenantId} and m.mailbox_id=${id} and m.deleted_at is null and ${folderPredicate(scope)} union all select a->>'address',a->>'name',m.message_at from messages m cross join lateral jsonb_array_elements(m.to_addresses||m.cc_addresses) a where m.tenant_id=${c.tenantId} and m.mailbox_id=${id} and m.deleted_at is null and ${folderPredicate(scope)}) contacts where unaccent(address) ilike unaccent(${'%' + q + '%'}) or unaccent(name) ilike unaccent(${'%' + q + '%'}) group by address order by max(message_at) desc,address limit 8`.execute(
-        r.db,
-      );
-    const directory =
-      await sql<Address>`select e.email as address,contacts.name as name,${contactNickname(c)} as nickname,contacts.company as company_name from contacts join contact_emails e on e.contact_id=contacts.id and e.tenant_id=contacts.tenant_id where ${contactVisible(c)} and ${contactSearch(q, c)} order by contacts.name,e.is_primary desc,e.email limit 12`.execute(
-        r.db,
-      );
-    return [
-      ...new Map(
-        [...result.rows, ...directory.rows].map((a) => [a.address.toLowerCase(), a]),
-      ).values(),
-    ].slice(0, 20);
+    return addressSuggestions(r, req.ctx, idOf(req.params), req.query);
   });
   app.get('/api/signatures', async (req) => {
     const c = requireTenant(req.ctx);

@@ -7,6 +7,7 @@ import { api, ApiError } from '@/lib/api';
 import { useTenantId, meQuery } from '@/lib/auth';
 import { useSocketRoom } from '@/hooks/use-socket-room';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -58,10 +59,13 @@ export function ThreadView({
     );
     return () => clearTimeout(timer);
   }, [threadId, lastMessage]);
-  const action = async (type: string) => {
+  const action = async (type: string, scope?: 'mailbox') => {
     setActing(true);
     try {
-      await api('/threads/' + threadId + '/' + type, { method: 'POST' });
+      await api('/threads/' + threadId + '/' + type, {
+        method: 'POST',
+        ...(scope ? { body: { scope } } : {}),
+      });
       await client.invalidateQueries({ queryKey: ['thread', tenantId, threadId] });
       if (type === 'unread') onClose();
     } catch (e) {
@@ -103,6 +107,11 @@ export function ThreadView({
         <div className="flex flex-wrap gap-2">
           <QueueStatusBadge status={data.thread.queue_status} />
           {data.thread.is_overdue && <OverdueBadge />}
+          {data.is_pinned_global && (
+            <Badge variant="secondary">
+              <Pin className="size-3" aria-hidden /> Fixada para a caixa
+            </Badge>
+          )}
         </div>
         <ThreadWorkflow thread={data.thread} mailboxId={mailboxId} role={data.my_role}>
           <ShareToChatDialog threadId={threadId} />
@@ -129,8 +138,14 @@ export function ThreadView({
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void action('pin')}>
                 <Pin />
-                {data.is_pinned ? 'Desafixar' : 'Fixar'}
+                {data.is_pinned_personal ? 'Desafixar para mim' : 'Fixar para mim'}
               </DropdownMenuItem>
+              {can(data.my_role, 'rules') && (
+                <DropdownMenuItem onSelect={() => void action('pin', 'mailbox')}>
+                  <Pin />
+                  {data.is_pinned_global ? 'Desafixar para a caixa' : 'Fixar para a caixa'}
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </ThreadWorkflow>

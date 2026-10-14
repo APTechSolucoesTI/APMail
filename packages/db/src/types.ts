@@ -372,6 +372,8 @@ export interface Outbox {
   last_error: string | null;
   mailbox_id: string;
   message_id_header: string | null;
+  recurrence_id: string | null;
+  recurrence_sequence: number | null;
   reply_to_message_id: string | null;
   scheduled_at: Timestamp | null;
   send_after: Timestamp | null;
@@ -653,6 +655,7 @@ export interface Threads {
   has_attachments: Generated<boolean>;
   history_queue_eligible: Generated<boolean>;
   id: Generated<string>;
+  is_pinned_global: Generated<boolean>;
   last_inbound_at: Timestamp | null;
   last_message_at: Timestamp | null;
   last_outbound_at: Timestamp | null;
@@ -764,7 +767,24 @@ export interface MailArchiveExports {
   warnings: Generated<number>;
 }
 
+export interface MailScheduleSeries {
+  created_at: Generated<Timestamp>;
+  created_by: string;
+  end_at: Timestamp | null;
+  id: Generated<string>;
+  interval: number;
+  mailbox_id: string;
+  max_occurrences: number | null;
+  starts_at: Timestamp;
+  state: Generated<string>;
+  tenant_id: string;
+  timezone: string;
+  unit: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface DB {
+  mail_schedule_series: MailScheduleSeries;
   mail_archive_export_files: MailArchiveExportFiles;
   mail_archive_exports: MailArchiveExports;
   mailbox_purge_requests: {

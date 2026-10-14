@@ -101,14 +101,14 @@ export async function listThreads(
   );
   const query = sql<{ items: Record<string, unknown>[]; total: number }>`
  with eligible as materialized (
-  select t.id,t.assigned_to,t.queue_status,t.queue_excluded,us.last_read_at,coalesce(us.is_pinned,false) as is_pinned from threads t
+  select t.id,t.assigned_to,t.queue_status,t.queue_excluded,t.is_pinned_global,us.last_read_at,(t.is_pinned_global or coalesce(us.is_pinned,false)) as is_pinned from threads t
   left join thread_user_state us on us.thread_id=t.id and us.tenant_id=${c.tenantId} and us.user_id=${c.userId} where ${sql.join(conditions, sql` and `)}
  ), fm as (
   select m.thread_id,count(*)::int as message_count,max(m.message_at) as last_message_at,max(m.message_at) filter(where ${inbound}) as last_inbound_at,bool_or(m.has_attachments) as has_attachments
   from messages m join eligible e on e.id=m.thread_id join folders f on f.id=m.folder_id
   where m.tenant_id=${c.tenantId} and m.mailbox_id=${boxId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter} group by m.thread_id
  ), matched as (
-  select e.id,latest.subject,concat_ws(' ',latest.from_name,latest.from_address) as latest_from_sort,u.full_name as assigned_to_sort,e.queue_status,e.is_pinned,fm.message_count,fm.has_attachments,fm.last_message_at,fm.last_inbound_at,
+  select e.id,latest.subject,concat_ws(' ',latest.from_name,latest.from_address) as latest_from_sort,u.full_name as assigned_to_sort,e.queue_status,e.is_pinned,e.is_pinned_global,fm.message_count,fm.has_attachments,fm.last_message_at,fm.last_inbound_at,
    coalesce(fm.last_inbound_at>coalesce(e.last_read_at,'-infinity'::timestamptz),false) as is_unread,coalesce(${overdue},false) as is_overdue,
    case when u.id is null then null else jsonb_build_object('id',u.id,'full_name',u.full_name,'avatar_url',case when u.avatar_path is null then null else '/api/avatars/'||u.id::text||'?v='||extract(epoch from u.updated_at)::bigint end) end as assigned_to
   from eligible e join fm on fm.thread_id=e.id join tenants tenant on tenant.id=${c.tenantId} left join users u on u.id=e.assigned_to join lateral (select m.subject,m.from_name,m.from_address from messages m where m.thread_id=e.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter} order by m.message_at desc,m.id limit 1) latest on true

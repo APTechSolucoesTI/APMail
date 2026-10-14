@@ -36,16 +36,22 @@ export function organizationService(r: Resources) {
     await requireMailboxPerm(c, r.db, row.mailbox_id, row.scope === 'personal' ? 'read' : 'rules');
     return { c, row };
   };
-  const enqueueRule = async (id: string) => {
+  const enqueueRule = async (id: string, sinceDays: number | null) => {
     await r.queues['rules-apply'].add(
       'apply',
-      { rule_id: id, since_days: 30 },
-      { jobId: toBullJobId('rule:' + id + ':' + Date.now()), attempts: 1 },
+      { rule_id: id, since_days: sinceDays },
+      {
+        jobId: toBullJobId('rule:' + id + ':' + Date.now()),
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 5000 },
+      },
     );
   };
   const validateRule = async (c: ReturnType<typeof requireTenant>, b: MailRuleInput) => {
     await requireMailboxPerm(c, r.db, b.mailbox_id, b.scope === 'personal' ? 'read' : 'rules');
     for (const a of b.actions) {
+      if (b.scope === 'personal' && ['move_to_folder', 'mark_flagged'].includes(a.type))
+        await requireMailboxPerm(c, r.db, b.mailbox_id, 'organize');
       if (a.type === 'move_to_folder') {
         const f = await r.db
           .selectFrom('folders')
@@ -82,6 +88,7 @@ export function organizationService(r: Resources) {
         if (!target || (!isTenantAdmin(target.role) && !can(target.mailbox_role, 'send')))
           throw conflict('O responsável precisa poder enviar nesta caixa.');
       } else if (a.type === 'forward_to') {
+        await requireMailboxPerm(c, r.db, b.mailbox_id, 'send');
         const tenant = await r.db
           .selectFrom('tenants')
           .select('settings')
@@ -273,6 +280,15 @@ export function organizationService(r: Resources) {
       if (own && (b.scope !== own.row.scope || b.mailbox_id !== own.row.mailbox_id))
         throw conflict('O escopo e a caixa de uma regra existente não podem ser trocados.');
       await validateRule(c, b);
+      const applyExisting = z.boolean().default(false).parse(raw.apply_existing);
+      const sinceDays = z
+        .number()
+        .int()
+        .min(1)
+        .max(365)
+        .nullable()
+        .default(30)
+        .parse(raw.apply_since_days);
       const { id: unused, ...input } = b;
       void unused;
       const values = {
@@ -312,7 +328,7 @@ export function organizationService(r: Resources) {
               .returningAll()
               .executeTakeFirstOrThrow();
       });
-      if (z.boolean().default(false).parse(raw.apply_existing)) await enqueueRule(row.id);
+      if (applyExisting) await enqueueRule(row.id, sinceDays);
       return row;
     },
     deleteRule: async (ctx: RequestContext | null, id: string) => {

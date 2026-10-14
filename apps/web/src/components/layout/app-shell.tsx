@@ -211,7 +211,14 @@ export function AppShell() {
     );
     socket.on('mailbox:status', () => invalidate('mailboxes', 'mailbox'));
     socket.on('outbox:changed', () =>
-      invalidate('outbox', 'outbox-detail', 'thread', 'threads', 'queue-counts'),
+      invalidate(
+        'outbox',
+        'outbox-detail',
+        'recurring-schedules',
+        'thread',
+        'threads',
+        'queue-counts',
+      ),
     );
     socket.on('notifications:changed', () => invalidate('notifications'));
     socket.on('mailbox:storage', () => invalidate('storage-quota'));

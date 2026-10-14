@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { mailRuleSchema, evaluateConditions, type Address } from '@apmail/shared';
-import { requireTenant, notFound } from '../../authz/context.js';
+import { requireTenant, ApiError } from '../../authz/context.js';
 import { requireMailboxPerm } from '../../authz/guards.js';
-import { requireFolder } from '../../authz/folders.js';
+import { requireFolder, readableFolders, folderPredicate } from '../../authz/folders.js';
 import { organizationService } from './service.js';
 import type { Resources } from '../resources.js';
 const id = (p: unknown) => z.object({ id: z.uuid() }).parse(p).id;
@@ -11,22 +11,44 @@ export async function registerOrganizationRoutes(app: FastifyInstance, r: Resour
   const s = organizationService(r);
   app.post('/api/rules/preview', async (req) => {
     const c = requireTenant(req.ctx),
-      b = z.object({ rule: mailRuleSchema, message_id: z.uuid() }).parse(req.body);
+      b = z
+        .object({
+          rule: mailRuleSchema,
+          message_id: z.uuid().optional(),
+          thread_id: z.uuid().optional(),
+        })
+        .refine(
+          (value) => !!value.message_id !== !!value.thread_id,
+          'Selecione uma conversa ou mensagem para testar.',
+        )
+        .parse(req.body);
     await requireMailboxPerm(
       c,
       r.db,
       b.rule.mailbox_id,
       b.rule.scope === 'personal' ? 'read' : 'rules',
     );
+    const scope = await readableFolders(c, r.db, b.rule.mailbox_id);
     const msg = await r.db
-      .selectFrom('messages')
-      .selectAll()
-      .where('tenant_id', '=', c.tenantId)
-      .where('mailbox_id', '=', b.rule.mailbox_id)
-      .where('id', '=', b.message_id)
-      .where('deleted_at', 'is', null)
+      .selectFrom('messages as m')
+      .selectAll('m')
+      .where('m.tenant_id', '=', c.tenantId)
+      .where('m.mailbox_id', '=', b.rule.mailbox_id)
+      .$if(!!b.message_id, (query) => query.where('m.id', '=', b.message_id!))
+      .$if(!!b.thread_id, (query) =>
+        query.where('m.thread_id', '=', b.thread_id!).where('m.direction', '=', 'inbound'),
+      )
+      .where('m.deleted_at', 'is', null)
+      .where(folderPredicate(scope))
+      .orderBy('m.message_at', 'desc')
+      .orderBy('m.id', 'desc')
       .executeTakeFirst();
-    if (!msg) throw notFound();
+    if (!msg)
+      throw new ApiError(
+        404,
+        'preview_message_missing',
+        'Esta conversa não tem uma mensagem recebida disponível nesta caixa. Selecione outra conversa.',
+      );
     await requireFolder(c, r.db, msg.mailbox_id, msg.folder_id);
     const input = {
       from_name: msg.from_name,

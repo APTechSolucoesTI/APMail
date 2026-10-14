@@ -114,7 +114,12 @@ export function ThreadListItem({
           {thread.has_attachments && (
             <Paperclip className="size-3 text-muted-foreground" aria-label="Com anexos" />
           )}
-          {thread.is_pinned && <Pin className="size-3 text-muted-foreground" aria-label="Fixada" />}
+          {thread.is_pinned && (
+            <Pin
+              className="size-3 text-muted-foreground"
+              aria-label={thread.is_pinned_global ? 'Fixada para a caixa' : 'Fixada para mim'}
+            />
+          )}
         </div>
         {!!thread.labels?.length && (
           <div className="mt-1 flex flex-wrap gap-1">

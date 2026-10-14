@@ -21,6 +21,7 @@ export function ConfirmDialog({
   open,
   onOpenChange,
   returnFocusRef,
+  children,
 }: {
   trigger?: ReactNode;
   title: string;
@@ -31,6 +32,7 @@ export function ConfirmDialog({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   returnFocusRef?: RefObject<HTMLButtonElement | null>;
+  children?: ReactNode;
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -58,6 +60,7 @@ export function ConfirmDialog({
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
+        {children}
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}

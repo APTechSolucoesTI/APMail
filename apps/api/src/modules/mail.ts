@@ -295,7 +295,9 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         .orderBy(sql`(l.scope='tenant')`, 'desc')
         .orderBy('l.name')
         .execute(),
-      is_pinned: state?.is_pinned ?? false,
+      is_pinned: thread.is_pinned_global || (state?.is_pinned ?? false),
+      is_pinned_personal: state?.is_pinned ?? false,
+      is_pinned_global: thread.is_pinned_global,
       last_read_at: state?.last_read_at ?? null,
       pending_outbox: await r.db
         .selectFrom('outbox as o')
@@ -318,6 +320,23 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
   for (const action of ['read', 'unread', 'pin'] as const)
     app.post('/api/threads/:id/' + action, async (req) => {
       const { thread, c } = await requireThread(req.ctx, r, idOf(req.params));
+      if (
+        action === 'pin' &&
+        z
+          .object({ scope: z.enum(['personal', 'mailbox']).default('personal') })
+          .parse(req.body ?? {}).scope === 'mailbox'
+      ) {
+        await requireMailboxPerm(c, r.db, thread.mailbox_id, 'rules');
+        const result = await r.db
+          .updateTable('threads')
+          .set({ is_pinned_global: sql`not is_pinned_global` })
+          .where('id', '=', thread.id)
+          .where('tenant_id', '=', c.tenantId)
+          .returning('is_pinned_global')
+          .executeTakeFirstOrThrow();
+        mailEvents(r, thread.mailbox_id, [thread.id]);
+        return result;
+      }
       const state = await r.db
         .insertInto('thread_user_state')
         .values({

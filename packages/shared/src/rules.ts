@@ -46,6 +46,7 @@ export const ruleConditionSchema = z
     { message: 'Escolha um operador e valor válidos para o campo.' },
   );
 export const mailboxRuleActionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('pin') }),
   z.object({ type: z.literal('add_label'), label_id: z.uuid() }),
   z.object({ type: z.literal('move_to_folder'), folder_id: z.uuid() }),
   z.object({ type: z.literal('mark_flagged') }),
@@ -60,6 +61,8 @@ export const mailboxRuleActionSchema = z.discriminatedUnion('type', [
   }),
 ]);
 export const personalRuleActionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('move_to_folder'), folder_id: z.uuid() }),
+  z.object({ type: z.literal('mark_flagged') }),
   z.object({ type: z.literal('add_label'), label_id: z.uuid() }),
   z.object({ type: z.literal('pin') }),
 ]);

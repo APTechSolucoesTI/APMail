@@ -65,7 +65,10 @@ const actionNames = {
   add_label: 'Adicionar etiqueta',
   pin: 'Fixar',
 };
-const editorSchema = mailRuleSchema.safeExtend({ apply_existing: z.boolean().default(false) });
+const editorSchema = mailRuleSchema.safeExtend({
+  apply_existing: z.boolean().default(false),
+  apply_since_days: z.number().int().min(1).max(365).nullable().default(30),
+});
 type EditorInput = z.input<typeof editorSchema>;
 const selectClass = 'h-11 min-w-0 w-full rounded-md border border-input bg-card px-3 text-sm';
 export function RuleManagement({
@@ -209,7 +212,7 @@ export function RuleManagement({
           busy={busy}
           onEdit={() => setDraft(r)}
           onPriority={(priority) => mutate(r.id, { priority })}
-          onApply={() => mutate(r.id, { apply_existing: true })}
+          onApply={(days) => mutate(r.id, { apply_existing: true, apply_since_days: days })}
           onDelete={async () => {
             await api('/rules/' + r.id, { method: 'DELETE' });
             await client.invalidateQueries({ queryKey: ['rules'] });
@@ -244,7 +247,7 @@ export function RuleManagement({
           <TabsContent value={scope}>
             <p className="mb-4 text-sm text-muted-foreground">
               {scope === 'personal'
-                ? 'Minhas regras aplicam etiquetas e fixações somente para você.'
+                ? 'Etiquetas e fixações são pessoais. Movimentos e sinalizações alteram a caixa e exigem permissão de organização.'
                 : 'Regras da caixa alteram a organização compartilhada. Somente administradores ou supervisores autorizados podem configurá-las.'}
             </p>
             {table}
@@ -262,7 +265,7 @@ export function RuleManagement({
             <SheetTitle>{draft?.id ? 'Editar regra' : 'Nova regra'}</SheetTitle>
             <SheetDescription>
               {scope === 'personal'
-                ? 'Os efeitos serão aplicados apenas para você.'
+                ? 'Etiquetas e fixações são pessoais; mover e sinalizar alteram a caixa compartilhada.'
                 : 'Os efeitos serão aplicados na caixa compartilhada.'}
             </SheetDescription>
           </SheetHeader>
@@ -284,7 +287,7 @@ export function RuleManagement({
     </div>
   );
 }
-function RuleEditor({
+export function RuleEditor({
   rule,
   boxes,
   onClose,
@@ -318,10 +321,10 @@ function RuleEditor({
     }),
     labels = useQuery({
       queryKey: ['labels', tenant, useUserId(), mailboxId],
-      queryFn: () =>
-        api<PersonalLabel[]>('/labels?mailbox_id=' + mailboxId).then((items) =>
-          items.filter((l) => l.scope === (rule.scope === 'personal' ? 'personal' : 'tenant')),
-        ),
+      queryFn: () => api<PersonalLabel[]>('/labels?mailbox_id=' + mailboxId),
+      select: (items) =>
+        items.filter((l) => l.scope === (rule.scope === 'personal' ? 'personal' : 'tenant')),
+      enabled: !!mailboxId,
     }),
     users = useQuery({
       queryKey: ['assignable', tenant, mailboxId],
@@ -342,11 +345,21 @@ function RuleEditor({
       ),
     enabled: !!mailboxId,
   });
+  const selectedPreview = previewMessages.data?.items.some((item) => item.id === previewMessage)
+    ? previewMessage
+    : '';
   const allActions =
     rule.scope === 'personal'
-      ? (['add_label', 'pin'] as const)
+      ? ([
+          'add_label',
+          'pin',
+          ...(boxes.some((box) => box.id === mailboxId && canMailbox(box, 'organize'))
+            ? (['move_to_folder', 'mark_flagged'] as const)
+            : []),
+        ] as const)
       : ([
           'add_label',
+          'pin',
           'move_to_folder',
           'mark_flagged',
           'assign_to',
@@ -454,7 +467,7 @@ function RuleEditor({
           <select
             id="rule-preview-thread"
             className={selectClass}
-            value={previewMessage}
+            value={selectedPreview}
             onChange={(e) => {
               setPreviewMessage(e.target.value);
               setPreviewResult(null);
@@ -470,20 +483,18 @@ function RuleEditor({
           <Button
             type="button"
             variant="outline"
-            disabled={!previewMessage || previewBusy}
+            disabled={!selectedPreview || previewBusy}
             onClick={async () => {
               setPreviewBusy(true);
               try {
-                const detail = await api<{ messages: { id: string }[] }>(
-                  '/threads/' + previewMessage,
-                );
-                const message = detail.messages.at(-1);
-                if (!message) throw new Error('Esta conversa não tem mensagens disponíveis.');
                 const result = await api<{ matches: boolean; conditions: boolean[] }>(
                   '/rules/preview',
                   {
                     method: 'POST',
-                    body: { rule: mailRuleSchema.parse(form.getValues()), message_id: message.id },
+                    body: {
+                      rule: mailRuleSchema.parse(form.getValues()),
+                      thread_id: selectedPreview,
+                    },
                   },
                 );
                 setPreviewResult(result);
@@ -626,6 +637,11 @@ function RuleEditor({
                     id={'action-target-' + i}
                     className={selectClass}
                     {...form.register(`actions.${i}.folder_id`)}
+                    value={
+                      values.actions?.[i]?.type === 'move_to_folder'
+                        ? (values.actions[i].folder_id ?? '')
+                        : ''
+                    }
                   >
                     <option value="">Selecione uma pasta</option>
                     {folderOptions(folders.data ?? [])}
@@ -644,6 +660,11 @@ function RuleEditor({
                     id={'action-target-' + i}
                     className={selectClass}
                     {...form.register(`actions.${i}.user_id`)}
+                    value={
+                      values.actions?.[i]?.type === 'assign_to'
+                        ? (values.actions[i].user_id ?? '')
+                        : ''
+                    }
                   >
                     <option value="">Selecione um usuário</option>
                     {users.data?.map((u) => (
@@ -661,6 +682,11 @@ function RuleEditor({
                     id={'action-target-' + i}
                     className={selectClass}
                     {...form.register(`actions.${i}.label_id`)}
+                    value={
+                      values.actions?.[i]?.type === 'add_label'
+                        ? (values.actions[i].label_id ?? '')
+                        : ''
+                    }
                   >
                     <option value="">Selecione uma etiqueta</option>
                     {labels.data?.map((l) => (
@@ -669,7 +695,20 @@ function RuleEditor({
                       </option>
                     ))}
                   </select>
-                  {!labels.data?.length && (
+                  {labels.isLoading && (
+                    <p role="status" className="text-xs text-muted-foreground">
+                      Carregando etiquetas…
+                    </p>
+                  )}
+                  {labels.error && (
+                    <p role="alert" className="text-sm text-destructive">
+                      Não foi possível carregar as etiquetas.{' '}
+                      <Button type="button" variant="ghost" onClick={() => void labels.refetch()}>
+                        Tentar novamente
+                      </Button>
+                    </p>
+                  )}
+                  {!labels.isLoading && !labels.error && !labels.data?.length && (
                     <p className="text-xs text-muted-foreground">
                       Crie uma etiqueta nas configurações antes de usar esta ação.
                     </p>
@@ -733,12 +772,33 @@ function RuleEditor({
               [
                 'Parar de processar outras regras',
                 'Regra ativa',
-                'Aplicar também às mensagens dos últimos 30 dias',
+                'Aplicar também às mensagens existentes',
               ][i]
             }
           </span>
         </label>
       ))}
+      {values.apply_existing && (
+        <div className="space-y-1">
+          <Label htmlFor="rule-existing-range">Alcance da aplicação</Label>
+          <select
+            id="rule-existing-range"
+            className={selectClass}
+            value={values.apply_since_days === null ? 'all' : String(values.apply_since_days ?? 30)}
+            onChange={(event) =>
+              form.setValue(
+                'apply_since_days',
+                event.target.value === 'all' ? null : Number(event.target.value),
+              )
+            }
+          >
+            <option value="30">Últimos 30 dias</option>
+            <option value="90">Últimos 90 dias</option>
+            <option value="365">Último ano</option>
+            <option value="all">Todas as mensagens, incluindo arquivos antigos</option>
+          </select>
+        </div>
+      )}
       {error && (
         <p
           role="alert"
@@ -776,10 +836,11 @@ function RuleRowActions({
   busy: boolean;
   onEdit: () => void;
   onPriority: (priority: number) => Promise<void>;
-  onApply: () => Promise<void>;
+  onApply: (days: number | null) => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
   const [confirm, setConfirm] = useState<'delete' | 'apply' | null>(null);
+  const [range, setRange] = useState('30');
   return (
     <>
       <Button
@@ -818,7 +879,7 @@ function RuleRowActions({
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setConfirm('apply')}>
             <Play />
-            Reaplicar aos últimos 30 dias
+            Aplicar às mensagens existentes…
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onSelect={() => setConfirm('delete')}>
@@ -837,10 +898,29 @@ function RuleRowActions({
         description={
           confirm === 'delete'
             ? 'A regra ' + rule.name + ' deixará de ser aplicada.'
-            : 'A regra será aplicada às mensagens dos últimos 30 dias.'
+            : 'Escolha quais mensagens devem receber as ações desta regra. Mensagens já organizadas também podem ser afetadas.'
         }
-        onConfirm={() => (confirm === 'delete' ? onDelete() : onApply())}
-      />
+        onConfirm={() =>
+          confirm === 'delete' ? onDelete() : onApply(range === 'all' ? null : Number(range))
+        }
+      >
+        {confirm === 'apply' && (
+          <div className="space-y-1">
+            <Label htmlFor={'rule-range-' + rule.id}>Alcance da aplicação</Label>
+            <select
+              id={'rule-range-' + rule.id}
+              className={selectClass}
+              value={range}
+              onChange={(event) => setRange(event.target.value)}
+            >
+              <option value="30">Últimos 30 dias</option>
+              <option value="90">Últimos 90 dias</option>
+              <option value="365">Último ano</option>
+              <option value="all">Todas as mensagens, incluindo arquivos antigos</option>
+            </select>
+          </div>
+        )}
+      </ConfirmDialog>
     </>
   );
 }

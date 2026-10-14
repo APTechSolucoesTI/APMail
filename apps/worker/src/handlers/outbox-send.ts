@@ -13,6 +13,8 @@ import {
   quotaErrors,
   assertStorageCapacity,
   lockStorageTenant,
+  advanceRecurringOutbox,
+  sendJobOptions,
 } from '@apmail/db';
 import { can, type Address } from '@apmail/shared';
 import { UnrecoverableError, type Job } from 'bullmq';
@@ -44,11 +46,28 @@ export async function handleOutboxSend(
     const tenant = await r.db
       .selectFrom('tenants')
       .select('id')
+      .select('settings')
       .where('id', '=', row.tenant_id)
       .where('deleted_at', 'is', null)
       .where('suspended_at', 'is', null)
       .executeTakeFirst();
     if (!tenant) throw new Error('tenant_unavailable');
+    if (row.created_by_rule_id) {
+      if (
+        !(tenant.settings as { allow_external_auto_forward?: boolean }).allow_external_auto_forward
+      )
+        throw new Error('auto_forward_disabled');
+      const rule = await r.db
+        .selectFrom('mail_rules')
+        .select('id')
+        .where('id', '=', row.created_by_rule_id)
+        .where('tenant_id', '=', row.tenant_id)
+        .where('mailbox_id', '=', row.mailbox_id)
+        .where('is_active', '=', true)
+        .where('deleted_at', 'is', null)
+        .executeTakeFirst();
+      if (!rule) throw new Error('rule_unavailable');
+    }
     const platform = await r.db
       .selectFrom('platform_admins')
       .select('user_id')
@@ -289,6 +308,25 @@ export async function handleOutboxSend(
     );
     if (locked === 'skipped')
       throw new Error('A caixa está ocupada. O envio será tentado novamente.');
+    if (row.recurrence_id)
+      try {
+        const next = await advanceRecurringOutbox(r.db, id);
+        if (next)
+          await r.queues['outbox-send'].add('send', { outbox_id: next.id }, sendJobOptions(next));
+      } catch (error) {
+        await r.db
+          .updateTable('outbox')
+          .set({
+            last_error: isStorageQuotaError(error)
+              ? 'Último e-mail enviado. A próxima ocorrência aguarda espaço no armazenamento.'
+              : 'Último e-mail enviado. A preparação da próxima ocorrência será tentada novamente.',
+          })
+          .where('id', '=', id)
+          .where('status', '=', 'sent')
+          .execute()
+          .catch(() => undefined);
+        r.log.warn({ outbox_id: id }, 'Próxima ocorrência pendente de recuperação.');
+      }
     r.io
       .to(`mailbox:${row.mailbox_id}`)
       .emit('outbox:changed', { mailbox_id: row.mailbox_id, outbox_id: id });
@@ -300,9 +338,13 @@ export async function handleOutboxSend(
       delivered ||
       isStorageQuotaError(error) ||
       job.attemptsMade + 1 >= (job.opts.attempts ?? 1) ||
-      ['mailbox_unavailable', 'send_permission_revoked', 'tenant_unavailable'].includes(
-        (error as Error).message,
-      );
+      [
+        'mailbox_unavailable',
+        'send_permission_revoked',
+        'tenant_unavailable',
+        'auto_forward_disabled',
+        'rule_unavailable',
+      ].includes((error as Error).message);
     const message = isStorageQuotaError(error)
       ? quotaErrors[(error as Error).message]!
       : delivered
@@ -313,7 +355,9 @@ export async function handleOutboxSend(
             ? 'A caixa está indisponível.'
             : (error as Error).message === 'send_permission_revoked'
               ? 'O acesso de envio foi removido.'
-              : connectionError(error, 'SMTP', 0);
+              : ['auto_forward_disabled', 'rule_unavailable'].includes((error as Error).message)
+                ? 'O encaminhamento automático foi interrompido porque a regra ou a permissão da empresa foi desativada.'
+                : connectionError(error, 'SMTP', 0);
     await r.db.transaction().execute(async (tx) => {
       await tx
         .updateTable('outbox')
