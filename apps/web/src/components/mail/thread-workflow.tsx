@@ -64,6 +64,13 @@ export function ThreadWorkflow({
         aria-label="Ações da conversa"
         className="flex min-w-0 flex-wrap items-center gap-2"
       >
+        <ThreadAssignee
+          mailboxId={mailboxId}
+          threadIds={[thread.id]}
+          role={role}
+          assigned={thread.assigned_to}
+          showAssigned={false}
+        />
         {can(role, 'queue') && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -92,13 +99,6 @@ export function ThreadWorkflow({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        <ThreadAssignee
-          mailboxId={mailboxId}
-          threadIds={[thread.id]}
-          role={role}
-          assigned={thread.assigned_to}
-          showAssigned={false}
-        />
         {children}
       </div>
       {thread.queue_excluded && (

@@ -52,45 +52,46 @@ export function MessageCard({
   const contactIdentity = resolveAddress(contactAddress, contacts);
   return (
     <article className="rounded-lg border bg-card text-card-foreground">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-start gap-3 p-4 text-left hover:bg-muted/50"
-      >
-        <UserAvatar name={sender.name} size={32} />
-        <div className="min-w-0 flex-1">
-          <p className="break-all text-sm font-semibold">
-            {sender.name}{' '}
-            {message.is_flagged && <Flag className="inline size-3" aria-label="Sinalizada" />}
-          </p>
-          <p className="truncate text-xs text-muted-foreground" title={message.from_address}>
-            {message.from_address}
-          </p>
-          {!open && (
-            <p className="mt-1 truncate text-xs text-muted-foreground" title={message.snippet}>
-              {message.snippet}
-            </p>
-          )}
-        </div>
-        <time
-          dateTime={message.message_at}
-          className="shrink-0 text-right text-xs text-muted-foreground"
-        >
-          {date}
-        </time>
-      </button>
-      {open && (
-        <div className="space-y-3 border-t p-4">
-          {!message.is_mdn && (
-            <div className="flex justify-end">
+      <header className="grid grid-cols-1 items-start gap-2 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <UserAvatar name={sender.name} size={32} />
+          <div className="min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={open}
+              className="block w-full rounded-sm text-left hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <p className="break-words text-sm font-semibold">
+                {sender.name}{' '}
+                {message.is_flagged && <Flag className="inline size-3" aria-label="Sinalizada" />}
+              </p>
+              <p className="break-all text-xs text-muted-foreground">{message.from_address}</p>
+              {!open && (
+                <p className="mt-1 truncate text-xs text-muted-foreground" title={message.snippet}>
+                  {message.snippet}
+                </p>
+              )}
+            </button>
+            {!message.is_mdn && (
               <ContactSenderAction
                 email={contactAddress.address}
                 name={contactAddress.name}
                 identity={contactIdentity.contact}
+                className="mt-1 -ml-2 min-h-11 px-2 text-xs sm:h-8 sm:min-h-8"
               />
-            </div>
-          )}
+            )}
+          </div>
+        </div>
+        <time
+          dateTime={message.message_at}
+          className="pl-11 text-xs tabular-nums text-muted-foreground sm:pl-0 sm:text-right"
+        >
+          {date}
+        </time>
+      </header>
+      {open && (
+        <div className="space-y-3 border-t p-4">
           <ReadReceipt message={message} canSend={!!onCompose} timeZone={timeZone} />
           <details className="text-xs text-muted-foreground">
             <summary className="cursor-pointer">

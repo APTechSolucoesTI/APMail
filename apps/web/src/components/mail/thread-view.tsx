@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Ellipsis, MailOpen, Pin } from 'lucide-react';
+import { ArrowLeft, Ellipsis, MailOpen, Pin, Tags } from 'lucide-react';
 import { toast } from 'sonner';
 import { can } from '@apmail/shared';
 import { api, ApiError } from '@/lib/api';
@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { LoadingState, ErrorState, NoPermissionState } from '@/components/data/data-state';
 import { QueueStatusBadge, OverdueBadge } from '@/components/common/status-badge';
@@ -47,6 +48,7 @@ export function ThreadView({
   });
   useSocketRoom('thread', threadId);
   const [acting, setActing] = useState(false);
+  const [labelsOpen, setLabelsOpen] = useState(false);
   const lastMessage = q.data?.messages.at(-1)?.message_at;
   useEffect(() => {
     if (!lastMessage) return;
@@ -115,7 +117,6 @@ export function ThreadView({
         </div>
         <ThreadWorkflow thread={data.thread} mailboxId={mailboxId} role={data.my_role}>
           <ShareToChatDialog threadId={threadId} />
-          <ThreadLabels threadIds={[threadId]} labels={data.labels} mailboxId={mailboxId} />
           {organize && (
             <MessageActions
               mailboxId={mailboxId}
@@ -131,7 +132,12 @@ export function ThreadView({
                 Mais ações
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onSelect={() => setLabelsOpen(true)}>
+                <Tags />
+                Etiquetas
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => void action('unread')}>
                 <MailOpen />
                 Marcar como não lida
@@ -149,6 +155,16 @@ export function ThreadView({
             </DropdownMenuContent>
           </DropdownMenu>
         </ThreadWorkflow>
+        {labelsOpen && (
+          <ThreadLabels
+            key={threadId}
+            threadIds={[threadId]}
+            labels={data.labels}
+            mailboxId={mailboxId}
+            presentation="dialog"
+            onClose={() => setLabelsOpen(false)}
+          />
+        )}
         {!!data.labels.length && (
           <div className="flex flex-wrap gap-1">
             {data.labels.map((label) => (
