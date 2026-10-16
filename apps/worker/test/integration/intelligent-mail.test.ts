@@ -15,6 +15,7 @@ import {
   asJson,
   ensureLocalFolders,
   writeMailboxCredential,
+  normalizeSmtpHelloName,
   type DB,
 } from '@apmail/db';
 import { sql, type Selectable } from 'kysely';
@@ -30,6 +31,9 @@ import { ingestMessage } from '../../src/imap/ingest-message.js';
 import { handleOutboxSend } from '../../src/handlers/outbox-send.js';
 import { sweepOutbox } from '../../src/handlers/outbox-maintenance.js';
 import { buildMdn } from '../../src/lib/mdn.js';
+import { transports } from '../../src/imap/connect.js';
+import { createSystemEmailHandler } from '../../src/handlers/system-email.js';
+import { assertMailboxConnection } from '../../../api/src/lib/mailbox-probe.js';
 
 const url = process.env.DATABASE_URL_TEST!,
   redisUrl = process.env.REDIS_URL_TEST!;
@@ -54,6 +58,7 @@ const config = {
   DATABASE_URL: url,
   REDIS_URL: redisUrl,
   APP_URL: origin,
+  SMTP_EHLO_NAME: 'app.apmail.com.br',
   SESSION_SECRET: key,
   CREDENTIALS_ENCRYPTION_KEY: key,
   STORAGE_DIR: storagePath,
@@ -89,7 +94,8 @@ const call = (
     },
     ...(body !== undefined ? { payload: JSON.stringify(body) } : {}),
   });
-const deliveries: { raw: Buffer; from: string; to: string[] }[] = [];
+const greetings: string[] = [];
+const deliveries: { raw: Buffer; from: string; to: string[]; hello: string }[] = [];
 const connections = new Set<Socket>();
 // Local SMTP fixture exercises the real Nodemailer transport without external mail.
 const smtp = createServer((socket) => {
@@ -97,6 +103,7 @@ const smtp = createServer((socket) => {
   socket.on('close', () => connections.delete(socket));
   socket.write('220 localhost QA SMTP\r\n');
   let buffered = '',
+    hello = '',
     data = false,
     from = '',
     to: string[] = [],
@@ -109,15 +116,27 @@ const smtp = createServer((socket) => {
       buffered = buffered.slice(index + 2);
       if (data) {
         if (line === '.') {
-          deliveries.push({ raw: Buffer.from(content.join('\r\n') + '\r\n'), from, to: [...to] });
+          deliveries.push({
+            raw: Buffer.from(content.join('\r\n') + '\r\n'),
+            from,
+            to: [...to],
+            hello,
+          });
           data = false;
           content = [];
           socket.write('250 accepted\r\n');
         } else content.push(line.replace(/^\.\./, '.'));
         continue;
       }
-      if (/^EHLO|^HELO/i.test(line)) socket.write('250-localhost\r\n250 AUTH PLAIN\r\n');
-      else if (/^AUTH /i.test(line)) socket.write('235 authenticated\r\n');
+      if (/^(?:EHLO|HELO) /i.test(line)) {
+        hello = line.slice(5);
+        greetings.push(hello);
+        socket.write(
+          normalizeSmtpHelloName(hello)
+            ? '250-localhost\r\n250 AUTH PLAIN\r\n'
+            : '550 Invalid HELO hostname\r\n',
+        );
+      } else if (/^AUTH /i.test(line)) socket.write('235 authenticated\r\n');
       else if (/^MAIL FROM:/i.test(line)) {
         from = line.slice(10).trim();
         to = [];
@@ -755,3 +774,114 @@ it('envia convites MIME reais, aplica RSVP recebido e envia resposta explícita 
     attendees: [{ address: box.email_address, status: 'ACCEPTED' }],
   });
 });
+
+it('usa EHLO público em respostas externas, SMTP global e teste de conexão, sem depender do hostname do contêiner', async () => {
+  // Every preceding queued message, MDN and ICS used this same validated identity.
+  expect(deliveries.length).toBeGreaterThan(5);
+  expect(deliveries.every((delivery) => delivery.hello === 'app.apmail.com.br')).toBe(true);
+  const original = await ingest(incoming('destinatario@gmail.com'));
+  const draft = await call('POST', '/api/outbox', {
+    mailbox_id: boxId,
+    kind: 'reply',
+    thread_id: original.thread_id,
+    reply_to_message_id: original.id,
+    subject: 'Re: ' + original.subject,
+    body_html: '<p>Resposta para domínio externo.</p>',
+    to_addresses: [{ address: 'destinatario@gmail.com' }],
+  });
+  expect(draft.statusCode, draft.body).toBe(201);
+  const submitted = await call('POST', '/api/outbox/' + draft.json().id + '/submit', {});
+  expect(submitted.statusCode, submitted.body).toBe(200);
+  await db
+    .updateTable('outbox')
+    .set({ send_after: new Date(0) })
+    .where('id', '=', draft.json().id)
+    .execute();
+  await handleOutboxSend(r, draft.json().id, {
+    id: submitted.json().job_id,
+    attemptsMade: 0,
+    opts: { attempts: 1 },
+  });
+  const delivered = deliveries.at(-1)!;
+  expect(delivered.hello).toBe('app.apmail.com.br');
+  expect(delivered.to).toContain('<destinatario@gmail.com>');
+  expect((await simpleParser(delivered.raw)).inReplyTo).toBe(original.message_id_header);
+  expect(
+    (
+      await db
+        .selectFrom('outbox')
+        .select('status')
+        .where('id', '=', draft.json().id)
+        .executeTakeFirstOrThrow()
+    ).status,
+  ).toBe('sent');
+
+  const automatic = envSchema.parse({
+    ...config,
+    SMTP_EHLO_NAME: '',
+    APP_URL: 'https://app.apmail.com.br:75',
+  });
+  const overridden = await transports(db, box, {
+    ...automatic,
+    SMTP_EHLO_NAME: 'smtp.aptechinfo.com.br',
+  });
+  try {
+    await overridden.smtp.verify();
+    expect(greetings.at(-1)).toBe('smtp.aptechinfo.com.br');
+  } finally {
+    await overridden.close();
+  }
+  const global = createSystemEmailHandler({
+    ...automatic,
+    SYSTEM_SMTP_HOST: '127.0.0.1',
+    SYSTEM_SMTP_PORT: box.smtp_port,
+    SYSTEM_MAIL_FROM: box.email_address,
+  });
+  await global('password-changed', { to: 'destinatario@gmail.com', data: {} });
+  expect(deliveries.at(-1)!.hello).toBe('app.apmail.com.br');
+  expect((await simpleParser(deliveries.at(-1)!.raw)).subject).toContain('Sua senha foi alterada');
+
+  const popSockets = new Set<Socket>();
+  const pop = createServer((socket) => {
+    popSockets.add(socket);
+    socket.on('close', () => popSockets.delete(socket));
+    socket.write('+OK QA POP3\r\n');
+    let buffer = '';
+    socket.on('data', (chunk) => {
+      buffer += chunk.toString();
+      let index: number;
+      while ((index = buffer.indexOf('\r\n')) >= 0) {
+        const command = buffer.slice(0, index);
+        buffer = buffer.slice(index + 2);
+        if (/^(UIDL|LIST)$/.test(command)) socket.write('+OK\r\n.\r\n');
+        else if (command === 'QUIT') socket.end('+OK bye\r\n');
+        else socket.write('+OK\r\n');
+      }
+    });
+  });
+  await new Promise<void>((resolve) => pop.listen(0, '127.0.0.1', resolve));
+  try {
+    const before = greetings.length;
+    const result = await assertMailboxConnection(
+      apiEnv.parse({ ...config, SMTP_EHLO_NAME: '', APP_URL: automatic.APP_URL }),
+      {
+        receiving_protocol: 'pop3',
+        username: 'qa',
+        password: 'local-fixture',
+        imap_host: '127.0.0.1',
+        imap_port: (pop.address() as { port: number }).port,
+        imap_secure: false,
+        smtp_host: '127.0.0.1',
+        smtp_port: box.smtp_port,
+        smtp_secure: false,
+      },
+    );
+    expect(result.smtp).toBe(true);
+    expect(result.pop3).toBe(true);
+    expect(greetings.length).toBeGreaterThan(before);
+    expect(greetings.at(-1)).toBe('app.apmail.com.br');
+  } finally {
+    for (const socket of popSockets) socket.destroy();
+    await new Promise<void>((resolve) => pop.close(() => resolve()));
+  }
+}, 30000);

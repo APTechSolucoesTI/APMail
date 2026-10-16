@@ -53,4 +53,6 @@ No servidor compartilhado, portas da infra podem ser alteradas pelas variáveis 
 
 Consulte [arquitetura](docs/ARQUITETURA.md), [design system](docs/design-system.md) e [publicação](docs/DEPLOY.md).
 
+Os envios SMTP e os testes de conexão anunciam o hostname público de `APP_URL` no EHLO/HELO. Para escolher uma identificação diferente, configure `SMTP_EHLO_NAME` na API e no worker, sem protocolo ou porta. A correção evita o fallback `[127.0.0.1]` em contêineres; consulte [SMTP e HostGator](docs/SMTP-HOSTGATOR.md).
+
 O superadmin pode definir quantidade de caixas e capacidade por empresa; proprietários e administradores distribuem a cota entre caixas. A interface apresenta consumo do APMail e do provedor. Importações bloqueadas pela cota preservam um checkpoint e retomam quando houver capacidade. Consulte [cotas de armazenamento](docs/COTAS-ARMAZENAMENTO.md).

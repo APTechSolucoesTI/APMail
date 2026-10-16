@@ -4,7 +4,7 @@ import { mailboxSchema } from '@apmail/shared';
 import type { z } from 'zod';
 import type { ApiEnv } from '../env.js';
 import { ApiError } from '../authz/context.js';
-import { Pop3Client } from '@apmail/db';
+import { Pop3Client, smtpHelloName } from '@apmail/db';
 
 export const connectionSchema = mailboxSchema.pick({
   receiving_protocol: true,
@@ -21,6 +21,7 @@ type Connection = z.infer<typeof connectionSchema>;
 
 // A mesma política TLS do worker: exceções somente no ambiente de desenvolvimento.
 export async function assertMailboxConnection(env: ApiEnv, b: Connection) {
+  const helloName = smtpHelloName(env);
   const insecure = (host: string) =>
     env.NODE_ENV === 'development' &&
     env.ALLOW_INSECURE_TLS_HOSTS.split(',')
@@ -41,6 +42,7 @@ export async function assertMailboxConnection(env: ApiEnv, b: Connection) {
   });
   imap.on('error', () => undefined);
   const smtp = nodemailer.createTransport({
+    name: helloName,
     host: b.smtp_host,
     port: b.smtp_port,
     secure: b.smtp_secure,

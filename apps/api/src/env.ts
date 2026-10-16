@@ -1,4 +1,4 @@
-import { loadRootEnv, resolveWorkspacePath } from '@apmail/db';
+import { loadRootEnv, resolveWorkspacePath, normalizeSmtpHelloName } from '@apmail/db';
 import { z } from 'zod';
 loadRootEnv();
 const key = z
@@ -10,6 +10,14 @@ const key = z
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   APP_URL: z.url(),
+  SMTP_EHLO_NAME: z
+    .string()
+    .trim()
+    .default('')
+    .refine(
+      (value) => !value || normalizeSmtpHelloName(value) !== null,
+      'Informe um domínio público ou IP público válido, sem protocolo ou porta.',
+    ),
   TZ: z.string().default('America/Sao_Paulo'),
   LOG_LEVEL: z.string().default('info'),
   DATABASE_URL: z.url(),

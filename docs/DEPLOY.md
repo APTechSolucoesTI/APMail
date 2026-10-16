@@ -89,6 +89,7 @@ Requer Docker Engine com BuildKit, Docker Compose v2, espaço para imagens/volum
 Copie `.env.example` para `.env` e preencha:
 
 - `APP_URL`: URL exata de acesso, incluindo protocolo e porta quando houver. Em produção pública, use `https://seu-dominio`.
+- `SMTP_EHLO_NAME` (opcional): identificação pública EHLO/HELO usada pela API e pelo worker. Vazio usa o hostname público de `APP_URL`; se definido, informe domínio sem protocolo/porta ou IP público. Nunca use localhost ou IP privado. Consulte [SMTP e HostGator](SMTP-HOSTGATOR.md).
 - `POSTGRES_PASSWORD`: somente letras/números; gere com `openssl rand -hex 24`. O Compose monta a URL interna do banco automaticamente. Não reutilize a senha de desenvolvimento.
 - `SESSION_SECRET` e `CREDENTIALS_ENCRYPTION_KEY`: duas chaves diferentes de 32 bytes, cada uma gerada com `openssl rand -base64 32`.
 - `SYSTEM_SMTP_HOST`, `SYSTEM_SMTP_PORT`, `SYSTEM_SMTP_SECURE`, `SYSTEM_SMTP_USER`, `SYSTEM_SMTP_PASSWORD` e `SYSTEM_MAIL_FROM`. Use `true` para TLS implícito/465; em 587 use `false` e STARTTLS oferecido pelo servidor.

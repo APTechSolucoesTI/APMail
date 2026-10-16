@@ -1,4 +1,4 @@
-import { loadRootEnv, resolveWorkspacePath } from '@apmail/db';
+import { loadRootEnv, resolveWorkspacePath, normalizeSmtpHelloName } from '@apmail/db';
 import { z } from 'zod';
 loadRootEnv();
 export const envSchema = z.object({
@@ -6,6 +6,14 @@ export const envSchema = z.object({
   DATABASE_URL: z.url(),
   REDIS_URL: z.url(),
   APP_URL: z.url(),
+  SMTP_EHLO_NAME: z
+    .string()
+    .trim()
+    .default('')
+    .refine(
+      (value) => !value || normalizeSmtpHelloName(value) !== null,
+      'Informe um domínio público ou IP público válido, sem protocolo ou porta.',
+    ),
   PST_EXPORT_COMMAND: z.string().default('dotnet'),
   PST_EXPORT_DLL: z.string().default('/opt/pst/Mail2Pst.Cli.dll'),
   LOG_LEVEL: z.string().default('info'),

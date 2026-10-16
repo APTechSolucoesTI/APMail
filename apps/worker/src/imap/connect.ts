@@ -1,6 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import nodemailer from 'nodemailer';
-import { readMailboxCredential, type DB } from '@apmail/db';
+import { readMailboxCredential, smtpHelloName, type DB } from '@apmail/db';
 import type { Kysely, Selectable } from 'kysely';
 import type { WorkerEnv } from '../env.js';
 export type Mailbox = Selectable<DB['mailboxes']>;
@@ -14,6 +14,7 @@ export function allowInsecure(host: string, env: WorkerEnv): boolean {
   );
 }
 export async function transports(db: Kysely<DB>, box: Mailbox, env: WorkerEnv) {
+  const helloName = smtpHelloName(env);
   const pass =
     box.receiving_protocol === 'local'
       ? ''
@@ -35,6 +36,7 @@ export async function transports(db: Kysely<DB>, box: Mailbox, env: WorkerEnv) {
   imap.on('error', () => undefined);
   clients.add(imap);
   const smtp = nodemailer.createTransport({
+    name: helloName,
     host: box.smtp_host,
     port: box.smtp_port,
     secure: box.smtp_secure,

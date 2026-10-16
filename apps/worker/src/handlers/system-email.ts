@@ -5,7 +5,7 @@ import { inviteEmail } from '../templates/invite.js';
 import { passwordResetEmail } from '../templates/password-reset.js';
 import { passwordChangedEmail } from '../templates/password-changed.js';
 import type { Kysely } from 'kysely';
-import type { DB } from '@apmail/db';
+import { smtpHelloName, type DB } from '@apmail/db';
 import { transports } from '../imap/connect.js';
 import { createHash } from 'node:crypto';
 const payload = z.object({
@@ -15,6 +15,7 @@ const payload = z.object({
 });
 export function createSystemEmailHandler(env: WorkerEnv, db?: Kysely<DB>) {
   const transport = nodemailer.createTransport({
+    name: smtpHelloName(env),
     host: env.SYSTEM_SMTP_HOST,
     port: env.SYSTEM_SMTP_PORT,
     secure: env.SYSTEM_SMTP_SECURE,
