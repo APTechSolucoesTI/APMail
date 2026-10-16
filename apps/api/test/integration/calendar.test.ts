@@ -1,5 +1,6 @@
 import { beforeAll, afterAll, it, expect } from 'vitest';
 import { randomUUID, randomBytes } from 'node:crypto';
+import { sql } from 'kysely';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -40,7 +41,7 @@ const app = await buildApp(
 );
 const cookies = new Map<string, string>();
 const call = (
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
   user = owner,
@@ -131,6 +132,134 @@ it('exige autenticação e cria calendários pessoais isolados', async () => {
     (await call('POST', '/api/calendar/events', { ...base, calendar_id: calendarId }, member))
       .statusCode,
   ).toBe(404);
+});
+it('persiste o padrão por usuário e organização, gera e-mail automático e protege assinaturas', async () => {
+  expect((await app.inject({ url: '/api/calendar/email-preferences' })).statusCode).toBe(401);
+  const initial = (await call('GET', '/api/calendar/email-preferences')).json();
+  expect(initial.message_template).toContain('{{titulo}}');
+  const signature = await db
+    .insertInto('signatures')
+    .values({
+      tenant_id: tenant,
+      user_id: owner,
+      name: 'Convites',
+      body_html: '<p>Equipe de projetos</p>',
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  const other = await db
+    .insertInto('signatures')
+    .values({
+      tenant_id: foreignTenant,
+      user_id: foreign,
+      name: 'Privada',
+      body_html: '<p>Outra organização</p>',
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  const preferences = {
+    message_template: 'Olá!\nConvite: {{titulo}}\nPor {{organizador}}',
+    mailbox_id: box,
+    signature_mode: 'selected',
+    signature_id: signature.id,
+  };
+  expect(
+    (
+      await call('PUT', '/api/calendar/email-preferences', {
+        ...preferences,
+        signature_id: other.id,
+      })
+    ).statusCode,
+  ).toBe(409);
+  expect(
+    (
+      await call(
+        'PUT',
+        '/api/calendar/email-preferences',
+        { ...preferences, signature_id: signature.id },
+        member,
+      )
+    ).statusCode,
+  ).not.toBe(200);
+  expect(
+    (
+      await call('PUT', '/api/calendar/email-preferences', {
+        ...preferences,
+        message_template: ' ',
+      })
+    ).statusCode,
+  ).toBe(400);
+  expect((await call('PUT', '/api/calendar/email-preferences', preferences)).statusCode).toBe(200);
+  expect((await call('GET', '/api/calendar/email-preferences')).json()).toEqual(preferences);
+  expect((await call('GET', '/api/calendar/email-preferences', undefined, member)).json()).toEqual(
+    initial,
+  );
+  expect((await call('GET', '/api/calendar/email-preferences', undefined, foreign)).json()).toEqual(
+    initial,
+  );
+  const create = () =>
+    call('POST', '/api/calendar/events', {
+      ...base,
+      calendar_id: calendarId,
+      title: 'Sem escrever um e-mail',
+      attendees: [{ address: 'automatic@qa.example' }],
+    });
+  const created = await create();
+  expect(created.statusCode, created.body).toBe(200);
+  expect(created.json().mailbox_id).toBe(box);
+  const find = (uid: string) =>
+    db
+      .selectFrom('outbox')
+      .selectAll()
+      .where('tenant_id', '=', tenant)
+      .where(sql<string>`calendar_payload->>'uid'`, '=', uid)
+      .executeTakeFirstOrThrow();
+  const mail = await find(created.json().uid);
+  expect(mail.body_html).toContain('Convite: Sem escrever um e-mail');
+  expect(mail.body_html).toContain('Equipe de projetos');
+  expect(mail.body_html).toContain('14:00');
+  expect(calendarInviteSchema.parse(mail.calendar_payload).method).toBe('REQUEST');
+  await db
+    .updateTable('signatures')
+    .set({ body_html: '<p>Assinatura modificada</p>' })
+    .where('id', '=', signature.id)
+    .execute();
+  expect((await find(created.json().uid)).body_html).toBe(mail.body_html);
+  expect(
+    (
+      await call('PUT', '/api/calendar/email-preferences', {
+        ...preferences,
+        signature_mode: 'none',
+      })
+    ).statusCode,
+  ).toBe(200);
+  const unsigned = await create();
+  expect((await find(unsigned.json().uid)).body_html).not.toContain('Assinatura modificada');
+  await db
+    .updateTable('signatures')
+    .set({ is_default: true })
+    .where('id', '=', signature.id)
+    .execute();
+  expect(
+    (
+      await call('PUT', '/api/calendar/email-preferences', {
+        ...preferences,
+        signature_mode: 'default',
+      })
+    ).statusCode,
+  ).toBe(200);
+  const automatic = await create();
+  expect((await find(automatic.json().uid)).body_html).toContain('Assinatura modificada');
+  await db
+    .deleteFrom('calendar_email_preferences')
+    .where('tenant_id', '=', tenant)
+    .where('user_id', '=', owner)
+    .execute();
+  await db
+    .updateTable('signatures')
+    .set({ is_default: false })
+    .where('id', '=', signature.id)
+    .execute();
 });
 it('cria, consulta, filtra, edita e impede sobrescrita concorrente', async () => {
   const created = await call('POST', '/api/calendar/events', {
@@ -224,6 +353,7 @@ it('salva reuniões e convites na mesma transação; recebe respostas e cancelam
     .selectAll()
     .where('tenant_id', '=', tenant)
     .where('calendar_payload', 'is not', null)
+    .where(sql<string>`calendar_payload->>'uid'`, '=', e.uid)
     .execute();
   expect(outbox).toHaveLength(1);
   expect(calendarInviteSchema.parse(outbox[0]!.calendar_payload).method).toBe('REQUEST');

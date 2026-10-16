@@ -24,6 +24,8 @@ import {
   buildCalendarInvite,
   calendarLocalInput,
   resolveCalendarInviteTimezone,
+  DEFAULT_INVITATION_MESSAGE,
+  invitationEmailPreferencesSchema,
 } from '@apmail/shared';
 import {
   requireTenant,
@@ -69,6 +71,45 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
       throw conflict('Selecione uma conta conectada para enviar convites.');
     return box;
   };
+  app.get('/api/calendar/email-preferences', async (req) => {
+    const c = requireTenant(req.ctx);
+    const row = await r.db
+      .selectFrom('calendar_email_preferences')
+      .selectAll()
+      .where('tenant_id', '=', c.tenantId)
+      .where('user_id', '=', c.userId)
+      .executeTakeFirst();
+    return {
+      message_template: row?.message_template ?? DEFAULT_INVITATION_MESSAGE,
+      mailbox_id: row?.mailbox_id ?? null,
+      signature_mode: row?.signature_mode ?? 'default',
+      signature_id: row?.signature_id ?? null,
+    };
+  });
+  app.put('/api/calendar/email-preferences', async (req) => {
+    const c = requireTenant(req.ctx),
+      body = invitationEmailPreferencesSchema.parse(req.body);
+    if (body.mailbox_id) await connected(c, body.mailbox_id);
+    if (body.signature_mode === 'selected') {
+      const signature = await r.db
+        .selectFrom('signatures')
+        .select('id')
+        .where('id', '=', body.signature_id!)
+        .where('tenant_id', '=', c.tenantId)
+        .where('user_id', '=', c.userId)
+        .where('deleted_at', 'is', null)
+        .executeTakeFirst();
+      if (!signature) throw conflict('Escolha uma assinatura disponível nas suas assinaturas.');
+    } else body.signature_id = null;
+    await r.db
+      .insertInto('calendar_email_preferences')
+      .values({ ...body, tenant_id: c.tenantId, user_id: c.userId })
+      .onConflict((oc) =>
+        oc.columns(['tenant_id', 'user_id']).doUpdateSet({ ...body, updated_at: new Date() }),
+      )
+      .execute();
+    return body;
+  });
   app.get('/api/calendars', async (req) => {
     const c = requireTenant(req.ctx);
     await r.db.transaction().execute((tx) => ensureCalendar(tx, c.tenantId, c.userId));
@@ -230,6 +271,15 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
       .object({ version: z.number().int().optional(), send_invitations: z.boolean().default(true) })
       .parse(req.body);
     const old = id ? (await owned(req.ctx, id)).row : null;
+    if (!old && !body.mailbox_id && body.attendees.length) {
+      const preferences = await r.db
+        .selectFrom('calendar_email_preferences')
+        .select('mailbox_id')
+        .where('tenant_id', '=', c.tenantId)
+        .where('user_id', '=', c.userId)
+        .executeTakeFirst();
+      body.mailbox_id = preferences?.mailbox_id ?? null;
+    }
     if (old?.external)
       throw conflict('Este evento é gerenciado pelo organizador. Responda pelo convite recebido.');
     if (old && control.version !== old.sequence)

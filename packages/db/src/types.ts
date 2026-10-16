@@ -90,6 +90,17 @@ export interface AuditLogs {
   tenant_id: string;
 }
 
+export interface CalendarEmailPreferences {
+  created_at: Generated<Timestamp>;
+  mailbox_id: string | null;
+  message_template: string | null;
+  signature_id: string | null;
+  signature_mode: Generated<string>;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
 export interface CalendarEvents {
   all_day: Generated<boolean>;
   attendees: Generated<Json>;
@@ -999,6 +1010,7 @@ export interface Users {
 export interface DB {
   attachments: Attachments;
   audit_logs: AuditLogs;
+  calendar_email_preferences: CalendarEmailPreferences;
   calendar_events: CalendarEvents;
   calendars: Calendars;
   chat_conversations: ChatConversations;

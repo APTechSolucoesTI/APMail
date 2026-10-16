@@ -20,6 +20,12 @@ O editor foi reorganizado em remetente/calendário, título, participantes obrig
 
 `meeting_url`, `description_html` sanitizado, disponibilidade e papel dos participantes são transportados pelo calendário e por MIME/ICS. A mensagem HTML do convite inclui data, fuso, local, participantes, descrição e acesso à reunião. ICS inclui URL/CONFERENCE, X-ALT-DESC, ROLE, TRANSP e indicação de disponibilidade para clientes compatíveis. Atualizar somente o link mantém o UID e o RSVP. Reagendar pode reiniciar a confirmação. Atualizações idênticas não criam novas saídas; mudanças salvas sem envio podem ser enviadas depois, uma única vez, mantendo a versão do evento.
 
+## E-mail automático de convites
+
+Em Preferências → E-mail padrão de convite, cada usuário pode salvar seu texto, conta de envio e assinatura por organização. O modelo já vem preenchido e aceita `{{titulo}}` e `{{organizador}}`; data, horário, fuso, local, participantes, pauta opcional e link são adicionados automaticamente. A assinatura pode ser a padrão da conta, uma específica ou nenhuma. Assinaturas específicas de uma conta só são incluídas quando essa conta envia o convite. O HTML da assinatura é preservado na mensagem enfileirada, com o suporte MIME/CID existente para imagens. O texto personalizado é aplicado a REQUEST; respostas e cancelamentos mantêm mensagens adequadas à operação, com a assinatura escolhida.
+
+A migration aditiva `0042_calendar_email_preferences.sql` inclui chave por usuário/organização, FKs, índices e RLS; o acesso ocorre exclusivamente pelas rotas autenticadas do backend, com verificação de permissão de envio e propriedade da assinatura. Não há alteração em mensagens já enfileiradas ou enviadas. Novas reuniões usam a conta preferida; com uma única conta disponível, ela já aparece selecionada na interface. A pauta não é uma etapa de redação obrigatória.
+
 ## Pop-ups persistentes
 
 A antecedência fica visível em cada convite: sem lembrete, no horário, 5/10/15/30 minutos, 1 hora, 1 dia ou minutos personalizados. O worker existente materializa o lembrete no banco e o processa independentemente da navegação. O horário de cada ocorrência é preservado separadamente da data de adiamento.

@@ -26,3 +26,4 @@ export * from './pst-exports.js';
 export * from './contact-resolution.js';
 export * from './mdn.js';
 export * from './calendar.js';
+export * from './invitation-email.js';

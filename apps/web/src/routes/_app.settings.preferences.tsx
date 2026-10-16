@@ -6,6 +6,7 @@ import { SchemaForm } from '@/components/forms/schema-form';
 import { meQuery } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
+import { InvitationEmailSettings } from '@/components/calendar/invitation-email-preferences';
 export const Route = createFileRoute('/_app/settings/preferences')({ component: Preferences });
 function Preferences() {
   const q = useQuery(meQuery);
@@ -17,6 +18,9 @@ function Preferences() {
         title="Preferências"
         description="Escolha como trabalhar e receber atualizações."
       />
+      <div className="mb-4">
+        <InvitationEmailSettings />
+      </div>
       <section className="max-w-2xl rounded-lg border bg-card p-4">
         <SchemaForm
           cancelLabel="Cancelar"

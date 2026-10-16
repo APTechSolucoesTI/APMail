@@ -125,6 +125,38 @@ export async function calendarEmail(
   to: string[],
 ) {
   if (!row.mailbox_id || !to.length) return null;
+  const preferences = await db
+    .selectFrom('calendar_email_preferences')
+    .selectAll()
+    .where('tenant_id', '=', row.tenant_id)
+    .where('user_id', '=', actor)
+    .executeTakeFirst();
+  // Resolve only signatures owned by this sender and compatible with this mailbox.
+  // Snapshot the HTML now so later edits never change an already queued invitation.
+  const signatures =
+    preferences?.signature_mode === 'none'
+      ? []
+      : await db
+          .selectFrom('signatures')
+          .select(['id', 'body_html', 'mailbox_id', 'is_default'])
+          .where('tenant_id', '=', row.tenant_id)
+          .where('user_id', '=', actor)
+          .where('deleted_at', 'is', null)
+          .where((eb) =>
+            eb.or([eb('mailbox_id', 'is', null), eb('mailbox_id', '=', row.mailbox_id)]),
+          )
+          .orderBy('created_at')
+          .execute();
+  const signature =
+    preferences?.signature_mode === 'selected'
+      ? signatures.find((s) => s.id === preferences.signature_id)
+      : (signatures.find((s) => s.is_default && s.mailbox_id === row.mailbox_id) ??
+        signatures.find((s) => s.is_default && !s.mailbox_id));
+  const html = calendarEmailHtml(invite, preferences?.message_template ?? undefined);
+  const bodyHtml = signature
+    ? html +
+      `<div data-apmail-signature="${signature.id}">${sanitizeEmailHtml(signature.body_html, '', false)}</div>`
+    : html;
   const outbox = await db
     .insertInto('outbox')
     .values({
@@ -138,7 +170,7 @@ export async function calendarEmail(
             ? 'Resposta: '
             : 'Convite: ') + invite.title
       ).replace(/[\r\n\0]/g, ' '),
-      body_html: calendarEmailHtml(invite),
+      body_html: bodyHtml,
       to_addresses: asJson(
         [...new Set(to.map((v) => v.toLowerCase()))].map((address) => ({ address, name: '' })),
       ),

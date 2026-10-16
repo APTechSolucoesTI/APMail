@@ -632,6 +632,23 @@ it('preferência permanece depois de logout e um novo login autenticado', async 
   expect((await call('GET', '/api/auth/me')).json().preferences.request_read_receipt).toBe(true);
 });
 it('envia convites MIME reais, aplica RSVP recebido e envia resposta explícita por SMTP local', async () => {
+  const signature = await db
+    .insertInto('signatures')
+    .values({
+      tenant_id: tenant,
+      user_id: owner,
+      name: 'Assinatura de convites',
+      body_html: '<p>Equipe APMail · Projetos</p>',
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  const preferences = await call('PUT', '/api/calendar/email-preferences', {
+    message_template: 'Olá!\nVocê recebeu um convite automático para {{titulo}}.',
+    mailbox_id: boxId,
+    signature_mode: 'selected',
+    signature_id: signature.id,
+  });
+  expect(preferences.statusCode, preferences.body).toBe(200);
   const calendars = (await call('GET', '/api/calendars')).json();
   const created = await call('POST', '/api/calendar/events', {
     calendar_id: calendars[0].id,
@@ -688,6 +705,8 @@ it('envia convites MIME reais, aplica RSVP recebido e envia resposta explícita 
   const invitationMail = await simpleParser(deliveries.at(-1)!.raw);
   expect(invitationMail.html).toContain('Entrar na reunião');
   expect(invitationMail.html).toContain('planejamento');
+  expect(invitationMail.html).toContain('convite automático para Reunião interoperável QA');
+  expect(invitationMail.html).toContain('Equipe APMail');
   const reply = calendarInviteSchema.parse({
     ...request!,
     method: 'REPLY',

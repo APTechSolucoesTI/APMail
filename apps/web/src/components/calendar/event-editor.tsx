@@ -7,6 +7,7 @@ import {
   calendarInstant,
   calendarLocalInput,
   type CalendarEventInput,
+  type InvitationEmailPreferences,
 } from '@apmail/shared';
 import { api } from '@/lib/api';
 import { useTenantId, canMailbox, type Mailbox } from '@/lib/auth';
@@ -64,7 +65,12 @@ export function EventEditor({
     queryKey: ['mailboxes', tenant],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
   });
-  const [form, setForm] = useState<CalendarEventInput>(() =>
+  const emailPreferences = useQuery({
+    queryKey: ['invitation-email-preferences', tenant],
+    queryFn: () => api<InvitationEmailPreferences>('/calendar/email-preferences'),
+  });
+  const [mailboxTouched, setMailboxTouched] = useState(false);
+  const [draftForm, setForm] = useState<CalendarEventInput>(() =>
     event
       ? {
           ...event,
@@ -95,6 +101,14 @@ export function EventEditor({
           reminder_minutes: 15,
         },
   );
+  const available = boxes.data?.filter((b) => canMailbox(b, 'send') && b.status === 'active') ?? [];
+  const preferred =
+    available.find((b) => b.id === emailPreferences.data?.mailbox_id) ??
+    (available.length === 1 ? available[0] : undefined);
+  const form =
+    !event && !mailboxTouched && !draftForm.mailbox_id
+      ? { ...draftForm, mailbox_id: preferred?.id ?? null }
+      : draftForm;
   const [localStart, setLocalStart] = useState(
     calendarLocalInput(original ? start : form.starts_at, form.timezone),
   );
@@ -303,7 +317,10 @@ export function EventEditor({
                   className={field + ' text-foreground'}
                   disabled={busy || !!event?.organizer}
                   value={form.mailbox_id ?? ''}
-                  onChange={(e) => update('mailbox_id', e.target.value || null)}
+                  onChange={(e) => {
+                    setMailboxTouched(true);
+                    update('mailbox_id', e.target.value || null);
+                  }}
                 >
                   <option value="">Escolher conta para enviar convites</option>
                   {boxes.data
@@ -486,7 +503,13 @@ export function EventEditor({
           )}
           {whole && (
             <div className="space-y-2">
-              <h3 className="text-sm font-medium">Descrição</h3>
+              <h3 className="text-sm font-medium">Pauta e observações (opcional)</h3>
+              {!readonly && (
+                <p className="text-xs text-muted-foreground">
+                  O e-mail do convite é montado automaticamente com o padrão e a assinatura
+                  definidos em Preferências.
+                </p>
+              )}
               {readonly ? (
                 <div className="rounded-md border p-3 text-sm">
                   {form.description_html ? (
