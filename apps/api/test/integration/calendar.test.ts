@@ -504,3 +504,171 @@ it('processa a antecedência do evento e evita notificações repetidas', async 
     .execute();
   expect(notices).toHaveLength(1);
 });
+it('configura antecedência do pop-up e mantém posse exclusiva entre abas', async () => {
+  const now = new Date(),
+    start = new Date(+now + 30 * 60000);
+  const created = await call('POST', '/api/calendar/events', {
+    ...base,
+    calendar_id: calendarId,
+    title: 'Pop-up com antecedência QA',
+    starts_at: start.toISOString(),
+    ends_at: new Date(+start + 3600000).toISOString(),
+    reminder_minutes: 10,
+    meeting_url: 'https://meet.google.com/abc-defg-hij',
+  });
+  expect(created.statusCode, created.body).toBe(200);
+  await sweepCalendarReminders(db, new Date(+now + 19 * 60000));
+  expect(
+    await db
+      .selectFrom('reminders')
+      .select('id')
+      .where('event_id', '=', created.json().id)
+      .where('status', '=', 'notified')
+      .execute(),
+  ).toHaveLength(0);
+  await sweepCalendarReminders(db, new Date(+now + 21 * 60000));
+  const a = randomUUID(),
+    b = randomUUID(),
+    path = '/api/reminders/alerts/claim';
+  const claims = await Promise.all([
+    call('POST', path, { client_id: a }),
+    call('POST', path, { client_id: b }),
+  ]);
+  const winner = claims.findIndex((res) =>
+    res.json().some((v: { event_id: string }) => v.event_id === created.json().id),
+  );
+  expect(winner).toBeGreaterThanOrEqual(0);
+  expect(claims[1 - winner]!.json()).toEqual([]);
+  const alert = claims[winner]!.json().find(
+    (v: { event_id: string }) => v.event_id === created.json().id,
+  );
+  expect(alert.meeting_url).toBe('https://meet.google.com/abc-defg-hij');
+  expect(alert.event_start_at).toBe(start.toISOString());
+  const ownerClient = winner === 0 ? a : b;
+  expect(
+    (await call('POST', path, { client_id: ownerClient }))
+      .json()
+      .some((v: { id: string }) => v.id === alert.id),
+  ).toBe(true);
+  expect((await call('POST', path, { client_id: randomUUID() }, member)).json()).toEqual([]);
+  await call('POST', '/api/reminders/alerts/release', { client_id: ownerClient });
+  expect(
+    (await call('POST', path, { client_id: ownerClient === a ? b : a }))
+      .json()
+      .some((v: { id: string }) => v.id === alert.id),
+  ).toBe(true);
+  await call('POST', '/api/reminders/' + alert.id + '/action', { action: 'snooze', minutes: 7 });
+  expect(
+    (await call('POST', path, { client_id: ownerClient === a ? b : a }))
+      .json()
+      .some((v: { id: string }) => v.id === alert.id),
+  ).toBe(false);
+  await sweepCalendarReminders(db, new Date(+now + 8 * 60000));
+  expect(
+    (
+      await db
+        .selectFrom('reminders')
+        .select('status')
+        .where('id', '=', alert.id)
+        .executeTakeFirstOrThrow()
+    ).status,
+  ).toBe('notified');
+  expect(
+    (await call('DELETE', '/api/calendar/events/' + created.json().id, { version: 0 })).statusCode,
+  ).toBe(200);
+  expect(
+    (
+      await db
+        .selectFrom('reminders')
+        .select('status')
+        .where('id', '=', alert.id)
+        .executeTakeFirstOrThrow()
+    ).status,
+  ).toBe('dismissed');
+});
+it('valida links e adiciona Meet sem perder RSVP nem duplicar convite idêntico', async () => {
+  const created = await call('POST', '/api/calendar/events', {
+    ...base,
+    calendar_id: calendarId,
+    mailbox_id: box,
+    title: 'Adicionar Meet depois QA',
+    attendees: [{ address: 'meet-guest@qa.example', name: 'Cliente', role: 'optional' }],
+  });
+  expect(created.statusCode).toBe(200);
+  let event = created.json();
+  const row = await db
+    .selectFrom('calendar_events')
+    .selectAll()
+    .where('id', '=', event.id)
+    .executeTakeFirstOrThrow();
+  await db.transaction().execute((tx) =>
+    applyCalendarMessage(
+      tx,
+      {
+        ...eventInvite(row, 'REPLY'),
+        dtstamp: '2030-10-15T12:00:00.000Z',
+        attendees: [{ address: 'meet-guest@qa.example', name: 'Cliente', status: 'ACCEPTED' }],
+      },
+      tenant,
+      box,
+      'meet-guest@qa.example',
+    ),
+  );
+  event = (await call('GET', '/api/calendar/events/' + event.id)).json();
+  const updated = await call('PATCH', '/api/calendar/events/' + event.id, {
+    ...event,
+    version: event.sequence,
+    meeting_url: 'https://meet.google.com/abc-defg-hij',
+    description_html: '<p>Pauta <strong>final</strong><script>alert(1)</script></p>',
+  });
+  expect(updated.statusCode, updated.body).toBe(200);
+  const next = updated.json();
+  expect(next.uid).toBe(event.uid);
+  expect(next.attendees[0].status).toBe('ACCEPTED');
+  expect(next.attendees[0].role).toBe('optional');
+  expect(next.description_html).not.toContain('<script');
+  const count = async () =>
+    Number(
+      (
+        await db
+          .selectFrom('outbox')
+          .select(({ fn }) => fn.countAll().as('n'))
+          .where('tenant_id', '=', tenant)
+          .where('subject', '=', 'Convite: Adicionar Meet depois QA')
+          .executeTakeFirstOrThrow()
+      ).n,
+    );
+  const before = await count();
+  expect(
+    (await call('PATCH', '/api/calendar/events/' + event.id, { ...next, version: next.sequence }))
+      .statusCode,
+  ).toBe(200);
+  expect(await count()).toBe(before);
+  const localSave = await call('PATCH', '/api/calendar/events/' + event.id, {
+    ...next,
+    version: next.sequence,
+    location: 'Sala atualizada',
+    send_invitations: false,
+  });
+  expect(localSave.statusCode).toBe(200);
+  expect(await count()).toBe(before);
+  const local = localSave.json();
+  const sendPending = () =>
+    call('PATCH', '/api/calendar/events/' + event.id, {
+      ...local,
+      version: local.sequence,
+      send_invitations: true,
+    });
+  const concurrent = await Promise.all([sendPending(), sendPending()]);
+  expect(concurrent.map((res) => res.statusCode)).toEqual([200, 200]);
+  expect(await count()).toBe(before + 1);
+  expect(
+    (
+      await call('POST', '/api/calendar/events', {
+        ...base,
+        calendar_id: calendarId,
+        meeting_url: 'javascript:alert(1)',
+      })
+    ).statusCode,
+  ).toBe(400);
+});

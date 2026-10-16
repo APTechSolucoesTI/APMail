@@ -44,6 +44,8 @@ import { registerGlobalSearch } from './modules/global-search.js';
 import { registerStorageQuotas } from './modules/storage-quotas.js';
 import { registerMailArchives } from './modules/mail-archives.js';
 import { registerCalendar } from './modules/calendar.js';
+import { registerGoogleIntegrations } from './modules/google/routes.js';
+import { registerReminderAlerts } from './modules/reminder-alerts.js';
 import { ApiError, requireTenantAdmin } from './authz/context.js';
 
 export async function buildApp(config: ApiEnv = readEnv()) {
@@ -56,6 +58,14 @@ export async function buildApp(config: ApiEnv = readEnv()) {
         ? false
         : {
             level: config.LOG_LEVEL,
+            serializers: {
+              req: (req: { method: string; url?: string; hostname?: string; ip?: string }) => ({
+                method: req.method,
+                url: req.url?.split('?')[0],
+                hostname: req.hostname,
+                remoteAddress: req.ip,
+              }),
+            },
             redact: [
               'req.headers.cookie',
               'req.headers.authorization',
@@ -251,6 +261,8 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await registerStorageQuotas(app, resources);
   await registerMailArchives(app, resources);
   await registerCalendar(app, resources);
+  await registerGoogleIntegrations(app, resources);
+  await registerReminderAlerts(app, resources);
   app.addHook('onClose', async () => {
     io.local.disconnectSockets(true);
     await sockets.drain();

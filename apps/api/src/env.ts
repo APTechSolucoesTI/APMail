@@ -16,6 +16,8 @@ export const envSchema = z.object({
   REDIS_URL: z.url(),
   SESSION_SECRET: key,
   CREDENTIALS_ENCRYPTION_KEY: key,
+  GOOGLE_CLIENT_ID: z.string().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().default(''),
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).default(30),
   ALLOW_PUBLIC_SIGNUP: z
     .enum(['true', 'false'])

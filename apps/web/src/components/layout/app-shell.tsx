@@ -27,6 +27,7 @@ import {
   ClipboardList,
   CalendarDays,
   BellRing,
+  Plug,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
@@ -43,9 +44,11 @@ import { BackgroundArchiveTransfers } from '@/components/settings/background-arc
 import { stopArchiveTransfersForUser } from '@/lib/mail-archive-transfers';
 import { NavigationLayout } from './navigation-layout';
 import { PostSendContacts } from '@/components/contacts/post-send-contacts';
+import { ReminderCenter } from '@/components/calendar/reminder-center';
 const settingsIcons: Record<string, typeof Mail> = {
   '/settings/profile': UserRound,
   '/settings/preferences': SlidersHorizontal,
+  '/settings/integrations': Plug,
   '/settings/signatures': Signature,
   '/settings/labels': Tags,
   '/settings/rules': ListFilter,
@@ -158,7 +161,9 @@ export function AppShell() {
           (notification.type === 'chat_message' && prefs?.notify_chat === false)
         )
           return;
-        toast.info(notification.title, { description: notification.body });
+        if (notification.type === 'reminder')
+          void client.invalidateQueries({ queryKey: ['calendar'] });
+        else toast.info(notification.title, { description: notification.body });
         if (
           prefs?.desktop_notifications &&
           document.visibilityState !== 'visible' &&
@@ -331,6 +336,7 @@ export function AppShell() {
             {[
               ['/settings/profile', 'Meu perfil'],
               ['/settings/preferences', 'Preferências'],
+              ['/settings/integrations', 'Integrações'],
               ['/settings/signatures', 'Assinaturas'],
               ['/settings/labels', 'Etiquetas'],
               ['/settings/rules', 'Regras'],
@@ -486,6 +492,7 @@ export function AppShell() {
                   />
                   <Outlet />
                   <PostSendContacts />
+                  <ReminderCenter key={me.data.current_tenant_id} />
                 </main>
               </div>
             </NavigationLayout>

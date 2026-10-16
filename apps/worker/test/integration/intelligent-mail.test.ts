@@ -637,6 +637,8 @@ it('envia convites MIME reais, aplica RSVP recebido e envia resposta explícita 
     calendar_id: calendars[0].id,
     mailbox_id: boxId,
     title: 'Reunião interoperável QA',
+    meeting_url: 'https://meet.google.com/abc-defg-hij',
+    description_html: '<p>Pauta de <strong>planejamento</strong>.</p>',
     starts_at: '2030-10-16T17:00:00.000Z',
     ends_at: '2030-10-16T18:00:00.000Z',
     attendees: [{ address: 'guest@qa.example', name: 'Convidado' }],
@@ -680,7 +682,12 @@ it('envia convites MIME reais, aplica RSVP recebido e envia resposta explícita 
     method: 'REQUEST',
     uid: event.uid,
     organizer: box.email_address,
+    meeting_url: 'https://meet.google.com/abc-defg-hij',
   });
+  expect(deliveries.at(-1)!.raw.toString()).toContain('text/calendar');
+  const invitationMail = await simpleParser(deliveries.at(-1)!.raw);
+  expect(invitationMail.html).toContain('Entrar na reunião');
+  expect(invitationMail.html).toContain('planejamento');
   const reply = calendarInviteSchema.parse({
     ...request!,
     method: 'REPLY',

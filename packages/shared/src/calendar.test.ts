@@ -7,6 +7,8 @@ import {
   calendarEventSchema,
   rruleSchema,
   resolveCalendarInviteTimezone,
+  googleMeetUrl,
+  meetingUrlSchema,
 } from './calendar.js';
 const invite = calendarInviteSchema.parse({
   method: 'REQUEST',
@@ -24,6 +26,32 @@ const invite = calendarInviteSchema.parse({
   rrule: null,
 });
 describe('iCalendar', () => {
+  it('transporta Meet, descrição HTML, disponibilidade e convidados opcionais no ICS', () => {
+    const value = {
+      ...invite,
+      meeting_url: 'https://meet.google.com/abc-defg-hij',
+      description_html: '<p>Pauta <strong>final</strong></p>',
+      availability: 'free' as const,
+      attendees: [{ ...invite.attendees[0]!, role: 'optional' as const }],
+    };
+    const raw = buildCalendarInvite(value),
+      parsed = parseCalendarInvite(raw);
+    expect(raw).toContain('CONFERENCE;VALUE=URI:https://meet.google.com/abc-defg-hij');
+    expect(raw).toContain('ROLE=OPT-PARTICIPANT');
+    expect(raw).toContain('TRANSP:TRANSPARENT');
+    expect(parsed).toMatchObject({
+      meeting_url: value.meeting_url,
+      description_html: value.description_html,
+      availability: 'free',
+      attendees: [{ role: 'optional' }],
+    });
+    expect(googleMeetUrl('https://meet.google.com/abc-defg-hij?authuser=1')).toBe(
+      value.meeting_url,
+    );
+    expect(googleMeetUrl('https://meet.google.com.evil.example/abc-defg-hij')).toBeNull();
+    expect(meetingUrlSchema.safeParse('javascript:alert(1)').success).toBe(false);
+    expect(meetingUrlSchema.safeParse('https://name:password@example.com').success).toBe(false);
+  });
   it('mantém DATE e TZID consistentes nas exceções de séries exportadas', () => {
     for (const all_day of [true, false]) {
       const raw = buildCalendarInvite({

@@ -30,6 +30,7 @@ import { Route as AppChatIndexRouteImport } from './routes/_app.chat.index'
 import { Route as AppChatConversationIdRouteImport } from './routes/_app.chat.$conversationId'
 import { Route as AppMailMailboxIdRouteImport } from './routes/_app.mail.$mailboxId'
 import { Route as AppSettingsAuditRouteImport } from './routes/_app.settings.audit'
+import { Route as AppSettingsIntegrationsRouteImport } from './routes/_app.settings.integrations'
 import { Route as AppSettingsLabelsRouteImport } from './routes/_app.settings.labels'
 import { Route as AppSettingsMailboxesRouteImport } from './routes/_app.settings.mailboxes'
 import { Route as AppSettingsPreferencesRouteImport } from './routes/_app.settings.preferences'
@@ -144,6 +145,11 @@ const AppSettingsAuditRoute = AppSettingsAuditRouteImport.update({
   path: '/settings/audit',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsIntegrationsRoute = AppSettingsIntegrationsRouteImport.update({
+  id: '/settings/integrations',
+  path: '/settings/integrations',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsLabelsRoute = AppSettingsLabelsRouteImport.update({
   id: '/settings/labels',
   path: '/settings/labels',
@@ -211,6 +217,7 @@ export interface FileRoutesByFullPath {
   '/chat/$conversationId': typeof AppChatConversationIdRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/labels': typeof AppSettingsLabelsRoute
   '/settings/mailboxes': typeof AppSettingsMailboxesRoute
   '/settings/preferences': typeof AppSettingsPreferencesRoute
@@ -241,6 +248,7 @@ export interface FileRoutesByTo {
   '/chat/$conversationId': typeof AppChatConversationIdRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/labels': typeof AppSettingsLabelsRoute
   '/settings/mailboxes': typeof AppSettingsMailboxesRoute
   '/settings/preferences': typeof AppSettingsPreferencesRoute
@@ -274,6 +282,7 @@ export interface FileRoutesById {
   '/_app/chat/$conversationId': typeof AppChatConversationIdRoute
   '/_app/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/_app/settings/audit': typeof AppSettingsAuditRoute
+  '/_app/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/_app/settings/labels': typeof AppSettingsLabelsRoute
   '/_app/settings/mailboxes': typeof AppSettingsMailboxesRoute
   '/_app/settings/preferences': typeof AppSettingsPreferencesRoute
@@ -307,6 +316,7 @@ export interface FileRouteTypes {
     | '/chat/$conversationId'
     | '/mail/$mailboxId'
     | '/settings/audit'
+    | '/settings/integrations'
     | '/settings/labels'
     | '/settings/mailboxes'
     | '/settings/preferences'
@@ -337,6 +347,7 @@ export interface FileRouteTypes {
     | '/chat/$conversationId'
     | '/mail/$mailboxId'
     | '/settings/audit'
+    | '/settings/integrations'
     | '/settings/labels'
     | '/settings/mailboxes'
     | '/settings/preferences'
@@ -369,6 +380,7 @@ export interface FileRouteTypes {
     | '/_app/chat/$conversationId'
     | '/_app/mail/$mailboxId'
     | '/_app/settings/audit'
+    | '/_app/settings/integrations'
     | '/_app/settings/labels'
     | '/_app/settings/mailboxes'
     | '/_app/settings/preferences'
@@ -542,6 +554,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsAuditRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/integrations': {
+      id: '/_app/settings/integrations'
+      path: '/settings/integrations'
+      fullPath: '/settings/integrations'
+      preLoaderRoute: typeof AppSettingsIntegrationsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/labels': {
       id: '/_app/settings/labels'
       path: '/settings/labels'
@@ -632,6 +651,7 @@ interface AppRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppMailMailboxIdRoute: typeof AppMailMailboxIdRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
+  AppSettingsIntegrationsRoute: typeof AppSettingsIntegrationsRoute
   AppSettingsLabelsRoute: typeof AppSettingsLabelsRoute
   AppSettingsMailboxesRoute: typeof AppSettingsMailboxesRoute
   AppSettingsPreferencesRoute: typeof AppSettingsPreferencesRoute
@@ -654,6 +674,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppMailMailboxIdRoute: AppMailMailboxIdRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
+  AppSettingsIntegrationsRoute: AppSettingsIntegrationsRoute,
   AppSettingsLabelsRoute: AppSettingsLabelsRoute,
   AppSettingsMailboxesRoute: AppSettingsMailboxesRoute,
   AppSettingsPreferencesRoute: AppSettingsPreferencesRoute,

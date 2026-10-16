@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays } from 'lucide-react';
+import { CalendarDays, Video } from 'lucide-react';
 import type { CalendarInvite } from '@apmail/shared';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
@@ -104,6 +104,14 @@ export function CalendarInvitation({
             Abrir calendário
           </a>
         </p>
+      )}
+      {invite.meeting_url && (
+        <Button asChild size="sm" variant="outline">
+          <a href={invite.meeting_url} target="_blank" rel="noopener noreferrer">
+            <Video />
+            Entrar na reunião
+          </a>
+        </Button>
       )}
       {invite.method === 'PUBLISH' && !event && (
         <Button size="sm" disabled={busy} onClick={() => void respond('ACCEPTED')}>

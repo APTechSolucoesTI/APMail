@@ -5,6 +5,22 @@ import { addressSchema } from './schemas/outbox.js';
 import { recurrenceSchema } from './recurrence.js';
 
 const timezoneSchema = recurrenceSchema.shape.timezone;
+export const meetingUrlSchema = z
+  .string()
+  .trim()
+  .max(2048)
+  .url()
+  .refine((value) => {
+    const authority = /^https:\/\/([^/?#\\\s]+)(?:[/?#]|$)/i.exec(value)?.[1];
+    return !!authority && !authority.includes('@');
+  }, 'Use um link de reunião HTTPS válido.');
+export function googleMeetUrl(value: string): string | null {
+  const match =
+    /^https:\/\/meet\.google\.com\/([a-z]{3}-[a-z]{4}-[a-z]{3})\/?(?:\?[^\s#]*)?(?:#[^\s]*)?$/.exec(
+      value.trim(),
+    );
+  return match ? 'https://meet.google.com/' + match[1] : null;
+}
 const timezoneDefinitionSchema = z
   .string()
   .max(50000)
@@ -18,6 +34,7 @@ const timezoneDefinitionSchema = z
   .nullable()
   .default(null);
 export const attendeeSchema = addressSchema.extend({
+  role: z.enum(['required', 'optional']).optional(),
   responded_at: z.iso.datetime().optional(),
   response_sequence: z.number().int().min(0).optional(),
   status: z.enum(['NEEDS-ACTION', 'ACCEPTED', 'DECLINED', 'TENTATIVE']).default('NEEDS-ACTION'),
@@ -76,6 +93,9 @@ export const calendarEventSchema = z
     mailbox_id: z.uuid().nullable().default(null),
     title: z.string().trim().min(1).max(300),
     description: z.string().max(20000).default(''),
+    description_html: z.string().max(100000).default(''),
+    meeting_url: meetingUrlSchema.nullable().default(null),
+    availability: z.enum(['busy', 'free', 'tentative', 'out_of_office']).default('busy'),
     location: z.string().max(500).default(''),
     starts_at: z.iso.datetime(),
     ends_at: z.iso.datetime(),
@@ -123,6 +143,9 @@ export const calendarInviteSchema = z
     dtstamp: z.iso.datetime().optional(),
     title: z.string().max(300),
     description: z.string().max(20000),
+    description_html: z.string().max(100000).default(''),
+    meeting_url: meetingUrlSchema.nullable().default(null),
+    availability: z.enum(['busy', 'free', 'tentative', 'out_of_office']).default('busy'),
     location: z.string().max(500),
     category: z.string().max(100).default(''),
     is_private: z.boolean().default(false),
@@ -353,6 +376,7 @@ export function parseCalendarInvite(
                   address: email(p.getFirstValue()),
                   name: String(p.getParameter('cn') ?? ''),
                   status: p.getParameter('partstat') || 'NEEDS-ACTION',
+                  role: p.getParameter('role') === 'OPT-PARTICIPANT' ? 'optional' : 'required',
                 })),
               ),
             }
@@ -368,6 +392,18 @@ export function parseCalendarInvite(
         : undefined,
       title: event.summary || 'Compromisso',
       description: (event.description || '').slice(0, 20000),
+      description_html: text(component, 'x-alt-desc').slice(0, 100000),
+      meeting_url: (() => {
+        const candidate =
+          text(component, 'conference') ||
+          text(component, 'x-google-conference') ||
+          googleMeetUrl(text(component, 'url'));
+        return meetingUrlSchema.safeParse(candidate).success ? candidate : null;
+      })(),
+      availability:
+        text(component, 'transp').toUpperCase() === 'TRANSPARENT'
+          ? 'free'
+          : text(component, 'x-apmail-availability') || 'busy',
       location: (event.location || '').slice(0, 500),
       category: text(component, 'categories').slice(0, 100),
       is_private: text(component, 'class').toUpperCase() === 'PRIVATE',
@@ -376,6 +412,7 @@ export function parseCalendarInvite(
         address: email(p.getFirstValue()),
         name: String(p.getParameter('cn') ?? ''),
         status: p.getParameter('partstat') || 'NEEDS-ACTION',
+        role: p.getParameter('role') === 'OPT-PARTICIPANT' ? 'optional' : 'required',
       })),
       starts_at: start,
       ends_at: end,
@@ -410,7 +447,34 @@ export function buildCalendarInvite(value: CalendarInvite): string {
     event = new ICAL.Event(component);
   event.uid = v.uid;
   event.summary = v.title;
-  event.description = v.description;
+  event.description =
+    v.description +
+    (v.meeting_url && !v.description.includes(v.meeting_url)
+      ? '\n\nEntrar na reunião: ' + v.meeting_url
+      : '');
+  if (v.description_html) {
+    const p = new ICAL.Property('x-alt-desc');
+    p.setParameter('fmttype', 'text/html');
+    p.setValue(v.description_html);
+    component.addProperty(p);
+  }
+  if (v.meeting_url) {
+    component.updatePropertyWithValue('url', v.meeting_url);
+    const p = new ICAL.Property('conference');
+    p.setParameter('value', 'URI');
+    p.setValue(v.meeting_url);
+    component.addProperty(p);
+    if (googleMeetUrl(v.meeting_url))
+      component.updatePropertyWithValue('x-google-conference', v.meeting_url);
+  }
+  component.updatePropertyWithValue('transp', v.availability === 'free' ? 'TRANSPARENT' : 'OPAQUE');
+  component.updatePropertyWithValue(
+    'x-microsoft-cdo-busystatus',
+    { free: 'FREE', busy: 'BUSY', tentative: 'TENTATIVE', out_of_office: 'OOF' }[v.availability],
+  );
+  if (v.availability === 'tentative' && v.method !== 'CANCEL')
+    component.updatePropertyWithValue('status', 'TENTATIVE');
+  component.updatePropertyWithValue('x-apmail-availability', v.availability);
   event.location = v.location;
   event.startDate = v.all_day
     ? ICAL.Time.fromDateString(formatInTimeZone(new Date(v.starts_at), v.timezone, 'yyyy-MM-dd'))
@@ -432,6 +496,7 @@ export function buildCalendarInvite(value: CalendarInvite): string {
     property.setValue('mailto:' + a.address);
     property.setParameter('cn', a.name);
     property.setParameter('partstat', a.status);
+    property.setParameter('role', a.role === 'optional' ? 'OPT-PARTICIPANT' : 'REQ-PARTICIPANT');
     if (v.method === 'REQUEST') property.setParameter('rsvp', 'TRUE');
     component.addProperty(property);
   }
@@ -477,6 +542,10 @@ export function buildCalendarInvite(value: CalendarInvite): string {
           property.setValue('mailto:' + attendee.address);
           property.setParameter('cn', attendee.name);
           property.setParameter('partstat', attendee.status);
+          property.setParameter(
+            'role',
+            attendee.role === 'optional' ? 'OPT-PARTICIPANT' : 'REQ-PARTICIPANT',
+          );
           if (v.method === 'REQUEST') property.setParameter('rsvp', 'TRUE');
           override.addProperty(property);
         }

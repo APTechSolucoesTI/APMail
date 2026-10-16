@@ -80,6 +80,8 @@ services:
     environment:
       <<: *server-env
       API_PORT: 3001
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     volumes: [storage:/data/storage]
     expose: ['3001']
     depends_on:

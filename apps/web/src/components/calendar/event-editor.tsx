@@ -7,7 +7,6 @@ import {
   calendarInstant,
   calendarLocalInput,
   type CalendarEventInput,
-  type CalendarAttendee,
 } from '@apmail/shared';
 import { api } from '@/lib/api';
 import { useTenantId, canMailbox, type Mailbox } from '@/lib/auth';
@@ -24,11 +23,21 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { RichTextEditor } from '@/components/forms/rich-text-editor';
+import { EventSchedule } from './event-schedule';
+import { OnlineMeeting } from './online-meeting';
 import { TimezoneSelect } from '@/components/forms/timezone-select';
 import { EmailChipInput } from '@/components/mail/email-chip-input';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
-import { Trash2, CalendarDays, Download } from 'lucide-react';
+import {
+  Trash2,
+  CalendarDays,
+  Download,
+  Send,
+  UsersRound,
+  MapPin,
+  ChevronDown,
+} from 'lucide-react';
 
 export function EventEditor({
   calendars,
@@ -68,6 +77,9 @@ export function EventEditor({
           mailbox_id: null,
           title: '',
           description: '',
+          description_html: '',
+          meeting_url: null,
+          availability: 'busy',
           location: '',
           starts_at: start,
           ends_at: end,
@@ -99,6 +111,10 @@ export function EventEditor({
       form.reminder_minutes !== null &&
         !reminderOptions.some((o) => o.value === String(form.reminder_minutes)),
     );
+  const [optionalOpen, setOptionalOpen] = useState(
+    !!event?.attendees.some((a) => a.role === 'optional'),
+  );
+  const [sendUpdates, setSendUpdates] = useState(true);
   const update = <K extends keyof CalendarEventInput>(key: K, value: CalendarEventInput[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
   const readonly = event?.external;
@@ -155,11 +171,13 @@ export function EventEditor({
       else
         await api('/calendar/events' + (event ? '/' + event.id : ''), {
           method: event ? 'PATCH' : 'POST',
-          body: { ...value, version: event?.sequence, send_invitations: true },
+          body: { ...value, version: event?.sequence, send_invitations: sendUpdates },
         });
       await client.invalidateQueries({ queryKey: ['calendar'] });
       toast.success(
-        form.attendees.length ? 'Reunião salva e convites na fila de envio.' : 'Compromisso salvo.',
+        form.attendees.length && sendUpdates
+          ? 'Reunião salva e convites na fila de envio.'
+          : 'Compromisso salvo.',
       );
       onClose();
     } catch (e) {
@@ -200,6 +218,21 @@ export function EventEditor({
     }
   };
   const field = 'h-10 w-full rounded-md border border-input bg-card px-3 text-sm';
+  const whole = scope !== 'occurrence' || readonly;
+  const recipients = (role: 'required' | 'optional', values: { name: string; address: string }[]) =>
+    update('attendees', [
+      ...form.attendees.filter(
+        (a) =>
+          (a.role ?? 'required') !== role &&
+          !values.some((value) => value.address.toLowerCase() === a.address.toLowerCase()),
+      ),
+      ...values.map((a) => ({
+        ...form.attendees.find((old) => old.address === a.address),
+        ...a,
+        role,
+        status: form.attendees.find((old) => old.address === a.address)?.status ?? 'NEEDS-ACTION',
+      })),
+    ]);
   return (
     <Dialog
       open
@@ -207,48 +240,53 @@ export function EventEditor({
         if (!open && !busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl" showCloseButton={!busy}>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+      <DialogContent
+        className="flex max-h-[94dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
+        showCloseButton={!busy}
+      >
+        <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12 text-left">
+          <DialogTitle className="flex items-center gap-2 text-lg">
             <CalendarDays className="size-5 text-primary" />
             {event ? 'Detalhes do compromisso' : 'Novo compromisso'}
           </DialogTitle>
           <DialogDescription>
             {readonly
-              ? 'Evento gerenciado pelo organizador. As respostas são enviadas pelo convite na caixa de entrada.'
-              : 'Organize seu tempo e convide participantes por e-mail.'}
+              ? 'Organizado por ' + (event.organizer ?? 'outro participante')
+              : 'Organize o compromisso e envie o convite pela sua caixa de e-mail.'}
           </DialogDescription>
         </DialogHeader>
         <form
-          className="space-y-4"
+          id="calendar-event-form"
+          className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5"
           onSubmit={(e) => {
             e.preventDefault();
             void persist();
           }}
         >
           {event?.rrule && original && (
-            <label className="block space-y-1 text-sm">
+            <label className="flex flex-wrap items-center gap-3 text-sm">
               Alterar
               <select
                 aria-label="Alterar"
-                className={field}
+                className={field + ' max-w-64'}
                 value={scope}
                 disabled={readonly || busy}
                 onChange={(e) => {
-                  const scope = e.target.value as 'series' | 'occurrence';
-                  setScope(scope);
-                  if (scope === 'series') {
-                    update('title', event.title);
-                    setLocalStart(calendarLocalInput(event.starts_at, form.timezone));
-                    setLocalEnd(calendarLocalInput(event.ends_at, form.timezone));
-                  } else {
-                    update(
-                      'title',
-                      event.exceptions.find((ex) => ex.original === original)?.title ?? event.title,
-                    );
-                    setLocalStart(calendarLocalInput(start, form.timezone));
-                    setLocalEnd(calendarLocalInput(end, form.timezone));
-                  }
+                  const next = e.target.value as 'series' | 'occurrence';
+                  setScope(next);
+                  update(
+                    'title',
+                    next === 'series'
+                      ? event.title
+                      : (event.exceptions.find((ex) => ex.original === original)?.title ??
+                          event.title),
+                  );
+                  setLocalStart(
+                    calendarLocalInput(next === 'series' ? event.starts_at : start, form.timezone),
+                  );
+                  setLocalEnd(
+                    calendarLocalInput(next === 'series' ? event.ends_at : end, form.timezone),
+                  );
                 }}
               >
                 <option value="occurrence">Somente esta ocorrência</option>
@@ -256,240 +294,34 @@ export function EventEditor({
               </select>
             </label>
           )}
-          <fieldset disabled={busy || readonly} className="space-y-4 disabled:opacity-80">
-            <div className="space-y-1">
-              <Label htmlFor="event-title">Título</Label>
-              <Input
-                id="event-title"
-                required
-                maxLength={300}
-                value={form.title}
-                onChange={(e) => update('title', e.target.value)}
-                placeholder="Adicionar um título"
-                autoFocus
-              />
-            </div>
-            {(scope !== 'occurrence' || readonly) && (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="space-y-1 text-sm">
-                  Calendário
-                  <select
-                    className={field}
-                    value={form.calendar_id}
-                    onChange={(e) => update('calendar_id', e.target.value)}
-                  >
-                    {calendars.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
+          {whole && !readonly && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="space-y-1 text-xs text-muted-foreground">
+                De
+                <select
+                  aria-label="Conta organizadora"
+                  className={field + ' text-foreground'}
+                  disabled={busy || !!event?.organizer}
+                  value={form.mailbox_id ?? ''}
+                  onChange={(e) => update('mailbox_id', e.target.value || null)}
+                >
+                  <option value="">Escolher conta para enviar convites</option>
+                  {boxes.data
+                    ?.filter((b) => canMailbox(b, 'send') && b.status === 'active')
+                    .map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} · {b.email_address}
                       </option>
                     ))}
-                  </select>
-                </label>
-                <label className="space-y-1 text-sm">
-                  Fuso horário
-                  <TimezoneSelect
-                    id="event-timezone"
-                    value={form.timezone}
-                    onChange={(value) => {
-                      update('timezone', value);
-                      update('timezone_definition', null);
-                    }}
-                  />
-                </label>
-              </div>
-            )}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="space-y-1 text-sm">
-                Início
-                <Input
-                  aria-label="Início"
-                  type={form.all_day ? 'date' : 'datetime-local'}
-                  required
-                  value={form.all_day ? localStart.slice(0, 10) : localStart}
-                  onChange={(e) => setLocalStart(e.target.value)}
-                />
+                </select>
               </label>
-              <label className="space-y-1 text-sm">
-                Término{form.all_day ? ' (dia seguinte ao último dia)' : ''}
-                <Input
-                  aria-label="Término"
-                  type={form.all_day ? 'date' : 'datetime-local'}
-                  required
-                  value={form.all_day ? localEnd.slice(0, 10) : localEnd}
-                  onChange={(e) => setLocalEnd(e.target.value)}
-                />
-              </label>
-            </div>
-            {(scope !== 'occurrence' || readonly) && (
-              <>
-                <div className="flex flex-wrap gap-4 text-sm">
-                  <label className="flex min-h-8 items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={form.all_day}
-                      onChange={(e) => update('all_day', e.target.checked)}
-                    />
-                    Dia inteiro
-                  </label>
-                  <label className="flex min-h-8 items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={form.is_private}
-                      onChange={(e) => update('is_private', e.target.checked)}
-                    />
-                    Privado
-                  </label>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="event-location">Localização</Label>
-                  <Input
-                    id="event-location"
-                    maxLength={500}
-                    value={form.location}
-                    onChange={(e) => update('location', e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <RecurrenceFields
-                    value={form.rrule}
-                    onChange={(value) => update('rrule', value)}
-                    timezone={form.timezone}
-                    disabled={scope === 'occurrence'}
-                  />
-                  <label className="space-y-1 text-sm">
-                    Lembrete
-                    <select
-                      aria-label="Antecedência do lembrete"
-                      className={field}
-                      value={
-                        customReminder
-                          ? 'custom'
-                          : form.reminder_minutes === null
-                            ? ''
-                            : String(form.reminder_minutes)
-                      }
-                      onChange={(e) => {
-                        setCustomReminder(e.target.value === 'custom');
-                        if (e.target.value !== 'custom')
-                          update(
-                            'reminder_minutes',
-                            e.target.value === '' ? null : Number(e.target.value),
-                          );
-                      }}
-                    >
-                      {reminderOptions.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                {customReminder && (
-                  <label className="block space-y-1 text-sm">
-                    Minutos antes
-                    <Input
-                      type="number"
-                      min={0}
-                      max={525600}
-                      value={form.reminder_minutes ?? 15}
-                      onChange={(e) => update('reminder_minutes', Number(e.target.value))}
-                    />
-                  </label>
-                )}
-                <details className="rounded-md border p-3" open={!!form.attendees.length}>
-                  <summary className="cursor-pointer text-sm font-medium">
-                    Participantes e conta organizadora
-                  </summary>
-                  <div className="mt-3 space-y-3">
-                    <label className="block space-y-1 text-sm">
-                      Enviar convites por
-                      <select
-                        aria-label="Conta organizadora"
-                        className={field}
-                        value={form.mailbox_id ?? ''}
-                        onChange={(e) => update('mailbox_id', e.target.value || null)}
-                      >
-                        <option value="">Sem envio de convites</option>
-                        {boxes.data
-                          ?.filter((b) => canMailbox(b, 'send') && b.status === 'active')
-                          .map((b) => (
-                            <option key={b.id} value={b.id}>
-                              {b.name} · {b.email_address}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                    {form.mailbox_id && (
-                      <EmailChipInput
-                        label="Participantes"
-                        mailboxId={form.mailbox_id}
-                        value={form.attendees}
-                        onChange={(v) =>
-                          update(
-                            'attendees',
-                            v.map(
-                              (a) =>
-                                ({
-                                  ...a,
-                                  status:
-                                    form.attendees.find((old) => old.address === a.address)
-                                      ?.status ?? 'NEEDS-ACTION',
-                                }) as CalendarAttendee,
-                            ),
-                          )
-                        }
-                      />
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      Ao salvar, novos convites ou atualizações são enviados pela conta selecionada.
-                    </p>
-                  </div>
-                </details>
-                <div className="grid grid-cols-[1fr_auto] gap-3">
-                  <label className="space-y-1 text-sm">
-                    Categoria
-                    <Input
-                      maxLength={100}
-                      value={form.category}
-                      onChange={(e) => update('category', e.target.value)}
-                    />
-                  </label>
-                  <label className="space-y-1 text-sm">
-                    Cor
-                    <Input
-                      type="color"
-                      className="w-16"
-                      value={
-                        form.color ??
-                        calendars.find((c) => c.id === form.calendar_id)?.color ??
-                        '#1686A7'
-                      }
-                      onChange={(e) => update('color', e.target.value)}
-                    />
-                  </label>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="event-description">Descrição</Label>
-                  <Textarea
-                    id="event-description"
-                    maxLength={20000}
-                    rows={4}
-                    value={form.description}
-                    onChange={(e) => update('description', e.target.value)}
-                  />
-                </div>
-              </>
-            )}
-          </fieldset>
-          {readonly && (
-            <fieldset disabled={busy} className="space-y-3 rounded-md border p-3">
-              <legend className="px-1 text-sm font-medium">Suas preferências</legend>
-              <label className="block space-y-1 text-sm">
-                Calendário pessoal
+              <label className="space-y-1 text-xs text-muted-foreground">
+                Calendário
                 <select
-                  className={field}
+                  aria-label="Calendário"
+                  className={field + ' text-foreground'}
                   value={form.calendar_id}
+                  disabled={busy}
                   onChange={(e) => update('calendar_id', e.target.value)}
                 >
                   {calendars.map((c) => (
@@ -499,10 +331,109 @@ export function EventEditor({
                   ))}
                 </select>
               </label>
-              <label className="block space-y-1 text-sm">
-                Seu lembrete
+            </div>
+          )}
+          <fieldset disabled={busy || readonly} className="min-w-0 space-y-5 disabled:opacity-90">
+            <div>
+              <Label htmlFor="event-title" className="sr-only">
+                Título
+              </Label>
+              <Input
+                id="event-title"
+                required
+                maxLength={300}
+                value={form.title}
+                onChange={(e) => update('title', e.target.value)}
+                placeholder="Adicionar um título"
+                autoFocus
+                className="h-12 rounded-none border-0 border-b bg-transparent px-0 text-xl font-semibold shadow-none md:text-xl"
+              />
+            </div>
+            {whole && !readonly && (
+              <section aria-label="Convidados" className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="flex items-center gap-2 text-sm font-medium">
+                    <UsersRound className="size-4 text-muted-foreground" />
+                    Participantes
+                  </h3>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setOptionalOpen(!optionalOpen)}
+                  >
+                    {optionalOpen ? 'Ocultar opcionais' : 'Adicionar opcionais'}
+                  </Button>
+                </div>
+                {form.mailbox_id ? (
+                  <>
+                    <EmailChipInput
+                      label="Participantes obrigatórios"
+                      compact={false}
+                      mailboxId={form.mailbox_id}
+                      value={form.attendees.filter((a) => a.role !== 'optional')}
+                      onChange={(values) => recipients('required', values)}
+                    />
+                    {optionalOpen && (
+                      <EmailChipInput
+                        label="Participantes opcionais"
+                        compact={false}
+                        mailboxId={form.mailbox_id}
+                        value={form.attendees.filter((a) => a.role === 'optional')}
+                        onChange={(values) => recipients('optional', values)}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <p className="rounded-md border border-dashed px-3 py-3 text-xs text-muted-foreground">
+                    Escolha a conta no campo De para adicionar participantes e enviar convites.
+                  </p>
+                )}
+              </section>
+            )}
+            <EventSchedule
+              start={localStart}
+              end={localEnd}
+              onChange={(start, end) => {
+                setLocalStart(start);
+                setLocalEnd(end);
+              }}
+              timezone={form.timezone}
+              allDay={form.all_day}
+              onAllDayChange={(value) => update('all_day', value)}
+              disabled={busy || readonly}
+              allowAllDay={scope !== 'occurrence'}
+            />
+            {whole && (
+              <>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-3 size-4 text-muted-foreground" />
+                  <Label htmlFor="event-location" className="sr-only">
+                    Localização
+                  </Label>
+                  <Input
+                    id="event-location"
+                    className="h-10 pl-9"
+                    placeholder="Adicionar local ou sala"
+                    maxLength={500}
+                    value={form.location}
+                    onChange={(e) => update('location', e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+          </fieldset>
+          {whole && (
+            <section
+              aria-label="Configuração do lembrete"
+              className="flex flex-wrap items-end gap-3 rounded-md bg-muted/40 p-3"
+            >
+              {' '}
+              <label className="space-y-1 text-xs">
+                Exibir pop-up de lembrete
                 <select
-                  aria-label="Seu lembrete"
+                  aria-label="Antecedência do lembrete"
+                  disabled={busy}
                   className={field}
                   value={
                     customReminder
@@ -528,10 +459,11 @@ export function EventEditor({
                 </select>
               </label>
               {customReminder && (
-                <label className="block space-y-1 text-sm">
+                <label className="space-y-1 text-xs">
                   Minutos antes
                   <Input
                     type="number"
+                    disabled={busy}
                     min={0}
                     max={525600}
                     value={form.reminder_minutes ?? 15}
@@ -539,74 +471,241 @@ export function EventEditor({
                   />
                 </label>
               )}
-              <p className="text-xs text-muted-foreground">
-                Estas preferências valem para o seu calendário e os seus lembretes.
+              <p className="max-w-xs pb-2 text-xs text-muted-foreground">
+                O pop-up aparecerá neste horário antes do compromisso, em qualquer seção do APMail.
               </p>
-            </fieldset>
+            </section>
           )}
-          {!!shownAttendees?.length && (
-            <div className="space-y-1 text-xs text-muted-foreground">
-              {shownAttendees.map((a) => (
-                <p key={a.address}>
-                  {a.name || a.address} ·{' '}
-                  {
-                    {
-                      ACCEPTED: 'Aceitou',
-                      DECLINED: 'Recusou',
-                      TENTATIVE: 'Tentativa',
-                      'NEEDS-ACTION': 'Aguardando resposta',
-                    }[a.status]
+          {whole && (
+            <OnlineMeeting
+              value={form.meeting_url}
+              onChange={(value) => update('meeting_url', value)}
+              disabled={busy}
+              readonly={readonly}
+            />
+          )}
+          {whole && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium">Descrição</h3>
+              {readonly ? (
+                <div className="rounded-md border p-3 text-sm">
+                  {form.description_html ? (
+                    <div dangerouslySetInnerHTML={{ __html: form.description_html }} />
+                  ) : (
+                    <p className="whitespace-pre-wrap">{form.description || 'Sem descrição.'}</p>
+                  )}
+                </div>
+              ) : (
+                <RichTextEditor
+                  compact
+                  label="Descrição do compromisso"
+                  value={
+                    form.description_html ||
+                    '<p>' +
+                      form.description
+                        .replaceAll('&', '&amp;')
+                        .replaceAll('<', '&lt;')
+                        .replaceAll('\n', '<br>') +
+                      '</p>'
                   }
-                </p>
-              ))}
+                  onChange={(value) => update('description_html', value)}
+                />
+              )}
             </div>
           )}
+          {whole && (
+            <details className="group rounded-lg border" open={customReminder || undefined}>
+              <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-sm font-medium">
+                Opções do compromisso
+                <ChevronDown className="size-4 text-muted-foreground group-open:rotate-180" />
+              </summary>
+              <div className="grid gap-4 border-t p-3 sm:grid-cols-2">
+                {!readonly && (
+                  <label className="space-y-1 text-xs">
+                    Disponibilidade
+                    <select
+                      aria-label="Disponibilidade"
+                      className={field}
+                      disabled={busy}
+                      value={form.availability}
+                      onChange={(e) =>
+                        update('availability', e.target.value as CalendarEventInput['availability'])
+                      }
+                    >
+                      <option value="busy">Ocupado</option>
+                      <option value="free">Livre</option>
+                      <option value="tentative">Provisório</option>
+                      <option value="out_of_office">Fora do escritório</option>
+                    </select>
+                  </label>
+                )}
+                {!readonly && (
+                  <div>
+                    <p className="mb-1 text-xs">Fuso horário</p>
+                    <TimezoneSelect
+                      id="event-timezone"
+                      value={form.timezone}
+                      onChange={(value) => {
+                        update('timezone', value);
+                        update('timezone_definition', null);
+                      }}
+                    />
+                  </div>
+                )}
+                {readonly && (
+                  <label className="space-y-1 text-xs">
+                    Calendário
+                    <select
+                      aria-label="Calendário"
+                      className={field}
+                      disabled={busy}
+                      value={form.calendar_id}
+                      onChange={(e) => update('calendar_id', e.target.value)}
+                    >
+                      {calendars.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <label className="space-y-1 text-xs">
+                  Categoria
+                  <Input
+                    maxLength={100}
+                    disabled={busy}
+                    value={form.category}
+                    onChange={(e) => update('category', e.target.value)}
+                  />
+                </label>
+                <label className="flex items-center gap-3 text-xs">
+                  Cor
+                  <Input
+                    type="color"
+                    className="w-14"
+                    disabled={busy}
+                    value={
+                      form.color ??
+                      calendars.find((c) => c.id === form.calendar_id)?.color ??
+                      '#1686A7'
+                    }
+                    onChange={(e) => update('color', e.target.value)}
+                  />
+                </label>
+                <label className="flex min-h-10 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    disabled={busy}
+                    checked={form.is_private}
+                    onChange={(e) => update('is_private', e.target.checked)}
+                  />
+                  Evento privado
+                </label>
+                {!readonly && (
+                  <div className="sm:col-span-2">
+                    <RecurrenceFields
+                      value={form.rrule}
+                      onChange={(value) => update('rrule', value)}
+                      timezone={form.timezone}
+                    />
+                  </div>
+                )}
+              </div>
+            </details>
+          )}
+          {!!shownAttendees?.length && (
+            <section className="rounded-lg border p-3">
+              <h3 className="mb-2 text-sm font-medium">Respostas dos participantes</h3>
+              <ul className="divide-y">
+                {shownAttendees.map((a) => (
+                  <li
+                    key={a.address}
+                    className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs"
+                  >
+                    <span className="min-w-0">
+                      <span className="font-medium">{a.name || a.address}</span>
+                      {a.name && <span className="ml-2 text-muted-foreground">{a.address}</span>}
+                      {a.role === 'optional' && (
+                        <span className="ml-2 text-muted-foreground">Opcional</span>
+                      )}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {
+                        {
+                          ACCEPTED: 'Aceitou',
+                          DECLINED: 'Recusou',
+                          TENTATIVE: 'Talvez',
+                          'NEEDS-ACTION': 'Aguardando resposta',
+                        }[a.status]
+                      }
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {event && !readonly && !!form.attendees.length && (
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={sendUpdates}
+                onChange={(e) => setSendUpdates(e.target.checked)}
+                disabled={busy}
+              />
+              Enviar atualização aos participantes
+            </label>
+          )}
           {error && (
-            <p role="alert" className="text-sm text-destructive">
+            <p
+              role="alert"
+              className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+            >
               {error}
             </p>
           )}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-            <div className="flex gap-1">
-              {event && (
-                <>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => setDeleting(true)}
-                  >
-                    <Trash2 />
-                    Cancelar
-                  </Button>
-                  <Button asChild type="button" variant="ghost" size="sm">
-                    <a href={'/api/calendar/events/' + event.id + '/ics'} download>
-                      <Download />
-                      ICS
-                    </a>
-                  </Button>
-                </>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
-                Fechar
-              </Button>
-              {
-                <Button disabled={busy} type="submit">
-                  {busy
-                    ? 'Salvando…'
-                    : readonly
-                      ? 'Salvar preferências'
-                      : form.attendees.length
-                        ? 'Salvar e enviar'
-                        : 'Salvar'}
-                </Button>
-              }
-            </div>
-          </div>
         </form>
+        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t bg-card px-5 py-3">
+          <div className="flex gap-1">
+            {event && (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => setDeleting(true)}
+                >
+                  <Trash2 />
+                  Cancelar evento
+                </Button>
+                <Button asChild type="button" variant="ghost" size="sm">
+                  <a href={'/api/calendar/events/' + event.id + '/ics'} download>
+                    <Download />
+                    ICS
+                  </a>
+                </Button>
+              </>
+            )}
+          </div>
+          <div className="ml-auto flex gap-2">
+            <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
+              Fechar
+            </Button>
+            <Button disabled={busy} form="calendar-event-form" type="submit">
+              {!readonly && !!form.attendees.length && sendUpdates && <Send />}
+              {busy
+                ? 'Salvando…'
+                : readonly
+                  ? 'Salvar preferências'
+                  : form.attendees.length && sendUpdates
+                    ? event
+                      ? 'Enviar atualização'
+                      : 'Enviar convite'
+                    : 'Salvar'}
+            </Button>
+          </div>
+        </footer>
         <ConfirmDialog
           open={deleting}
           onOpenChange={setDeleting}

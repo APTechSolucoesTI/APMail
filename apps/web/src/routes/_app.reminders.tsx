@@ -30,6 +30,7 @@ import {
 import { ErrorState, LoadingState } from '@/components/data/data-state';
 import { toast } from 'sonner';
 import { Pagination } from '@/components/data/pagination';
+import { DateTimeField } from '@/components/calendar/date-time-field';
 type Reminder = {
   id: string;
   event_id: string | null;
@@ -344,15 +345,7 @@ function RemindersPage() {
                 onChange={(e) => setTitle(e.target.value)}
               />
             </label>
-            <label className="block space-y-1 text-sm">
-              Quando ({timezone})
-              <Input
-                type="datetime-local"
-                required
-                value={due}
-                onChange={(e) => setDue(e.target.value)}
-              />
-            </label>
+            <DateTimeField label="Quando" value={due} onChange={setDue} />
             <label className="block space-y-1 text-sm">
               Notas
               <Textarea

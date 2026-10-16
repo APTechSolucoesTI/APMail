@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { sql } from 'kysely';
 import {
   asJson,
@@ -10,6 +11,9 @@ import {
   eventInvite,
   sendJobOptions,
   continueReminder,
+  sanitizeEmailHtml,
+  htmlToText,
+  dismissEventAlerts,
 } from '@apmail/db';
 import {
   calendarEventSchema,
@@ -218,6 +222,10 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
   const saveEvent = async (req: import('fastify').FastifyRequest, id?: string) => {
     const c = requireTenant(req.ctx),
       body = calendarEventSchema.parse(req.body);
+    body.description_html = body.description_html
+      ? sanitizeEmailHtml(body.description_html, body.description)
+      : '';
+    if (body.description_html) body.description = htmlToText(body.description_html).slice(0, 20000);
     const control = z
       .object({ version: z.number().int().optional(), send_invitations: z.boolean().default(true) })
       .parse(req.body);
@@ -245,8 +253,12 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
         old.rrule !== body.rrule);
     const knownAttendees = old ? eventInput(old).attendees : [];
     body.attendees = body.attendees.map((a) => ({
+      ...(!rescheduled
+        ? knownAttendees.find((old) => old.address === a.address.toLowerCase())
+        : {}),
       address: a.address,
       name: a.name,
+      role: a.role ?? 'required',
       ...(!rescheduled &&
       knownAttendees.find((old) => old.address === a.address.toLowerCase())?.responded_at
         ? {
@@ -266,6 +278,50 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
       seen.add(a.address);
       return true;
     });
+    if (old) {
+      const previous = eventInput(old);
+      previous.attendees = previous.attendees.map((a) => ({ ...a, role: a.role ?? 'required' }));
+      if (isDeepStrictEqual(previous, body)) {
+        if (control.send_invitations && old.organizer && body.attendees.length) {
+          const mail = await r.db.transaction().execute(async (tx) => {
+            const current = await tx
+              .selectFrom('calendar_events')
+              .selectAll()
+              .where('id', '=', old.id)
+              .forUpdate()
+              .executeTakeFirstOrThrow();
+            if (current.sequence !== control.version)
+              throw conflict('O evento foi atualizado. Abra novamente.');
+            const exists = await tx
+              .selectFrom('outbox')
+              .select('id')
+              .where('tenant_id', '=', c.tenantId)
+              .where('mailbox_id', '=', current.mailbox_id!)
+              .where(sql<string>`calendar_payload->>'uid'`, '=', current.uid)
+              .where(sql<string>`calendar_payload->>'method'`, '=', 'REQUEST')
+              .where(
+                sql<string>`calendar_payload->>'sequence'`,
+                '=',
+                String(current.schedule_sequence),
+              )
+              .where(sql<string>`calendar_payload->>'recurrence_id'`, 'is', null)
+              .executeTakeFirst();
+            return exists
+              ? null
+              : calendarEmail(
+                  tx,
+                  current,
+                  c.userId,
+                  eventInvite(current, 'REQUEST'),
+                  body.attendees.map((a) => a.address),
+                );
+          });
+          await dispatch(mail);
+          if (mail) changed(c.userId);
+        }
+        return old;
+      }
+    }
     const result = await r.db.transaction().execute(async (tx) => {
       if (old) {
         const latest = await tx
@@ -386,6 +442,7 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
         .returningAll()
         .executeTakeFirst();
       if (!updated) throw conflict('O evento foi atualizado. Abra novamente.');
+      if (body.cancelled) await dismissEventAlerts(tx, row.id, body.original);
       await tx
         .deleteFrom('reminders')
         .where('event_id', '=', row.id)
@@ -442,6 +499,7 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
         .returningAll()
         .executeTakeFirst();
       if (!updated) throw conflict('O evento já foi alterado ou cancelado.');
+      await dismissEventAlerts(tx, row.id);
       await tx
         .deleteFrom('reminders')
         .where('event_id', '=', row.id)
@@ -579,6 +637,11 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
         mailbox_id: invite.method === 'PUBLISH' ? null : box.id,
         title: invite.title,
         description: invite.description,
+        description_html: invite.description_html
+          ? sanitizeEmailHtml(invite.description_html, invite.description)
+          : '',
+        meeting_url: invite.meeting_url,
+        availability: invite.availability,
         category: invite.category,
         is_private: invite.is_private,
         location: invite.location,
@@ -643,6 +706,7 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
         .where('event_id', '=', row.id)
         .where('status', '=', 'pending')
         .execute();
+      if (status === 'DECLINED') await dismissEventAlerts(tx, row.id, invite.recurrence_id);
       return {
         row,
         mail:

@@ -93,11 +93,13 @@ export interface AuditLogs {
 export interface CalendarEvents {
   all_day: Generated<boolean>;
   attendees: Generated<Json>;
+  availability: Generated<string>;
   calendar_id: string;
   category: Generated<string>;
   color: string | null;
   created_at: Generated<Timestamp>;
   description: Generated<string>;
+  description_html: Generated<string>;
   ends_at: Timestamp;
   exceptions: Generated<Json>;
   external: Generated<boolean>;
@@ -105,6 +107,7 @@ export interface CalendarEvents {
   is_private: Generated<boolean>;
   location: Generated<string>;
   mailbox_id: string | null;
+  meeting_url: string | null;
   organizer: string | null;
   reminder_cursor: Timestamp | null;
   reminder_minutes: number | null;
@@ -250,6 +253,29 @@ export interface Folders {
   tenant_id: string;
   uidvalidity: Int8 | null;
   updated_at: Generated<Timestamp>;
+}
+
+export interface GoogleConnections {
+  created_at: Generated<Timestamp>;
+  email: string;
+  encrypted_tokens: string;
+  expires_at: Timestamp;
+  google_subject: string;
+  id: Generated<string>;
+  scopes: Generated<string[]>;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
+export interface GoogleMeetingRequests {
+  created_at: Generated<Timestamp>;
+  id: string;
+  meeting_url: string | null;
+  space_name: string | null;
+  status: string;
+  tenant_id: string;
+  user_id: string;
 }
 
 export interface Invitations {
@@ -634,9 +660,13 @@ export interface PlatformMetricSamples {
 }
 
 export interface Reminders {
+  alert_lease_until: Timestamp | null;
+  alert_owner: string | null;
   created_at: Generated<Timestamp>;
   due_at: Timestamp;
+  event_end_at: Timestamp | null;
   event_id: string | null;
+  event_start_at: Timestamp | null;
   id: Generated<string>;
   notes: Generated<string>;
   notification_id: string | null;
@@ -980,6 +1010,8 @@ export interface DB {
   contacts: Contacts;
   folder_permissions: FolderPermissions;
   folders: Folders;
+  google_connections: GoogleConnections;
+  google_meeting_requests: GoogleMeetingRequests;
   invitations: Invitations;
   label_mailboxes: LabelMailboxes;
   mail_actions: MailActions;

@@ -16,7 +16,45 @@ import type { CalendarEvents, Reminders } from '../types.js';
 import { asJson } from './threads.js';
 import { outboxJobId } from './outbox.js';
 import { createNotification } from './notifications.js';
+import { sanitizeEmailHtml } from '../sanitize.js';
+import { calendarEmailHtml } from './calendar-email.js';
 export type CalendarEventRow = Selectable<CalendarEvents>;
+export async function dismissEventAlerts(
+  db: Database,
+  eventId: string,
+  occurrence?: string | null,
+) {
+  const rows = await db
+    .selectFrom('reminders')
+    .select(['id', 'notification_id'])
+    .where('event_id', '=', eventId)
+    .where('status', '=', 'notified')
+    .$if(!!occurrence, (q) => q.where('occurrence_at', '=', new Date(occurrence!)))
+    .execute();
+  if (!rows.length) return;
+  await db
+    .updateTable('reminders')
+    .set({
+      status: 'dismissed',
+      alert_owner: null,
+      alert_lease_until: null,
+      updated_at: new Date(),
+    })
+    .where(
+      'id',
+      'in',
+      rows.map((row) => row.id),
+    )
+    .execute();
+  const notifications = rows.flatMap((row) => (row.notification_id ? [row.notification_id] : []));
+  if (notifications.length)
+    await db
+      .updateTable('notifications')
+      .set({ read_at: new Date() })
+      .where('id', 'in', notifications)
+      .where('read_at', 'is', null)
+      .execute();
+}
 export async function continueReminder(db: Database, reminder: Selectable<Reminders>, after: Date) {
   if (!reminder.recurrence || reminder.event_id) return;
   const recurrence = recurrenceSchema.parse(reminder.recurrence),
@@ -100,10 +138,7 @@ export async function calendarEmail(
             ? 'Resposta: '
             : 'Convite: ') + invite.title
       ).replace(/[\r\n\0]/g, ' '),
-      body_html:
-        '<p>' +
-        invite.title.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;') +
-        '</p>',
+      body_html: calendarEmailHtml(invite),
       to_addresses: asJson(
         [...new Set(to.map((v) => v.toLowerCase()))].map((address) => ({ address, name: '' })),
       ),
@@ -251,6 +286,11 @@ export async function applyCalendarMessage(
         .set({
           title: v.title,
           description: v.description,
+          description_html: v.description_html
+            ? sanitizeEmailHtml(v.description_html, v.description)
+            : '',
+          meeting_url: v.meeting_url,
+          availability: v.availability,
           category: v.category,
           is_private: v.is_private,
           location: v.location,
@@ -280,6 +320,7 @@ export async function applyCalendarMessage(
         .where('id', '=', row.id)
         .execute();
     }
+    if (v.method === 'CANCEL') await dismissEventAlerts(db, row.id, v.recurrence_id);
     await db
       .deleteFrom('reminders')
       .where('event_id', '=', row.id)
@@ -349,6 +390,8 @@ export async function sweepCalendarReminders(db: Database, now = new Date()) {
             user_id: row.user_id,
             event_id: row.id,
             occurrence_at: new Date(occurrence.original),
+            event_start_at: new Date(occurrence.start),
+            event_end_at: new Date(occurrence.end),
             title: occurrence.title ?? row.title,
             notes: row.location,
             due_at: due,

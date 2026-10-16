@@ -26,6 +26,7 @@ export const reminderOptions = [
   { value: '', label: 'Sem lembrete' },
   { value: '0', label: 'No horário' },
   { value: '5', label: '5 minutos antes' },
+  { value: '10', label: '10 minutos antes' },
   { value: '15', label: '15 minutos antes' },
   { value: '30', label: '30 minutos antes' },
   { value: '60', label: '1 hora antes' },

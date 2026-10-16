@@ -29,6 +29,7 @@ import {
   IndentIncrease,
   IndentDecrease,
   ChevronDown,
+  Ellipsis,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -102,6 +103,7 @@ export function RichTextEditor({
   onImageUpload,
   toolbarContainer,
   ribbon = false,
+  compact = false,
 }: {
   value: string;
   onChange: (html: string) => void;
@@ -110,11 +112,13 @@ export function RichTextEditor({
   onImageUpload?: (file: File) => Promise<{ src: string; uploadId: string }>;
   toolbarContainer?: HTMLElement | null;
   ribbon?: boolean;
+  compact?: boolean;
 }) {
   const [dialog, setDialog] = useState<'link' | 'image' | null>(null),
     [url, setUrl] = useState('');
   const [uploading, setUploading] = useState(false);
   const [tab, setTab] = useState('Mensagem');
+  const [expanded, setExpanded] = useState(false);
   const ParagraphLayout = Node.create({
     name: 'paragraphLayout',
     addGlobalAttributes() {
@@ -318,7 +322,7 @@ export function RichTextEditor({
         aria-label="Formatação"
         className={cn('flex flex-wrap items-center gap-1 p-2', !ribbon && 'border-b')}
       >
-        {(!ribbon || tab !== 'Inserir') && (
+        {(!compact || expanded) && (!ribbon || tab !== 'Inserir') && (
           <>
             <label className="flex flex-col text-xs gap-1 p-1">
               <span className={ribbon ? 'sr-only' : undefined}>Fonte</span>
@@ -381,6 +385,19 @@ export function RichTextEditor({
         {buttons
           .filter(
             (b) =>
+              !compact ||
+              expanded ||
+              [
+                'Negrito',
+                'Itálico',
+                'Sublinhado',
+                'Lista com marcadores',
+                'Lista numerada',
+                'Inserir link',
+              ].includes(b.label),
+          )
+          .filter(
+            (b) =>
               !ribbon ||
               (tab === 'Inserir'
                 ? [
@@ -425,7 +442,7 @@ export function RichTextEditor({
               <b.icon />
             </Button>
           ))}
-        {(!ribbon || tab === 'Inserir') && (
+        {(!compact || expanded) && (!ribbon || tab === 'Inserir') && (
           <Button
             type="button"
             variant="ghost"
@@ -439,7 +456,7 @@ export function RichTextEditor({
             <Image />
           </Button>
         )}
-        {(!ribbon || tab === 'Formatar texto') && (
+        {(!compact || expanded) && (!ribbon || tab === 'Formatar texto') && (
           <>
             {[false, true].map((increase) => (
               <Button
@@ -501,6 +518,20 @@ export function RichTextEditor({
               </DropdownMenuContent>
             </DropdownMenu>
           </>
+        )}
+        {compact && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            aria-label={expanded ? 'Menos formatação' : 'Mais formatação'}
+            aria-expanded={expanded}
+            title={expanded ? 'Menos formatação' : 'Mais formatação'}
+            onClick={() => setExpanded(!expanded)}
+          >
+            <Ellipsis />
+          </Button>
         )}
       </div>
       {editor.isActive('table') && (

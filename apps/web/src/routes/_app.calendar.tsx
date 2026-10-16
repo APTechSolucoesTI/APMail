@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { z } from 'zod';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
@@ -28,7 +29,10 @@ import {
 import { EventEditor } from '@/components/calendar/event-editor';
 import { ErrorState } from '@/components/data/data-state';
 import { useMediaQuery } from '@/hooks/use-media-query';
-export const Route = createFileRoute('/_app/calendar')({ component: CalendarPage });
+export const Route = createFileRoute('/_app/calendar')({
+  validateSearch: z.object({ event: z.uuid().optional() }),
+  component: CalendarPage,
+});
 type Editing = {
   event?: CalendarEvent;
   start: string;
@@ -39,6 +43,14 @@ type Editing = {
 const calendarPlugins = [dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin, luxonPlugin];
 const calendarViews = { workWeek: { type: 'timeGridWeek', hiddenDays: [0, 6] } };
 function CalendarPage() {
+  const searchParams = Route.useSearch(),
+    navigate = useNavigate(),
+    scopedTenant = useTenantId();
+  const requestedEvent = useQuery({
+    queryKey: ['calendar', scopedTenant, 'event', searchParams.event],
+    enabled: !!searchParams.event,
+    queryFn: () => api<CalendarEvent>('/calendar/events/' + searchParams.event),
+  });
   const tenant = useTenantId(),
     client = useQueryClient(),
     me = useQuery(meQuery),
@@ -421,6 +433,20 @@ function CalendarPage() {
           timezone={timezone}
           onClose={() => setEditing(null)}
         />
+      )}
+      {searchParams.event && requestedEvent.data && calendars.data && !editing && (
+        <EventEditor
+          calendars={calendars.data}
+          event={requestedEvent.data}
+          start={requestedEvent.data.starts_at}
+          end={requestedEvent.data.ends_at}
+          allDay={requestedEvent.data.all_day}
+          timezone={timezone}
+          onClose={() => void navigate({ to: '/calendar', search: {}, replace: true })}
+        />
+      )}
+      {searchParams.event && requestedEvent.error && (
+        <ErrorState onRetry={() => void requestedEvent.refetch()} />
       )}
       <Dialog open={newCalendar} onOpenChange={setNewCalendar}>
         <DialogContent>
