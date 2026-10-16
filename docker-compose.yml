@@ -106,7 +106,11 @@ services:
     restart: unless-stopped
     init: true
     stop_grace_period: 45s
-    environment: *server-env
+    environment:
+      <<: *server-env
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_MEET_SYNC_MINUTES: ${GOOGLE_MEET_SYNC_MINUTES:-5}
     volumes:
       - storage:/data/storage
       - ${APMAIL_METRICS_DIRECTORY:-./.data/metrics}:/data/metrics:ro

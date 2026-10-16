@@ -24,11 +24,13 @@ import { Route as AppCompaniesRouteImport } from './routes/_app.companies'
 import { Route as AppContactsRouteImport } from './routes/_app.contacts'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppRemindersRouteImport } from './routes/_app.reminders'
+import { Route as AppReportsRouteImport } from './routes/_app.reports'
 import { Route as AppScheduledRouteImport } from './routes/_app.scheduled'
 import { Route as DevUiRouteImport } from './routes/[_]dev.ui'
 import { Route as AppChatIndexRouteImport } from './routes/_app.chat.index'
 import { Route as AppChatConversationIdRouteImport } from './routes/_app.chat.$conversationId'
 import { Route as AppMailMailboxIdRouteImport } from './routes/_app.mail.$mailboxId'
+import { Route as AppReportsMeetRouteImport } from './routes/_app.reports_.meet'
 import { Route as AppSettingsAuditRouteImport } from './routes/_app.settings.audit'
 import { Route as AppSettingsIntegrationsRouteImport } from './routes/_app.settings.integrations'
 import { Route as AppSettingsLabelsRouteImport } from './routes/_app.settings.labels'
@@ -39,6 +41,7 @@ import { Route as AppSettingsRulesRouteImport } from './routes/_app.settings.rul
 import { Route as AppSettingsSignaturesRouteImport } from './routes/_app.settings.signatures'
 import { Route as AppSettingsTenantRouteImport } from './routes/_app.settings.tenant'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app.settings.users'
+import { Route as AppReportsMeetMeetingIdRouteImport } from './routes/_app.reports_.meet_.$meetingId'
 import { Route as AppSettingsMailboxesMailboxIdRouteImport } from './routes/_app.settings.mailboxes_.$mailboxId'
 
 const AppRoute = AppRouteImport.update({
@@ -115,6 +118,11 @@ const AppRemindersRoute = AppRemindersRouteImport.update({
   path: '/reminders',
   getParentRoute: () => AppRoute,
 } as any)
+const AppReportsRoute = AppReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppScheduledRoute = AppScheduledRouteImport.update({
   id: '/scheduled',
   path: '/scheduled',
@@ -138,6 +146,11 @@ const AppChatConversationIdRoute = AppChatConversationIdRouteImport.update({
 const AppMailMailboxIdRoute = AppMailMailboxIdRouteImport.update({
   id: '/mail/$mailboxId',
   path: '/mail/$mailboxId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppReportsMeetRoute = AppReportsMeetRouteImport.update({
+  id: '/reports_/meet',
+  path: '/reports/meet',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsAuditRoute = AppSettingsAuditRouteImport.update({
@@ -190,6 +203,11 @@ const AppSettingsUsersRoute = AppSettingsUsersRouteImport.update({
   path: '/settings/users',
   getParentRoute: () => AppRoute,
 } as any)
+const AppReportsMeetMeetingIdRoute = AppReportsMeetMeetingIdRouteImport.update({
+  id: '/reports_/meet_/$meetingId',
+  path: '/reports/meet/$meetingId',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsMailboxesMailboxIdRoute =
   AppSettingsMailboxesMailboxIdRouteImport.update({
     id: '/settings/mailboxes_/$mailboxId',
@@ -212,10 +230,12 @@ export interface FileRoutesByFullPath {
   '/contacts': typeof AppContactsRoute
   '/dashboard': typeof AppDashboardRoute
   '/reminders': typeof AppRemindersRoute
+  '/reports': typeof AppReportsRoute
   '/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
   '/chat/$conversationId': typeof AppChatConversationIdRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
+  '/reports/meet': typeof AppReportsMeetRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/labels': typeof AppSettingsLabelsRoute
@@ -227,6 +247,7 @@ export interface FileRoutesByFullPath {
   '/settings/tenant': typeof AppSettingsTenantRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/chat/': typeof AppChatIndexRoute
+  '/reports/meet/$meetingId': typeof AppReportsMeetMeetingIdRoute
   '/settings/mailboxes/$mailboxId': typeof AppSettingsMailboxesMailboxIdRoute
 }
 export interface FileRoutesByTo {
@@ -242,11 +263,13 @@ export interface FileRoutesByTo {
   '/contacts': typeof AppContactsRoute
   '/dashboard': typeof AppDashboardRoute
   '/reminders': typeof AppRemindersRoute
+  '/reports': typeof AppReportsRoute
   '/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
   '/': typeof AppIndexRoute
   '/chat/$conversationId': typeof AppChatConversationIdRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
+  '/reports/meet': typeof AppReportsMeetRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/labels': typeof AppSettingsLabelsRoute
@@ -258,6 +281,7 @@ export interface FileRoutesByTo {
   '/settings/tenant': typeof AppSettingsTenantRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/chat': typeof AppChatIndexRoute
+  '/reports/meet/$meetingId': typeof AppReportsMeetMeetingIdRoute
   '/settings/mailboxes/$mailboxId': typeof AppSettingsMailboxesMailboxIdRoute
 }
 export interface FileRoutesById {
@@ -276,11 +300,13 @@ export interface FileRoutesById {
   '/_app/contacts': typeof AppContactsRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/reminders': typeof AppRemindersRoute
+  '/_app/reports': typeof AppReportsRoute
   '/_app/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
   '/_app/': typeof AppIndexRoute
   '/_app/chat/$conversationId': typeof AppChatConversationIdRoute
   '/_app/mail/$mailboxId': typeof AppMailMailboxIdRoute
+  '/_app/reports_/meet': typeof AppReportsMeetRoute
   '/_app/settings/audit': typeof AppSettingsAuditRoute
   '/_app/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/_app/settings/labels': typeof AppSettingsLabelsRoute
@@ -292,6 +318,7 @@ export interface FileRoutesById {
   '/_app/settings/tenant': typeof AppSettingsTenantRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
   '/_app/chat/': typeof AppChatIndexRoute
+  '/_app/reports_/meet_/$meetingId': typeof AppReportsMeetMeetingIdRoute
   '/_app/settings/mailboxes_/$mailboxId': typeof AppSettingsMailboxesMailboxIdRoute
 }
 export interface FileRouteTypes {
@@ -311,10 +338,12 @@ export interface FileRouteTypes {
     | '/contacts'
     | '/dashboard'
     | '/reminders'
+    | '/reports'
     | '/scheduled'
     | '/_dev/ui'
     | '/chat/$conversationId'
     | '/mail/$mailboxId'
+    | '/reports/meet'
     | '/settings/audit'
     | '/settings/integrations'
     | '/settings/labels'
@@ -326,6 +355,7 @@ export interface FileRouteTypes {
     | '/settings/tenant'
     | '/settings/users'
     | '/chat/'
+    | '/reports/meet/$meetingId'
     | '/settings/mailboxes/$mailboxId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -341,11 +371,13 @@ export interface FileRouteTypes {
     | '/contacts'
     | '/dashboard'
     | '/reminders'
+    | '/reports'
     | '/scheduled'
     | '/_dev/ui'
     | '/'
     | '/chat/$conversationId'
     | '/mail/$mailboxId'
+    | '/reports/meet'
     | '/settings/audit'
     | '/settings/integrations'
     | '/settings/labels'
@@ -357,6 +389,7 @@ export interface FileRouteTypes {
     | '/settings/tenant'
     | '/settings/users'
     | '/chat'
+    | '/reports/meet/$meetingId'
     | '/settings/mailboxes/$mailboxId'
   id:
     | '__root__'
@@ -374,11 +407,13 @@ export interface FileRouteTypes {
     | '/_app/contacts'
     | '/_app/dashboard'
     | '/_app/reminders'
+    | '/_app/reports'
     | '/_app/scheduled'
     | '/_dev/ui'
     | '/_app/'
     | '/_app/chat/$conversationId'
     | '/_app/mail/$mailboxId'
+    | '/_app/reports_/meet'
     | '/_app/settings/audit'
     | '/_app/settings/integrations'
     | '/_app/settings/labels'
@@ -390,6 +425,7 @@ export interface FileRouteTypes {
     | '/_app/settings/tenant'
     | '/_app/settings/users'
     | '/_app/chat/'
+    | '/_app/reports_/meet_/$meetingId'
     | '/_app/settings/mailboxes_/$mailboxId'
   fileRoutesById: FileRoutesById
 }
@@ -512,6 +548,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRemindersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/reports': {
+      id: '/_app/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof AppReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/scheduled': {
       id: '/_app/scheduled'
       path: '/scheduled'
@@ -545,6 +588,13 @@ declare module '@tanstack/react-router' {
       path: '/mail/$mailboxId'
       fullPath: '/mail/$mailboxId'
       preLoaderRoute: typeof AppMailMailboxIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/reports_/meet': {
+      id: '/_app/reports_/meet'
+      path: '/reports/meet'
+      fullPath: '/reports/meet'
+      preLoaderRoute: typeof AppReportsMeetRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/audit': {
@@ -617,6 +667,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsUsersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/reports_/meet_/$meetingId': {
+      id: '/_app/reports_/meet_/$meetingId'
+      path: '/reports/meet/$meetingId'
+      fullPath: '/reports/meet/$meetingId'
+      preLoaderRoute: typeof AppReportsMeetMeetingIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/mailboxes_/$mailboxId': {
       id: '/_app/settings/mailboxes_/$mailboxId'
       path: '/settings/mailboxes/$mailboxId'
@@ -647,9 +704,11 @@ interface AppRouteChildren {
   AppContactsRoute: typeof AppContactsRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppRemindersRoute: typeof AppRemindersRoute
+  AppReportsRoute: typeof AppReportsRoute
   AppScheduledRoute: typeof AppScheduledRoute
   AppIndexRoute: typeof AppIndexRoute
   AppMailMailboxIdRoute: typeof AppMailMailboxIdRoute
+  AppReportsMeetRoute: typeof AppReportsMeetRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
   AppSettingsIntegrationsRoute: typeof AppSettingsIntegrationsRoute
   AppSettingsLabelsRoute: typeof AppSettingsLabelsRoute
@@ -660,6 +719,7 @@ interface AppRouteChildren {
   AppSettingsSignaturesRoute: typeof AppSettingsSignaturesRoute
   AppSettingsTenantRoute: typeof AppSettingsTenantRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRoute
+  AppReportsMeetMeetingIdRoute: typeof AppReportsMeetMeetingIdRoute
   AppSettingsMailboxesMailboxIdRoute: typeof AppSettingsMailboxesMailboxIdRoute
 }
 
@@ -670,9 +730,11 @@ const AppRouteChildren: AppRouteChildren = {
   AppContactsRoute: AppContactsRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppRemindersRoute: AppRemindersRoute,
+  AppReportsRoute: AppReportsRoute,
   AppScheduledRoute: AppScheduledRoute,
   AppIndexRoute: AppIndexRoute,
   AppMailMailboxIdRoute: AppMailMailboxIdRoute,
+  AppReportsMeetRoute: AppReportsMeetRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
   AppSettingsIntegrationsRoute: AppSettingsIntegrationsRoute,
   AppSettingsLabelsRoute: AppSettingsLabelsRoute,
@@ -683,6 +745,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsSignaturesRoute: AppSettingsSignaturesRoute,
   AppSettingsTenantRoute: AppSettingsTenantRoute,
   AppSettingsUsersRoute: AppSettingsUsersRoute,
+  AppReportsMeetMeetingIdRoute: AppReportsMeetMeetingIdRoute,
   AppSettingsMailboxesMailboxIdRoute: AppSettingsMailboxesMailboxIdRoute,
 }
 

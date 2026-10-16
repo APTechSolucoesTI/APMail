@@ -2,30 +2,33 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Video, Copy, ExternalLink, X, Loader2 } from 'lucide-react';
-import { googleMeetUrl } from '@apmail/shared';
+import {
+  googleMeetUrl,
+  defaultMeetConfig,
+  type MeetIntegrationStatus,
+  type MeetConfig,
+} from '@apmail/shared';
 import { api } from '@/lib/api';
 import { useTenantId } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-export type GoogleStatus = {
-  configured: boolean;
-  connected: boolean;
-  email: string | null;
-  meet: boolean;
-  calendar: boolean;
-  redirect_uri: string;
-};
+import { MeetConfigFields } from '@/components/integrations/meet-space';
+export type GoogleStatus = MeetIntegrationStatus;
 export function OnlineMeeting({
   value,
   onChange,
   disabled,
   readonly,
+  eventId,
+  eventStart,
 }: {
   value: string | null;
   onChange: (value: string | null) => void;
   disabled?: boolean;
   readonly?: boolean;
+  eventId?: string;
+  eventStart?: string;
 }) {
   const tenant = useTenantId(),
     google = useQuery({
@@ -35,15 +38,23 @@ export function OnlineMeeting({
     }),
     [busy, setBusy] = useState(false),
     [manual, setManual] = useState(false),
+    [config, setConfig] = useState<MeetConfig | null>(null),
     [error, setError] = useState(''),
     [requestId, setRequestId] = useState(() => crypto.randomUUID());
+  const [reportRange] = useState(() => {
+    const date = eventStart ? +new Date(eventStart) : Date.now();
+    return {
+      from: new Date(date - 30 * 86400000).toISOString().slice(0, 10),
+      to: new Date(date + 90 * 86400000).toISOString().slice(0, 10),
+    };
+  });
   const generate = async () => {
     setBusy(true);
     setError('');
     try {
       const result = await api<{ meeting_url: string }>('/integrations/google/meet', {
         method: 'POST',
-        body: { request_id: requestId },
+        body: { request_id: requestId, ...(config ? { config } : {}) },
       });
       onChange(result.meeting_url);
       toast.success('Link do Google Meet criado. Salve o evento para compartilhar.');
@@ -121,6 +132,62 @@ export function OnlineMeeting({
           )
         )}
       </div>
+      {!readonly && !value && google.data?.meet && (
+        <details className="mt-3 border-t pt-2">
+          <summary className="cursor-pointer text-xs font-medium text-primary">
+            Opções desta reunião
+          </summary>
+          <div className="mt-3">
+            <MeetConfigFields
+              value={config ?? defaultMeetConfig(google.data.preferences)}
+              onChange={setConfig}
+              disabled={busy || disabled}
+            />
+          </div>
+        </details>
+      )}
+      {value && (eventId || (!readonly && google.data?.connected)) && (
+        <div className="mt-2 flex flex-wrap gap-3 text-xs">
+          {eventId && (
+            <Link
+              to="/reports/meet"
+              search={{
+                search: value,
+                ...reportRange,
+              }}
+              className="text-primary underline"
+            >
+              Relatórios desta sala
+            </Link>
+          )}
+          {!readonly && google.data?.connected && (
+            <button
+              type="button"
+              disabled={busy || disabled}
+              className="text-primary underline disabled:opacity-50"
+              onClick={async () => {
+                setBusy(true);
+                setError('');
+                try {
+                  await api('/integrations/google/meet/associate', {
+                    method: 'POST',
+                    body: { meeting_url: value },
+                  });
+                  toast.success(
+                    'Sala associada à conta Google. Ative a sincronização em Integrações para importar os relatórios.',
+                  );
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Associar à conta Google
+            </button>
+          )}
+        </div>
+      )}
       {!value && !readonly && (
         <div className="mt-2 pl-12 text-xs">
           {!google.data?.meet && (

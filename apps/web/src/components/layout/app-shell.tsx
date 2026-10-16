@@ -28,6 +28,7 @@ import {
   CalendarDays,
   BellRing,
   Plug,
+  BarChart3,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
@@ -68,7 +69,8 @@ export function AppShell() {
   );
   const client = useQueryClient();
   const navigate = useNavigate();
-  const mailView = useLocation().pathname.startsWith('/mail/');
+  const pathname = useLocation().pathname;
+  const mailView = pathname.startsWith('/mail/');
   const boxes = useQuery({
     queryKey: ['mailboxes', me.data?.current_tenant_id],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
@@ -114,6 +116,8 @@ export function AppShell() {
         'chat-messages',
         'chat-presence',
         'calendar',
+        'meet-reports',
+        'google-integration',
       ])
         void client.invalidateQueries({ queryKey: [key] });
     });
@@ -209,7 +213,8 @@ export function AppShell() {
         }),
     );
     socket.on('folders:changed', () => invalidate('folders'));
-    socket.on('calendar:changed', () => invalidate('calendar'));
+    socket.on('calendar:changed', () => invalidate('calendar', 'meet-reports'));
+    socket.on('google-meet:changed', () => invalidate('meet-reports', 'google-integration'));
     socket.on('labels:changed', () => invalidate('labels', 'threads', 'thread', 'global-search'));
     socket.on('directory:changed', () =>
       invalidate(
@@ -268,68 +273,91 @@ export function AppShell() {
       >
         <Link
           to="/"
-          className="mb-6 flex items-center gap-2 text-xl font-semibold text-primary"
+          className="mb-3 flex items-center gap-2 text-xl font-semibold text-primary"
           onClick={() => setOpen(false)}
         >
           <Mail aria-hidden />
           APMail
         </Link>
-        <Link
-          to="/scheduled"
-          onClick={() => setOpen(false)}
-          className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-        >
-          <Mail className="size-4" />
-          Envios
-        </Link>
-        <ChatNavigation onNavigate={() => setOpen(false)} />
-        <Link
-          to="/calendar"
-          onClick={() => setOpen(false)}
-          activeProps={{ className: 'bg-accent text-accent-foreground' }}
-          className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-        >
-          <CalendarDays aria-hidden className="size-4" />
-          Calendário
-        </Link>
-        <Link
-          to="/reminders"
-          onClick={() => setOpen(false)}
-          activeProps={{ className: 'bg-accent text-accent-foreground' }}
-          className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-        >
-          <BellRing aria-hidden className="size-4" />
-          Lembretes e tarefas
-        </Link>
-        {tenant && (
-          <Link
-            to="/dashboard"
-            onClick={() => setOpen(false)}
-            className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+        <NavigationGroup id="communication" label="Comunicação">
+          <NavigationGroup
+            id="mailboxes"
+            label="Caixas de e-mail"
+            icon={<Mail className="size-4" />}
           >
-            <LayoutDashboard className="size-4" aria-hidden />
-            Dashboard
+            {boxes.data?.map((b) => (
+              <MailboxFolderNavigation key={b.id} box={b} onNavigate={() => setOpen(false)} />
+            ))}
+            {!boxes.data?.length && (
+              <p className="px-2 py-3 text-xs text-muted-foreground">Sem caixas disponíveis</p>
+            )}
+          </NavigationGroup>
+          <Link
+            to="/contacts"
+            activeProps={{ className: 'bg-accent text-accent-foreground' }}
+            className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+            onClick={() => setOpen(false)}
+          >
+            <ContactRound aria-hidden className="size-4 shrink-0" />
+            Contatos
           </Link>
-        )}
-        <Link
-          to="/contacts"
-          className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-          onClick={() => setOpen(false)}
-        >
-          <ContactRound aria-hidden className="size-4 shrink-0" />
-          Contatos
-        </Link>
-        <NavigationGroup id="mailboxes" label="Caixas de e-mail">
-          {boxes.data?.map((b) => (
-            <MailboxFolderNavigation key={b.id} box={b} onNavigate={() => setOpen(false)} />
-          ))}
-          {!boxes.data?.length && (
-            <p className="px-2 py-4 text-sm text-muted-foreground">Sem caixas disponíveis</p>
+          <ChatNavigation onNavigate={() => setOpen(false)} />
+        </NavigationGroup>
+        <NavigationGroup id="productivity" label="Produtividade">
+          <Link
+            to="/calendar"
+            onClick={() => setOpen(false)}
+            activeProps={{ className: 'bg-accent text-accent-foreground' }}
+            className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+          >
+            <CalendarDays aria-hidden className="size-4" />
+            Calendário
+          </Link>
+          <Link
+            to="/scheduled"
+            onClick={() => setOpen(false)}
+            activeProps={{ className: 'bg-accent text-accent-foreground' }}
+            className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+          >
+            <Mail aria-hidden className="size-4" />
+            Envios e agendamentos
+          </Link>
+          <Link
+            to="/reminders"
+            onClick={() => setOpen(false)}
+            activeProps={{ className: 'bg-accent text-accent-foreground' }}
+            className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+          >
+            <BellRing aria-hidden className="size-4" />
+            Lembretes e tarefas
+          </Link>
+        </NavigationGroup>
+        <NavigationGroup id="analysis" label="Análises">
+          <Link
+            to="/reports"
+            onClick={() => setOpen(false)}
+            activeProps={{ className: 'bg-accent text-accent-foreground' }}
+            className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+          >
+            <BarChart3 aria-hidden className="size-4" />
+            Relatórios
+          </Link>
+          {tenant && (
+            <Link
+              to="/dashboard"
+              onClick={() => setOpen(false)}
+              activeProps={{ className: 'bg-accent text-accent-foreground' }}
+              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+            >
+              <LayoutDashboard aria-hidden className="size-4" />
+              Indicadores de e-mail
+            </Link>
           )}
         </NavigationGroup>
         <div className="mt-auto border-t pt-4">
           <NavigationGroup
             id="settings"
+            defaultOpen={pathname.startsWith('/settings')}
             label="Configurações"
             icon={<Settings aria-hidden className="size-4 shrink-0" />}
           >
@@ -360,7 +388,8 @@ export function AppShell() {
                 <Link
                   key={to}
                   to={to}
-                  className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+                  activeProps={{ className: 'bg-accent text-accent-foreground' }}
+                  className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
                   onClick={() => setOpen(false)}
                 >
                   <Icon aria-hidden className="size-4 shrink-0" />
@@ -391,7 +420,7 @@ export function AppShell() {
           >
             <NavigationLayout userId={me.data.user.id} visible={sidebarVisible} sidebar={sidebar}>
               <div className="flex h-full min-h-0 min-w-0 flex-col">
-                <header className="z-20 flex min-h-16 shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card px-4">
+                <header className="z-20 flex min-h-16 sm:min-h-14 shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card px-4">
                   <div className="flex min-w-0 items-center gap-2">
                     <Button
                       className="hidden lg:inline-flex"
@@ -430,7 +459,7 @@ export function AppShell() {
                     </label>
                     <select
                       id="company"
-                      className="h-11 max-w-36 rounded-md sm:max-w-48 border border-input bg-card px-2 text-sm"
+                      className="h-11 sm:h-8 max-w-28 rounded-md sm:max-w-48 border border-input bg-card px-2 text-sm"
                       value={me.data.current_tenant_id ?? ''}
                       onChange={async (e) => {
                         stopArchiveTransfersForUser(me.data!.user.id);
@@ -452,7 +481,7 @@ export function AppShell() {
                     </select>
                   </div>
                   <GlobalSearch key={me.data.current_tenant_id} />
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-0 sm:gap-2">
                     <KeyboardHelp mailboxes={boxes.data ?? []} />
                     <NotificationBell />
                     <Link
@@ -482,7 +511,7 @@ export function AppShell() {
                 </header>
                 <main
                   className={
-                    'mx-auto flex min-h-0 w-full max-w-screen-2xl flex-1 flex-col p-4 sm:p-6 ' +
+                    'relative mx-auto flex min-h-0 w-full max-w-screen-2xl flex-1 flex-col p-4 sm:p-6 ' +
                     (mailView ? 'overflow-hidden' : 'overflow-y-auto')
                   }
                 >

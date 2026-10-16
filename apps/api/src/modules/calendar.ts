@@ -14,6 +14,7 @@ import {
   sanitizeEmailHtml,
   htmlToText,
   dismissEventAlerts,
+  linkMeetEvent,
 } from '@apmail/db';
 import {
   calendarEventSchema,
@@ -418,6 +419,7 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
           .where('event_id', '=', row.id)
           .where('status', '=', 'pending')
           .execute();
+      await linkMeetEvent(tx, row);
       const mails = [];
       if (control.send_invitations && row.organizer) {
         mails.push(

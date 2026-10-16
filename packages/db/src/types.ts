@@ -279,6 +279,28 @@ export interface GoogleConnections {
   user_id: string;
 }
 
+export interface GoogleMeetArtifacts {
+  body_text: string | null;
+  document_id: string | null;
+  ends_at: Timestamp | null;
+  entries_error: string | null;
+  entries_status: Generated<string>;
+  external_url: string | null;
+  id: Generated<string>;
+  kind: string;
+  last_sync_at: Timestamp | null;
+  record_id: string;
+  resource_name: string;
+  starts_at: Timestamp | null;
+  state: string;
+  tenant_id: string;
+}
+
+export interface GoogleMeetEventLinks {
+  event_id: string;
+  space_id: string;
+}
+
 export interface GoogleMeetingRequests {
   created_at: Generated<Timestamp>;
   id: string;
@@ -287,6 +309,91 @@ export interface GoogleMeetingRequests {
   status: string;
   tenant_id: string;
   user_id: string;
+}
+
+export interface GoogleMeetParticipants {
+  display_name: Generated<string>;
+  first_join_at: Timestamp | null;
+  google_user: string | null;
+  id: Generated<string>;
+  kind: string;
+  last_leave_at: Timestamp | null;
+  record_id: string;
+  resource_name: string;
+  sessions_synced_at: Timestamp | null;
+  tenant_id: string;
+}
+
+export interface GoogleMeetPreferences {
+  artifacts_consent: Generated<boolean>;
+  auto_notes: Generated<boolean>;
+  auto_recording: Generated<boolean>;
+  auto_transcription: Generated<boolean>;
+  capabilities: Generated<Json>;
+  consented_at: Timestamp | null;
+  declared_plan: Generated<string>;
+  default_access: Generated<string>;
+  last_check_at: Timestamp | null;
+  mailbox_id: string | null;
+  retention_days: Generated<number>;
+  sync_enabled: Generated<boolean>;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
+export interface GoogleMeetRecords {
+  artifact_status: Generated<Json>;
+  connection_id: string;
+  created_at: Generated<Timestamp>;
+  ends_at: Timestamp | null;
+  event_id: string | null;
+  expires_at: Timestamp | null;
+  id: Generated<string>;
+  last_sync_at: Timestamp | null;
+  resource_name: string;
+  space_id: string;
+  starts_at: Timestamp;
+  tenant_id: string;
+  title: Generated<string>;
+}
+
+export interface GoogleMeetSessions {
+  ends_at: Timestamp | null;
+  id: Generated<string>;
+  participant_id: string;
+  resource_name: string;
+  starts_at: Timestamp;
+  tenant_id: string;
+}
+
+export interface GoogleMeetSpaces {
+  app_created: Generated<boolean>;
+  config: Generated<Json>;
+  connection_id: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  last_sync_at: Timestamp | null;
+  meeting_url: string;
+  next_sync_at: Generated<Timestamp>;
+  resource_name: string;
+  sync_error: string | null;
+  sync_error_code: string | null;
+  sync_status: Generated<string>;
+  tenant_id: string;
+  user_id: string;
+}
+
+export interface GoogleMeetTranscriptEntries {
+  artifact_id: string;
+  body_text: string;
+  ends_at: Timestamp;
+  id: Generated<string>;
+  language_code: string | null;
+  participant_resource: string;
+  resource_name: string;
+  starts_at: Timestamp;
+  tenant_id: string;
 }
 
 export interface Invitations {
@@ -1023,6 +1130,14 @@ export interface DB {
   folder_permissions: FolderPermissions;
   folders: Folders;
   google_connections: GoogleConnections;
+  google_meet_artifacts: GoogleMeetArtifacts;
+  google_meet_event_links: GoogleMeetEventLinks;
+  google_meet_participants: GoogleMeetParticipants;
+  google_meet_preferences: GoogleMeetPreferences;
+  google_meet_records: GoogleMeetRecords;
+  google_meet_sessions: GoogleMeetSessions;
+  google_meet_spaces: GoogleMeetSpaces;
+  google_meet_transcript_entries: GoogleMeetTranscriptEntries;
   google_meeting_requests: GoogleMeetingRequests;
   invitations: Invitations;
   label_mailboxes: LabelMailboxes;

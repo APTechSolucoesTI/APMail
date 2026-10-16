@@ -12,7 +12,7 @@ import {
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod';
 import { Redis } from 'ioredis';
-import { createDb, createQueues, asJson, quotaErrors } from '@apmail/db';
+import { createDb, createQueues, asJson, quotaErrors, GoogleApiError } from '@apmail/db';
 import {
   healthSchema,
   healthQueuesSchema,
@@ -45,6 +45,8 @@ import { registerStorageQuotas } from './modules/storage-quotas.js';
 import { registerMailArchives } from './modules/mail-archives.js';
 import { registerCalendar } from './modules/calendar.js';
 import { registerGoogleIntegrations } from './modules/google/routes.js';
+import { registerMeetManagement } from './modules/google/management.js';
+import { registerReports } from './modules/reports/routes.js';
 import { registerReminderAlerts } from './modules/reminder-alerts.js';
 import { ApiError, requireTenantAdmin } from './authz/context.js';
 
@@ -150,13 +152,15 @@ export async function buildApp(config: ApiEnv = readEnv()) {
       )[status] ?? 'internal';
     reply.code(status).send({
       error: {
-        code: error instanceof ApiError ? error.code : code,
+        code: error instanceof ApiError || error instanceof GoogleApiError ? error.code : code,
         message:
-          status >= 500
-            ? 'Não foi possível concluir a operação. Tente novamente.'
-            : status === 429
-              ? 'Muitas tentativas. Aguarde alguns minutos.'
-              : (e.message ?? 'Requisição inválida.'),
+          error instanceof GoogleApiError
+            ? error.message
+            : status >= 500
+              ? 'Não foi possível concluir a operação. Tente novamente.'
+              : status === 429
+                ? 'Muitas tentativas. Aguarde alguns minutos.'
+                : (e.message ?? 'Requisição inválida.'),
         ...(e.validation ? { details: e.validation } : {}),
       },
     });
@@ -262,6 +266,8 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await registerMailArchives(app, resources);
   await registerCalendar(app, resources);
   await registerGoogleIntegrations(app, resources);
+  await registerMeetManagement(app, resources);
+  await registerReports(app, resources);
   await registerReminderAlerts(app, resources);
   app.addHook('onClose', async () => {
     io.local.disconnectSockets(true);

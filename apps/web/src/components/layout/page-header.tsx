@@ -9,9 +9,9 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
+    <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h1 className="text-3xl font-bold leading-9">{title}</h1>
+        <h1 className="text-page-title font-semibold tracking-tight">{title}</h1>
         {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
       </div>
       {actions}

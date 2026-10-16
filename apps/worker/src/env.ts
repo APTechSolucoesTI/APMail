@@ -6,6 +6,9 @@ export const envSchema = z.object({
   DATABASE_URL: z.url(),
   REDIS_URL: z.url(),
   APP_URL: z.url(),
+  GOOGLE_CLIENT_ID: z.string().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().default(''),
+  GOOGLE_MEET_SYNC_MINUTES: z.coerce.number().int().min(2).max(60).default(5),
   SMTP_EHLO_NAME: z
     .string()
     .trim()

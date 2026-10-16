@@ -25,7 +25,7 @@ export function NavigationGroup({
     <section className="min-w-0">
       <button
         type="button"
-        className="flex min-h-11 w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 text-sm font-semibold hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex min-h-11 sm:min-h-8 w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 text-xs font-semibold text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-expanded={open}
         aria-controls={controlsId}
         onClick={() => {

@@ -19,6 +19,7 @@ import { sweepOutbox, cleanupUploads } from './handlers/outbox-maintenance.js';
 import { ensureSchedulers } from './handlers/ensure-schedulers.js';
 import { closeImapConnections } from './imap/connect.js';
 import { createSystemEmailHandler } from './handlers/system-email.js';
+import { handleGoogleMeet } from './handlers/google-meet.js';
 import { QUEUE_NAMES, socketRedisKey } from '@apmail/shared';
 import { readEnv } from './env.js';
 import { requestStorageScan, reconcileStorage, collectPlatformResources } from '@apmail/db';
@@ -102,6 +103,7 @@ const workers = QUEUE_NAMES.map(
           );
         if (name === 'maintenance' && job.name === 'ensure-schedulers') return ensureSchedulers(r);
         if (name === 'maintenance' && job.name === 'sweep-outbox') return sweepOutbox(r);
+        if (name === 'google-meet-sync') return handleGoogleMeet(r, job.data);
         if (name === 'calendar-reminders') {
           const notifications = await sweepCalendarReminders(db);
           for (const notification of notifications)
@@ -179,7 +181,10 @@ const workers = QUEUE_NAMES.map(
           },
         },
         concurrency:
-          name === 'maintenance' || name === 'storage-metering' || name === 'calendar-reminders'
+          name === 'maintenance' ||
+          name === 'storage-metering' ||
+          name === 'calendar-reminders' ||
+          name === 'google-meet-sync'
             ? 1
             : name === 'mailbox-connection'
               ? 3
@@ -224,6 +229,11 @@ for (const worker of workers)
       .catch(() => undefined);
   });
 async function registerMaintenance() {
+  await resources.queues['google-meet-sync'].upsertJobScheduler(
+    'meet-sweep',
+    { every: 60000 },
+    { name: 'sweep', data: { sweep: true } },
+  );
   await resources.queues['calendar-reminders'].upsertJobScheduler(
     'due',
     { every: 30000 },

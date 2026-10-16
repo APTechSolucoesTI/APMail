@@ -8,6 +8,7 @@ import {
   calendarLocalInput,
   type CalendarEventInput,
   type InvitationEmailPreferences,
+  type MeetIntegrationStatus,
 } from '@apmail/shared';
 import { api } from '@/lib/api';
 import { useTenantId, canMailbox, type Mailbox } from '@/lib/auth';
@@ -70,6 +71,10 @@ export function EventEditor({
     queryFn: () => api<InvitationEmailPreferences>('/calendar/email-preferences'),
   });
   const [mailboxTouched, setMailboxTouched] = useState(false);
+  const google = useQuery({
+    queryKey: ['google-integration', tenant],
+    queryFn: () => api<MeetIntegrationStatus>('/integrations/google'),
+  });
   const [draftForm, setForm] = useState<CalendarEventInput>(() =>
     event
       ? {
@@ -103,6 +108,9 @@ export function EventEditor({
   );
   const available = boxes.data?.filter((b) => canMailbox(b, 'send') && b.status === 'active') ?? [];
   const preferred =
+    available.find(
+      (b) => !!draftForm.meeting_url && b.id === google.data?.preferences.mailbox_id,
+    ) ??
     available.find((b) => b.id === emailPreferences.data?.mailbox_id) ??
     (available.length === 1 ? available[0] : undefined);
   const form =
@@ -495,6 +503,8 @@ export function EventEditor({
           )}
           {whole && (
             <OnlineMeeting
+              eventId={event?.id}
+              eventStart={original ? start : event?.starts_at}
               value={form.meeting_url}
               onChange={(value) => update('meeting_url', value)}
               disabled={busy}

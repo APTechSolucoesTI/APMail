@@ -2,7 +2,9 @@
 
 Gestão de e-mails compartilhados do Grupo AP. Aplicação própria com React, Fastify, PostgreSQL, Redis/BullMQ e integração IMAP/POP3/SMTP.
 
-[Google Meet, horários e pop-ups de lembretes](docs/GOOGLE-AGENDA-MEET-POPUPS.md): conexão OAuth em Configurações → Integrações, API oficial do Meet, consulta opcional da Google Agenda, convite remodelado e antecedência de pop-up por evento. Migrations `0039`–`0041`; ativação descrita no [guia Word](docs/GUIA-INTEGRACAO-GOOGLE.docx).
+[Google Meet, horários e pop-ups de lembretes](docs/GOOGLE-AGENDA-MEET-POPUPS.md): conexão OAuth em Configurações → Integrações, API oficial do Meet, consulta opcional da Google Agenda, convite remodelado e antecedência de pop-up por evento. Ativação básica descrita no [guia Word](docs/GUIA-INTEGRACAO-GOOGLE.docx).
+
+[Central de relatórios do Google Meet](docs/GOOGLE-MEET-RELATORIOS.md): sincronização em segundo plano, participantes/sessões, gravações, transcrições, notas, consentimento, retenção e exportações PDF/CSV. Migrations aditivas `0043`–`0045`; as credenciais Google também devem ser disponibilizadas ao worker. O documento detalha os serviços opcionais e a configuração no Google Cloud.
 
 [Compositor, calendário e lembretes](docs/COMPOSITOR-CALENDARIO-LEMBRETES.md): ribbon de composição, prioridade, calendário pessoal com recorrências/exceções e convites ICS reais, lembretes persistentes processados pelo worker. Migrations `0035`–`0038`; atualizar API, worker e web juntos. Sem sincronização externa de calendário.
 
