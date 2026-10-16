@@ -8,9 +8,11 @@ export const QUEUE_NAMES = [
   'maintenance',
   'storage-metering',
   'mail-archive',
+  'calendar-reminders',
 ] as const;
 export type QueueName = (typeof QUEUE_NAMES)[number];
 export type QueuePayloads = {
+  'calendar-reminders': Record<string, never>;
   'mailbox-sync': { mailbox_id: string };
   'mailbox-connection': { mailbox_id: string };
   'mail-archive': { import_id: string };

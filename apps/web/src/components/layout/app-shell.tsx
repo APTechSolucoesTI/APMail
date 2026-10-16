@@ -25,6 +25,8 @@ import {
   ListFilter,
   UsersRound,
   ClipboardList,
+  CalendarDays,
+  BellRing,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
@@ -108,6 +110,7 @@ export function AppShell() {
         'chat-conversations',
         'chat-messages',
         'chat-presence',
+        'calendar',
       ])
         void client.invalidateQueries({ queryKey: [key] });
     });
@@ -201,6 +204,7 @@ export function AppShell() {
         }),
     );
     socket.on('folders:changed', () => invalidate('folders'));
+    socket.on('calendar:changed', () => invalidate('calendar'));
     socket.on('labels:changed', () => invalidate('labels', 'threads', 'thread', 'global-search'));
     socket.on('directory:changed', () =>
       invalidate(
@@ -274,6 +278,24 @@ export function AppShell() {
           Envios
         </Link>
         <ChatNavigation onNavigate={() => setOpen(false)} />
+        <Link
+          to="/calendar"
+          onClick={() => setOpen(false)}
+          activeProps={{ className: 'bg-accent text-accent-foreground' }}
+          className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+        >
+          <CalendarDays aria-hidden className="size-4" />
+          Calendário
+        </Link>
+        <Link
+          to="/reminders"
+          onClick={() => setOpen(false)}
+          activeProps={{ className: 'bg-accent text-accent-foreground' }}
+          className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+        >
+          <BellRing aria-hidden className="size-4" />
+          Lembretes e tarefas
+        </Link>
         {tenant && (
           <Link
             to="/dashboard"

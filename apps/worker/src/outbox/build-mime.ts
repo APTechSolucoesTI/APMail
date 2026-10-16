@@ -1,6 +1,12 @@
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { randomUUID } from 'node:crypto';
-import { renderFromName, mdnRequestSchema, type Address } from '@apmail/shared';
+import {
+  renderFromName,
+  mdnRequestSchema,
+  buildCalendarInvite,
+  calendarInviteSchema,
+  type Address,
+} from '@apmail/shared';
 import { buildMdn } from '../lib/mdn.js';
 import {
   resolveOutboxAttachments,
@@ -42,6 +48,7 @@ export async function buildMime(r: WorkerResources, row: OutboxRow, box: Mailbox
       references: [] as string[],
       files: [] as Awaited<ReturnType<typeof resolveOutboxAttachments>>,
       fromName: request.recipient,
+      fromAddress: request.recipient,
     };
   }
   const user = await r.db
@@ -85,6 +92,18 @@ export async function buildMime(r: WorkerResources, row: OutboxRow, box: Mailbox
     });
   const bodyHtml = signature.bodyHtml;
   const bodyText = htmlToText(bodyHtml);
+  const calendarPayload = row.calendar_payload
+    ? calendarInviteSchema.parse(row.calendar_payload)
+    : null;
+  const fromAddress =
+    calendarPayload?.method === 'REPLY' ? calendarPayload.attendees[0]?.address : box.email_address;
+  if (
+    !fromAddress ||
+    ![box.email_address, ...box.aliases]
+      .map((a) => a.toLowerCase())
+      .includes(fromAddress.toLowerCase())
+  )
+    throw new Error('send_permission_revoked');
   const name = renderFromName(box.from_name_template, {
     user_name: user.full_name,
     mailbox_name: box.name,
@@ -106,7 +125,16 @@ export async function buildMime(r: WorkerResources, row: OutboxRow, box: Mailbox
     })),
   );
   const composer = new MailComposer({
-    from: { name, address: box.email_address },
+    priority: row.priority as 'high' | 'normal' | 'low',
+    ...(calendarPayload
+      ? {
+          icalEvent: {
+            method: calendarPayload.method,
+            content: buildCalendarInvite(calendarPayload),
+          },
+        }
+      : {}),
+    from: { name, address: fromAddress },
     to: row.to_addresses as Address[],
     cc: row.cc_addresses as Address[],
     bcc: row.bcc_addresses as Address[],
@@ -133,8 +161,9 @@ export async function buildMime(r: WorkerResources, row: OutboxRow, box: Mailbox
     references,
     files,
     fromName: name,
+    fromAddress,
     envelope: {
-      from: box.email_address,
+      from: fromAddress,
       to: [...new Set(addresses.map((a) => a.address.toLowerCase()))],
     },
   };

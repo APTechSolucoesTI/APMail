@@ -19,10 +19,12 @@ export function NotificationBell() {
   const count = useQuery({
     queryKey: ['notifications', useTenantId(), 'count'],
     queryFn: () => api<{ count: number }>('/notifications/unread-count'),
+    refetchInterval: 30000,
   });
   const list = useQuery({
     queryKey: ['notifications', useTenantId(), 'list'],
     queryFn: () => api<Notification[]>('/notifications'),
+    refetchInterval: 30000,
   });
   const read = async (id?: string) => {
     await api(id ? '/notifications/' + id + '/read' : '/notifications/read-all', {

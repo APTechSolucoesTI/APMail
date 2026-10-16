@@ -14,7 +14,25 @@ import {
   type ReplyMessage,
   type SendSchedule,
 } from '@apmail/shared';
-import { Send, Clock, Paperclip, X, Trash2, Minus, Maximize2, Minimize2 } from 'lucide-react';
+import {
+  Send,
+  Clock,
+  Paperclip,
+  X,
+  Trash2,
+  Minus,
+  Maximize2,
+  Minimize2,
+  Signature as SignatureIcon,
+  Save,
+  ChevronDown,
+} from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useComposingPresence } from '@/hooks/use-thread-presence';
 import { cn } from '@/lib/utils';
@@ -51,6 +69,7 @@ import { LoadingState, ErrorState } from '@/components/data/data-state';
 type Attached = { ref: OutboxAttachment; filename: string; size_bytes: number };
 export type ComposerHandle = { saveDraft: () => Promise<void> };
 const blank = (id: string): OutboxInput => ({
+  priority: 'normal',
   request_read_receipt: false,
   mailbox_id: id,
   kind: 'new',
@@ -126,6 +145,7 @@ export function Composer({
     [schedule, setSchedule] = useState(false),
     [confirm, setConfirm] = useState<'discard' | 'subject' | null>(null),
     [uploads, setUploads] = useState<{ id: string; name: string; progress: number }[]>([]);
+  const [ribbonContainer, setRibbonContainer] = useState<HTMLDivElement | null>(null);
   const idRef = useRef<string | null>(draftId),
     initialized = useRef(false),
     savedJson = useRef(''),
@@ -312,6 +332,15 @@ export function Composer({
     }
   };
   const fingerprint = JSON.stringify(combined);
+  useEffect(() => {
+    if (!ready || (!uploads.length && (!edited || fingerprint === savedJson.current))) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [ready, edited, fingerprint, uploads.length, saving, savedAt]);
   useImperativeHandle(ref, () => ({
     saveDraft: async () => {
       if (uploads.length) throw Error('Aguarde o envio dos anexos.');
@@ -338,7 +367,7 @@ export function Composer({
   };
   const submit = async (schedule?: SendSchedule, subjectConfirmed = false) => {
     const scheduled_at = schedule?.scheduled_at;
-    if (busy || uploads.length) return;
+    if (!ready || busy || uploads.length) return;
     try {
       const value = outboxSchema.parse(current.current);
       if (![...value.to_addresses, ...value.cc_addresses, ...value.bcc_addresses].length)
@@ -473,24 +502,32 @@ export function Composer({
       >
         <DialogContent
           className={cn(
-            'flex flex-col overflow-hidden',
+            'flex flex-col gap-0 overflow-hidden bg-card p-0',
             desktop && !maximized
-              ? 'fixed bottom-4 right-4 left-auto top-auto h-[560px] max-h-[calc(100dvh-2rem)] w-[640px] max-w-[calc(100vw-2rem)] translate-x-0 translate-y-0 sm:max-w-[640px]'
+              ? 'fixed bottom-4 right-4 left-auto top-auto h-[760px] max-h-[calc(100dvh-2rem)] w-[960px] max-w-[calc(100vw-2rem)] translate-x-0 translate-y-0 sm:max-w-[960px]'
               : 'fixed left-0 top-0 h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 rounded-none sm:max-w-none',
           )}
           onInteractOutside={(e) => {
             if (desktop && !maximized) e.preventDefault();
           }}
           onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+              e.preventDefault();
+              if (ready && !busy && !uploads.length) {
+                if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+                setTimeout(() => void save().catch((err) => setError((err as Error).message)), 0);
+              }
+            }
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
               e.preventDefault();
-              void submit();
+              if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+              setTimeout(() => void submit(), 0);
             }
           }}
         >
-          <DialogHeader className="shrink-0">
+          <DialogHeader className="relative shrink-0 border-b bg-muted/40 px-4 py-3 text-left">
             {desktop && (
-              <div className="mr-6 flex justify-end gap-1">
+              <div className="absolute right-10 top-1 flex justify-end gap-1">
                 <Button
                   variant="ghost"
                   size="icon"
@@ -512,7 +549,7 @@ export function Composer({
                 </Button>
               </div>
             )}
-            <DialogTitle>
+            <DialogTitle className="truncate pr-28 text-sm leading-6">
               {draftId
                 ? 'Editar rascunho'
                 : mode === 'new'
@@ -521,10 +558,130 @@ export function Composer({
                     ? 'Encaminhar e-mail'
                     : 'Responder e-mail'}
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="sr-only">
               O rascunho é salvo automaticamente enquanto você escreve.
             </DialogDescription>
           </DialogHeader>
+          {ready && !readonly && (
+            <>
+              <div ref={setRibbonContainer} className="shrink-0" />
+              <div className="flex shrink-0 flex-wrap items-center gap-1 border-b bg-muted/20 px-3 py-2">
+                <div className="mr-2 flex">
+                  <Button
+                    className="rounded-r-none"
+                    disabled={busy || !!uploads.length || total > max * 1024 * 1024}
+                    onClick={() => void submit()}
+                  >
+                    <Send />
+                    {busy ? 'Enviando…' : 'Enviar'}
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        aria-label="Opções de envio"
+                        className="rounded-l-none border-l border-primary-foreground/30 px-2"
+                        disabled={busy || !!uploads.length || total > max * 1024 * 1024}
+                      >
+                        <ChevronDown />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem onSelect={() => setSchedule(true)}>
+                        <Clock />
+                        Agendar envio…
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy || saving || !!uploads.length}
+                  onClick={() => void save().catch((err) => setError((err as Error).message))}
+                >
+                  <Save />
+                  Salvar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  <Paperclip />
+                  Anexar
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      title={
+                        signatures.data?.find((s) => s.id === data.signature_id)?.name ??
+                        'Sem assinatura'
+                      }
+                    >
+                      <SignatureIcon />
+                      Assinatura
+                      <ChevronDown />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        setEdited(true);
+                        setData((d) => ({ ...d, signature_id: null }));
+                        setSignatureHtml('');
+                      }}
+                    >
+                      Sem assinatura
+                    </DropdownMenuItem>
+                    {signatures.data
+                      ?.filter((s) => !s.mailbox_id || s.mailbox_id === data.mailbox_id)
+                      .map((s) => (
+                        <DropdownMenuItem
+                          key={s.id}
+                          onSelect={() => {
+                            setEdited(true);
+                            setData((d) => ({ ...d, signature_id: s.id }));
+                            setSignatureHtml(s.body_html);
+                          }}
+                        >
+                          {s.name}
+                          {s.id === data.signature_id ? ' · Selecionada' : ''}
+                        </DropdownMenuItem>
+                      ))}
+                    <DropdownMenuItem asChild>
+                      <a href="/settings/signatures" target="_blank" rel="noreferrer">
+                        Gerenciar assinaturas
+                      </a>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <label className="ml-auto flex items-center gap-2 text-xs">
+                  Prioridade
+                  <select
+                    aria-label="Prioridade"
+                    className="h-8 rounded-md border bg-card px-2"
+                    value={data.priority}
+                    disabled={busy}
+                    onChange={(e) => {
+                      setEdited(true);
+                      setData((d) => ({
+                        ...d,
+                        priority: e.target.value as OutboxInput['priority'],
+                      }));
+                    }}
+                  >
+                    <option value="normal">Normal</option>
+                    <option value="high">Alta</option>
+                    <option value="low">Baixa</option>
+                  </select>
+                </label>
+              </div>
+            </>
+          )}
           {!ready ? (
             draft.error || conversation.error || boxes.error || signatures.error ? (
               <ErrorState
@@ -542,86 +699,115 @@ export function Composer({
             <p role="alert">Este envio já saiu dos rascunhos. Cancele antes de editar.</p>
           ) : (
             <div
-              className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1"
+              className="min-h-0 flex-1 space-y-1 overflow-y-auto px-4 pb-3"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
                 if (!busy) for (const f of e.dataTransfer.files) void upload(f);
               }}
             >
-              <Label htmlFor="compose-from">De</Label>
-              <select
-                id="compose-from"
-                className="h-11 w-full rounded-md border border-input bg-card px-3 text-sm"
-                value={data.mailbox_id}
-                disabled={data.kind !== 'new' || busy || saving || uploads.length > 0}
-                onChange={async (e) => {
-                  const id = e.target.value;
-                  if (busy || uploads.length || saving) return;
-                  setBusy(true);
-                  setError('');
-                  try {
-                    const row = await save();
-                    const s =
-                      signatures.data?.find((s) => s.is_default && s.mailbox_id === id) ??
-                      signatures.data?.find((s) => s.is_default && !s.mailbox_id);
-                    const next = {
-                      ...current.current,
-                      mailbox_id: id,
-                      signature_id: s?.id ?? null,
-                      body_html: DOMPurify.sanitize(
-                        body +
-                          (s
-                            ? '<div data-apmail-signature="' + s.id + '">' + s.body_html + '</div>'
-                            : '') +
-                          quote,
-                      ),
-                    };
-                    await api('/outbox/' + row.id, { method: 'PATCH', body: next });
-                    savedJson.current = JSON.stringify(next);
-                    current.current = next;
-                    setData((d) => ({ ...d, mailbox_id: id, signature_id: s?.id ?? null }));
-                    setSignatureHtml(s?.body_html ?? '');
-                    setEdited(true);
-                    await client.invalidateQueries({ queryKey: ['outbox', tenant] });
-                  } catch (err) {
-                    setError((err as Error).message);
-                  } finally {
-                    setBusy(false);
+              <div className="flex min-w-0 items-center gap-3 border-b">
+                <Label
+                  htmlFor="compose-from"
+                  className="w-12 shrink-0 text-xs text-muted-foreground"
+                >
+                  De
+                </Label>
+                <select
+                  id="compose-from"
+                  className="h-11 min-w-0 flex-1 bg-card px-2 text-sm"
+                  value={data.mailbox_id}
+                  disabled={data.kind !== 'new' || busy || saving || uploads.length > 0}
+                  onChange={async (e) => {
+                    const id = e.target.value;
+                    if (busy || uploads.length || saving) return;
+                    setBusy(true);
+                    setError('');
+                    try {
+                      const row = await save();
+                      const s =
+                        signatures.data?.find((s) => s.is_default && s.mailbox_id === id) ??
+                        signatures.data?.find((s) => s.is_default && !s.mailbox_id);
+                      const next = {
+                        ...current.current,
+                        mailbox_id: id,
+                        signature_id: s?.id ?? null,
+                        body_html: DOMPurify.sanitize(
+                          body +
+                            (s
+                              ? '<div data-apmail-signature="' +
+                                s.id +
+                                '">' +
+                                s.body_html +
+                                '</div>'
+                              : '') +
+                            quote,
+                        ),
+                      };
+                      await api('/outbox/' + row.id, { method: 'PATCH', body: next });
+                      savedJson.current = JSON.stringify(next);
+                      current.current = next;
+                      setData((d) => ({ ...d, mailbox_id: id, signature_id: s?.id ?? null }));
+                      setSignatureHtml(s?.body_html ?? '');
+                      setEdited(true);
+                      await client.invalidateQueries({ queryKey: ['outbox', tenant] });
+                    } catch (err) {
+                      setError((err as Error).message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  {boxes.data
+                    ?.filter((b) => canMailbox(b, 'send') && b.status === 'active')
+                    .map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} &lt;{b.email_address}&gt;
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <EmailChipInput
+                    compact
+                    label="Para"
+                    value={data.to_addresses}
+                    mailboxId={data.mailbox_id}
+                    onChange={(v) => {
+                      setEdited(true);
+                      setData((d) => ({ ...d, to_addresses: v }));
+                    }}
+                  />
+                </div>
+                <div className="flex gap-1 pt-1">
+                  {
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      aria-pressed={cc}
+                      onClick={() => setCc((v) => !v)}
+                    >
+                      Cc
+                    </Button>
                   }
-                }}
-              >
-                {boxes.data
-                  ?.filter((b) => canMailbox(b, 'send') && b.status === 'active')
-                  .map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name} &lt;{b.email_address}&gt;
-                    </option>
-                  ))}
-              </select>
-              <EmailChipInput
-                label="Para"
-                value={data.to_addresses}
-                mailboxId={data.mailbox_id}
-                onChange={(v) => {
-                  setEdited(true);
-                  setData((d) => ({ ...d, to_addresses: v }));
-                }}
-              />
-              <div className="flex gap-2">
-                {!cc && (
-                  <Button type="button" size="sm" variant="ghost" onClick={() => setCc(true)}>
-                    Adicionar Cc
-                  </Button>
-                )}
-                {!bcc && (
-                  <Button type="button" size="sm" variant="ghost" onClick={() => setBcc(true)}>
-                    Adicionar Cco
-                  </Button>
-                )}
+                  {
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      aria-pressed={bcc}
+                      onClick={() => setBcc((v) => !v)}
+                    >
+                      Cco
+                    </Button>
+                  }
+                </div>
               </div>
               {cc && (
                 <EmailChipInput
+                  compact
                   label="Cc"
                   value={data.cc_addresses}
                   mailboxId={data.mailbox_id}
@@ -633,6 +819,7 @@ export function Composer({
               )}
               {bcc && (
                 <EmailChipInput
+                  compact
                   label="Cco"
                   value={data.bcc_addresses}
                   mailboxId={data.mailbox_id}
@@ -642,17 +829,25 @@ export function Composer({
                   }}
                 />
               )}
-              <Label htmlFor="compose-subject">Assunto</Label>
-              <Input
-                id="compose-subject"
-                value={data.subject}
-                onChange={(e) => {
-                  const subject = e.target.value;
-                  setEdited(true);
-                  setData((d) => ({ ...d, subject }));
-                }}
-              />
-              <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm">
+              <div className="flex items-center gap-3 border-b">
+                <Label
+                  htmlFor="compose-subject"
+                  className="w-12 shrink-0 text-xs text-muted-foreground"
+                >
+                  Assunto
+                </Label>
+                <Input
+                  id="compose-subject"
+                  className="h-11 rounded-none border-0 shadow-none font-medium"
+                  value={data.subject}
+                  onChange={(e) => {
+                    const subject = e.target.value;
+                    setEdited(true);
+                    setData((d) => ({ ...d, subject }));
+                  }}
+                />
+              </div>
+              <label className="flex min-h-9 cursor-pointer items-center gap-2 text-xs text-muted-foreground">
                 <Checkbox
                   checked={data.request_read_receipt}
                   disabled={busy}
@@ -663,8 +858,10 @@ export function Composer({
                 />
                 Solicitar confirmação de leitura
               </label>
-              <Label>Mensagem</Label>
+              <Label className="sr-only">Mensagem</Label>
               <RichTextEditor
+                ribbon
+                toolbarContainer={ribbonContainer}
                 value={body}
                 onImageUpload={async (file) => {
                   const uploadId = await upload(file, true);
@@ -676,27 +873,6 @@ export function Composer({
                   setBody(value);
                 }}
               />
-              <Label htmlFor="compose-signature">Assinatura</Label>
-              <select
-                id="compose-signature"
-                className="h-11 w-full rounded-md border border-input bg-card px-3 text-sm"
-                value={data.signature_id ?? ''}
-                onChange={(e) => {
-                  const s = signatures.data?.find((s) => s.id === e.target.value);
-                  setEdited(true);
-                  setData((d) => ({ ...d, signature_id: s?.id ?? null }));
-                  setSignatureHtml(s?.body_html ?? '');
-                }}
-              >
-                <option value="">Sem assinatura</option>
-                {signatures.data
-                  ?.filter((s) => !s.mailbox_id || s.mailbox_id === data.mailbox_id)
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-              </select>
               {data.signature_id && (
                 <div
                   className="rounded-md border p-3 text-sm"
@@ -732,15 +908,6 @@ export function Composer({
                   e.target.value = '';
                 }}
               />
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => fileInput.current?.click()}
-              >
-                <Paperclip />
-                Adicionar anexos
-              </Button>
               <ul className="space-y-1">
                 {files.map((f, i) => (
                   <li
@@ -805,22 +972,11 @@ export function Composer({
             </div>
           )}
           {ready && !readonly && (
-            <div className="flex shrink-0 flex-wrap gap-2 border-t pt-3">
-              <Button
-                disabled={busy || !!uploads.length || total > max * 1024 * 1024}
-                onClick={() => void submit()}
-              >
-                <Send />
-                {busy ? 'Enviando…' : 'Enviar'}
-              </Button>
-              <Button
-                variant="outline"
-                disabled={busy || !!uploads.length || total > max * 1024 * 1024}
-                onClick={() => setSchedule(true)}
-              >
-                <Clock />
-                Agendar envio…
-              </Button>
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t px-4 py-2">
+              <span role="status" className="text-xs text-muted-foreground">
+                {saving ? 'Salvando…' : savedAt ? 'Salvo às ' + savedAt : 'Rascunho automático'} ·
+                Ctrl+Enter para enviar
+              </span>
               <Button
                 variant="ghost"
                 disabled={busy || !!uploads.length}

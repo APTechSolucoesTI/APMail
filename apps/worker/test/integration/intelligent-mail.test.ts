@@ -17,8 +17,10 @@ import {
   writeMailboxCredential,
   type DB,
 } from '@apmail/db';
-import type { Selectable } from 'kysely';
-import { socketRedisKey } from '@apmail/shared';
+import { sql, type Selectable } from 'kysely';
+import { socketRedisKey, buildCalendarInvite, calendarInviteSchema } from '@apmail/shared';
+import MailComposer from 'nodemailer/lib/mail-composer/index.js';
+import { readCalendarInvite } from '../../src/lib/calendar.js';
 import { buildApp } from '../../../api/src/app.js';
 import { envSchema as apiEnv } from '../../../api/src/env.js';
 import { hashToken } from '../../../api/src/plugins/auth.js';
@@ -628,4 +630,102 @@ it('preferência permanece depois de logout e um novo login autenticado', async 
   const cookie = login.cookies.find((item) => item.name === 'apmail_session')!;
   cookies.set(owner, 'apmail_session=' + encodeURIComponent(cookie.value));
   expect((await call('GET', '/api/auth/me')).json().preferences.request_read_receipt).toBe(true);
+});
+it('envia convites MIME reais, aplica RSVP recebido e envia resposta explícita por SMTP local', async () => {
+  const calendars = (await call('GET', '/api/calendars')).json();
+  const created = await call('POST', '/api/calendar/events', {
+    calendar_id: calendars[0].id,
+    mailbox_id: boxId,
+    title: 'Reunião interoperável QA',
+    starts_at: '2030-10-16T17:00:00.000Z',
+    ends_at: '2030-10-16T18:00:00.000Z',
+    attendees: [{ address: 'guest@qa.example', name: 'Convidado' }],
+    timezone: 'America/Sao_Paulo',
+  });
+  expect(created.statusCode, created.body).toBe(200);
+  const event = created.json();
+  const deliver = async (uid: string, method: string) => {
+    const outbox = await db
+      .selectFrom('outbox')
+      .selectAll()
+      .where('tenant_id', '=', tenant)
+      .where(sql<string>`calendar_payload->>'uid'`, '=', uid)
+      .where(sql<string>`calendar_payload->>'method'`, '=', method)
+      .orderBy('created_at', 'desc')
+      .executeTakeFirstOrThrow();
+    await handleOutboxSend(r, outbox.id, {
+      id: outbox.job_id!,
+      attemptsMade: 0,
+      opts: { attempts: 1 },
+    });
+    expect(
+      (
+        await db
+          .selectFrom('outbox')
+          .select('status')
+          .where('id', '=', outbox.id)
+          .executeTakeFirstOrThrow()
+      ).status,
+    ).toBe('sent');
+    const mime = await simpleParser(deliveries.at(-1)!.raw);
+    expect(deliveries.at(-1)!.raw.toString()).toMatch(
+      new RegExp('text/calendar;[^\\r]*method=' + method, 'i'),
+    );
+    return mime;
+  };
+  const request = readCalendarInvite(await deliver(event.uid, 'REQUEST'), box.email_address, [
+    'guest@qa.example',
+  ]);
+  expect(request).toMatchObject({
+    method: 'REQUEST',
+    uid: event.uid,
+    organizer: box.email_address,
+  });
+  const reply = calendarInviteSchema.parse({
+    ...request!,
+    method: 'REPLY',
+    attendees: [{ address: 'guest@qa.example', name: 'Convidado', status: 'ACCEPTED' }],
+  });
+  await ingest(
+    await new MailComposer({
+      from: 'guest@qa.example',
+      to: box.email_address,
+      subject: 'Aceito',
+      icalEvent: { method: 'REPLY', content: buildCalendarInvite(reply) },
+    })
+      .compile()
+      .build(),
+  );
+  expect((await call('GET', '/api/calendar/events/' + event.id)).json().attendees[0].status).toBe(
+    'ACCEPTED',
+  );
+  const external = calendarInviteSchema.parse({
+    ...request!,
+    uid: randomUUID() + '@qa.example',
+    organizer: 'guest@qa.example',
+    attendees: [{ address: box.email_address, name: 'Operação' }],
+  });
+  const incoming = await ingest(
+    await new MailComposer({
+      from: external.organizer,
+      to: box.email_address,
+      subject: 'Reunião externa QA',
+      icalEvent: { method: 'REQUEST', content: buildCalendarInvite(external) },
+    })
+      .compile()
+      .build(),
+  );
+  expect(incoming.calendar_invite).not.toBeNull();
+  const accepted = await call('POST', '/api/messages/' + incoming.id + '/calendar/respond', {
+    status: 'ACCEPTED',
+  });
+  expect(accepted.statusCode, accepted.body).toBe(200);
+  const received = readCalendarInvite(await deliver(external.uid, 'REPLY'), box.email_address, [
+    external.organizer,
+  ]);
+  expect(received).toMatchObject({
+    method: 'REPLY',
+    uid: external.uid,
+    attendees: [{ address: box.email_address, status: 'ACCEPTED' }],
+  });
 });

@@ -14,11 +14,13 @@ export function EmailChipInput({
   value,
   onChange,
   mailboxId,
+  compact = false,
 }: {
   label: string;
   value: Address[];
   onChange: (addresses: Address[]) => void;
   mailboxId: string;
+  compact?: boolean;
 }) {
   const id = useId(),
     tenant = useTenantId(),
@@ -82,9 +84,24 @@ export function EmailChipInput({
     setActive(0);
   };
   return (
-    <div className="relative space-y-1">
-      <Label htmlFor={id}>{label}</Label>
-      <div className="flex min-h-11 flex-wrap items-center gap-1 rounded-md border border-input bg-card p-1 focus-within:ring-2 focus-within:ring-ring">
+    <div
+      className={
+        compact ? 'relative flex min-w-0 items-start gap-3 border-b' : 'relative space-y-1'
+      }
+    >
+      <Label
+        htmlFor={id}
+        className={compact ? 'w-12 shrink-0 pt-3 text-xs text-muted-foreground' : undefined}
+      >
+        {label}
+      </Label>
+      <div
+        className={
+          compact
+            ? 'flex min-h-11 min-w-0 flex-1 flex-wrap items-center gap-1 py-1 focus-within:ring-1 focus-within:ring-ring'
+            : 'flex min-h-11 flex-wrap items-center gap-1 rounded-md border border-input bg-card p-1 focus-within:ring-2 focus-within:ring-ring'
+        }
+      >
         {value.map((a, i) => {
           const identity = resolveAddress(a, resolved.data?.contacts ?? {});
           const valid = z.email().safeParse(a.address).success;
@@ -125,7 +142,7 @@ export function EmailChipInput({
           aria-activedescendant={
             expanded && suggestions[active] ? id + '-option-' + active : undefined
           }
-          className="min-h-10 min-w-32 flex-1 bg-transparent px-2 text-sm outline-none"
+          className="min-h-8 min-w-24 flex-1 bg-transparent px-2 text-sm outline-none"
           value={input}
           onChange={(e) => {
             if (/[,;]/.test(e.target.value)) add(e.target.value);
@@ -182,7 +199,12 @@ export function EmailChipInput({
         />
       </div>
       {expanded && (
-        <div className="absolute inset-x-0 top-[calc(100%-1.25rem)] z-50 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md">
+        <div
+          className={
+            'absolute inset-x-0 z-50 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md ' +
+            (compact ? 'top-full' : 'top-[calc(100%-1.25rem)]')
+          }
+        >
           <div className="border-b px-3 py-2 text-xs font-semibold text-muted-foreground">
             Endereços sugeridos
           </div>
@@ -263,7 +285,7 @@ export function EmailChipInput({
           )}
         </div>
       )}
-      <p id={id + '-help'} className="text-xs text-muted-foreground">
+      <p id={id + '-help'} className={compact ? 'sr-only' : 'text-xs text-muted-foreground'}>
         Separe endereços por vírgula ou ponto e vírgula.
       </p>
     </div>

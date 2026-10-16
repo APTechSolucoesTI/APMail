@@ -3,6 +3,7 @@ import { Redis } from 'ioredis';
 import { writeFile } from 'node:fs/promises';
 import pino from 'pino';
 import { createQueues, createDb, Storage, audit, asJson, migrate } from '@apmail/db';
+import { sweepCalendarReminders } from '@apmail/db';
 import { Emitter } from '@socket.io/redis-emitter';
 import { handleMailboxConnection } from './handlers/mailbox-connection.js';
 import { handleMailboxSync } from './handlers/mailbox-sync.js';
@@ -101,6 +102,14 @@ const workers = QUEUE_NAMES.map(
           );
         if (name === 'maintenance' && job.name === 'ensure-schedulers') return ensureSchedulers(r);
         if (name === 'maintenance' && job.name === 'sweep-outbox') return sweepOutbox(r);
+        if (name === 'calendar-reminders') {
+          const notifications = await sweepCalendarReminders(db);
+          for (const notification of notifications)
+            r.io.to('user:' + notification.user_id).emit('notification:new', { notification });
+          for (const user of new Set(notifications.map((n) => n.user_id)))
+            r.io.to('user:' + user).emit('calendar:changed', {});
+          return;
+        }
         if (name === 'maintenance' && job.name === 'purge-mailboxes') return purgeMailboxes(r);
         if (name === 'maintenance' && job.name === 'cleanup-uploads') {
           await cleanupPstExports(r);
@@ -170,7 +179,7 @@ const workers = QUEUE_NAMES.map(
           },
         },
         concurrency:
-          name === 'maintenance' || name === 'storage-metering'
+          name === 'maintenance' || name === 'storage-metering' || name === 'calendar-reminders'
             ? 1
             : name === 'mailbox-connection'
               ? 3
@@ -215,6 +224,11 @@ for (const worker of workers)
       .catch(() => undefined);
   });
 async function registerMaintenance() {
+  await resources.queues['calendar-reminders'].upsertJobScheduler(
+    'due',
+    { every: 30000 },
+    { name: 'due', data: {} },
+  );
   const metering = resources.queues['storage-metering'];
   await metering.upsertJobScheduler(
     'storage-publish',

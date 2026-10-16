@@ -164,6 +164,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         'm.direction',
         'm.request_read_receipt',
         'm.mdn_request',
+        'm.calendar_invite',
         'm.is_mdn',
         'm.is_automated',
         'm.snippet',

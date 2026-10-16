@@ -43,6 +43,7 @@ import { registerContacts } from './modules/contacts.js';
 import { registerGlobalSearch } from './modules/global-search.js';
 import { registerStorageQuotas } from './modules/storage-quotas.js';
 import { registerMailArchives } from './modules/mail-archives.js';
+import { registerCalendar } from './modules/calendar.js';
 import { ApiError, requireTenantAdmin } from './authz/context.js';
 
 export async function buildApp(config: ApiEnv = readEnv()) {
@@ -249,6 +250,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await registerGlobalSearch(app, resources);
   await registerStorageQuotas(app, resources);
   await registerMailArchives(app, resources);
+  await registerCalendar(app, resources);
   app.addHook('onClose', async () => {
     io.local.disconnectSockets(true);
     await sockets.drain();

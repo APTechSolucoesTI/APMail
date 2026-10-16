@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useEditor, EditorContent, Node } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -25,7 +26,17 @@ import {
   Redo2,
   Minus,
   Table,
+  IndentIncrease,
+  IndentDecrease,
+  ChevronDown,
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -89,22 +100,53 @@ export function RichTextEditor({
   label = 'Mensagem',
   images = false,
   onImageUpload,
+  toolbarContainer,
+  ribbon = false,
 }: {
   value: string;
   onChange: (html: string) => void;
   label?: string;
   images?: boolean;
   onImageUpload?: (file: File) => Promise<{ src: string; uploadId: string }>;
+  toolbarContainer?: HTMLElement | null;
+  ribbon?: boolean;
 }) {
   const [dialog, setDialog] = useState<'link' | 'image' | null>(null),
     [url, setUrl] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [tab, setTab] = useState('Mensagem');
+  const ParagraphLayout = Node.create({
+    name: 'paragraphLayout',
+    addGlobalAttributes() {
+      return [
+        {
+          types: ['paragraph', 'heading'],
+          attributes: {
+            indent: {
+              default: 0,
+              parseHTML: (element) => parseInt(element.style.marginLeft || '0') || 0,
+              renderHTML: (attrs) =>
+                attrs.indent ? { style: `margin-left:${attrs.indent}px` } : {},
+            },
+            lineHeight: {
+              default: null,
+              parseHTML: (element) => element.style.lineHeight || null,
+              renderHTML: (attrs) =>
+                attrs.lineHeight ? { style: `line-height:${attrs.lineHeight}` } : {},
+            },
+          },
+        },
+      ];
+    },
+  });
   const editor = useEditor({
     immediatelyRender: false,
+    shouldRerenderOnTransaction: true,
     extensions: [
       StarterKit.configure({ link: { openOnClick: false } }),
       Placeholder.configure({ placeholder: 'Escreva sua mensagem…' }),
       EmailImage,
+      ParagraphLayout,
       TextStyleKit,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       TableKit.configure({ table: { resizable: false } }),
@@ -112,7 +154,9 @@ export function RichTextEditor({
     content: value,
     editorProps: {
       attributes: {
-        class: 'min-h-40 p-3 text-sm focus:outline-none',
+        class: ribbon
+          ? 'min-h-64 p-5 text-sm focus:outline-none sm:min-h-80'
+          : 'min-h-40 p-3 text-sm focus:outline-none',
         role: 'textbox',
         'aria-label': label,
         'aria-multiline': 'true',
@@ -215,83 +259,173 @@ export function RichTextEditor({
       label: 'Limpar formatação',
       icon: RemoveFormatting,
       active: '',
-      run: () => editor.chain().focus().unsetAllMarks().clearNodes().run(),
+      run: () =>
+        editor
+          .chain()
+          .focus()
+          .unsetAllMarks()
+          .clearNodes()
+          .resetAttributes('paragraph', ['textAlign', 'indent', 'lineHeight'])
+          .run(),
     },
   ];
-  return (
-    <div className="rich-text-editor rounded-md border border-input bg-card focus-within:ring-2 focus-within:ring-ring">
-      <div role="toolbar" aria-label="Formatação" className="flex flex-wrap gap-1 border-b p-1">
-        <label className="flex flex-col text-xs gap-1 p-1">
-          Fonte
-          <select
-            aria-label="Fonte"
-            className="h-9 rounded-md border bg-card px-2 text-sm"
-            defaultValue="Arial, sans-serif"
-            onChange={(e) => editor.chain().focus().setFontFamily(e.target.value).run()}
-          >
-            {[
-              'Arial, sans-serif',
-              'Verdana, sans-serif',
-              'Tahoma, sans-serif',
-              'Georgia, serif',
-              'Times New Roman, serif',
-              'Courier New, monospace',
-            ].map((font) => (
-              <option key={font} value={font}>
-                {font.split(',')[0]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col text-xs gap-1 p-1">
-          Tamanho
-          <select
-            aria-label="Tamanho da fonte"
-            className="h-9 rounded-md border bg-card px-2 text-sm"
-            defaultValue="14px"
-            onChange={(e) => editor.chain().focus().setFontSize(e.target.value).run()}
-          >
-            {[10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48].map((size) => (
-              <option key={size} value={`${size}px`}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col text-xs gap-1 p-1">
-          Cor do texto
-          <input
-            type="color"
-            aria-label="Cor do texto"
-            className="h-9 w-12 rounded border"
-            onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
-          />
-        </label>
-        <label className="flex flex-col text-xs gap-1 p-1">
-          Cor de fundo
-          <input
-            type="color"
-            aria-label="Cor de fundo do texto"
-            defaultValue="#ffff00"
-            className="h-9 w-12 rounded border"
-            onChange={(e) => editor.chain().focus().setBackgroundColor(e.target.value).run()}
-          />
-        </label>
-        {buttons.map((b) => (
-          <Button
-            key={b.label}
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={b.label}
-            title={b.label}
-            aria-pressed={!!b.active && editor.isActive(b.active)}
-            onClick={b.run}
-          >
-            <b.icon />
-          </Button>
-        ))}
-        {
+  const toolbar = (
+    <div className={cn('shrink-0 bg-card', ribbon && 'border-b')}>
+      {ribbon && (
+        <div
+          role="tablist"
+          aria-label="Ferramentas da mensagem"
+          className="flex gap-4 border-b px-4"
+          onKeyDown={(event) => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            const tabs = [
+              ...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+            ];
+            const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+            const next =
+              event.key === 'Home'
+                ? 0
+                : event.key === 'End'
+                  ? tabs.length - 1
+                  : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+            event.preventDefault();
+            tabs[next]?.focus();
+            tabs[next]?.click();
+          }}
+        >
+          {['Mensagem', 'Inserir', 'Formatar texto'].map((name) => (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === name}
+              tabIndex={tab === name ? 0 : -1}
+              key={name}
+              onClick={() => setTab(name)}
+              className={cn(
+                'min-h-10 border-b-2 px-1 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring',
+                tab === name
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground',
+              )}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
+      <div
+        role="toolbar"
+        aria-label="Formatação"
+        className={cn('flex flex-wrap items-center gap-1 p-2', !ribbon && 'border-b')}
+      >
+        {(!ribbon || tab !== 'Inserir') && (
+          <>
+            <label className="flex flex-col text-xs gap-1 p-1">
+              <span className={ribbon ? 'sr-only' : undefined}>Fonte</span>
+              <select
+                aria-label="Fonte"
+                className="h-8 max-w-32 rounded-md border bg-card px-2 text-xs"
+                value={editor.getAttributes('textStyle').fontFamily || 'Arial, sans-serif'}
+                onChange={(e) => editor.chain().focus().setFontFamily(e.target.value).run()}
+              >
+                {[
+                  'Arial, sans-serif',
+                  'Verdana, sans-serif',
+                  'Tahoma, sans-serif',
+                  'Georgia, serif',
+                  'Times New Roman, serif',
+                  'Courier New, monospace',
+                ].map((font) => (
+                  <option key={font} value={font}>
+                    {font.split(',')[0]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col text-xs gap-1 p-1">
+              <span className={ribbon ? 'sr-only' : undefined}>Tamanho</span>
+              <select
+                aria-label="Tamanho da fonte"
+                className="h-8 rounded-md border bg-card px-2 text-xs"
+                value={editor.getAttributes('textStyle').fontSize || '14px'}
+                onChange={(e) => editor.chain().focus().setFontSize(e.target.value).run()}
+              >
+                {[10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48].map((size) => (
+                  <option key={size} value={`${size}px`}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col text-xs gap-1 p-1">
+              <span className={ribbon ? 'sr-only' : undefined}>Cor do texto</span>
+              <input
+                type="color"
+                aria-label="Cor do texto"
+                className="h-8 w-9 rounded border"
+                onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
+              />
+            </label>
+            <label className="flex flex-col text-xs gap-1 p-1">
+              <span className={ribbon ? 'sr-only' : undefined}>Cor de fundo</span>
+              <input
+                type="color"
+                aria-label="Cor de fundo do texto"
+                defaultValue="#ffff00"
+                className="h-8 w-9 rounded border"
+                onChange={(e) => editor.chain().focus().setBackgroundColor(e.target.value).run()}
+              />
+            </label>
+          </>
+        )}
+        {buttons
+          .filter(
+            (b) =>
+              !ribbon ||
+              (tab === 'Inserir'
+                ? [
+                    'Inserir link',
+                    'Inserir tabela 3 por 3',
+                    'Linha horizontal',
+                    'Citação',
+                  ].includes(b.label)
+                : tab === 'Mensagem'
+                  ? [
+                      'Negrito',
+                      'Itálico',
+                      'Sublinhado',
+                      'Lista com marcadores',
+                      'Lista numerada',
+                      'Desfazer',
+                      'Refazer',
+                    ].includes(b.label)
+                  : !['Inserir link', 'Inserir tabela 3 por 3', 'Linha horizontal'].includes(
+                      b.label,
+                    )),
+          )
+          .map((b) => (
+            <Button
+              key={b.label}
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              aria-label={b.label}
+              title={b.label}
+              disabled={
+                b.label === 'Desfazer'
+                  ? !editor.can().undo()
+                  : b.label === 'Refazer'
+                    ? !editor.can().redo()
+                    : false
+              }
+              aria-pressed={!!b.active && editor.isActive(b.active)}
+              onClick={b.run}
+            >
+              <b.icon />
+            </Button>
+          ))}
+        {(!ribbon || tab === 'Inserir') && (
           <Button
             type="button"
             variant="ghost"
@@ -304,7 +438,70 @@ export function RichTextEditor({
           >
             <Image />
           </Button>
-        }
+        )}
+        {(!ribbon || tab === 'Formatar texto') && (
+          <>
+            {[false, true].map((increase) => (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                key={String(increase)}
+                aria-label={increase ? 'Aumentar recuo' : 'Diminuir recuo'}
+                title={increase ? 'Aumentar recuo' : 'Diminuir recuo'}
+                onClick={() => {
+                  if (editor.isActive('listItem')) {
+                    if (increase) editor.chain().focus().sinkListItem('listItem').run();
+                    else editor.chain().focus().liftListItem('listItem').run();
+                  } else {
+                    const type = editor.isActive('heading') ? 'heading' : 'paragraph';
+                    editor
+                      .chain()
+                      .focus()
+                      .updateAttributes(type, {
+                        indent: Math.max(
+                          0,
+                          Math.min(
+                            320,
+                            Number(editor.getAttributes(type).indent || 0) + (increase ? 24 : -24),
+                          ),
+                        ),
+                      })
+                      .run();
+                  }
+                }}
+              >
+                {increase ? <IndentIncrease /> : <IndentDecrease />}
+              </Button>
+            ))}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="ghost">
+                  Espaçamento <ChevronDown />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                {['1', '1.15', '1.5', '2'].map((lineHeight) => (
+                  <DropdownMenuItem
+                    key={lineHeight}
+                    onSelect={() =>
+                      editor
+                        .chain()
+                        .focus()
+                        .updateAttributes(editor.isActive('heading') ? 'heading' : 'paragraph', {
+                          lineHeight,
+                        })
+                        .run()
+                    }
+                  >
+                    {lineHeight}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        )}
       </div>
       {editor.isActive('table') && (
         <div className="flex flex-wrap gap-1 border-b p-1">
@@ -345,6 +542,16 @@ export function RichTextEditor({
           </Button>
         </div>
       )}
+    </div>
+  );
+  return (
+    <div
+      className={cn(
+        'rich-text-editor bg-card focus-within:ring-2 focus-within:ring-ring',
+        ribbon ? 'min-h-64 flex-1' : 'rounded-md border border-input',
+      )}
+    >
+      {toolbarContainer ? createPortal(toolbar, toolbarContainer) : toolbar}
       <EditorContent editor={editor} />
       <Dialog
         open={!!dialog}

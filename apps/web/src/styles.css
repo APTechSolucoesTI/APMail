@@ -213,6 +213,46 @@
 }
 
 @layer components {
+  .apmail-calendar {
+    --fc-border-color: var(--border);
+    --fc-page-bg-color: var(--card);
+    --fc-neutral-bg-color: var(--muted);
+    --fc-neutral-text-color: var(--muted-foreground);
+    --fc-today-bg-color: color-mix(in srgb, var(--primary) 7%, transparent);
+    --fc-now-indicator-color: var(--primary);
+    --fc-highlight-color: color-mix(in srgb, var(--primary) 15%, transparent);
+    --fc-list-event-hover-bg-color: var(--muted);
+    --fc-event-border-color: var(--primary);
+    --fc-event-bg-color: var(--primary);
+    font-size: 12px;
+  }
+  .apmail-calendar .fc-col-header-cell {
+    @apply bg-muted/40 py-2 font-medium;
+  }
+  .apmail-calendar .fc-daygrid-day-number {
+    @apply m-1 flex size-7 items-center justify-center rounded-full;
+  }
+  .apmail-calendar .fc-day-today .fc-daygrid-day-number {
+    @apply bg-primary font-semibold text-primary-foreground;
+  }
+  .apmail-calendar .fc-timegrid-slot {
+    height: 28px;
+  }
+  .apmail-calendar .fc-event {
+    @apply cursor-pointer rounded-sm;
+  }
+  .apmail-calendar .fc-event-title {
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 500;
+  }
+  .apmail-calendar .fc-event-time {
+    font-size: 11px;
+    line-height: 14px;
+  }
+  .apmail-calendar .fc-event:focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
   .rich-text-editor .tiptap p {
     @apply mb-2;
   }

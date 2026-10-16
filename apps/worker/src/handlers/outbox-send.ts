@@ -169,7 +169,7 @@ export async function handleOutboxSend(
               message_at: at,
               in_reply_to: mime.inReplyTo,
               references_headers: mime.references,
-              from_address: row.mdn_original_message_id ? mime.fromName : box.email_address,
+              from_address: mime.fromAddress,
               to_addresses: row.to_addresses as Address[],
               cc_addresses: row.cc_addresses as Address[],
             };

@@ -15,6 +15,7 @@ import { MessageActions } from './message-actions';
 import { ContactSenderAction } from '@/components/contacts/contact-editor';
 import { resolveAddress, type ContactResolution } from '@apmail/shared';
 import { ReadReceipt } from './read-receipt';
+import { CalendarInvitation } from './calendar-invite';
 export function MessageCard({
   message,
   expanded,
@@ -93,6 +94,9 @@ export function MessageCard({
       {open && (
         <div className="space-y-3 border-t p-4">
           <ReadReceipt message={message} canSend={!!onCompose} timeZone={timeZone} />
+          {message.calendar_invite && (
+            <CalendarInvitation messageId={message.id} timeZone={timeZone} canSend={!!onCompose} />
+          )}
           <details className="text-xs text-muted-foreground">
             <summary className="cursor-pointer">
               Para{' '}

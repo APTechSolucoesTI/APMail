@@ -70,6 +70,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         (row.created_by === c.userId && ['queued', 'scheduled'].includes(row.status)) ||
         (row.status === 'scheduled' && !!role && can(role, 'cancel_any')),
       can_edit:
+        !row.calendar_payload &&
         row.created_by === c.userId &&
         ['draft', 'queued', 'scheduled'].includes(row.status) &&
         !!role &&
@@ -391,6 +392,8 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
   });
   app.patch('/api/outbox/:id', async (req) => {
     const { c, row } = await owned(req.ctx, idOf(req.params));
+    if (row.calendar_payload)
+      throw conflict('Edite os convites pelo Calendário para preservar os dados da reunião.');
     if (row.created_by !== c.userId) throw forbidden();
     const updated = await r.db.transaction().execute(async (tx) => {
       await lockStorageTenant(tx, c.tenantId);

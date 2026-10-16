@@ -18,10 +18,12 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SuperadminRouteImport } from './routes/superadmin'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
+import { Route as AppCalendarRouteImport } from './routes/_app.calendar'
 import { Route as AppChatRouteImport } from './routes/_app.chat'
 import { Route as AppCompaniesRouteImport } from './routes/_app.companies'
 import { Route as AppContactsRouteImport } from './routes/_app.contacts'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
+import { Route as AppRemindersRouteImport } from './routes/_app.reminders'
 import { Route as AppScheduledRouteImport } from './routes/_app.scheduled'
 import { Route as DevUiRouteImport } from './routes/[_]dev.ui'
 import { Route as AppChatIndexRouteImport } from './routes/_app.chat.index'
@@ -82,6 +84,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCalendarRoute = AppCalendarRouteImport.update({
+  id: '/calendar',
+  path: '/calendar',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppChatRoute = AppChatRouteImport.update({
   id: '/chat',
   path: '/chat',
@@ -100,6 +107,11 @@ const AppContactsRoute = AppContactsRouteImport.update({
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRemindersRoute = AppRemindersRouteImport.update({
+  id: '/reminders',
+  path: '/reminders',
   getParentRoute: () => AppRoute,
 } as any)
 const AppScheduledRoute = AppScheduledRouteImport.update({
@@ -188,10 +200,12 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/superadmin': typeof SuperadminRoute
+  '/calendar': typeof AppCalendarRoute
   '/chat': typeof AppChatRouteWithChildren
   '/companies': typeof AppCompaniesRoute
   '/contacts': typeof AppContactsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/reminders': typeof AppRemindersRoute
   '/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
   '/chat/$conversationId': typeof AppChatConversationIdRoute
@@ -216,9 +230,11 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/superadmin': typeof SuperadminRoute
+  '/calendar': typeof AppCalendarRoute
   '/companies': typeof AppCompaniesRoute
   '/contacts': typeof AppContactsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/reminders': typeof AppRemindersRoute
   '/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
   '/': typeof AppIndexRoute
@@ -246,10 +262,12 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/superadmin': typeof SuperadminRoute
+  '/_app/calendar': typeof AppCalendarRoute
   '/_app/chat': typeof AppChatRouteWithChildren
   '/_app/companies': typeof AppCompaniesRoute
   '/_app/contacts': typeof AppContactsRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/reminders': typeof AppRemindersRoute
   '/_app/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
   '/_app/': typeof AppIndexRoute
@@ -278,10 +296,12 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/superadmin'
+    | '/calendar'
     | '/chat'
     | '/companies'
     | '/contacts'
     | '/dashboard'
+    | '/reminders'
     | '/scheduled'
     | '/_dev/ui'
     | '/chat/$conversationId'
@@ -306,9 +326,11 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/superadmin'
+    | '/calendar'
     | '/companies'
     | '/contacts'
     | '/dashboard'
+    | '/reminders'
     | '/scheduled'
     | '/_dev/ui'
     | '/'
@@ -335,10 +357,12 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/superadmin'
+    | '/_app/calendar'
     | '/_app/chat'
     | '/_app/companies'
     | '/_app/contacts'
     | '/_app/dashboard'
+    | '/_app/reminders'
     | '/_app/scheduled'
     | '/_dev/ui'
     | '/_app/'
@@ -434,6 +458,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/calendar': {
+      id: '/_app/calendar'
+      path: '/calendar'
+      fullPath: '/calendar'
+      preLoaderRoute: typeof AppCalendarRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/chat': {
       id: '/_app/chat'
       path: '/chat'
@@ -460,6 +491,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/reminders': {
+      id: '/_app/reminders'
+      path: '/reminders'
+      fullPath: '/reminders'
+      preLoaderRoute: typeof AppRemindersRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/scheduled': {
@@ -584,10 +622,12 @@ const AppChatRouteWithChildren =
   AppChatRoute._addFileChildren(AppChatRouteChildren)
 
 interface AppRouteChildren {
+  AppCalendarRoute: typeof AppCalendarRoute
   AppChatRoute: typeof AppChatRouteWithChildren
   AppCompaniesRoute: typeof AppCompaniesRoute
   AppContactsRoute: typeof AppContactsRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppRemindersRoute: typeof AppRemindersRoute
   AppScheduledRoute: typeof AppScheduledRoute
   AppIndexRoute: typeof AppIndexRoute
   AppMailMailboxIdRoute: typeof AppMailMailboxIdRoute
@@ -604,10 +644,12 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppCalendarRoute: AppCalendarRoute,
   AppChatRoute: AppChatRouteWithChildren,
   AppCompaniesRoute: AppCompaniesRoute,
   AppContactsRoute: AppContactsRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppRemindersRoute: AppRemindersRoute,
   AppScheduledRoute: AppScheduledRoute,
   AppIndexRoute: AppIndexRoute,
   AppMailMailboxIdRoute: AppMailMailboxIdRoute,

@@ -11,6 +11,7 @@ import {
   type DB,
   assertStorageCapacity,
   lockStorageTenant,
+  applyCalendarMessage,
 } from '@apmail/db';
 import { isAutomated, type Address } from '@apmail/shared';
 import { sql, type Selectable, type Kysely } from 'kysely';
@@ -19,6 +20,7 @@ import type { Mailbox } from './connect.js';
 import { mailText } from '../lib/mail-text.js';
 import { readMdnRequest, isMdnReport, processMdnReceipt } from '../lib/mdn.js';
 import { emitThreads } from '../lib/events.js';
+import { readCalendarInvite } from '../lib/calendar.js';
 function addresses(value: AddressObject | AddressObject[] | undefined): Address[] {
   return (Array.isArray(value) ? value : [value]).flatMap((v) =>
     (v?.value ?? []).flatMap((a) =>
@@ -170,8 +172,10 @@ export async function ingestMessage(
   };
   const id = randomUUID(),
     written: string[] = [];
+  let result: string;
+  let calendarChanged = false;
   try {
-    return await r.db.transaction().execute(async (trx) => {
+    result = await r.db.transaction().execute(async (trx) => {
       await lockStorageTenant(trx, box.tenant_id);
       const liveBox = await trx
         .selectFrom('mailboxes')
@@ -229,6 +233,7 @@ export async function ingestMessage(
           from_name: from.name,
           mdn_request: parsed ? asJson(readMdnRequest(parsed, box)) : null,
           is_mdn: parsed ? isMdnReport(parsed) : false,
+          calendar_invite: parsed ? asJson(readCalendarInvite(parsed, from.address, own)) : null,
           bcc_addresses: asJson(addresses(parsed?.bcc)),
           reply_to_addresses: asJson(addresses(parsed?.replyTo)),
           direction: own.includes(from.address) ? 'outbound' : 'inbound',
@@ -279,6 +284,11 @@ export async function ingestMessage(
         ? await processMdnReceipt(trx, parsed, box.tenant_id, box.id, id)
         : [];
       if (confirmedThreads.length) emitThreads(r, box.id, confirmedThreads);
+      const invite = parsed ? readCalendarInvite(parsed, from.address, own) : null;
+      if (invite && !isHistorical) {
+        await applyCalendarMessage(trx, invite, box.tenant_id, box.id, from.address);
+        calendarChanged = true;
+      }
       await assertStorageCapacity(trx, box.tenant_id, box.id);
       if (external?.persisted) {
         const growth = external.measureStorage ? (await usage()) - before : 0n;
@@ -298,4 +308,6 @@ export async function ingestMessage(
     );
     throw error;
   }
+  if (calendarChanged) r.io.to('mailbox:' + box.id).emit('calendar:changed', {});
+  return result;
 }

@@ -2,6 +2,8 @@
 
 Gestão de e-mails compartilhados do Grupo AP. Aplicação própria com React, Fastify, PostgreSQL, Redis/BullMQ e integração IMAP/POP3/SMTP.
 
+[Compositor, calendário e lembretes](docs/COMPOSITOR-CALENDARIO-LEMBRETES.md): ribbon de composição, prioridade, calendário pessoal com recorrências/exceções e convites ICS reais, lembretes persistentes processados pelo worker. Migrations `0035`–`0038`; atualizar API, worker e web juntos. Sem sincronização externa de calendário.
+
 [Contatos inteligentes e confirmação de leitura](docs/CONTATOS-MDN.md): resolução em lote de múltiplos endereços, criação/vinculação pelo leitor e sugestão somente após envio SMTP; solicitação e resposta MDN RFC 8098 com consentimento, correlação idempotente e preferência persistente. Migrations `0032`–`0034`; atualizar API, worker e web juntos.
 
 [Regras, destinatários e recorrência](docs/REGRAS-DESTINATARIOS-RECORRENCIA.md): correção do teste de regras e do cache de etiquetas; ações pessoais/compartilhadas, aplicação a todo o histórico, autocomplete por endereço e agendamentos recorrentes persistentes. Migrations `0030`–`0031`; API e worker aplicam migrations pendentes automaticamente na inicialização de produção.

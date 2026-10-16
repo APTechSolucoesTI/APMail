@@ -44,6 +44,7 @@ export type Attachment = {
 export type Message = {
   direction?: 'inbound' | 'outbound';
   request_read_receipt?: boolean;
+  calendar_invite?: import('@apmail/shared').CalendarInvite | null;
   mdn_request?: MdnRequest | null;
   is_mdn?: boolean;
   mdn_decision?: { decision: string; status: string | null; last_error: string | null } | null;

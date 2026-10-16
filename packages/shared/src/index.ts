@@ -25,3 +25,4 @@ export * from './mail-archives.js';
 export * from './pst-exports.js';
 export * from './contact-resolution.js';
 export * from './mdn.js';
+export * from './calendar.js';

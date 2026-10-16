@@ -42,7 +42,13 @@ export type MemberStatus = 'active' | 'disabled' | 'removed';
 export type MessageDirection = 'inbound' | 'outbound';
 
 export type NotificationType =
-  'action_failed' | 'assignment' | 'chat_message' | 'mailbox_error' | 'mention' | 'send_failed';
+  | 'action_failed'
+  | 'assignment'
+  | 'chat_message'
+  | 'mailbox_error'
+  | 'mention'
+  | 'reminder'
+  | 'send_failed';
 
 export type OutboxKind = 'forward' | 'new' | 'reply' | 'reply_all';
 
@@ -84,6 +90,48 @@ export interface AuditLogs {
   tenant_id: string;
 }
 
+export interface CalendarEvents {
+  all_day: Generated<boolean>;
+  attendees: Generated<Json>;
+  calendar_id: string;
+  category: Generated<string>;
+  color: string | null;
+  created_at: Generated<Timestamp>;
+  description: Generated<string>;
+  ends_at: Timestamp;
+  exceptions: Generated<Json>;
+  external: Generated<boolean>;
+  id: Generated<string>;
+  is_private: Generated<boolean>;
+  location: Generated<string>;
+  mailbox_id: string | null;
+  organizer: string | null;
+  reminder_cursor: Timestamp | null;
+  reminder_minutes: number | null;
+  rrule: string | null;
+  schedule_sequence: Generated<number>;
+  sequence: Generated<number>;
+  starts_at: Timestamp;
+  status: Generated<string>;
+  tenant_id: string;
+  timezone: string;
+  timezone_definition: string | null;
+  title: string;
+  uid: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
+export interface Calendars {
+  color: Generated<string>;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  name: string;
+  tenant_id: string;
+  timezone: Generated<string>;
+  user_id: string;
+}
+
 export interface ChatConversations {
   created_at: Generated<Timestamp>;
   created_by: string;
@@ -119,50 +167,62 @@ export interface ChatParticipants {
   user_id: string;
 }
 
-export interface ContactUserNicknames {
-  tenant_id: string;
-  contact_id: string;
-  user_id: string;
-  nickname: string;
-}
-
 export interface ContactEmails {
   agenda_user_id: string | null;
-  is_primary: Generated<boolean>;
   contact_id: string;
   email: string;
   id: Generated<string>;
+  is_primary: Generated<boolean>;
   label: Generated<string>;
   tenant_id: string;
 }
 
+export interface ContactImports {
+  created_at: Generated<Timestamp>;
+  cursor: Generated<number>;
+  duplicates: string | null;
+  expires_at: Generated<Timestamp>;
+  id: Generated<string>;
+  mode: string;
+  results: Generated<Json>;
+  rows: Json;
+  tenant_id: string;
+  user_id: string;
+}
+
 export interface Contacts {
-  scope: Generated<'tenant' | 'personal'>;
-  owner_user_id: string | null;
-  updated_by: string | null;
-  version: Generated<number>;
-  company: Generated<string>;
-  first_name: Generated<string>;
-  middle_name: Generated<string>;
-  last_name: Generated<string>;
-  prefix: Generated<string>;
-  suffix: Generated<string>;
-  department: Generated<string>;
-  office: Generated<string>;
-  website: Generated<string>;
+  addresses: Generated<Json>;
   birthday: Generated<string>;
-  addresses: Generated<JsonValue>;
-  job_title: Generated<string>;
-  phones: Generated<JsonValue>;
+  company: Generated<string>;
   created_at: Generated<Timestamp>;
   created_by: string;
+  department: Generated<string>;
+  first_name: Generated<string>;
   id: Generated<string>;
+  job_title: Generated<string>;
+  last_name: Generated<string>;
+  middle_name: Generated<string>;
   name: string;
   notes: Generated<string>;
+  office: Generated<string>;
+  owner_user_id: string | null;
   phone: Generated<string>;
+  phones: Generated<Json>;
+  prefix: Generated<string>;
+  scope: Generated<'tenant' | 'personal'>;
+  suffix: Generated<string>;
   tenant_id: string;
   updated_at: Generated<Timestamp>;
-  visibility: Generated<string>;
+  updated_by: string | null;
+  version: Generated<number>;
+  website: Generated<string>;
+}
+
+export interface ContactUserNicknames {
+  contact_id: string;
+  nickname: string;
+  tenant_id: string;
+  user_id: string;
 }
 
 export interface FolderPermissions {
@@ -173,13 +233,13 @@ export interface FolderPermissions {
 }
 
 export interface Folders {
-  is_local: Generated<boolean>;
   created_at: Generated<Timestamp>;
   deleted_at: Timestamp | null;
   delimiter: Generated<string>;
   id: Generated<string>;
   imap_path: string;
   initial_uid_end: Int8 | null;
+  is_local: Generated<boolean>;
   last_uid: Generated<Int8>;
   mailbox_id: string;
   name: string;
@@ -211,6 +271,12 @@ export interface Invitations {
   token_hash: string;
 }
 
+export interface LabelMailboxes {
+  label_id: string;
+  mailbox_id: string;
+  tenant_id: string;
+}
+
 export interface MailActions {
   attempts: Generated<number>;
   created_at: Generated<Timestamp>;
@@ -225,6 +291,66 @@ export interface MailActions {
   type: MailActionType;
 }
 
+export interface MailArchiveExportFiles {
+  export_id: string;
+  filename: string;
+  folder_id: string | null;
+  folder_path: Generated<string[]>;
+  id: Generated<string>;
+  kind: string;
+  mailbox_id: string;
+  size_bytes: Generated<Int8>;
+  storage_path: string;
+  tenant_id: string;
+}
+
+export interface MailArchiveExports {
+  converted: Generated<number>;
+  created_at: Generated<Timestamp>;
+  created_by: string;
+  cutoff_at: Generated<Timestamp>;
+  expires_at: Generated<Timestamp>;
+  filename: string;
+  folder_id: string | null;
+  format: Generated<string>;
+  id: Generated<string>;
+  include_deleted: Generated<boolean>;
+  last_error: string | null;
+  last_message_id: string | null;
+  mailbox_id: string;
+  prepared: Generated<number>;
+  state: Generated<string>;
+  tenant_id: string;
+  total_messages: Generated<number>;
+  updated_at: Generated<Timestamp>;
+  warnings: Generated<number>;
+}
+
+export interface MailArchiveImports {
+  added_storage_bytes: Generated<Int8>;
+  analyzed_at: Timestamp | null;
+  analyzed_messages: Generated<number>;
+  created_at: Generated<Timestamp>;
+  created_by: string;
+  cursor: Generated<number>;
+  expanded_bytes: Generated<Int8>;
+  filename: string;
+  format: string;
+  id: Generated<string>;
+  imported: Generated<number>;
+  last_error: string | null;
+  mailbox_id: string;
+  processed_bytes: Generated<Int8>;
+  size_bytes: Int8;
+  skipped: Generated<number>;
+  state: Generated<string>;
+  storage_path: string | null;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+  upload_fingerprint: string | null;
+  uploaded_bytes: Generated<Int8>;
+}
+
 export interface MailboxCredentials {
   encrypted_password: string;
   mailbox_id: string;
@@ -233,7 +359,6 @@ export interface MailboxCredentials {
 }
 
 export interface Mailboxes {
-  receiving_protocol: Generated<'imap' | 'pop3' | 'local'>;
   aliases: Generated<string[]>;
   append_sent_copy: Generated<boolean>;
   created_at: Generated<Timestamp>;
@@ -251,6 +376,7 @@ export interface Mailboxes {
   last_reconciled_at: Timestamp | null;
   last_synced_at: Timestamp | null;
   name: string;
+  receiving_protocol: Generated<'imap' | 'pop3' | 'local'>;
   smtp_host: string;
   smtp_port: Generated<number>;
   smtp_secure: Generated<boolean>;
@@ -272,8 +398,30 @@ export interface MailboxMembers {
   user_id: string;
 }
 
+export interface MailboxPurgeRequests {
+  created_at: Generated<Timestamp>;
+  last_error: string | null;
+  mailbox_id: string;
+  requested_by: string;
+  state: Generated<string>;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface MailboxStorageLimits {
+  allocated_bytes: Int8 | null;
+  mailbox_id: string;
+  paused_at: Timestamp | null;
+  provider_checked_at: Timestamp | null;
+  provider_identity: string | null;
+  provider_limit_bytes: Int8 | null;
+  provider_status: Generated<string>;
+  provider_used_bytes: Int8 | null;
+  sync_checkpoint: Json | null;
+  tenant_id: string;
+}
+
 export interface MailRules {
-  review_reason: string | null;
   actions: Json;
   conditions: Json;
   created_at: Generated<Timestamp>;
@@ -286,16 +434,60 @@ export interface MailRules {
   name: string;
   owner_user_id: string | null;
   priority: Generated<number>;
+  review_reason: string | null;
   scope: RuleScope;
   stop_processing: Generated<boolean>;
   tenant_id: string;
   updated_at: Generated<Timestamp>;
 }
 
+export interface MailScheduleSeries {
+  created_at: Generated<Timestamp>;
+  created_by: string;
+  end_at: Timestamp | null;
+  id: Generated<string>;
+  interval: number;
+  mailbox_id: string;
+  max_occurrences: number | null;
+  starts_at: Timestamp;
+  state: Generated<string>;
+  tenant_id: string;
+  timezone: string;
+  unit: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface MdnDecisions {
+  actor_id: string;
+  created_at: Generated<Timestamp>;
+  decision: string;
+  id: Generated<string>;
+  mailbox_id: string;
+  message_id_header: string;
+  notification_to: string;
+  original_message_id: string;
+  outbox_id: string | null;
+  recipient_address: string;
+  tenant_id: string;
+}
+
+export interface MdnReceipts {
+  disposition: string;
+  id: Generated<string>;
+  mailbox_id: string;
+  original_message_id: string;
+  receipt_message_id: string;
+  received_at: Generated<Timestamp>;
+  recipient_address: string;
+  reported_at: Timestamp | null;
+  tenant_id: string;
+}
+
 export interface Messages {
   bcc_addresses: Generated<Json>;
   body_html: string | null;
   body_text: Generated<string>;
+  calendar_invite: Json | null;
   cc_addresses: Generated<Json>;
   created_at: Generated<Timestamp>;
   deleted_at: Timestamp | null;
@@ -328,7 +520,7 @@ export interface Messages {
   size_bytes: Generated<number>;
   snippet: Generated<string>;
   source_key: string | null;
-  source_kind: Generated<'imap' | 'pop3' | 'archive'>;
+  source_kind: Generated<string>;
   subject: Generated<string>;
   tenant_id: string;
   thread_id: string;
@@ -365,6 +557,7 @@ export interface Outbox {
   attempts: Generated<number>;
   bcc_addresses: Generated<Json>;
   body_html: Generated<string>;
+  calendar_payload: Json | null;
   cc_addresses: Generated<Json>;
   contact_prompt_handled: Generated<boolean>;
   created_at: Generated<Timestamp>;
@@ -377,6 +570,7 @@ export interface Outbox {
   mailbox_id: string;
   mdn_original_message_id: string | null;
   message_id_header: string | null;
+  priority: Generated<string>;
   recurrence_id: string | null;
   recurrence_sequence: number | null;
   reply_to_message_id: string | null;
@@ -405,13 +599,13 @@ export interface PasswordResetTokens {
 }
 
 export interface PersonalLabels {
-  mailbox_mode: Generated<'all' | 'selected'>;
-  scope: Generated<'personal' | 'tenant'>;
-  created_by: string | null;
   color: string;
   created_at: Generated<Timestamp>;
+  created_by: string | null;
   id: Generated<string>;
+  mailbox_mode: Generated<string>;
   name: string;
+  scope: Generated<string>;
   tenant_id: string;
   updated_at: Generated<Timestamp>;
   user_id: string | null;
@@ -437,6 +631,25 @@ export interface PlatformMetricSamples {
   measured_at: Generated<Timestamp>;
   metrics: Json;
   source: string;
+}
+
+export interface Reminders {
+  created_at: Generated<Timestamp>;
+  due_at: Timestamp;
+  event_id: string | null;
+  id: Generated<string>;
+  notes: Generated<string>;
+  notification_id: string | null;
+  occurrence_at: Timestamp | null;
+  recurrence: Json | null;
+  recurrence_index: Generated<number>;
+  recurrence_start: Timestamp | null;
+  series_id: Generated<string>;
+  status: Generated<string>;
+  tenant_id: string;
+  title: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
 }
 
 export interface SchemaMigrations {
@@ -557,6 +770,12 @@ export interface StorageOperations {
   storage_key: string;
 }
 
+export interface StorageQuotaFiles {
+  bytes: Int8 | null;
+  mailbox_id: string | null;
+  tenant_id: string | null;
+}
+
 export interface StorageScanRuns {
   checked_files: Generated<Int8>;
   created_at: Generated<Timestamp>;
@@ -626,6 +845,14 @@ export interface Tenants {
   suspended_at: Timestamp | null;
   timezone: Generated<string>;
   updated_at: Generated<Timestamp>;
+}
+
+export interface TenantStorageLimits {
+  allocation_mode: Generated<string>;
+  max_mailboxes: number | null;
+  revision: Generated<Int8>;
+  storage_limit_bytes: Int8 | null;
+  tenant_id: string;
 }
 
 export interface ThreadNotes {
@@ -701,12 +928,12 @@ export interface ThreadUserState {
 }
 
 export interface Uploads {
-  mailbox_id: string | null;
   consumed_at: Timestamp | null;
   content_type: string;
   created_at: Generated<Timestamp>;
   filename: string;
   id: Generated<string>;
+  mailbox_id: string | null;
   size_bytes: number;
   storage_path: string;
   tenant_id: string;
@@ -739,151 +966,35 @@ export interface Users {
   updated_at: Generated<Timestamp>;
 }
 
-export interface MailArchiveExportFiles {
-  export_id: string;
-  filename: string;
-  folder_id: string | null;
-  folder_path: Generated<string[]>;
-  id: Generated<string>;
-  kind: string;
-  mailbox_id: string;
-  size_bytes: Generated<Int8>;
-  storage_path: string;
-  tenant_id: string;
-}
-
-export interface MailArchiveExports {
-  converted: Generated<number>;
-  created_at: Generated<Timestamp>;
-  created_by: string;
-  cutoff_at: Generated<Timestamp>;
-  expires_at: Generated<Timestamp>;
-  filename: string;
-  folder_id: string | null;
-  format: Generated<string>;
-  id: Generated<string>;
-  include_deleted: Generated<boolean>;
-  last_error: string | null;
-  last_message_id: string | null;
-  mailbox_id: string;
-  prepared: Generated<number>;
-  state: Generated<string>;
-  tenant_id: string;
-  total_messages: Generated<number>;
-  updated_at: Generated<Timestamp>;
-  warnings: Generated<number>;
-}
-
-export interface MailScheduleSeries {
-  created_at: Generated<Timestamp>;
-  created_by: string;
-  end_at: Timestamp | null;
-  id: Generated<string>;
-  interval: number;
-  mailbox_id: string;
-  max_occurrences: number | null;
-  starts_at: Timestamp;
-  state: Generated<string>;
-  tenant_id: string;
-  timezone: string;
-  unit: string;
-  updated_at: Generated<Timestamp>;
-}
-
-export interface MdnDecisions {
-  actor_id: string;
-  created_at: Generated<Timestamp>;
-  decision: string;
-  id: Generated<string>;
-  mailbox_id: string;
-  message_id_header: string;
-  notification_to: string;
-  original_message_id: string;
-  outbox_id: string | null;
-  recipient_address: string;
-  tenant_id: string;
-}
-
-export interface MdnReceipts {
-  disposition: string;
-  id: Generated<string>;
-  mailbox_id: string;
-  original_message_id: string;
-  receipt_message_id: string;
-  received_at: Generated<Timestamp>;
-  recipient_address: string;
-  reported_at: Timestamp | null;
-  tenant_id: string;
-}
-
 export interface DB {
-  mdn_decisions: MdnDecisions;
-  mdn_receipts: MdnReceipts;
-  mail_schedule_series: MailScheduleSeries;
-  mail_archive_export_files: MailArchiveExportFiles;
-  mail_archive_exports: MailArchiveExports;
-  mailbox_purge_requests: {
-    mailbox_id: string;
-    tenant_id: string;
-    requested_by: string;
-    state: Generated<string>;
-    last_error: string | null;
-    created_at: Generated<Timestamp>;
-    updated_at: Generated<Timestamp>;
-  };
-  mail_archive_imports: {
-    id: Generated<string>;
-    tenant_id: string;
-    mailbox_id: string;
-    created_by: string;
-    filename: string;
-    format: string;
-    size_bytes: Int8;
-    storage_path: string | null;
-    uploaded_bytes: Generated<Int8>;
-    upload_fingerprint: string | null;
-    analyzed_messages: Generated<number>;
-    expanded_bytes: Generated<Int8>;
-    processed_bytes: Generated<Int8>;
-    added_storage_bytes: Generated<Int8>;
-    analyzed_at: Timestamp | null;
-    state: Generated<string>;
-    cursor: Generated<number>;
-    imported: Generated<number>;
-    skipped: Generated<number>;
-    last_error: string | null;
-    created_at: Generated<Timestamp>;
-    updated_at: Generated<Timestamp>;
-  };
-  label_mailboxes: { tenant_id: string; label_id: string; mailbox_id: string };
-  contact_imports: {
-    duplicates: string | null;
-    id: Generated<string>;
-    tenant_id: string;
-    user_id: string;
-    mode: string;
-    rows: JsonValue;
-    results: Generated<JsonValue>;
-    cursor: Generated<number>;
-    created_at: Generated<Timestamp>;
-    expires_at: Generated<Timestamp>;
-  };
   attachments: Attachments;
   audit_logs: AuditLogs;
+  calendar_events: CalendarEvents;
+  calendars: Calendars;
   chat_conversations: ChatConversations;
   chat_messages: ChatMessages;
   chat_participants: ChatParticipants;
-  contact_user_nicknames: ContactUserNicknames;
   contact_emails: ContactEmails;
+  contact_imports: ContactImports;
+  contact_user_nicknames: ContactUserNicknames;
   contacts: Contacts;
   folder_permissions: FolderPermissions;
   folders: Folders;
   invitations: Invitations;
+  label_mailboxes: LabelMailboxes;
   mail_actions: MailActions;
+  mail_archive_export_files: MailArchiveExportFiles;
+  mail_archive_exports: MailArchiveExports;
+  mail_archive_imports: MailArchiveImports;
   mail_rules: MailRules;
+  mail_schedule_series: MailScheduleSeries;
   mailbox_credentials: MailboxCredentials;
   mailbox_members: MailboxMembers;
+  mailbox_purge_requests: MailboxPurgeRequests;
+  mailbox_storage_limits: MailboxStorageLimits;
   mailboxes: Mailboxes;
+  mdn_decisions: MdnDecisions;
+  mdn_receipts: MdnReceipts;
   messages: Messages;
   notifications: Notifications;
   operational_logs: OperationalLogs;
@@ -893,6 +1004,7 @@ export interface DB {
   platform_admins: PlatformAdmins;
   platform_audit: PlatformAudit;
   platform_metric_samples: PlatformMetricSamples;
+  reminders: Reminders;
   schema_migrations: SchemaMigrations;
   sessions: Sessions;
   signature_images: SignatureImages;
@@ -904,11 +1016,13 @@ export interface DB {
   storage_logical_payloads: StorageLogicalPayloads;
   storage_logical_rows_v3: StorageLogicalRowsV3;
   storage_operations: StorageOperations;
+  storage_quota_files: StorageQuotaFiles;
   storage_scan_runs: StorageScanRuns;
   storage_usage_snapshots: StorageUsageSnapshots;
   support_sessions: SupportSessions;
   table_preferences: TablePreferences;
   tenant_members: TenantMembers;
+  tenant_storage_limits: TenantStorageLimits;
   tenants: Tenants;
   thread_notes: ThreadNotes;
   thread_personal_labels: ThreadPersonalLabels;
