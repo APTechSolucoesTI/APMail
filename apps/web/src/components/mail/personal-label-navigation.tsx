@@ -19,7 +19,23 @@ export function PersonalLabelNavigation({
       queryFn: () => api<PersonalLabel[]>('/labels?mailbox_id=' + mailboxId),
     }),
     search = useLocation().search as { labelId?: string; view?: string };
-  if (!q.data?.length) return null;
+  if (q.isPending)
+    return (
+      <p role="status" className="px-2 py-2 text-xs text-muted-foreground">
+        Carregando etiquetas…
+      </p>
+    );
+  if (q.isError)
+    return (
+      <p role="alert" className="px-2 py-2 text-xs text-muted-foreground">
+        Não foi possível carregar as etiquetas.{' '}
+        <button type="button" className="text-primary underline" onClick={() => void q.refetch()}>
+          Tentar novamente
+        </button>
+      </p>
+    );
+  if (!q.data.length)
+    return <p className="px-2 py-2 text-xs text-muted-foreground">Nenhuma etiqueta nesta caixa.</p>;
   return (
     <div className="min-w-0 space-y-1">
       {q.data.map((l) => (
@@ -30,7 +46,7 @@ export function PersonalLabelNavigation({
           search={{ view: 'label', labelId: l.id }}
           onClick={onNavigate}
           className={cn(
-            'flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted',
+            'flex min-h-11 sm:min-h-8 min-w-0 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted',
             search.view === 'label' && search.labelId === l.id && 'bg-secondary',
           )}
         >

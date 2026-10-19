@@ -279,30 +279,6 @@ export function AppShell() {
           <Mail aria-hidden />
           APMail
         </Link>
-        <NavigationGroup id="communication" label="Comunicação">
-          <NavigationGroup
-            id="mailboxes"
-            label="Caixas de e-mail"
-            icon={<Mail className="size-4" />}
-          >
-            {boxes.data?.map((b) => (
-              <MailboxFolderNavigation key={b.id} box={b} onNavigate={() => setOpen(false)} />
-            ))}
-            {!boxes.data?.length && (
-              <p className="px-2 py-3 text-xs text-muted-foreground">Sem caixas disponíveis</p>
-            )}
-          </NavigationGroup>
-          <Link
-            to="/contacts"
-            activeProps={{ className: 'bg-accent text-accent-foreground' }}
-            className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-            onClick={() => setOpen(false)}
-          >
-            <ContactRound aria-hidden className="size-4 shrink-0" />
-            Contatos
-          </Link>
-          <ChatNavigation onNavigate={() => setOpen(false)} />
-        </NavigationGroup>
         <NavigationGroup id="productivity" label="Produtividade">
           <Link
             to="/calendar"
@@ -331,6 +307,31 @@ export function AppShell() {
             <BellRing aria-hidden className="size-4" />
             Lembretes e tarefas
           </Link>
+        </NavigationGroup>
+        <NavigationGroup id="communication" label="Comunicação">
+          <NavigationGroup
+            id="mailboxes"
+            indentContent
+            label="Caixas de e-mail"
+            icon={<Mail className="size-4" />}
+          >
+            {boxes.data?.map((b) => (
+              <MailboxFolderNavigation key={b.id} box={b} onNavigate={() => setOpen(false)} />
+            ))}
+            {!boxes.data?.length && (
+              <p className="px-2 py-3 text-xs text-muted-foreground">Sem caixas disponíveis</p>
+            )}
+          </NavigationGroup>
+          <Link
+            to="/contacts"
+            activeProps={{ className: 'bg-accent text-accent-foreground' }}
+            className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+            onClick={() => setOpen(false)}
+          >
+            <ContactRound aria-hidden className="size-4 shrink-0" />
+            Contatos
+          </Link>
+          <ChatNavigation onNavigate={() => setOpen(false)} />
         </NavigationGroup>
         <NavigationGroup id="analysis" label="Análises">
           <Link

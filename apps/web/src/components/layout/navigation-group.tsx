@@ -8,12 +8,14 @@ export function NavigationGroup({
   children,
   defaultOpen = true,
   icon,
+  indentContent = false,
 }: {
   id: string;
   label: string;
   children: ReactNode;
   defaultOpen?: boolean;
   icon?: ReactNode;
+  indentContent?: boolean;
 }) {
   const me = useQuery(meQuery).data;
   const controlsId = useId();
@@ -40,7 +42,12 @@ export function NavigationGroup({
         <ChevronDown aria-hidden className={'size-4 shrink-0 ' + (open ? '' : '-rotate-90')} />
       </button>
       {open && (
-        <div id={controlsId} className="min-w-0">
+        <div
+          id={controlsId}
+          role="group"
+          aria-label={label}
+          className={indentContent ? 'ml-3 min-w-0 border-l pl-2' : 'min-w-0'}
+        >
           {children}
         </div>
       )}

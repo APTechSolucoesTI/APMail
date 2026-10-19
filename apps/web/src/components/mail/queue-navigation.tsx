@@ -35,7 +35,7 @@ export function QueueNavigation({
           search={{ view: 'queue', queue }}
           onClick={onNavigate}
           className={cn(
-            'flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted',
+            'flex min-h-11 sm:min-h-8 min-w-0 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted',
             search.view === 'queue' &&
               search.queue === queue &&
               'bg-secondary text-secondary-foreground',
