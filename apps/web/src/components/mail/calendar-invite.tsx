@@ -118,18 +118,10 @@ export function CalendarInvitation({
           {busy ? 'Aguarde…' : 'Adicionar ao calendário'}
         </Button>
       )}
-      {invite.method === 'REQUEST' && (
+      {invite.method === 'REQUEST' && !event && (
         <div className="flex flex-wrap gap-2">
           <Button size="sm" disabled={busy || !canSend} onClick={() => void respond('ACCEPTED')}>
             {busy ? 'Aguarde…' : 'Aceitar'}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy || !canSend}
-            onClick={() => void respond('TENTATIVE')}
-          >
-            Tentativa
           </Button>
           <Button
             size="sm"
