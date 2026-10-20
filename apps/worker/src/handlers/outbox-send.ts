@@ -25,6 +25,7 @@ import { withMailboxLock } from '../lib/mailbox-lock.js';
 import { markMailboxError } from './mailbox-connection.js';
 import { connectionError } from '../lib/errors.js';
 import { emitThreads } from '../lib/events.js';
+import { userCanMailbox } from '../lib/mailbox-permissions.js';
 export async function handleOutboxSend(
   r: WorkerResources,
   id: string,
@@ -54,12 +55,13 @@ export async function handleOutboxSend(
     if (!tenant) throw new Error('tenant_unavailable');
     if (row.created_by_rule_id) {
       if (
+        !row.is_auto_reply &&
         !(tenant.settings as { allow_external_auto_forward?: boolean }).allow_external_auto_forward
       )
         throw new Error('auto_forward_disabled');
       const rule = await r.db
         .selectFrom('mail_rules')
-        .select('id')
+        .select(['id', 'actions', 'active_from', 'active_until'])
         .where('id', '=', row.created_by_rule_id)
         .where('tenant_id', '=', row.tenant_id)
         .where('mailbox_id', '=', row.mailbox_id)
@@ -67,6 +69,13 @@ export async function handleOutboxSend(
         .where('deleted_at', 'is', null)
         .executeTakeFirst();
       if (!rule) throw new Error('rule_unavailable');
+      if (
+        row.is_auto_reply &&
+        ((rule.active_from && new Date() < rule.active_from) ||
+          (rule.active_until && new Date() >= rule.active_until) ||
+          !(rule.actions as { type: string }[]).some((a) => a.type === 'auto_reply'))
+      )
+        throw new Error('rule_unavailable');
     }
     const platform = await r.db
       .selectFrom('platform_admins')
@@ -82,6 +91,8 @@ export async function handleOutboxSend(
       .where('deleted_at', 'is', null)
       .executeTakeFirst();
     if (!box || box.status !== 'active') throw new Error('mailbox_unavailable');
+    if (row.is_auto_reply && !(await userCanMailbox(r, box, row.created_by, 'rules')))
+      throw new Error('send_permission_revoked');
     const membership = await r.db
       .selectFrom('tenant_members')
       .select(['role', 'status'])
@@ -202,6 +213,7 @@ export async function handleOutboxSend(
                 snippet: messageSnippet(text),
                 direction: 'outbound',
                 is_automated: !!row.created_by_rule_id || !!row.mdn_original_message_id,
+                is_auto_reply: row.is_auto_reply,
                 has_attachments: mime.files.some((f) => !f.is_inline),
                 size_bytes: mime.raw.length,
                 sent_by_user_id: row.created_by,
@@ -359,7 +371,9 @@ export async function handleOutboxSend(
             : (error as Error).message === 'send_permission_revoked'
               ? 'O acesso de envio foi removido.'
               : ['auto_forward_disabled', 'rule_unavailable'].includes((error as Error).message)
-                ? 'O encaminhamento automático foi interrompido porque a regra ou a permissão da empresa foi desativada.'
+                ? row.is_auto_reply
+                  ? 'A resposta automática foi interrompida porque a regra foi desativada ou está fora do período de ativação.'
+                  : 'O encaminhamento automático foi interrompido porque a regra ou a permissão da empresa foi desativada.'
                 : connectionError(error, 'SMTP', 0);
     await r.db.transaction().execute(async (tx) => {
       await tx

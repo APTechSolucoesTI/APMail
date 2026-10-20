@@ -90,3 +90,11 @@ it('dia inteiro apresenta o último dia incluído e mantém término exclusivo n
   );
   expect(screen.queryByRole('combobox', { name: 'Horário de início' })).toBeNull();
 });
+
+it('período opcional exige escolher uma data antes do horário', () => {
+  const onChange = vi.fn();
+  render(<DateTimeField label="Início" value="" onChange={onChange} />);
+  expect(screen.getByRole('combobox', { name: 'Horário de início' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Data de início' })).toBeEnabled();
+  expect(onChange).not.toHaveBeenCalled();
+});

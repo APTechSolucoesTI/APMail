@@ -53,6 +53,17 @@ export const mailboxRuleActionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('assign_to'), user_id: z.uuid() }),
   z.object({ type: z.literal('exclude_from_queue') }),
   z.object({
+    type: z.literal('auto_reply'),
+    subject: z
+      .string()
+      .trim()
+      .max(200)
+      .refine((s) => !/[\r\n\0]/.test(s), 'Assunto inválido.')
+      .default(''),
+    message: z.string().trim().min(1, 'Escreva a resposta automática.').max(10000),
+    cooldown_hours: z.number().int().min(1).max(720).default(168),
+  }),
+  z.object({
     type: z.literal('forward_to'),
     address: z
       .email()
@@ -74,8 +85,11 @@ export const mailRuleSchema = z
     name: z.string().trim().min(2).max(80),
     is_active: z.boolean(),
     priority: z.number().int().min(1).max(999),
-    match_mode: z.enum(['all', 'any']),
-    conditions: z.array(ruleConditionSchema).min(1).max(10),
+    match_mode: z.enum(['all', 'any', 'always']),
+    conditions: z.array(ruleConditionSchema).max(10),
+    exceptions: z.array(ruleConditionSchema).max(10).default([]),
+    active_from: z.iso.datetime().nullable().default(null),
+    active_until: z.iso.datetime().nullable().default(null),
     actions: z
       .array(z.union([mailboxRuleActionSchema, personalRuleActionSchema]))
       .min(1)
@@ -83,6 +97,33 @@ export const mailRuleSchema = z
     stop_processing: z.boolean(),
   })
   .superRefine((r, c) => {
+    if (r.match_mode !== 'always' && !r.conditions.length)
+      c.addIssue({
+        code: 'custom',
+        path: ['conditions'],
+        message: 'Adicione uma condição ou escolha todas as mensagens.',
+      });
+    if (r.active_from && r.active_until && +new Date(r.active_until) <= +new Date(r.active_from))
+      c.addIssue({
+        code: 'custom',
+        path: ['active_until'],
+        message: 'O término deve ser posterior ao início.',
+      });
+    if (r.actions.filter((a) => a.type === 'auto_reply').length > 1)
+      c.addIssue({
+        code: 'custom',
+        path: ['actions'],
+        message: 'Use uma única resposta automática por regra.',
+      });
+    if (
+      r.actions.some((a) => a.type === 'auto_reply') &&
+      r.actions.some((a) => a.type === 'forward_to')
+    )
+      c.addIssue({
+        code: 'custom',
+        path: ['actions'],
+        message: 'Use regras separadas para responder e encaminhar automaticamente.',
+      });
     r.actions.forEach((a, i) => {
       if (
         !(r.scope === 'mailbox' ? mailboxRuleActionSchema : personalRuleActionSchema).safeParse(a)
@@ -164,7 +205,19 @@ export function evaluateConditions(
     return c.operator === 'not_contains' ? !candidates.some(match) : candidates.some(match);
   });
   return (
-    matches.length > 0 &&
-    (rule.match_mode === 'all' ? matches.every(Boolean) : matches.some(Boolean))
+    rule.match_mode === 'always' ||
+    (matches.length > 0 &&
+      (rule.match_mode === 'all' ? matches.every(Boolean) : matches.some(Boolean)))
+  );
+}
+export function evaluateRule(
+  rule: Pick<MailRuleInput, 'match_mode' | 'conditions'> & { exceptions?: RuleCondition[] },
+  msg: RuleMessage,
+) {
+  return (
+    evaluateConditions(rule, msg) &&
+    !rule.exceptions?.some((condition) =>
+      evaluateConditions({ match_mode: 'all', conditions: [condition] }, msg),
+    )
   );
 }

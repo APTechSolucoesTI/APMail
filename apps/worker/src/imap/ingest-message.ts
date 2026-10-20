@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readAutoReplyTarget } from '../lib/auto-reply.js';
 import { simpleParser, type AddressObject } from 'mailparser';
 import type { FetchMessageObject } from 'imapflow';
 import {
@@ -225,6 +226,7 @@ export async function ingestMessage(
           source_key: external?.key ?? null,
           raw_storage_path: rawPath,
           is_historical: isHistorical,
+          auto_reply_to: parsed && !isHistorical ? readAutoReplyTarget(parsed, own) : null,
           folder_id: folder.id,
           rules_inbox: folder.special_use === 'inbox',
           thread_id: threadId,

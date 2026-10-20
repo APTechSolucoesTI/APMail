@@ -13,7 +13,7 @@ function Rules() {
     <>
       <PageHeader
         title="Regras"
-        description="Automatize a organização das caixas e das suas conversas."
+        description="Personalize respostas automáticas, filtros e a organização dos seus e-mails."
       />
       <RuleManagement query={query} onQueryChange={(search) => void navigate({ search })} />
     </>

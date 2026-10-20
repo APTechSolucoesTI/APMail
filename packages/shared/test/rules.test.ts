@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   evaluateConditions,
+  evaluateRule,
   mailRuleSchema,
   ruleConditionSchema,
   type RuleMessage,
@@ -160,4 +161,66 @@ describe('regras de e-mail', () => {
     expect(mailRuleSchema.safeParse(rule).success).toBe(false);
     expect(mailRuleSchema.safeParse({ ...rule, scope: 'mailbox' }).success).toBe(true);
   });
+});
+
+it('todas as mensagens é explícito; exceções e limites da resposta são validados', () => {
+  const base = {
+    mailbox_id: '00000000-0000-4000-8000-000000000001',
+    scope: 'mailbox',
+    name: 'Férias',
+    is_active: true,
+    priority: 1,
+    match_mode: 'always',
+    conditions: [],
+    actions: [
+      {
+        type: 'auto_reply',
+        subject: 'Estou de férias',
+        message: 'Olá, retornarei em breve.',
+        cooldown_hours: 168,
+      },
+    ],
+    stop_processing: false,
+  };
+  expect(mailRuleSchema.safeParse(base).success).toBe(true);
+  expect(mailRuleSchema.safeParse({ ...base, match_mode: 'all' }).success).toBe(false);
+  expect(mailRuleSchema.safeParse({ ...base, scope: 'personal' }).success).toBe(false);
+  expect(
+    mailRuleSchema.safeParse({ ...base, actions: [{ type: 'auto_reply', message: '   ' }] })
+      .success,
+  ).toBe(false);
+  expect(
+    mailRuleSchema.safeParse({
+      ...base,
+      actions: [{ type: 'auto_reply', message: 'Olá', cooldown_hours: 0 }],
+    }).success,
+  ).toBe(false);
+  expect(
+    mailRuleSchema.safeParse({
+      ...base,
+      active_from: '2030-10-15T17:00:00Z',
+      active_until: '2030-10-14T17:00:00Z',
+    }).success,
+  ).toBe(false);
+  expect(
+    mailRuleSchema.safeParse({
+      ...base,
+      actions: [...base.actions, { type: 'forward_to', address: 'test@example.com' }],
+    }).success,
+  ).toBe(false);
+  const msg = {
+    from_name: 'Ana',
+    from_address: 'ana@example.com',
+    subject: 'Orçamento',
+    body_text: 'Olá',
+    has_attachments: false,
+    to_addresses: [],
+    cc_addresses: [],
+  };
+  const rule = mailRuleSchema.parse({
+    ...base,
+    exceptions: [{ field: 'from', operator: 'ends_with', value: '@example.com' }],
+  });
+  expect(evaluateRule(rule, msg)).toBe(false);
+  expect(evaluateRule(rule, { ...msg, from_address: 'ana@empresa.com.br' })).toBe(true);
 });

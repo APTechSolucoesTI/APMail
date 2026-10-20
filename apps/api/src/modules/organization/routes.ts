@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { mailRuleSchema, evaluateConditions, type Address } from '@apmail/shared';
+import { mailRuleSchema, evaluateConditions, evaluateRule, type Address } from '@apmail/shared';
 import { requireTenant, ApiError } from '../../authz/context.js';
 import { requireMailboxPerm } from '../../authz/guards.js';
 import { requireFolder, readableFolders, folderPredicate } from '../../authz/folders.js';
@@ -60,10 +60,17 @@ export async function registerOrganizationRoutes(app: FastifyInstance, r: Resour
       has_attachments: msg.has_attachments,
     };
     return {
-      matches: evaluateConditions(b.rule, input),
+      matches: evaluateRule(b.rule, input),
       conditions: b.rule.conditions.map((condition) =>
         evaluateConditions({ match_mode: 'all', conditions: [condition] }, input),
       ),
+      ...(b.rule.exceptions.length
+        ? {
+            exceptions: b.rule.exceptions.map((condition) =>
+              evaluateConditions({ match_mode: 'all', conditions: [condition] }, input),
+            ),
+          }
+        : {}),
     };
   });
   app.get('/api/labels', (req) => s.labels(req.ctx, req.query));

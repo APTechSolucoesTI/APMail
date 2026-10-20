@@ -60,3 +60,5 @@ Os envios SMTP e os testes de conexão anunciam o hostname público de `APP_URL`
 O superadmin pode definir quantidade de caixas e capacidade por empresa; proprietários e administradores distribuem a cota entre caixas. A interface apresenta consumo do APMail e do provedor. Importações bloqueadas pela cota preservam um checkpoint e retomam quando houver capacidade. Consulte [cotas de armazenamento](docs/COTAS-ARMAZENAMENTO.md).
 
 Filas de atendimento são opcionais por usuário em **Configurações → Preferências → Usar filas de atendimento no e-mail**. A opção vem ativada. Ao desativá-la, o usuário navega por pastas e etiquetas, sem status, responsáveis ou ações de atendimento na interface de e-mail. Os atendimentos compartilhados e seus históricos são preservados; a preferência não altera permissões nem o processamento da equipe. Persistência em `user_preferences.mail_queues_enabled`, migration `0046`.
+
+As regras permitem respostas automáticas de férias, condições para todas as mensagens, exceções e período de ativação. Consulte [Regras e respostas automáticas](docs/REGRAS-RESPOSTAS-AUTOMATICAS.md) para configuração, permissões e limites do protocolo.

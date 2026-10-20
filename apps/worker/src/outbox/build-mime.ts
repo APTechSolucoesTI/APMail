@@ -146,6 +146,9 @@ export async function buildMime(r: WorkerResources, row: OutboxRow, box: Mailbox
     references,
     headers: {
       'X-APMail-Outbox-Id': row.id,
+      ...(row.is_auto_reply
+        ? { 'Auto-Submitted': 'auto-replied', 'X-Auto-Response-Suppress': 'All' }
+        : {}),
       ...(row.request_read_receipt ? { 'Disposition-Notification-To': box.email_address } : {}),
     },
     attachments,
@@ -163,7 +166,7 @@ export async function buildMime(r: WorkerResources, row: OutboxRow, box: Mailbox
     fromName: name,
     fromAddress,
     envelope: {
-      from: fromAddress,
+      from: row.is_auto_reply ? '' : fromAddress,
       to: [...new Set(addresses.map((a) => a.address.toLowerCase()))],
     },
   };

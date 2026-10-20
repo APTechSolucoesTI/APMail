@@ -24,6 +24,7 @@ import { hashToken } from '../../../api/src/plugins/auth.js';
 import { applyPendingRules, handleRulesApply } from '../../src/handlers/rules-apply.js';
 import { handleOutboxSend } from '../../src/handlers/outbox-send.js';
 import { sweepOutbox } from '../../src/handlers/outbox-maintenance.js';
+import { ingestMessage } from '../../src/imap/ingest-message.js';
 import * as providers from '../../src/imap/connect.js';
 import type { WorkerResources } from '../../src/resources.js';
 const url = process.env.DATABASE_URL_TEST!,
@@ -709,3 +710,193 @@ it('cancela a série inteira e impede recuperação de novos envios', async () =
     ).state,
   ).toBe('cancelled');
 });
+
+it('resposta automática: novas mensagens, MIME real, intervalo global, exceções e reexecução segura', async () => {
+  const target = await mailbox('Férias QA');
+  const input = {
+    ...rule(target.id, [
+      {
+        type: 'auto_reply',
+        subject: 'Férias',
+        message: 'Olá! Estou de férias. <Não citar original>',
+        cooldown_hours: 168,
+      },
+    ]),
+    match_mode: 'always',
+    conditions: [],
+    exceptions: [{ field: 'from', operator: 'contains', value: 'ignorar@' }],
+  };
+  expect((await call('POST', '/rules', { ...input, scope: 'personal' })).statusCode).toBe(400);
+  expect((await call('POST', '/rules', input, viewer)).statusCode).toBe(404);
+  expect((await call('POST', '/rules', input, foreign)).statusCode).toBe(404);
+  const created = await call('POST', '/rules', input);
+  expect(created.statusCode, created.body).toBe(201);
+  const ruleId = created.json().id;
+  expect((await call('PATCH', '/rules/' + ruleId, { apply_existing: true })).statusCode).toBe(409);
+  const incoming = async (sender = 'cliente@example.net', headers = '', historical = false) => {
+    const folder = await db
+      .selectFrom('folders')
+      .selectAll()
+      .where('mailbox_id', '=', target.id)
+      .where('special_use', '=', 'inbox')
+      .executeTakeFirstOrThrow();
+    const source = Buffer.from(
+      'Return-Path: <' +
+        sender +
+        '>\r\nFrom: Cliente <' +
+        sender +
+        '>\r\nTo: ' +
+        target.email_address +
+        '\r\nMessage-ID: <' +
+        randomUUID() +
+        '@example.net>\r\nSubject: Pedido de atendimento\r\n' +
+        headers +
+        '\r\nConteúdo confidencial original.',
+    );
+    const thread = await ingestMessage(
+      r,
+      target,
+      folder,
+      { uid: 1, seq: 1, source, size: source.length, flags: new Set() },
+      { kind: 'pop3', key: randomUUID(), historical },
+    );
+    return db
+      .selectFrom('messages')
+      .selectAll()
+      .where('thread_id', '=', thread)
+      .where('direction', '=', 'inbound')
+      .orderBy('created_at', 'desc')
+      .executeTakeFirstOrThrow();
+  };
+  const count = () =>
+    db
+      .selectFrom('outbox')
+      .selectAll()
+      .where('mailbox_id', '=', target.id)
+      .where('is_auto_reply', '=', true)
+      .execute();
+  const original = await incoming();
+  expect(original.auto_reply_to).toBe('cliente@example.net');
+  await applyPendingRules(r, target, null);
+  const replies = await count();
+  expect(replies).toHaveLength(1);
+  const reply = replies[0]!;
+  expect(reply).toMatchObject({
+    kind: 'reply',
+    is_auto_reply: true,
+    created_by_rule_id: ruleId,
+    reply_to_message_id: original.id,
+    status: 'queued',
+  });
+  expect(reply.body_html).toContain('&lt;Não citar original&gt;');
+  expect(reply.body_html).not.toContain('Conteúdo confidencial');
+  await incoming();
+  await applyPendingRules(r, target, null);
+  expect(await count()).toHaveLength(1);
+  await db
+    .updateTable('messages')
+    .set({ rules_applied_at: null })
+    .where('id', '=', original.id)
+    .execute();
+  await applyPendingRules(r, target, null);
+  expect(await count()).toHaveLength(1);
+  await handleRulesApply(r, ruleId, null, 'auto-reply-no-history');
+  expect(await count()).toHaveLength(1);
+  for (const [sender, header, historical] of [
+    ['ignorar@example.net', '', false],
+    ['bot@example.net', 'Auto-Submitted: auto-replied\r\n', false],
+    ['historico@example.net', '', true],
+  ] as const) {
+    await incoming(sender, header, historical);
+    await applyPendingRules(r, target, null);
+  }
+  expect(await count()).toHaveLength(1);
+  await call('PATCH', '/rules/' + ruleId, { active_from: '2099-01-01T00:00:00Z' });
+  await incoming('future@example.net');
+  await applyPendingRules(r, target, null);
+  expect(await count()).toHaveLength(1);
+  await call('PATCH', '/rules/' + ruleId, {
+    active_from: null,
+    active_until: '2000-01-01T00:00:00Z',
+  });
+  await incoming('expired@example.net');
+  await applyPendingRules(r, target, null);
+  expect(await count()).toHaveLength(1);
+  await call('PATCH', '/rules/' + ruleId, { active_until: null });
+  const sent: { envelope: { from: string; to: string[] }; raw: Buffer }[] = [];
+  const smtp = vi.fn(async (info: { envelope: { from: string; to: string[] }; raw: Buffer }) => {
+    sent.push(info);
+    return { messageId: 'qa-auto-reply' };
+  });
+  const transport = vi.spyOn(providers, 'transports').mockResolvedValue({
+    smtp: { sendMail: smtp },
+    imap: { connect: vi.fn() },
+    close: vi.fn().mockResolvedValue(undefined),
+  } as unknown as Awaited<ReturnType<typeof providers.transports>>);
+  try {
+    await handleOutboxSend(r, reply.id, {
+      id: reply.job_id!,
+      attemptsMade: 0,
+      opts: { attempts: 1 },
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.envelope).toEqual({ from: '', to: ['cliente@example.net'] });
+    const parsed = await simpleParser(sent[0]!.raw);
+    expect(parsed.headers.get('auto-submitted')).toBe('auto-replied');
+    expect(parsed.headers.get('x-auto-response-suppress')).toBe('All');
+    expect(parsed.inReplyTo).toBe(original.message_id_header);
+    expect(
+      (
+        await db
+          .selectFrom('threads')
+          .selectAll()
+          .where('id', '=', original.thread_id)
+          .executeTakeFirstOrThrow()
+      ).queue_status,
+    ).toBe('to_reply');
+    await handleOutboxSend(r, reply.id, {
+      id: reply.job_id!,
+      attemptsMade: 0,
+      opts: { attempts: 1 },
+    });
+    expect(sent).toHaveLength(1);
+  } finally {
+    transport.mockRestore();
+  }
+  await db
+    .updateTable('mail_auto_reply_state')
+    .set({ last_replied_at: new Date(Date.now() - 169 * 3600000) })
+    .where('mailbox_id', '=', target.id)
+    .execute();
+  await incoming();
+  await applyPendingRules(r, target, null);
+  expect(await count()).toHaveLength(2);
+  await call('POST', '/rules', { ...input, name: 'Segunda resposta' });
+  await incoming('outro@example.net');
+  await Promise.all([applyPendingRules(r, target, null), applyPendingRules(r, target, null)]);
+  expect(await count()).toHaveLength(3);
+  const colleague = await mailbox('Colega da mesma empresa');
+  await incoming(colleague.email_address);
+  await applyPendingRules(r, target, null);
+  expect(await count()).toHaveLength(4);
+  await call('PATCH', '/rules/' + ruleId, { is_active: false });
+  const pending = (await count()).find(
+    (o) => o.created_by_rule_id === ruleId && o.status === 'queued',
+  )!;
+  await expect(
+    handleOutboxSend(r, pending.id, {
+      id: pending.job_id!,
+      attemptsMade: 0,
+      opts: { attempts: 1 },
+    }),
+  ).rejects.toThrow();
+  expect(
+    (
+      await db
+        .selectFrom('outbox')
+        .select('status')
+        .where('id', '=', pending.id)
+        .executeTakeFirstOrThrow()
+    ).status,
+  ).toBe('failed');
+}, 30000);

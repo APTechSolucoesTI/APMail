@@ -87,6 +87,8 @@ export function organizationService(r: Resources) {
           .executeTakeFirst();
         if (!target || (!isTenantAdmin(target.role) && !can(target.mailbox_role, 'send')))
           throw conflict('O responsável precisa poder enviar nesta caixa.');
+      } else if (a.type === 'auto_reply') {
+        await requireMailboxPerm(c, r.db, b.mailbox_id, 'send');
       } else if (a.type === 'forward_to') {
         await requireMailboxPerm(c, r.db, b.mailbox_id, 'send');
         const tenant = await r.db
@@ -276,11 +278,18 @@ export function organizationService(r: Resources) {
       const own = id ? await ownRule(ctx, id) : null,
         c = own?.c ?? requireTenant(ctx),
         raw = z.record(z.string(), z.unknown()).parse(body),
-        b = mailRuleSchema.parse({ ...own?.row, ...raw });
+        b = mailRuleSchema.parse({
+          ...own?.row,
+          active_from: own?.row.active_from?.toISOString() ?? null,
+          active_until: own?.row.active_until?.toISOString() ?? null,
+          ...raw,
+        });
       if (own && (b.scope !== own.row.scope || b.mailbox_id !== own.row.mailbox_id))
         throw conflict('O escopo e a caixa de uma regra existente não podem ser trocados.');
       await validateRule(c, b);
       const applyExisting = z.boolean().default(false).parse(raw.apply_existing);
+      if (applyExisting && b.actions.some((a) => a.type === 'auto_reply'))
+        throw conflict('Respostas automáticas são enviadas somente para novas mensagens.');
       const sinceDays = z
         .number()
         .int()
@@ -295,6 +304,7 @@ export function organizationService(r: Resources) {
         ...input,
         review_reason: null,
         conditions: asJson(b.conditions),
+        exceptions: asJson(b.exceptions),
         actions: asJson(b.actions),
       };
       const row = await r.db.transaction().execute(async (tx) => {

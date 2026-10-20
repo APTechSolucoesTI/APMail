@@ -1,27 +1,16 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useForm, useFieldArray, useWatch } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import {
-  mailRuleSchema,
-  type MailRuleInput,
-  type RuleCondition,
-  type ListQuery,
-} from '@apmail/shared';
+import type { ListQuery } from '@apmail/shared';
 import { Plus, Pencil, Trash2, ArrowUp, ArrowDown, Play, Ellipsis } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { useTenantId, useUserId, canMailbox, type Mailbox } from '@/lib/auth';
-import type { MailRule, PersonalLabel } from '@/lib/organization';
-import { folderLabel, type Folder } from '@/lib/mail';
+import { useTenantId, meQuery, canMailbox, type Mailbox } from '@/lib/auth';
+import type { MailRule } from '@/lib/organization';
 import { ConfigurableTable } from '@/components/data/configurable-table';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import {
   DropdownMenu,
@@ -38,39 +27,9 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet';
-const fieldNames = {
-  from: 'Remetente',
-  to: 'Para',
-  cc: 'Cc',
-  any_recipient: 'Qualquer destinatário',
-  subject: 'Assunto',
-  body: 'Corpo',
-  has_attachment: 'Possui anexo',
-};
-const operatorNames = {
-  contains: 'contém',
-  not_contains: 'não contém',
-  equals: 'é igual a',
-  starts_with: 'começa com',
-  ends_with: 'termina com',
-  is_true: 'sim',
-  is_false: 'não',
-};
-const actionNames = {
-  move_to_folder: 'Mover para pasta',
-  mark_flagged: 'Sinalizar',
-  assign_to: 'Atribuir a',
-  exclude_from_queue: 'Excluir das filas',
-  forward_to: 'Encaminhar para',
-  add_label: 'Adicionar etiqueta',
-  pin: 'Fixar',
-};
-const editorSchema = mailRuleSchema.safeExtend({
-  apply_existing: z.boolean().default(false),
-  apply_since_days: z.number().int().min(1).max(365).nullable().default(30),
-});
-type EditorInput = z.input<typeof editorSchema>;
-const selectClass = 'h-11 min-w-0 w-full rounded-md border border-input bg-card px-3 text-sm';
+import { RuleEditor } from './rule-editor';
+import { fieldNames, operatorNames, actionNames, selectClass } from './rule-options';
+export { RuleEditor } from './rule-editor';
 export function RuleManagement({
   mailboxId,
   fixedScope,
@@ -93,6 +52,7 @@ export function RuleManagement({
     [busy, setBusy] = useState(false),
     [localQuery, setLocalQuery] = useState<ListQuery>({ page: 1, pageSize: 10, filters: {} }),
     query = externalQuery ?? localQuery;
+  const timezone = useQuery(meQuery).data?.preferences.timezone ?? 'America/Sao_Paulo';
   const q = useQuery({
     queryKey: ['rules', tenant, scope, mailboxId],
     queryFn: () =>
@@ -112,17 +72,33 @@ export function RuleManagement({
       setBusy(false);
     }
   };
-  const create = () =>
+  const create = (vacation = false) =>
     setDraft({
       id: '',
-      mailbox_id: mailboxId ?? available[0]?.id ?? '',
+      mailbox_id:
+        mailboxId ??
+        (vacation ? available.find((b) => canMailbox(b, 'send'))?.id : available[0]?.id) ??
+        '',
       scope,
-      name: '',
+      name: vacation ? 'Resposta de férias' : '',
       is_active: true,
       priority: 100,
-      match_mode: 'all',
-      conditions: [{ field: 'from', operator: 'contains', value: '' }],
-      actions: [{ type: scope === 'personal' ? 'pin' : 'mark_flagged' }],
+      match_mode: vacation ? 'always' : 'all',
+      conditions: vacation ? [] : [{ field: 'from', operator: 'contains', value: '' }],
+      exceptions: [],
+      active_from: null,
+      active_until: null,
+      actions: vacation
+        ? [
+            {
+              type: 'auto_reply',
+              subject: 'Ausência temporária',
+              message:
+                'Olá!\n\nEstou de férias e retornarei em breve. Responderei à sua mensagem assim que voltar.\n\nObrigado pela compreensão.',
+              cooldown_hours: 168,
+            },
+          ]
+        : [{ type: scope === 'personal' ? 'pin' : 'mark_flagged' }],
       stop_processing: false,
       created_at: '',
     });
@@ -137,10 +113,21 @@ export function RuleManagement({
       error={q.error}
       onRetry={() => void q.refetch()}
       toolbarLeft={
-        <Button onClick={create} disabled={!available.length}>
-          <Plus />
-          Nova regra
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => create()} disabled={!available.length}>
+            <Plus />
+            Nova regra
+          </Button>
+          {scope === 'mailbox' && (
+            <Button
+              variant="outline"
+              onClick={() => create(true)}
+              disabled={!available.some((b) => canMailbox(b, 'send'))}
+            >
+              Resposta de férias
+            </Button>
+          )}
+        </div>
       }
       columns={[
         { id: 'priority', header: 'Prioridade', align: 'right', sortable: true },
@@ -169,19 +156,53 @@ export function RuleManagement({
           cell: (r) => (
             <span
               className="block max-w-80 truncate"
-              title={r.conditions
-                .map(
-                  (c) =>
-                    fieldNames[c.field] + ' ' + operatorNames[c.operator] + ' ' + (c.value ?? ''),
-                )
-                .join(r.match_mode === 'all' ? ' e ' : ' ou ')}
+              title={
+                r.match_mode === 'always'
+                  ? 'Todas as mensagens recebidas'
+                  : r.conditions
+                      .map(
+                        (c) =>
+                          fieldNames[c.field] +
+                          ' ' +
+                          operatorNames[c.operator] +
+                          ' ' +
+                          (c.value ?? ''),
+                      )
+                      .join(r.match_mode === 'all' ? ' e ' : ' ou ')
+              }
             >
-              {r.conditions
-                .map(
-                  (c) =>
-                    fieldNames[c.field] + ' ' + operatorNames[c.operator] + ' ' + (c.value ?? ''),
-                )
-                .join(r.match_mode === 'all' ? ' e ' : ' ou ')}
+              {r.match_mode === 'always'
+                ? 'Todas as mensagens recebidas'
+                : r.conditions
+                    .map(
+                      (c) =>
+                        fieldNames[c.field] +
+                        ' ' +
+                        operatorNames[c.operator] +
+                        ' ' +
+                        (c.value ?? ''),
+                    )
+                    .join(r.match_mode === 'all' ? ' e ' : ' ou ')}
+              {!!r.exceptions?.length && (
+                <span className="block text-xs text-muted-foreground">
+                  {r.exceptions.length} exceção(ões)
+                </span>
+              )}
+            </span>
+          ),
+        },
+        {
+          id: 'period',
+          header: 'Período',
+          cell: (r) => (
+            <span className="text-xs" title={timezone}>
+              {r.active_from
+                ? new Date(r.active_from).toLocaleString('pt-BR', { timeZone: timezone })
+                : 'Desde a ativação'}
+              <br />
+              {r.active_until
+                ? 'Até ' + new Date(r.active_until).toLocaleString('pt-BR', { timeZone: timezone })
+                : 'Sem término'}
             </span>
           ),
         },
@@ -201,7 +222,15 @@ export function RuleManagement({
                 aria-label={'Ativar regra ' + r.name}
                 onCheckedChange={(is_active) => void mutate(r.id, { is_active })}
               />
-              <span>{r.is_active ? 'Sim' : 'Não'}</span>
+              <span>
+                {!r.is_active
+                  ? 'Não'
+                  : r.active_until && new Date(r.active_until) <= new Date()
+                    ? 'Período encerrado'
+                    : r.active_from && new Date(r.active_from) > new Date()
+                      ? 'Agendada'
+                      : 'Sim'}
+              </span>
             </label>
           ),
         },
@@ -247,7 +276,7 @@ export function RuleManagement({
           <TabsContent value={scope}>
             <p className="mb-4 text-sm text-muted-foreground">
               {scope === 'personal'
-                ? 'Etiquetas e fixações são pessoais. Movimentos e sinalizações alteram a caixa e exigem permissão de organização.'
+                ? 'Etiquetas e fixações são pessoais. Movimentos e sinalizações alteram a caixa. Respostas automáticas são configuradas em Regras da caixa.'
                 : 'Regras da caixa alteram a organização compartilhada. Somente administradores ou supervisores autorizados podem configurá-las.'}
             </p>
             {table}
@@ -260,7 +289,7 @@ export function RuleManagement({
           if (!v) setDraft(null);
         }}
       >
-        <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-2xl">
+        <SheetContent className="flex min-h-0 w-full flex-col overflow-hidden p-0 sm:max-w-2xl">
           <SheetHeader>
             <SheetTitle>{draft?.id ? 'Editar regra' : 'Nova regra'}</SheetTitle>
             <SheetDescription>
@@ -287,543 +316,6 @@ export function RuleManagement({
     </div>
   );
 }
-export function RuleEditor({
-  rule,
-  boxes,
-  onClose,
-  onSaved,
-}: {
-  rule: MailRule;
-  boxes: Mailbox[];
-  onClose: () => void;
-  onSaved: () => Promise<void>;
-}) {
-  const tenant = useTenantId(),
-    form = useForm<EditorInput>({
-      resolver: zodResolver(editorSchema),
-      defaultValues: { ...rule, id: rule.id || undefined, apply_existing: false },
-    }),
-    conditions = useFieldArray({ control: form.control, name: 'conditions' }),
-    actions = useFieldArray({ control: form.control, name: 'actions' }),
-    values = useWatch({ control: form.control }),
-    [error, setError] = useState('');
-  const [previewMessage, setPreviewMessage] = useState(''),
-    [previewResult, setPreviewResult] = useState<{
-      matches: boolean;
-      conditions: boolean[];
-    } | null>(null),
-    [previewBusy, setPreviewBusy] = useState(false);
-  const mailboxId = values.mailbox_id ?? '',
-    folders = useQuery({
-      queryKey: ['folders', tenant, mailboxId],
-      queryFn: () => api<Folder[]>('/mailboxes/' + mailboxId + '/folders'),
-      enabled: !!mailboxId,
-    }),
-    labels = useQuery({
-      queryKey: ['labels', tenant, useUserId(), mailboxId],
-      queryFn: () => api<PersonalLabel[]>('/labels?mailbox_id=' + mailboxId),
-      select: (items) =>
-        items.filter((l) => l.scope === (rule.scope === 'personal' ? 'personal' : 'tenant')),
-      enabled: !!mailboxId,
-    }),
-    users = useQuery({
-      queryKey: ['assignable', tenant, mailboxId],
-      queryFn: () =>
-        api<{ id: string; full_name: string }[]>('/mailboxes/' + mailboxId + '/assignable'),
-      enabled: !!mailboxId && rule.scope === 'mailbox',
-    }),
-    company = useQuery({
-      queryKey: ['tenant', tenant],
-      queryFn: () => api<{ settings: { allow_external_auto_forward?: boolean } }>('/tenant'),
-    }),
-    allowForward = !!company.data?.settings.allow_external_auto_forward;
-  const previewMessages = useQuery({
-    queryKey: ['rule-preview-messages', tenant, mailboxId],
-    queryFn: () =>
-      api<{ items: { id: string; subject: string }[] }>(
-        '/mailboxes/' + mailboxId + '/threads?page_size=10&view=search',
-      ),
-    enabled: !!mailboxId,
-  });
-  const selectedPreview = previewMessages.data?.items.some((item) => item.id === previewMessage)
-    ? previewMessage
-    : '';
-  const allActions =
-    rule.scope === 'personal'
-      ? ([
-          'add_label',
-          'pin',
-          ...(boxes.some((box) => box.id === mailboxId && canMailbox(box, 'organize'))
-            ? (['move_to_folder', 'mark_flagged'] as const)
-            : []),
-        ] as const)
-      : ([
-          'add_label',
-          'pin',
-          'move_to_folder',
-          'mark_flagged',
-          'assign_to',
-          'exclude_from_queue',
-          'forward_to',
-        ] as const);
-  const defaultAction = (type: keyof typeof actionNames): MailRuleInput['actions'][number] => {
-    switch (type) {
-      case 'move_to_folder':
-        return { type, folder_id: '' };
-      case 'assign_to':
-        return { type, user_id: '' };
-      case 'forward_to':
-        return { type, address: '' };
-      case 'add_label':
-        return { type, label_id: labels.data?.[0]?.id ?? '' };
-      default:
-        return { type };
-    }
-  };
-  const fieldError = (path: string) => {
-    const e = form.getFieldState(path as keyof EditorInput, form.formState).error;
-    return e?.message ? (
-      <p role="alert" className="text-xs text-destructive">
-        {e.message}
-      </p>
-    ) : null;
-  };
-  const folderOptions = (items: Folder[], prefix = ''): React.ReactNode[] =>
-    items.flatMap((f) => [
-      <option key={f.id} value={f.id}>
-        {prefix + folderLabel(f)}
-      </option>,
-      ...folderOptions(f.children, prefix + folderLabel(f) + ' / '),
-    ]);
-  return (
-    <form
-      className="space-y-4 p-4"
-      noValidate
-      onSubmit={form.handleSubmit(async (body) => {
-        setError('');
-        try {
-          await api('/rules' + (rule.id ? '/' + rule.id : ''), {
-            method: rule.id ? 'PATCH' : 'POST',
-            body,
-          });
-          await onSaved();
-        } catch (e) {
-          setError((e as Error).message);
-        }
-      })}
-    >
-      <div className="space-y-2">
-        <Label htmlFor="rule-name">Nome da regra</Label>
-        <Input
-          id="rule-name"
-          {...form.register('name')}
-          aria-invalid={!!form.formState.errors.name}
-        />
-        {fieldError('name')}
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="rule-box">Caixa</Label>
-          <select
-            id="rule-box"
-            className={selectClass}
-            {...form.register('mailbox_id')}
-            disabled={!!rule.id}
-          >
-            <option value="">Selecione uma caixa</option>
-            {boxes.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-          {fieldError('mailbox_id')}
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="rule-priority">Prioridade</Label>
-          <Input
-            id="rule-priority"
-            type="number"
-            min={1}
-            max={999}
-            {...form.register('priority', { valueAsNumber: true })}
-          />
-          {fieldError('priority')}
-        </div>
-      </div>
-      <fieldset className="space-y-3 rounded-lg border p-3">
-        <legend className="px-1 text-sm font-semibold">Condições</legend>
-        <p className="text-sm text-muted-foreground">
-          Textos ignoram acentos, maiúsculas e espaços excedentes. E-mails são comparados por
-          endereço. “É igual a” exige o valor completo.
-        </p>
-        <Label htmlFor="rule-mode">Quando corresponder a</Label>
-        <select id="rule-mode" className={selectClass} {...form.register('match_mode')}>
-          <option value="all">Todas as condições</option>
-          <option value="any">Qualquer uma das condições</option>
-        </select>
-        <div className="space-y-2 rounded-md border p-3">
-          <Label htmlFor="rule-preview-thread">Testar em uma conversa recente</Label>
-          <select
-            id="rule-preview-thread"
-            className={selectClass}
-            value={selectedPreview}
-            onChange={(e) => {
-              setPreviewMessage(e.target.value);
-              setPreviewResult(null);
-            }}
-          >
-            <option value="">Selecione uma conversa</option>
-            {previewMessages.data?.items.map((thread) => (
-              <option key={thread.id} value={thread.id}>
-                {thread.subject || '(Sem assunto)'}
-              </option>
-            ))}
-          </select>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={!selectedPreview || previewBusy}
-            onClick={async () => {
-              setPreviewBusy(true);
-              try {
-                const result = await api<{ matches: boolean; conditions: boolean[] }>(
-                  '/rules/preview',
-                  {
-                    method: 'POST',
-                    body: {
-                      rule: mailRuleSchema.parse(form.getValues()),
-                      thread_id: selectedPreview,
-                    },
-                  },
-                );
-                setPreviewResult(result);
-              } catch (e) {
-                toast.error(e instanceof Error ? e.message : 'Não foi possível testar.');
-              } finally {
-                setPreviewBusy(false);
-              }
-            }}
-          >
-            {previewBusy ? 'Testando…' : 'Testar condições'}
-          </Button>
-          {previewResult && (
-            <p role="status" className="text-sm">
-              {previewResult.matches
-                ? 'A mensagem corresponde à regra.'
-                : 'A mensagem não corresponde à regra.'}{' '}
-              Condições:{' '}
-              {previewResult.conditions
-                .map((ok, i) => `${i + 1}: ${ok ? 'sim' : 'não'}`)
-                .join(' · ')}
-              . Nenhuma ação foi executada.
-            </p>
-          )}
-        </div>
-        {conditions.fields.map((item, i) => {
-          const field = values.conditions?.[i]?.field ?? 'from',
-            bool = field === 'has_attachment';
-          return (
-            <div key={item.id} className="space-y-2 rounded-md border bg-muted/30 p-3">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div>
-                  <Label htmlFor={'condition-field-' + i}>Campo {i + 1}</Label>
-                  <select
-                    id={'condition-field-' + i}
-                    className={selectClass}
-                    value={field}
-                    onChange={(e) => {
-                      form.setValue(
-                        `conditions.${i}.field`,
-                        e.target.value as RuleCondition['field'],
-                      );
-                      form.setValue(
-                        `conditions.${i}.operator`,
-                        e.target.value === 'has_attachment' ? 'is_true' : 'contains',
-                      );
-                      form.setValue(`conditions.${i}.value`, '');
-                    }}
-                  >
-                    {Object.entries(fieldNames).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <Label htmlFor={'condition-operator-' + i}>Operador {i + 1}</Label>
-                  <select
-                    id={'condition-operator-' + i}
-                    className={selectClass}
-                    {...form.register(`conditions.${i}.operator`)}
-                  >
-                    {Object.entries(operatorNames)
-                      .filter(([key]) =>
-                        bool
-                          ? key === 'is_true' || key === 'is_false'
-                          : key !== 'is_true' && key !== 'is_false',
-                      )
-                      .map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              </div>
-              {!bool && (
-                <div>
-                  <Label htmlFor={'condition-value-' + i}>Valor {i + 1}</Label>
-                  <Input id={'condition-value-' + i} {...form.register(`conditions.${i}.value`)} />
-                </div>
-              )}
-              {fieldError('conditions.' + i)}
-              {fieldError('conditions.' + i + '.value')}
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={conditions.fields.length === 1}
-                aria-label={'Remover condição ' + (i + 1)}
-                onClick={() => conditions.remove(i)}
-              >
-                <Trash2 />
-                Remover condição
-              </Button>
-            </div>
-          );
-        })}
-        <Button
-          type="button"
-          variant="outline"
-          disabled={conditions.fields.length >= 10}
-          onClick={() => conditions.append({ field: 'subject', operator: 'contains', value: '' })}
-        >
-          <Plus />
-          Adicionar condição
-        </Button>
-      </fieldset>
-      <fieldset className="space-y-3 rounded-lg border p-3">
-        <legend className="px-1 text-sm font-semibold">Ações</legend>
-        {actions.fields.map((item, i) => {
-          const action = values.actions?.[i],
-            type = action?.type ?? 'pin';
-          return (
-            <div key={item.id} className="space-y-2 rounded-md border bg-muted/30 p-3">
-              <Label htmlFor={'rule-action-' + i}>Ação {i + 1}</Label>
-              <select
-                id={'rule-action-' + i}
-                className={selectClass}
-                value={type}
-                onChange={(e) =>
-                  actions.update(i, defaultAction(e.target.value as keyof typeof actionNames))
-                }
-              >
-                {allActions.map((value) => (
-                  <option
-                    key={value}
-                    value={value}
-                    disabled={value === 'forward_to' && !allowForward}
-                  >
-                    {actionNames[value]}
-                  </option>
-                ))}
-              </select>
-              {type === 'move_to_folder' && (
-                <div>
-                  <Label htmlFor={'action-target-' + i}>Pasta de destino</Label>
-                  <select
-                    id={'action-target-' + i}
-                    className={selectClass}
-                    {...form.register(`actions.${i}.folder_id`)}
-                    value={
-                      values.actions?.[i]?.type === 'move_to_folder'
-                        ? (values.actions[i].folder_id ?? '')
-                        : ''
-                    }
-                  >
-                    <option value="">Selecione uma pasta</option>
-                    {folderOptions(folders.data ?? [])}
-                  </select>
-                  {folders.error && (
-                    <p role="alert" className="text-sm text-destructive">
-                      Não foi possível carregar as pastas.
-                    </p>
-                  )}
-                </div>
-              )}
-              {type === 'assign_to' && (
-                <div>
-                  <Label htmlFor={'action-target-' + i}>Responsável</Label>
-                  <select
-                    id={'action-target-' + i}
-                    className={selectClass}
-                    {...form.register(`actions.${i}.user_id`)}
-                    value={
-                      values.actions?.[i]?.type === 'assign_to'
-                        ? (values.actions[i].user_id ?? '')
-                        : ''
-                    }
-                  >
-                    <option value="">Selecione um usuário</option>
-                    {users.data?.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.full_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              {type === 'add_label' && (
-                <div>
-                  <Label htmlFor={'action-target-' + i}>Etiqueta</Label>
-                  <select
-                    id={'action-target-' + i}
-                    className={selectClass}
-                    {...form.register(`actions.${i}.label_id`)}
-                    value={
-                      values.actions?.[i]?.type === 'add_label'
-                        ? (values.actions[i].label_id ?? '')
-                        : ''
-                    }
-                  >
-                    <option value="">Selecione uma etiqueta</option>
-                    {labels.data?.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name} · {l.scope === 'tenant' ? 'Global' : 'Pessoal'}
-                      </option>
-                    ))}
-                  </select>
-                  {labels.isLoading && (
-                    <p role="status" className="text-xs text-muted-foreground">
-                      Carregando etiquetas…
-                    </p>
-                  )}
-                  {labels.error && (
-                    <p role="alert" className="text-sm text-destructive">
-                      Não foi possível carregar as etiquetas.{' '}
-                      <Button type="button" variant="ghost" onClick={() => void labels.refetch()}>
-                        Tentar novamente
-                      </Button>
-                    </p>
-                  )}
-                  {!labels.isLoading && !labels.error && !labels.data?.length && (
-                    <p className="text-xs text-muted-foreground">
-                      Crie uma etiqueta nas configurações antes de usar esta ação.
-                    </p>
-                  )}
-                </div>
-              )}
-              {type === 'forward_to' && (
-                <div>
-                  <Label htmlFor={'action-target-' + i}>Endereço de destino</Label>
-                  <Input
-                    id={'action-target-' + i}
-                    type="email"
-                    {...form.register(`actions.${i}.address`)}
-                  />
-                </div>
-              )}
-              {fieldError('actions.' + i)}
-              {['folder_id', 'label_id', 'user_id', 'address'].map((key) => (
-                <div key={key}>{fieldError('actions.' + i + '.' + key)}</div>
-              ))}
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={actions.fields.length === 1}
-                aria-label={'Remover ação ' + (i + 1)}
-                onClick={() => actions.remove(i)}
-              >
-                <Trash2 />
-                Remover ação
-              </Button>
-            </div>
-          );
-        })}
-        <Button
-          type="button"
-          variant="outline"
-          disabled={actions.fields.length >= 5}
-          onClick={() =>
-            actions.append({ type: rule.scope === 'personal' ? 'pin' : 'mark_flagged' })
-          }
-        >
-          <Plus />
-          Adicionar ação
-        </Button>
-        {rule.scope === 'mailbox' && !allowForward && (
-          <p className="text-xs text-muted-foreground">
-            Encaminhamento automático desativado. Um administrador precisa habilitar essa opção nas
-            configurações da empresa.
-          </p>
-        )}
-      </fieldset>
-      {(['stop_processing', 'is_active', 'apply_existing'] as const).map((name, i) => (
-        <label key={name} className="flex min-h-11 items-center gap-2">
-          <Checkbox
-            checked={!!values[name]}
-            onCheckedChange={(v) => form.setValue(name, v === true)}
-          />
-          <span className="text-sm">
-            {
-              [
-                'Parar de processar outras regras',
-                'Regra ativa',
-                'Aplicar também às mensagens existentes',
-              ][i]
-            }
-          </span>
-        </label>
-      ))}
-      {values.apply_existing && (
-        <div className="space-y-1">
-          <Label htmlFor="rule-existing-range">Alcance da aplicação</Label>
-          <select
-            id="rule-existing-range"
-            className={selectClass}
-            value={values.apply_since_days === null ? 'all' : String(values.apply_since_days ?? 30)}
-            onChange={(event) =>
-              form.setValue(
-                'apply_since_days',
-                event.target.value === 'all' ? null : Number(event.target.value),
-              )
-            }
-          >
-            <option value="30">Últimos 30 dias</option>
-            <option value="90">Últimos 90 dias</option>
-            <option value="365">Último ano</option>
-            <option value="all">Todas as mensagens, incluindo arquivos antigos</option>
-          </select>
-        </div>
-      )}
-      {error && (
-        <p
-          role="alert"
-          className="rounded-md border border-destructive/30 p-3 text-sm text-destructive"
-        >
-          {error}
-        </p>
-      )}
-      <div className="flex gap-2">
-        <Button disabled={form.formState.isSubmitting}>
-          {form.formState.isSubmitting ? 'Salvando…' : 'Salvar regra'}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={form.formState.isSubmitting}
-          onClick={onClose}
-        >
-          Cancelar
-        </Button>
-      </div>
-    </form>
-  );
-}
-
 function RuleRowActions({
   rule,
   busy,
@@ -877,7 +369,10 @@ function RuleRowActions({
             <ArrowDown />
             Diminuir prioridade
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setConfirm('apply')}>
+          <DropdownMenuItem
+            disabled={rule.actions.some((a) => a.type === 'auto_reply')}
+            onSelect={() => setConfirm('apply')}
+          >
             <Play />
             Aplicar às mensagens existentes…
           </DropdownMenuItem>

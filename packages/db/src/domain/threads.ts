@@ -96,7 +96,9 @@ export async function refreshThreadAggregates(db: Database, threadId: string): P
     .execute();
   const messages = all.filter((m) => m.special_use !== 'trash' && m.special_use !== 'junk');
   const inbound = messages.filter((m) => m.direction === 'inbound' && !m.is_automated);
-  const outbound = messages.filter((m) => m.direction === 'outbound' && !m.is_mdn);
+  const outbound = messages.filter(
+    (m) => m.direction === 'outbound' && !m.is_mdn && !m.is_auto_reply,
+  );
   const firstInbound = inbound[0]?.message_at ?? null,
     lastInbound = inbound.at(-1)?.message_at ?? null;
   const last = messages.at(-1);

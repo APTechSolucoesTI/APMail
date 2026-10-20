@@ -1,5 +1,3 @@
-import { isTenantAdmin } from '@apmail/shared';
-import { canDelegate } from '@apmail/shared';
 import { sql, type Selectable } from 'kysely';
 import type { ImapFlow } from 'imapflow';
 import { randomUUID } from 'node:crypto';
@@ -17,12 +15,10 @@ import {
   userCanReadFolder,
 } from '@apmail/db';
 import {
-  can,
-  evaluateConditions,
+  evaluateRule,
   mailRuleSchema,
   quoteHtml,
   replySubject,
-  type MailboxPerm,
   type Address,
 } from '@apmail/shared';
 import type { WorkerResources } from '../resources.js';
@@ -30,36 +26,9 @@ import type { Mailbox } from '../imap/connect.js';
 import { transports } from '../imap/connect.js';
 import { withMailboxLock } from '../lib/mailbox-lock.js';
 import { emitThreads } from '../lib/events.js';
-export async function userCanMailbox(
-  r: WorkerResources,
-  box: Mailbox,
-  userId: string,
-  perm: MailboxPerm,
-) {
-  if (perm === 'send' && box.receiving_protocol === 'local') return false;
-  const access = await r.db
-    .selectFrom('tenant_members as tm')
-    .leftJoin('mailbox_members as mm', (j) =>
-      j
-        .onRef('mm.tenant_id', '=', 'tm.tenant_id')
-        .onRef('mm.user_id', '=', 'tm.user_id')
-        .on('mm.mailbox_id', '=', box.id),
-    )
-    .innerJoin('tenants as tenant', 'tenant.id', 'tm.tenant_id')
-    .select(['tm.role', 'tm.capabilities', 'mm.role as mailbox_role'])
-    .where('tm.tenant_id', '=', box.tenant_id)
-    .where('tm.user_id', '=', userId)
-    .where('tm.status', '=', 'active')
-    .where('tenant.suspended_at', 'is', null)
-    .where('tenant.deleted_at', 'is', null)
-    .executeTakeFirst();
-  return (
-    !!access &&
-    (isTenantAdmin(access.role) ||
-      can(access.mailbox_role, perm) ||
-      (!!access.mailbox_role && canDelegate(access.role, access.capabilities, perm)))
-  );
-}
+import { queueAutoReply } from '../lib/queue-auto-reply.js';
+import { userCanMailbox } from '../lib/mailbox-permissions.js';
+export { userCanMailbox } from '../lib/mailbox-permissions.js';
 type RuleRow = Selectable<DB['mail_rules']>;
 async function applyRule(
   r: WorkerResources,
@@ -67,13 +36,21 @@ async function applyRule(
   client: ImapFlow | null,
   row: RuleRow,
   messageId: string,
+  live = false,
 ) {
-  const parsed = mailRuleSchema.safeParse(row);
+  const parsed = mailRuleSchema.safeParse({
+    ...row,
+    active_from: row.active_from?.toISOString() ?? null,
+    active_until: row.active_until?.toISOString() ?? null,
+  });
   if (!parsed.success) {
     r.log.warn({ rule_id: row.id }, 'Regra inválida ignorada.');
     return false;
   }
   const rule = parsed.data;
+  const now = new Date();
+  if ((row.active_from && now < row.active_from) || (row.active_until && now >= row.active_until))
+    return false;
   if (
     row.scope === 'personal' &&
     (!row.owner_user_id || !(await userCanMailbox(r, box, row.owner_user_id, 'read')))
@@ -119,7 +96,7 @@ async function applyRule(
     : null;
   if (['trash', 'junk'].includes(sourceFolder?.special_use ?? '')) return false;
   if (
-    !evaluateConditions(rule, {
+    !evaluateRule(rule, {
       ...msg,
       to_addresses: msg.to_addresses as Address[],
       cc_addresses: msg.cc_addresses as Address[],
@@ -133,7 +110,9 @@ async function applyRule(
       !(await userCanMailbox(r, box, row.owner_user_id!, 'organize'))
     )
       continue;
-    if (action.type === 'add_label') {
+    if (action.type === 'auto_reply') {
+      if (live) await queueAutoReply(r, box, row, msg, action);
+    } else if (action.type === 'add_label') {
       const appliedGlobal = await r.db.transaction().execute(async (tx) => {
         await lockStorageTenant(tx, box.tenant_id);
         const label = await tx
@@ -426,7 +405,7 @@ export async function applyPendingRules(r: WorkerResources, box: Mailbox, client
   for (const msg of messages) {
     if (msg.rules_inbox)
       for (const rule of rules.filter((r) => r.scope === 'mailbox')) {
-        if ((await applyRule(r, box, client, rule, msg.id)) && rule.stop_processing) break;
+        if ((await applyRule(r, box, client, rule, msg.id, true)) && rule.stop_processing) break;
       }
     const owners = [
       ...new Set(rules.filter((r) => r.scope === 'personal').map((r) => r.owner_user_id)),

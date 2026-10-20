@@ -151,7 +151,7 @@ export function DateTimeField({
           <TimeField
             label={'Horário de ' + label.toLowerCase()}
             value={time}
-            disabled={disabled}
+            disabled={disabled || !selected}
             onChange={(next) => onChange(date + 'T' + next)}
           />
         </div>

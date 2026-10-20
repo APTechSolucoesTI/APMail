@@ -495,6 +495,14 @@ export interface MailArchiveImports {
   uploaded_bytes: Generated<Int8>;
 }
 
+export interface MailAutoReplyState {
+  address: string;
+  last_replied_at: Generated<Timestamp>;
+  mailbox_id: string;
+  outbox_id: string | null;
+  tenant_id: string;
+}
+
 export interface MailboxCredentials {
   encrypted_password: string;
   mailbox_id: string;
@@ -567,10 +575,13 @@ export interface MailboxStorageLimits {
 
 export interface MailRules {
   actions: Json;
+  active_from: Timestamp | null;
+  active_until: Timestamp | null;
   conditions: Json;
   created_at: Generated<Timestamp>;
   created_by: string | null;
   deleted_at: Timestamp | null;
+  exceptions: Generated<Json>;
   id: Generated<string>;
   is_active: Generated<boolean>;
   mailbox_id: string;
@@ -628,6 +639,7 @@ export interface MdnReceipts {
 }
 
 export interface Messages {
+  auto_reply_to: string | null;
   bcc_addresses: Generated<Json>;
   body_html: string | null;
   body_text: Generated<string>;
@@ -643,6 +655,7 @@ export interface Messages {
   id: Generated<string>;
   imap_uid: Int8 | null;
   in_reply_to: string | null;
+  is_auto_reply: Generated<boolean>;
   is_automated: Generated<boolean>;
   is_flagged: Generated<boolean>;
   is_historical: Generated<boolean>;
@@ -708,6 +721,7 @@ export interface Outbox {
   created_by: string;
   created_by_rule_id: string | null;
   id: Generated<string>;
+  is_auto_reply: Generated<boolean>;
   job_id: string | null;
   kind: Generated<OutboxKind>;
   last_error: string | null;
@@ -1149,6 +1163,7 @@ export interface DB {
   mail_archive_export_files: MailArchiveExportFiles;
   mail_archive_exports: MailArchiveExports;
   mail_archive_imports: MailArchiveImports;
+  mail_auto_reply_state: MailAutoReplyState;
   mail_rules: MailRules;
   mail_schedule_series: MailScheduleSeries;
   mailbox_credentials: MailboxCredentials;

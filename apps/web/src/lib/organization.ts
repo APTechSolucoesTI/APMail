@@ -8,11 +8,12 @@ export type PersonalLabel = {
   mailbox_mode?: 'all' | 'selected';
   mailbox_ids?: string[];
 };
-export type MailRule = MailRuleInput & {
-  id: string;
-  created_at: string;
-  review_reason?: string | null;
-};
+export type MailRule = Omit<MailRuleInput, 'exceptions' | 'active_from' | 'active_until'> &
+  Partial<Pick<MailRuleInput, 'exceptions' | 'active_from' | 'active_until'>> & {
+    id: string;
+    created_at: string;
+    review_reason?: string | null;
+  };
 export const LABEL_COLOR_NAMES = {
   teal: 'Verde petróleo',
   blue: 'Azul',
