@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useRouterState, useNavigate } from '@tanstack/react-router';
 import { Keyboard } from 'lucide-react';
-import { canMailbox, type Mailbox } from '@/lib/auth';
+import { canMailbox, useMailQueues, type Mailbox } from '@/lib/auth';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,6 +24,7 @@ const shortcuts = [
 ];
 export function KeyboardHelp({ mailboxes }: { mailboxes: Mailbox[] }) {
   const [open, setOpen] = useState(false),
+    queuesEnabled = useMailQueues(),
     path = useRouterState({ select: (state) => state.location.pathname }),
     navigate = useNavigate(),
     box = mailboxes.find((b) => b.status === 'active' && canMailbox(b, 'send'));
@@ -60,17 +61,19 @@ export function KeyboardHelp({ mailboxes }: { mailboxes: Mailbox[] }) {
             </DialogDescription>
           </DialogHeader>
           <dl className="space-y-2">
-            {shortcuts.map(([key, label]) => (
-              <div
-                key={key}
-                className="flex items-center justify-between gap-4 border-b pb-2 text-sm"
-              >
-                <dt>{label}</dt>
-                <dd>
-                  <kbd className="rounded border bg-muted px-2 py-1 font-mono text-xs">{key}</kbd>
-                </dd>
-              </div>
-            ))}
+            {shortcuts
+              .filter(([key]) => queuesEnabled || key !== 'e')
+              .map(([key, label]) => (
+                <div
+                  key={key}
+                  className="flex items-center justify-between gap-4 border-b pb-2 text-sm"
+                >
+                  <dt>{label}</dt>
+                  <dd>
+                    <kbd className="rounded border bg-muted px-2 py-1 font-mono text-xs">{key}</kbd>
+                  </dd>
+                </div>
+              ))}
           </dl>
         </DialogContent>
       </Dialog>

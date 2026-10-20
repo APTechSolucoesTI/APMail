@@ -6,7 +6,7 @@ import { QueueNavigation } from './queue-navigation';
 import { FolderControls } from './folder-controls';
 import { Mail } from 'lucide-react';
 import { api } from '@/lib/api';
-import { useTenantId, type Mailbox } from '@/lib/auth';
+import { useTenantId, useMailQueues, type Mailbox } from '@/lib/auth';
 import { FolderTree } from './folder-tree';
 import type { Folder } from '@/lib/mail';
 import { useSocketRoom } from '@/hooks/use-socket-room';
@@ -27,6 +27,7 @@ export function MailboxFolderNavigation({
     enabled: active,
   });
   useSocketRoom('mailbox', active ? box.id : undefined);
+  const queuesEnabled = useMailQueues();
   const search = location.search as { folderId?: string; view?: string };
   return (
     <div className="min-w-0">
@@ -50,9 +51,11 @@ export function MailboxFolderNavigation({
           aria-label={'Navegação de ' + box.name}
           className="ml-2 mt-1 min-w-0 space-y-1 border-l pl-2"
         >
-          <NavigationGroup id={'queues-' + box.id} label="Filas">
-            <QueueNavigation mailboxId={box.id} onNavigate={onNavigate} />
-          </NavigationGroup>
+          {queuesEnabled && (
+            <NavigationGroup id={'queues-' + box.id} label="Filas">
+              <QueueNavigation mailboxId={box.id} onNavigate={onNavigate} />
+            </NavigationGroup>
+          )}
           <NavigationGroup id={'labels-' + box.id} label="Minhas etiquetas" defaultOpen={false}>
             <PersonalLabelNavigation mailboxId={box.id} onNavigate={onNavigate} />
           </NavigationGroup>

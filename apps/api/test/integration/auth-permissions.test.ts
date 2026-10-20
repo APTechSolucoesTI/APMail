@@ -402,3 +402,38 @@ it('limita login a dez tentativas por IP, mesmo com e-mails diferentes', async (
     ).statusCode,
   ).toBe(429);
 });
+it('persiste a preferência pessoal de filas, valida booleanos e não altera outro usuário', async () => {
+  expect((await call('GET', '/api/preferences', cookieA)).json().mail_queues_enabled).toBe(true);
+  expect((await call('GET', '/api/preferences', cookieB)).json().mail_queues_enabled).toBe(true);
+  expect(
+    (await call('PUT', '/api/preferences', '', { mail_queues_enabled: false })).statusCode,
+  ).toBe(401);
+  expect(
+    (await call('PUT', '/api/preferences', cookieA, { mail_queues_enabled: 'false' })).statusCode,
+  ).toBe(400);
+  const saved = await call('PUT', '/api/preferences', cookieA, {
+    mail_queues_enabled: false,
+    user_id: ownerB,
+  });
+  expect(saved.statusCode).toBe(200);
+  expect(saved.json().mail_queues_enabled).toBe(false);
+  expect((await call('GET', '/api/auth/me', cookieA)).json().preferences.mail_queues_enabled).toBe(
+    false,
+  );
+  expect(
+    (
+      await db
+        .selectFrom('user_preferences')
+        .select('mail_queues_enabled')
+        .where('user_id', '=', ownerA)
+        .executeTakeFirstOrThrow()
+    ).mail_queues_enabled,
+  ).toBe(false);
+  expect((await call('GET', '/api/preferences', cookieB)).json().mail_queues_enabled).toBe(true);
+  await call('PUT', '/api/preferences', cookieA, { theme: 'dark' });
+  expect((await call('GET', '/api/preferences', cookieA)).json().mail_queues_enabled).toBe(false);
+  expect(
+    (await call('PUT', '/api/preferences', cookieA, { mail_queues_enabled: true })).json()
+      .mail_queues_enabled,
+  ).toBe(true);
+});

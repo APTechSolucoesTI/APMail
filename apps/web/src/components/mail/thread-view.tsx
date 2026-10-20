@@ -4,7 +4,7 @@ import { ArrowLeft, Ellipsis, MailOpen, Pin, Tags } from 'lucide-react';
 import { toast } from 'sonner';
 import { can } from '@apmail/shared';
 import { api, ApiError } from '@/lib/api';
-import { useTenantId, meQuery } from '@/lib/auth';
+import { useTenantId, meQuery, useMailQueues } from '@/lib/auth';
 import { useSocketRoom } from '@/hooks/use-socket-room';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -40,6 +40,7 @@ export function ThreadView({
   onCompose?: (mode: string) => void;
 }) {
   const tenantId = useTenantId(),
+    queuesEnabled = useMailQueues(),
     client = useQueryClient(),
     me = useQuery(meQuery);
   const q = useQuery({
@@ -107,8 +108,8 @@ export function ThreadView({
           </h2>
         </div>
         <div className="flex flex-wrap gap-2">
-          <QueueStatusBadge status={data.thread.queue_status} />
-          {data.thread.is_overdue && <OverdueBadge />}
+          {queuesEnabled && <QueueStatusBadge status={data.thread.queue_status} />}
+          {queuesEnabled && data.thread.is_overdue && <OverdueBadge />}
           {data.is_pinned_global && (
             <Badge variant="secondary">
               <Pin className="size-3" aria-hidden /> Fixada para a caixa

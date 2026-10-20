@@ -7,7 +7,7 @@ import type { Thread } from '@/lib/mail';
 import { LabelBadge } from './label-badge';
 import { SearchHighlight } from './search-highlight';
 import { useQuery } from '@tanstack/react-query';
-import { meQuery } from '@/lib/auth';
+import { meQuery, useMailQueues } from '@/lib/auth';
 import { resolveAddress, type ContactResolution } from '@apmail/shared';
 export function ThreadListItem({
   thread,
@@ -33,6 +33,7 @@ export function ThreadListItem({
       : thread.latest_from;
   const sender = resolveAddress(identity, contacts);
   const timeZone = useQuery(meQuery).data?.preferences.timezone ?? 'America/Sao_Paulo';
+  const queuesEnabled = useMailQueues();
   const fullTime = date?.toLocaleString('pt-BR', { timeZone });
   return (
     <article
@@ -123,9 +124,9 @@ export function ThreadListItem({
           <SearchHighlight text={thread.snippet} query={query} />
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <QueueStatusBadge status={thread.queue_status} />
-          {thread.is_overdue && <OverdueBadge />}
-          {thread.assigned_to && (
+          {queuesEnabled && <QueueStatusBadge status={thread.queue_status} />}
+          {queuesEnabled && thread.is_overdue && <OverdueBadge />}
+          {queuesEnabled && thread.assigned_to && (
             <span
               title={'Responsável: ' + thread.assigned_to.full_name}
               aria-label={'Responsável: ' + thread.assigned_to.full_name}

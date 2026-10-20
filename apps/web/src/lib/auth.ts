@@ -16,6 +16,7 @@ export type Preferences = {
   desktop_notifications: boolean;
   load_remote_images: boolean;
   request_read_receipt?: boolean;
+  mail_queues_enabled?: boolean;
 };
 export type Me = {
   user: { id: string; email: string; full_name: string; avatar_url: string | null };
@@ -53,6 +54,8 @@ export const canMailbox = (
   (permission !== 'send' || box.receiving_protocol !== 'local') &&
   (box.permissions?.includes(permission) ?? can(box.role, permission));
 export const meQuery = { queryKey: ['me'], queryFn: () => api<Me>('/auth/me'), retry: false };
+export const useMailQueues = () =>
+  useQuery(meQuery).data?.preferences.mail_queues_enabled !== false;
 export const useUserId = () => useQuery(meQuery).data?.user.id;
 export async function requireUser() {
   try {

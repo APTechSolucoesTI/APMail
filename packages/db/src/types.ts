@@ -1092,6 +1092,10 @@ export interface UserPreferences {
   density: Generated<string>;
   desktop_notifications: Generated<boolean>;
   load_remote_images: Generated<boolean>;
+  /**
+   * Personal visibility of mail service queues and workflow controls; does not change shared threads or permissions.
+   */
+  mail_queues_enabled: Generated<boolean>;
   notify_assignments: Generated<boolean>;
   notify_chat: Generated<boolean>;
   notify_mentions: Generated<boolean>;

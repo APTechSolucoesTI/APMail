@@ -18,15 +18,19 @@ function Preferences() {
         title="Preferências"
         description="Escolha como trabalhar e receber atualizações."
       />
-      <div className="mb-4">
-        <InvitationEmailSettings />
-      </div>
       <section className="max-w-2xl rounded-lg border bg-card p-4">
+        <h2 className="mb-4 text-base font-semibold">Preferências pessoais</h2>
         <SchemaForm
           cancelLabel="Cancelar"
           schema={preferencesSchema}
           defaults={{ ...q.data.preferences }}
           fields={[
+            {
+              name: 'mail_queues_enabled',
+              label: 'Usar filas de atendimento no e-mail',
+              type: 'checkbox',
+              help: 'Exibir filas como A responder e Em atendimento, status e controles de responsável. Ao desativar, seus e-mails continuam disponíveis nas pastas e etiquetas, sem alterar os atendimentos da equipe.',
+            },
             {
               name: 'request_read_receipt',
               label: 'Solicitar confirmação de leitura por padrão',
@@ -83,6 +87,9 @@ function Preferences() {
           }}
         />
       </section>
+      <div className="mt-4">
+        <InvitationEmailSettings />
+      </div>
     </>
   );
 }

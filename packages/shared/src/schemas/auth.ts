@@ -52,6 +52,7 @@ export const preferencesSchema = z
     desktop_notifications: z.boolean(),
     load_remote_images: z.boolean(),
     request_read_receipt: z.boolean(),
+    mail_queues_enabled: z.boolean(),
   })
   .partial();
 export const tableConfigSchema = z.object({

@@ -14,7 +14,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { ThreadAssignee } from './thread-assignee';
-import { meQuery } from '@/lib/auth';
+import { meQuery, useMailQueues } from '@/lib/auth';
 import { useThreadPresence } from '@/hooks/use-thread-presence';
 export function ThreadWorkflow({
   thread,
@@ -28,6 +28,7 @@ export function ThreadWorkflow({
   children?: ReactNode;
 }) {
   const client = useQueryClient(),
+    queuesEnabled = useMailQueues(),
     [busy, setBusy] = useState(false),
     me = useQuery(meQuery),
     presence = useThreadPresence(thread.id).filter(
@@ -53,7 +54,7 @@ export function ThreadWorkflow({
   };
   return (
     <div className="space-y-3">
-      {thread.assigned_to && (
+      {queuesEnabled && thread.assigned_to && (
         <p className="break-words text-xs text-muted-foreground">
           Responsável atual:{' '}
           <span className="font-semibold text-foreground">{thread.assigned_to.full_name}</span>
@@ -64,14 +65,16 @@ export function ThreadWorkflow({
         aria-label="Ações da conversa"
         className="flex min-w-0 flex-wrap items-center gap-2"
       >
-        <ThreadAssignee
-          mailboxId={mailboxId}
-          threadIds={[thread.id]}
-          role={role}
-          assigned={thread.assigned_to}
-          showAssigned={false}
-        />
-        {can(role, 'queue') && (
+        {queuesEnabled && (
+          <ThreadAssignee
+            mailboxId={mailboxId}
+            threadIds={[thread.id]}
+            role={role}
+            assigned={thread.assigned_to}
+            showAssigned={false}
+          />
+        )}
+        {queuesEnabled && can(role, 'queue') && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="outline" disabled={busy}>
@@ -101,7 +104,7 @@ export function ThreadWorkflow({
         )}
         {children}
       </div>
-      {thread.queue_excluded && (
+      {queuesEnabled && thread.queue_excluded && (
         <p className="rounded-md border bg-muted p-3 text-sm">
           Esta conversa está fora das filas operacionais.
         </p>

@@ -1,6 +1,6 @@
 import { Pagination } from '@/components/data/pagination';
 import { ThreadListItem } from '@/components/mail/thread-list-item';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { RefreshCw, MailOpen, Mail, FolderOpen, CheckCircle2, RotateCcw } from 'lucide-react';
@@ -8,7 +8,7 @@ import { can, QUEUE_LABELS, type ContactResolution } from '@apmail/shared';
 import { toast } from 'sonner';
 import type { PersonalLabel } from '@/lib/organization';
 import { api } from '@/lib/api';
-import { useTenantId, meQuery, canMailbox, type Mailbox } from '@/lib/auth';
+import { useTenantId, meQuery, useMailQueues, canMailbox, type Mailbox } from '@/lib/auth';
 import { mailSearchSchema } from '@/lib/search-params/mail';
 import {
   folderLabel,
@@ -39,7 +39,21 @@ export const Route = createFileRoute('/_app/mail/$mailboxId')({
 });
 function MailPage() {
   const { mailboxId } = Route.useParams(),
-    search = Route.useSearch(),
+    rawSearch = Route.useSearch(),
+    queuesEnabled = useMailQueues(),
+    search = useMemo(
+      () =>
+        queuesEnabled
+          ? rawSearch
+          : {
+              ...rawSearch,
+              view: rawSearch.view === 'queue' ? ('folder' as const) : rawSearch.view,
+              queue: undefined,
+              assigned: 'any' as const,
+              sort: rawSearch.sort === 'waiting_longest' ? ('recent' as const) : rawSearch.sort,
+            },
+      [queuesEnabled, rawSearch],
+    ),
     navigate = Route.useNavigate(),
     tenantId = useTenantId(),
     desktop = useMediaQuery('(min-width: 1024px)');
@@ -49,6 +63,15 @@ function MailPage() {
       queryKey: ['mailbox', tenantId, mailboxId],
       queryFn: () => api<Mailbox>('/mailboxes/' + mailboxId),
     });
+  useEffect(() => {
+    if (
+      !queuesEnabled &&
+      (rawSearch.view === 'queue' ||
+        rawSearch.assigned !== 'any' ||
+        rawSearch.sort === 'waiting_longest')
+    )
+      void navigate({ search: { ...search, page: 1 }, replace: true });
+  }, [queuesEnabled, rawSearch, search, navigate]);
   const folders = useQuery({
     queryKey: ['folders', tenantId, mailboxId],
     queryFn: () => api<Folder[]>('/mailboxes/' + mailboxId + '/folders'),
@@ -177,7 +200,7 @@ function MailPage() {
       f: () => compose('forward'),
       Escape: close,
       e: () => {
-        if (search.thread && !updating && can(box.data?.role ?? null, 'queue')) {
+        if (queuesEnabled && search.thread && !updating && can(box.data?.role ?? null, 'queue')) {
           setUpdating(true);
           void api('/threads/' + search.thread + '/done', { method: 'POST' })
             .then(() => toast.success('Conversa concluída.'))
@@ -228,24 +251,26 @@ function MailPage() {
             />
           </Button>
         </div>
-        <div className="grid min-w-0 grid-cols-2 gap-3">
-          <div className="min-w-0 space-y-1">
-            <label className="block text-xs font-medium" htmlFor="mail-assigned">
-              Responsável
-            </label>
-            <select
-              id="mail-assigned"
-              className="h-11 w-full min-w-0 rounded-md border border-input bg-card px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8"
-              value={search.assigned}
-              onChange={(e) =>
-                change({ assigned: e.target.value as typeof search.assigned, page: 1 })
-              }
-            >
-              <option value="any">Todos</option>
-              <option value="me">Minhas conversas</option>
-              <option value="unassigned">Sem responsável</option>
-            </select>
-          </div>
+        <div className={'grid min-w-0 gap-3 ' + (queuesEnabled ? 'grid-cols-2' : 'grid-cols-1')}>
+          {queuesEnabled && (
+            <div className="min-w-0 space-y-1">
+              <label className="block text-xs font-medium" htmlFor="mail-assigned">
+                Responsável
+              </label>
+              <select
+                id="mail-assigned"
+                className="h-11 w-full min-w-0 rounded-md border border-input bg-card px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8"
+                value={search.assigned}
+                onChange={(e) =>
+                  change({ assigned: e.target.value as typeof search.assigned, page: 1 })
+                }
+              >
+                <option value="any">Todos</option>
+                <option value="me">Minhas conversas</option>
+                <option value="unassigned">Sem responsável</option>
+              </select>
+            </div>
+          )}
           <div className="min-w-0 space-y-1">
             <label className="block text-xs font-medium" htmlFor="mail-sort">
               Ordenar
@@ -258,7 +283,7 @@ function MailPage() {
             >
               <option value="recent">Mais recentes</option>
               <option value="oldest">Mais antigas</option>
-              <option value="waiting_longest">Maior espera</option>
+              {queuesEnabled && <option value="waiting_longest">Maior espera</option>}
             </select>
           </div>
         </div>
@@ -305,7 +330,7 @@ function MailPage() {
               threadIds={selected}
               onDone={() => setSelection({ context, ids: [] })}
             />
-            {can(box.data.role, 'queue') && (
+            {queuesEnabled && can(box.data.role, 'queue') && (
               <>
                 <Button
                   size="sm"
