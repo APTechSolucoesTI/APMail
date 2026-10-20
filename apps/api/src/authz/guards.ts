@@ -1,4 +1,5 @@
 import { isTenantAdmin } from '@apmail/shared';
+import { hasAccess, profileAllowsMailbox } from '@apmail/shared';
 import type { Kysely } from 'kysely';
 import type { DB } from '@apmail/db';
 import { can, canDelegate, type MailboxPerm, type MailboxRole } from '@apmail/shared';
@@ -9,6 +10,12 @@ export async function getMailboxRole(
   id: string,
 ): Promise<MailboxRole | null> {
   const c = requireTenant(ctx);
+  if (
+    c.accessProfileId &&
+    !hasAccess({ role: c.tenantRole, access_permissions: c.accessPermissions }, 'mail') &&
+    !hasAccess({ role: c.tenantRole, access_permissions: c.accessPermissions }, 'mailboxes.manage')
+  )
+    return null;
   if (c.mailboxRoles.has(id)) return c.mailboxRoles.get(id) ?? null;
   const mailbox = await db
     .selectFrom('mailboxes')
@@ -41,6 +48,15 @@ export async function requireMailboxPerm(
   id: string,
   perm: MailboxPerm,
 ) {
+  if (ctx.accessProfileId) {
+    if (
+      !profileAllowsMailbox(
+        { role: ctx.tenantRole, access_permissions: ctx.accessPermissions },
+        perm,
+      )
+    )
+      throw forbidden();
+  }
   const role = await getMailboxRole(ctx, db, id);
   if (!role) throw notFound();
   if (!can(role, perm) && !canDelegate(ctx.tenantRole, ctx.capabilities, perm)) throw forbidden();

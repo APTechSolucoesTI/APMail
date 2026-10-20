@@ -134,7 +134,7 @@ export async function registerStorageQuotas(app: FastifyInstance, r: Resources) 
         .catch(() => app.log.warn('Retomada será feita pelo agendador de sincronização.'));
   };
   app.get('/api/tenant/storage', async (req) => {
-    const c = requireTenantAdmin(req.ctx);
+    const c = requireTenantAdmin(req.ctx, 'company.manage');
     return readTenantQuota(r, c.tenantId);
   });
   app.get('/api/mailboxes/:id/storage', async (req) => {
@@ -228,7 +228,7 @@ export async function registerStorageQuotas(app: FastifyInstance, r: Resources) 
     return readTenantQuota(r, tenant);
   });
   app.put('/api/tenant/storage-allocation', async (req) => {
-    const c = requireTenantAdmin(req.ctx),
+    const c = requireTenantAdmin(req.ctx, 'company.manage'),
       b = allocationSchema.parse(req.body);
     await r.db.transaction().execute(async (tx) => {
       await lockStorageTenant(tx, c.tenantId);

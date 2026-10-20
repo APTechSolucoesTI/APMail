@@ -31,6 +31,7 @@ import { Route as AppChatIndexRouteImport } from './routes/_app.chat.index'
 import { Route as AppChatConversationIdRouteImport } from './routes/_app.chat.$conversationId'
 import { Route as AppMailMailboxIdRouteImport } from './routes/_app.mail.$mailboxId'
 import { Route as AppReportsMeetRouteImport } from './routes/_app.reports_.meet'
+import { Route as AppSettingsAccessProfilesRouteImport } from './routes/_app.settings.access-profiles'
 import { Route as AppSettingsAuditRouteImport } from './routes/_app.settings.audit'
 import { Route as AppSettingsIntegrationsRouteImport } from './routes/_app.settings.integrations'
 import { Route as AppSettingsLabelsRouteImport } from './routes/_app.settings.labels'
@@ -153,6 +154,12 @@ const AppReportsMeetRoute = AppReportsMeetRouteImport.update({
   path: '/reports/meet',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsAccessProfilesRoute =
+  AppSettingsAccessProfilesRouteImport.update({
+    id: '/settings/access-profiles',
+    path: '/settings/access-profiles',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppSettingsAuditRoute = AppSettingsAuditRouteImport.update({
   id: '/settings/audit',
   path: '/settings/audit',
@@ -236,6 +243,7 @@ export interface FileRoutesByFullPath {
   '/chat/$conversationId': typeof AppChatConversationIdRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/reports/meet': typeof AppReportsMeetRoute
+  '/settings/access-profiles': typeof AppSettingsAccessProfilesRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/labels': typeof AppSettingsLabelsRoute
@@ -270,6 +278,7 @@ export interface FileRoutesByTo {
   '/chat/$conversationId': typeof AppChatConversationIdRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/reports/meet': typeof AppReportsMeetRoute
+  '/settings/access-profiles': typeof AppSettingsAccessProfilesRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/labels': typeof AppSettingsLabelsRoute
@@ -307,6 +316,7 @@ export interface FileRoutesById {
   '/_app/chat/$conversationId': typeof AppChatConversationIdRoute
   '/_app/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/_app/reports_/meet': typeof AppReportsMeetRoute
+  '/_app/settings/access-profiles': typeof AppSettingsAccessProfilesRoute
   '/_app/settings/audit': typeof AppSettingsAuditRoute
   '/_app/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/_app/settings/labels': typeof AppSettingsLabelsRoute
@@ -344,6 +354,7 @@ export interface FileRouteTypes {
     | '/chat/$conversationId'
     | '/mail/$mailboxId'
     | '/reports/meet'
+    | '/settings/access-profiles'
     | '/settings/audit'
     | '/settings/integrations'
     | '/settings/labels'
@@ -378,6 +389,7 @@ export interface FileRouteTypes {
     | '/chat/$conversationId'
     | '/mail/$mailboxId'
     | '/reports/meet'
+    | '/settings/access-profiles'
     | '/settings/audit'
     | '/settings/integrations'
     | '/settings/labels'
@@ -414,6 +426,7 @@ export interface FileRouteTypes {
     | '/_app/chat/$conversationId'
     | '/_app/mail/$mailboxId'
     | '/_app/reports_/meet'
+    | '/_app/settings/access-profiles'
     | '/_app/settings/audit'
     | '/_app/settings/integrations'
     | '/_app/settings/labels'
@@ -597,6 +610,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppReportsMeetRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/access-profiles': {
+      id: '/_app/settings/access-profiles'
+      path: '/settings/access-profiles'
+      fullPath: '/settings/access-profiles'
+      preLoaderRoute: typeof AppSettingsAccessProfilesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/audit': {
       id: '/_app/settings/audit'
       path: '/settings/audit'
@@ -709,6 +729,7 @@ interface AppRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppMailMailboxIdRoute: typeof AppMailMailboxIdRoute
   AppReportsMeetRoute: typeof AppReportsMeetRoute
+  AppSettingsAccessProfilesRoute: typeof AppSettingsAccessProfilesRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
   AppSettingsIntegrationsRoute: typeof AppSettingsIntegrationsRoute
   AppSettingsLabelsRoute: typeof AppSettingsLabelsRoute
@@ -735,6 +756,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppMailMailboxIdRoute: AppMailMailboxIdRoute,
   AppReportsMeetRoute: AppReportsMeetRoute,
+  AppSettingsAccessProfilesRoute: AppSettingsAccessProfilesRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
   AppSettingsIntegrationsRoute: AppSettingsIntegrationsRoute,
   AppSettingsLabelsRoute: AppSettingsLabelsRoute,

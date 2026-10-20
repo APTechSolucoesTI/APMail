@@ -708,6 +708,26 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
           .returningAll()
           .executeTakeFirst();
         if (!result) throw conflict('Este envio já foi alterado.');
+        await audit(tx, {
+          tenantId: c.tenantId,
+          actorId: c.userId,
+          action:
+            action === 'retry'
+              ? 'outbox.retried'
+              : scheduled
+                ? 'outbox.scheduled'
+                : 'outbox.queued',
+          entityType: 'outbox',
+          entityId: row.id,
+          metadata: {
+            outcome: 'requested',
+            kind: row.kind,
+            scheduled_at: scheduled?.toISOString() ?? null,
+          },
+          ip: c.ip,
+          requestId: req.id,
+          eventKey: row.id + ':submit:' + result.submit_count,
+        });
         await assertStorageCapacity(tx, c.tenantId, row.mailbox_id);
         if (row.thread_id) await touchThreads(tx, [row.thread_id], 'schedule', c.userId);
         return result;

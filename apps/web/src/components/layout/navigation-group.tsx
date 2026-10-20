@@ -9,6 +9,7 @@ export function NavigationGroup({
   defaultOpen = true,
   icon,
   indentContent = false,
+  visible = true,
 }: {
   id: string;
   label: string;
@@ -16,6 +17,7 @@ export function NavigationGroup({
   defaultOpen?: boolean;
   icon?: ReactNode;
   indentContent?: boolean;
+  visible?: boolean;
 }) {
   const me = useQuery(meQuery).data;
   const controlsId = useId();
@@ -23,6 +25,7 @@ export function NavigationGroup({
   const [stored, setStored] = useState<Record<string, boolean>>({});
   const saved = localStorage.getItem(key);
   const open = stored[key] ?? (saved === null ? defaultOpen : saved === 'true');
+  if (!visible) return null;
   return (
     <section className="min-w-0">
       <button

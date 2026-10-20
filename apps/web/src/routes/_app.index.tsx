@@ -1,4 +1,4 @@
-import { useTenantId } from '@/lib/auth';
+import { useTenantId, useAccess } from '@/lib/auth';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { type Mailbox } from '@/lib/auth';
@@ -8,17 +8,28 @@ import { MailboxStatusBadge } from '@/components/common/status-badge';
 import { EmptyState, LoadingState, ErrorState } from '@/components/data/data-state';
 export const Route = createFileRoute('/_app/')({ component: Home });
 function Home() {
+  const mail = useAccess('mail');
   const boxes = useQuery({
     queryKey: ['mailboxes', useTenantId()],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
+    enabled: mail,
   });
   return (
     <>
       <PageHeader
-        title="Suas caixas de e-mail"
-        description="Selecione uma caixa para acompanhar o atendimento."
+        title={mail ? 'Suas caixas de e-mail' : 'Bem-vindo ao APMail'}
+        description={
+          mail
+            ? 'Selecione uma caixa para acompanhar o atendimento.'
+            : 'Use o menu para acessar as funções disponíveis no seu perfil.'
+        }
       />
-      {boxes.isLoading ? (
+      {!mail ? (
+        <p className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
+          Seu acesso está organizado de acordo com o perfil definido pela empresa. Suas preferências
+          e a segurança da conta estão sempre disponíveis.
+        </p>
+      ) : boxes.isLoading ? (
         <LoadingState />
       ) : boxes.error ? (
         <ErrorState onRetry={() => void boxes.refetch()} />

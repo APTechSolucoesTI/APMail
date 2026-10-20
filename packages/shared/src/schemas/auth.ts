@@ -77,11 +77,13 @@ export const mailboxAccessSchema = z.object({
   folder_ids: z.array(z.uuid()).max(1000).default([]),
 });
 export const memberAccessSchema = z.object({
+  access_profile_id: z.uuid().nullable().optional(),
   tenant_role: z.enum(['owner', 'admin', 'member', 'supervisor']),
   capabilities: capabilitiesSchema,
   mailbox_roles: z.array(mailboxAccessSchema).max(100),
 });
 export const invitationSchema = z.object({
+  access_profile_id: z.uuid().nullable().optional(),
   email: emailSchema,
   tenant_role: z.enum(['admin', 'member', 'supervisor']),
   capabilities: capabilitiesSchema,

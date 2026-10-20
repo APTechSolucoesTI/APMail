@@ -35,7 +35,18 @@ export async function contextForToken(
     ? await db
         .selectFrom('tenant_members')
         .innerJoin('tenants', 'tenants.id', 'tenant_members.tenant_id')
-        .select(['tenant_members.tenant_id', 'tenant_members.role', 'tenant_members.capabilities'])
+        .leftJoin('access_profiles as ap', (join) =>
+          join
+            .onRef('ap.id', '=', 'tenant_members.access_profile_id')
+            .onRef('ap.tenant_id', '=', 'tenant_members.tenant_id'),
+        )
+        .select([
+          'tenant_members.tenant_id',
+          'tenant_members.role',
+          'tenant_members.capabilities',
+          'tenant_members.access_profile_id',
+          'ap.permissions as access_permissions',
+        ])
         .where('tenant_members.user_id', '=', session.user_id)
         .where('tenant_members.tenant_id', '=', session.current_tenant_id)
         .where('tenant_members.status', '=', 'active')
@@ -54,6 +65,12 @@ export async function contextForToken(
     tenantId: platform ? null : (member?.tenant_id ?? null),
     tenantRole: platform ? null : (member?.role ?? null),
     capabilities: platform ? [] : (member?.capabilities ?? []),
+    accessProfileId: platform ? null : (member?.access_profile_id ?? null),
+    accessPermissions: platform
+      ? null
+      : member?.access_profile_id
+        ? (member.access_permissions ?? [])
+        : null,
     platformAdmin: !!platform,
     ip,
     requestId,

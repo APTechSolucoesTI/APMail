@@ -28,3 +28,4 @@ export * from './mdn.js';
 export * from './calendar.js';
 export * from './invitation-email.js';
 export * from './google-meet.js';
+export * from './access.js';

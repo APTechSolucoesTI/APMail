@@ -7,12 +7,12 @@ import { tenantSettingsSchema, timezoneSchema } from '@apmail/shared';
 import { PageHeader } from '@/components/layout/page-header';
 import { SchemaForm } from '@/components/forms/schema-form';
 import { api } from '@/lib/api';
-import { requireAdmin } from '@/lib/settings';
+import { requireSettingsPermission } from '@/lib/settings';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
 import { toast } from 'sonner';
 import { TenantStorage } from '@/components/storage/storage-quotas';
 export const Route = createFileRoute('/_app/settings/tenant')({
-  beforeLoad: requireAdmin,
+  beforeLoad: () => requireSettingsPermission('company.manage'),
   component: Tenant,
 });
 function Tenant() {

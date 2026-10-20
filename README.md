@@ -68,3 +68,10 @@ Tema e fuso horário aparecem primeiro. A autenticação em dois fatores é opci
 compatível com Google Authenticator, com QR Code e códigos de recuperação. Exige a
 migration aditiva `0048`, preservando `CREDENTIALS_ENCRYPTION_KEY`. Consulte
 [Preferências e 2FA](docs/PREFERENCIAS-2FA.md) para ativação, segurança e publicação.
+
+## Perfis de acesso e auditoria
+
+Perfis personalizados em **Equipe e acessos → Perfis de acesso**, com permissões
+por tela e ação, e auditoria detalhada com conteúdo restrito, filtros e exportação.
+Veja [Perfis e auditoria](docs/PERFIS-E-AUDITORIA.md). Publicação requer as migrations
+aditivas **0049** e **0050**, executadas pelo migrador habitual.

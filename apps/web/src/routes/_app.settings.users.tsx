@@ -1,3 +1,5 @@
+import { hasAccess } from '@apmail/shared';
+import { TeamNavigation } from '@/components/settings/team-navigation';
 import { useTenantId } from '@/lib/auth';
 import { useState } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
@@ -29,10 +31,12 @@ type Member = {
   email: string;
   avatar_url: string | null;
   role: TenantRole;
+  access_profile_name?: string | null;
   status: 'active' | 'disabled';
   mailbox_count: number;
 };
 type Invite = {
+  access_profile_name?: string | null;
   id: string;
   email: string;
   tenant_role: TenantRole;
@@ -50,6 +54,13 @@ function Users() {
   const admin = isTenantAdmin(
     me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id)?.role,
   );
+  const currentTenant = me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id);
+  const invite = currentTenant?.access_profile_id
+    ? hasAccess(currentTenant, 'users.invite')
+    : admin;
+  const manage = currentTenant?.access_profile_id
+    ? hasAccess(currentTenant, 'users.manage')
+    : admin;
   const query = Route.useSearch();
   const navigate = useNavigate();
   const client = useQueryClient();
@@ -76,6 +87,7 @@ function Users() {
       email: i.email,
       avatar_url: null,
       role: i.tenant_role,
+      access_profile_name: i.access_profile_name ?? null,
       status: 'invited' as const,
       mailbox_count: null,
       delivery_status: i.delivery_status,
@@ -91,7 +103,7 @@ function Users() {
         title="Equipe e acessos"
         description="Convide pessoas e defina suas permissões."
         actions={
-          admin ? (
+          invite ? (
             <Button onClick={() => setEditing(null)}>
               <UserPlus />
               Convidar usuário
@@ -99,6 +111,7 @@ function Users() {
           ) : undefined
         }
       />
+      <TeamNavigation />
       <ConfigurableTable
         listKey="tenant-users"
         mode="client"
@@ -122,7 +135,11 @@ function Users() {
             ),
           },
           { id: 'email', header: 'E-mail', sortable: true },
-          { id: 'role', header: 'Papel', cell: (m) => <RoleBadge role={m.role} /> },
+          {
+            id: 'role',
+            header: 'Perfil de acesso',
+            cell: (m) => m.access_profile_name ?? <RoleBadge role={m.role} />,
+          },
           {
             id: 'status',
             header: 'Status',
@@ -158,42 +175,46 @@ function Users() {
           },
         ]}
         rowActions={(m) =>
-          !admin ? null : m.invitation_id !== null ? (
-            <div className="flex gap-2">
-              {' '}
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={sending === m.invitation_id!}
-                onClick={async () => {
-                  setSending(m.invitation_id!);
-                  try {
-                    await api('/invitations/' + m.invitation_id! + '/resend', { method: 'POST' });
-                    toast.success('Convite reenviado.');
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : 'Falha ao reenviar.');
-                  } finally {
-                    setSending(null);
+          m.invitation_id !== null ? (
+            invite ? (
+              <div className="flex gap-2">
+                {' '}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={sending === m.invitation_id!}
+                  onClick={async () => {
+                    setSending(m.invitation_id!);
+                    try {
+                      await api('/invitations/' + m.invitation_id! + '/resend', { method: 'POST' });
+                      toast.success('Convite reenviado.');
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : 'Falha ao reenviar.');
+                    } finally {
+                      setSending(null);
+                    }
+                  }}
+                >
+                  Reenviar
+                </Button>
+                <ConfirmDialog
+                  trigger={
+                    <Button variant="ghost" size="sm">
+                      Revogar
+                    </Button>
                   }
-                }}
-              >
-                Reenviar
-              </Button>
-              <ConfirmDialog
-                trigger={
-                  <Button variant="ghost" size="sm">
-                    Revogar
-                  </Button>
-                }
-                title="Revogar convite?"
-                description="O link enviado deixará de permitir a entrada na empresa."
-                onConfirm={async () => {
-                  await api('/invitations/' + m.invitation_id!, { method: 'DELETE' });
-                  await refresh();
-                }}
-              />
-            </div>
-          ) : m.role !== 'owner' || owner ? (
+                  title="Revogar convite?"
+                  description="O link enviado deixará de permitir a entrada na empresa."
+                  onConfirm={async () => {
+                    await api('/invitations/' + m.invitation_id!, { method: 'DELETE' });
+                    await refresh();
+                  }}
+                />
+              </div>
+            ) : null
+          ) : manage &&
+            (m.role !== 'owner' || owner) &&
+            (!currentTenant?.access_profile_id || !isTenantAdmin(m.role)) ? (
             <>
               <Button
                 size="icon"

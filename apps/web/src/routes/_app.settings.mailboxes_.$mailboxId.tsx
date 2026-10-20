@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { mailboxSchema } from '@apmail/shared';
 import { api } from '@/lib/api';
 import type { Mailbox } from '@/lib/auth';
-import { requireAdmin } from '@/lib/settings';
+import { requireSettingsPermission } from '@/lib/settings';
 import { PageHeader } from '@/components/layout/page-header';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { SchemaForm } from '@/components/forms/schema-form';
@@ -21,7 +21,7 @@ const mailboxSearch = z.object({
   tab: z.enum(['connection', 'members', 'folders', 'rules', 'send', 'archives']).optional(),
 });
 export const Route = createFileRoute('/_app/settings/mailboxes_/$mailboxId')({
-  beforeLoad: requireAdmin,
+  beforeLoad: () => requireSettingsPermission('mailboxes.manage'),
   validateSearch: mailboxSearch,
   component: MailboxSettings,
 });

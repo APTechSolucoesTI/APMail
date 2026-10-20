@@ -8,7 +8,7 @@ import type { Resources } from './resources.js';
 
 export async function registerPstExports(app: FastifyInstance, r: Resources) {
   const authorize = async (context: Parameters<typeof requireTenantAdmin>[0], params: unknown) => {
-    const c = requireTenantAdmin(context);
+    const c = requireTenantAdmin(context, 'archives');
     const parsed = z
       .object({ id: z.uuid(), taskId: z.uuid().optional(), fileId: z.uuid().optional() })
       .parse(params);

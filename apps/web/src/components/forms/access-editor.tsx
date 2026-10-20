@@ -1,3 +1,4 @@
+import { hasAccess, type AccessProfile } from '@apmail/shared';
 import { isTenantAdmin } from '@apmail/shared';
 import { SUPERVISOR_CAPABILITIES, CAPABILITY_LABELS } from '@apmail/shared';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -16,6 +17,7 @@ import { toast } from 'sonner';
 import { FolderAccessPicker, type FolderAccess } from './folder-access-picker';
 type Access = {
   tenant_role: TenantRole;
+  access_profile_id?: string | null;
   capabilities?: string[];
   mailbox_roles: ({ mailbox_id: string; role: MailboxRole | null } & FolderAccess)[];
 };
@@ -64,7 +66,19 @@ function AccessForm({
   const client = useQueryClient();
   const tenantId = useTenantId();
   const me = useQuery(meQuery);
+  const actor = me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id);
+  const customActor = !!actor?.access_profile_id;
+  const profiles = useQuery({
+    queryKey: ['access-profiles', platformTenantId ?? tenantId],
+    queryFn: () =>
+      api<AccessProfile[]>(
+        platformTenantId
+          ? '/superadmin/tenants/' + platformTenantId + '/access-profiles'
+          : '/access-profiles',
+      ),
+  });
   const boxes = useQuery({
+    enabled: !customActor || hasAccess(actor, 'mail'),
     queryKey: ['mailboxes', platformTenantId ?? tenantId, !!platformTenantId],
     queryFn: () =>
       api<Mailbox[]>(
@@ -79,17 +93,30 @@ function AccessForm({
   const tenantSettings = useQuery({
     queryKey: ['tenant', useTenantId()],
     queryFn: () => api<{ settings: { default_invitation_mailbox_id?: string } }>('/tenant'),
-    enabled: !userId,
+    enabled: !userId && !customActor,
   });
-  if (boxes.isLoading || (!userId && tenantSettings.isLoading)) return <LoadingState />;
+  if (!platformTenantId && profiles.isError)
+    return <ErrorState onRetry={() => void profiles.refetch()} />;
+  if (
+    boxes.isLoading ||
+    (!platformTenantId && profiles.isLoading) ||
+    (!userId && tenantSettings.isLoading)
+  )
+    return <LoadingState />;
   return (
     <SchemaForm
       schema={z.object({
-        tenant_role: z.enum(['owner', 'admin', 'member', 'supervisor']),
-        ...(userId ? {} : { email: emailSchema, sender_mailbox_id: z.uuid() }),
+        tenant_role: z.string().min(1),
+        ...(userId
+          ? {}
+          : { email: emailSchema, ...(!customActor ? { sender_mailbox_id: z.uuid() } : {}) }),
       })}
       defaults={{
-        tenant_role: initial.tenant_role,
+        tenant_role: initial.access_profile_id
+          ? 'profile:' + initial.access_profile_id
+          : customActor
+            ? 'profile:' + actor.access_profile_id
+            : initial.tenant_role,
         sender_mailbox_id:
           tenantSettings.data?.settings.default_invitation_mailbox_id ??
           boxes.data?.find((b) => b.status === 'active')?.id,
@@ -99,23 +126,40 @@ function AccessForm({
           ? []
           : [
               { name: 'email', label: 'E-mail', type: 'email' as const },
-              {
-                name: 'sender_mailbox_id',
-                label: 'Enviar convite pela caixa',
-                type: 'select' as const,
-                options: (boxes.data ?? [])
-                  .filter((b) => b.status === 'active')
-                  .map((b) => ({ value: b.id, label: `${b.name} (${b.email_address})` })),
-                help: 'É necessário ter uma caixa conectada. O convite usa o SMTP dessa caixa.',
-              },
+              ...(!customActor
+                ? [
+                    {
+                      name: 'sender_mailbox_id',
+                      label: 'Enviar convite pela caixa',
+                      type: 'select' as const,
+                      options: (boxes.data ?? [])
+                        .filter((b) => b.status === 'active')
+                        .map((b) => ({ value: b.id, label: `${b.name} (${b.email_address})` })),
+                      help: 'É necessário ter uma caixa conectada. O convite usa o SMTP dessa caixa.',
+                    },
+                  ]
+                : []),
             ]),
         {
           name: 'tenant_role',
-          label: 'Papel na empresa',
+          label: 'Perfil de acesso',
           type: 'select',
           options: [
-            { value: 'member', label: 'Membro' },
-            { value: 'supervisor', label: 'Supervisor' },
+            ...(!customActor
+              ? [
+                  { value: 'member', label: 'Membro (padrão)' },
+                  { value: 'supervisor', label: 'Supervisor (padrão)' },
+                ]
+              : []),
+            ...(profiles.data ?? [])
+              .filter(
+                (p) =>
+                  !customActor ||
+                  p.permissions.every((permission) =>
+                    actor?.access_permissions?.includes(permission),
+                  ),
+              )
+              .map((p) => ({ value: 'profile:' + p.id, label: p.name })),
             ...(owner
               ? [
                   { value: 'admin', label: 'Administrador' },
@@ -129,6 +173,10 @@ function AccessForm({
       ]}
       submitLabel={userId ? 'Salvar permissões' : 'Enviar convite'}
       onSubmit={async (b) => {
+        const profileId = String(b.tenant_role).startsWith('profile:')
+          ? String(b.tenant_role).slice(8)
+          : null;
+        const tenantRole = profileId ? 'member' : b.tenant_role;
         const mailbox_roles = (boxes.data ?? []).map((box) => ({
           mailbox_id: box.id,
           role: roles.find((r) => r.mailbox_id === box.id)?.role ?? null,
@@ -148,8 +196,10 @@ function AccessForm({
             method: userId ? 'PUT' : 'POST',
             body: {
               ...b,
+              tenant_role: tenantRole,
+              access_profile_id: profileId,
               ...(platformTenantId ? { tenant_id: platformTenantId } : {}),
-              capabilities: b.tenant_role === 'supervisor' ? capabilities : [],
+              capabilities: tenantRole === 'supervisor' ? capabilities : [],
               mailbox_roles: userId ? mailbox_roles : mailbox_roles.filter((b) => b.role),
             },
           },
@@ -229,13 +279,22 @@ function AccessForm({
         </div>
       )}
     >
-      <p className="text-sm text-muted-foreground">
-        Administradores e proprietários acessam todas as caixas como Admin da caixa.
-      </p>
-      <p className="text-xs text-muted-foreground">
-        Somente leitura: ler. Editor: ler, responder, criar notas e assumir conversas. Admin da
-        caixa: inclui organização, regras, atribuição e dashboard.
-      </p>
+      {customActor ? (
+        <p className="text-sm text-muted-foreground">
+          O convite será enviado automaticamente pela caixa padrão da empresa. Escolha um perfil com
+          permissões iguais ou inferiores às suas.
+        </p>
+      ) : (
+        <>
+          <p className="text-sm text-muted-foreground">
+            Administradores e proprietários acessam todas as caixas como Admin da caixa.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Somente leitura: ler. Editor: ler, responder, criar notas e assumir conversas. Admin da
+            caixa: inclui organização, regras, atribuição e dashboard.
+          </p>
+        </>
+      )}
     </SchemaForm>
   );
 }

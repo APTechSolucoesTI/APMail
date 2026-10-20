@@ -1,4 +1,4 @@
-import { isTenantAdmin } from '@apmail/shared';
+import { isTenantAdmin, hasAccess } from '@apmail/shared';
 import { sql } from 'kysely';
 import type { Database } from './threads.js';
 /** Revalidates the destination of queued folder actions against current membership. */
@@ -26,7 +26,16 @@ export async function userCanReadFolder(
         .onRef('mm.user_id', '=', 'tm.user_id')
         .on('mm.mailbox_id', '=', boxId),
     )
-    .select(['tm.role', 'mm.role as mailbox_role', 'mm.restrict_to_folders'])
+    .leftJoin('access_profiles as ap', (j) =>
+      j.onRef('ap.id', '=', 'tm.access_profile_id').onRef('ap.tenant_id', '=', 'tm.tenant_id'),
+    )
+    .select([
+      'tm.role',
+      'mm.role as mailbox_role',
+      'mm.restrict_to_folders',
+      'tm.access_profile_id',
+      'ap.permissions',
+    ])
     .where('tm.tenant_id', '=', tenantId)
     .where('tm.user_id', '=', userId)
     .where('tm.status', '=', 'active')
@@ -34,6 +43,11 @@ export async function userCanReadFolder(
     .where('t.suspended_at', 'is', null)
     .executeTakeFirst();
   if (!member) return false;
+  if (
+    member.access_profile_id &&
+    !hasAccess({ role: member.role, access_permissions: member.permissions ?? [] }, 'mail')
+  )
+    return false;
   if (isTenantAdmin(member.role) || member.mailbox_role === 'mailbox_admin') return true;
   if (!member.mailbox_role) return false;
   if (!member.restrict_to_folders) return true;
@@ -64,7 +78,12 @@ export async function userCanReadThread(
   const member = await db
     .selectFrom('tenant_members')
     .innerJoin('tenants', 'tenants.id', 'tenant_members.tenant_id')
-    .select('tenant_members.role')
+    .leftJoin('access_profiles as ap', (j) =>
+      j
+        .onRef('ap.id', '=', 'tenant_members.access_profile_id')
+        .onRef('ap.tenant_id', '=', 'tenant_members.tenant_id'),
+    )
+    .select(['tenant_members.role', 'tenant_members.access_profile_id', 'ap.permissions'])
     .where('tenant_members.tenant_id', '=', tenantId)
     .where('user_id', '=', userId)
     .where('status', '=', 'active')
@@ -72,6 +91,11 @@ export async function userCanReadThread(
     .where('tenants.deleted_at', 'is', null)
     .executeTakeFirst();
   if (!member) return false;
+  if (
+    member.access_profile_id &&
+    !hasAccess({ role: member.role, access_permissions: member.permissions ?? [] }, 'mail')
+  )
+    return false;
   if (isTenantAdmin(member.role)) return true;
   const access = await db
     .selectFrom('mailbox_members')

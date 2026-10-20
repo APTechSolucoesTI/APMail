@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { sql, type RawBuilder } from 'kysely';
+import { hasAccess, screenPermission } from '@apmail/shared';
 import {
   isTenantAdmin,
   canDelegate,
@@ -118,6 +119,25 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
         .execute(async (tx) => {
           const groups: GlobalSearchResponse['groups'] = [];
           for (const [category, query] of queries) {
+            if (c.accessProfileId) {
+              const permission =
+                category === 'contact'
+                  ? 'contacts'
+                  : category === 'chat'
+                    ? 'chat'
+                    : category === 'label'
+                      ? 'labels'
+                      : category === 'outbox'
+                        ? 'schedules'
+                        : 'mail';
+              if (
+                !hasAccess(
+                  { role: c.tenantRole, access_permissions: c.accessPermissions },
+                  permission,
+                )
+              )
+                continue;
+            }
             const result = await query.execute(tx);
             const rows = [...new Map(result.rows.map((row) => [row.id, row])).values()];
             const items: GlobalSearchItem[] = rows.slice(0, 5).map((row) => {
@@ -187,13 +207,24 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
           });
           groups.push({
             category: 'setting',
-            items: settings.slice(0, 5).map(([url, title, description]) => ({
-              category: 'setting',
-              id: url!,
-              title: title!,
-              description: description!,
-              url: url!,
-            })),
+            items: settings
+              .filter(
+                ([url]) =>
+                  !c.accessProfileId ||
+                  !screenPermission(url!) ||
+                  hasAccess(
+                    { role: c.tenantRole, access_permissions: c.accessPermissions },
+                    screenPermission(url!)!,
+                  ),
+              )
+              .slice(0, 5)
+              .map(([url, title, description]) => ({
+                category: 'setting',
+                id: url!,
+                title: title!,
+                description: description!,
+                url: url!,
+              })),
             has_more: settings.length > 5,
           });
           return groups;

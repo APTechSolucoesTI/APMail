@@ -123,7 +123,7 @@ async function validateFingerprint(
 export async function registerMailArchives(app: FastifyInstance, r: Resources) {
   const storage = new Storage(r.env.STORAGE_DIR, r.db);
   const authorize = async (ctx: Parameters<typeof requireTenantAdmin>[0], input: unknown) => {
-    const c = requireTenantAdmin(ctx);
+    const c = requireTenantAdmin(ctx, 'archives');
     const p = params.parse(input);
     await requireMailboxPerm(c, r.db, p.id, 'read');
     return { c, ...p };

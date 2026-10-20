@@ -1,5 +1,6 @@
 import { isTenantAdmin } from '@apmail/shared';
 import { canDelegate, type TenantRole } from '@apmail/shared';
+import { hasAccess, type AccessPermission } from '@apmail/shared';
 export type RequestContext = {
   userId: string;
   tenantId: string | null;
@@ -10,6 +11,8 @@ export type RequestContext = {
   mailboxRoles: Map<string, import('@apmail/shared').MailboxRole | null>;
   capabilities?: string[];
   platformAdmin?: boolean;
+  accessProfileId?: string | null;
+  accessPermissions?: string[] | null;
 };
 declare module 'fastify' {
   interface FastifyRequest {
@@ -43,8 +46,13 @@ export function requireTenant(
     throw new ApiError(409, 'no_tenant', 'Selecione ou crie uma empresa.');
   return c as RequestContext & { tenantId: string; tenantRole: TenantRole };
 }
-export function requireTenantAdmin(ctx: RequestContext | null) {
+export function requireTenantAdmin(ctx: RequestContext | null, permission?: AccessPermission) {
   const c = requireTenant(ctx);
+  if (c.accessProfileId && permission) {
+    if (!hasAccess({ role: c.tenantRole, access_permissions: c.accessPermissions }, permission))
+      throw forbidden();
+    return c;
+  }
   if (!isTenantAdmin(c.tenantRole)) throw forbidden();
   return c;
 }
@@ -55,6 +63,23 @@ export function requireTenantOwner(ctx: RequestContext | null) {
 }
 export function requireCapability(ctx: RequestContext | null, capability: string) {
   const c = requireTenant(ctx);
+  if (c.accessProfileId) {
+    const permissions: Record<string, AccessPermission> = {
+      members: 'users.view',
+      audit: 'audit.view',
+      contacts_manage: 'contacts.delete',
+      rules: 'rules',
+      dashboard: 'reports',
+      assign_others: 'mail.organize',
+    };
+    const permission = permissions[capability];
+    if (
+      !permission ||
+      !hasAccess({ role: c.tenantRole, access_permissions: c.accessPermissions }, permission)
+    )
+      throw forbidden();
+    return c;
+  }
   if (!isTenantAdmin(c.tenantRole) && !canDelegate(c.tenantRole, c.capabilities, capability))
     throw forbidden();
   return c;

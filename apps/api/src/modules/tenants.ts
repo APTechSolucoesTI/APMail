@@ -1,10 +1,10 @@
-import { columnFilters, columnOrder } from './list-columns.js';
 import { isTenantAdmin } from '@apmail/shared';
+import { ROLE_PERMS } from '@apmail/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sql, type Kysely } from 'kysely';
-import { audit, auditChanges, safeAuditMetadata, lockStorageTenant, type DB } from '@apmail/db';
-import { AUDIT_ACTION_LABELS } from '@apmail/shared';
+import { audit, auditChanges, lockStorageTenant, type DB } from '@apmail/db';
+
 import {
   tenantSettingsSchema,
   timezoneSchema,
@@ -21,14 +21,16 @@ import {
   type RequestContext,
 } from '../authz/context.js';
 import { getMailboxRole, requireMailboxPerm } from '../authz/guards.js';
-import { readableFolders, folderPredicate } from '../authz/folders.js';
+import { readableFolders } from '../authz/folders.js';
+
 import { avatarUrl } from './auth.js';
 import type { Resources } from './resources.js';
+import { assertProfileGrant } from './access-profiles.js';
 export async function requireMember(ctx: RequestContext, r: Resources, userId: string) {
   const c = requireTenant(ctx);
   const row = await r.db
     .selectFrom('tenant_members')
-    .select(['id', 'role', 'status', 'capabilities'])
+    .select(['id', 'role', 'status', 'capabilities', 'access_profile_id'])
     .where('tenant_id', '=', c.tenantId)
     .where('user_id', '=', userId)
     .where('status', '!=', 'removed')
@@ -36,13 +38,20 @@ export async function requireMember(ctx: RequestContext, r: Resources, userId: s
   if (!row) throw notFound();
   return row;
 }
-export async function emitAccessChanged(r: Resources, userId: string) {
+export async function emitAccessChanged(r: Resources, userId: string, profileChanged = false) {
   const sockets = await r.io.in('user:' + userId).fetchSockets();
   for (const s of sockets) {
     for (const room of s.rooms)
-      if (room.startsWith('mailbox:') || room.startsWith('thread:')) await s.leave(room);
+      if (
+        room.startsWith('mailbox:') ||
+        room.startsWith('thread:') ||
+        (profileChanged && room.startsWith('chat:'))
+      )
+        await s.leave(room);
   }
   r.io.to('user:' + userId).emit('mailboxes:changed', {});
+  r.io.to('user:' + userId).emit('access:changed', {});
+  if (profileChanged) r.io.in('user:' + userId).disconnectSockets(true);
 }
 export async function saveMailboxAccess(
   db: Kysely<DB>,
@@ -117,9 +126,20 @@ export async function setMailboxMember(
   restrict = false,
   folderIds: string[] = [],
 ) {
-  const c = requireTenantAdmin(ctx);
-  await requireMailboxPerm(c, r.db, mailboxId, 'read');
+  const c = requireTenantAdmin(ctx, 'users.manage');
+  const currentRole = await requireMailboxPerm(c, r.db, mailboxId, 'read');
   const member = await requireMember(c, r, userId);
+  if (c.accessProfileId) {
+    if (
+      userId === c.userId ||
+      isTenantAdmin(member.role) ||
+      (role && ROLE_PERMS[role].some((p) => !ROLE_PERMS[currentRole].includes(p)))
+    )
+      throw forbidden();
+    const scope = await readableFolders(c, r.db, mailboxId);
+    if (role && scope !== null && (!restrict || folderIds.some((id) => !scope.includes(id))))
+      throw forbidden();
+  }
   if (member.status !== 'active' && role)
     throw new ApiError(409, 'conflict', 'Reative o usuário antes de conceder acesso.');
   await r.db
@@ -154,7 +174,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       .executeTakeFirstOrThrow();
   });
   app.patch('/api/tenant', async (req) => {
-    const c = requireTenantAdmin(req.ctx);
+    const c = requireTenantAdmin(req.ctx, 'company.manage');
     const b = z
       .object({
         name: z.string().trim().min(2).max(120).optional(),
@@ -231,6 +251,9 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
     const members = await r.db
       .selectFrom('tenant_members as m')
       .innerJoin('users as u', 'u.id', 'm.user_id')
+      .leftJoin('access_profiles as p', (join) =>
+        join.onRef('p.id', '=', 'm.access_profile_id').onRef('p.tenant_id', '=', 'm.tenant_id'),
+      )
       .select([
         'm.user_id',
         'u.email',
@@ -239,6 +262,8 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         'u.avatar_path',
         'u.updated_at',
         'm.role',
+        'm.access_profile_id',
+        'p.name as access_profile_name',
         'm.status',
         'm.created_at',
         sql<number>`case when m.role in ('owner','admin') then (select count(*)::int from mailboxes b where b.tenant_id=${c.tenantId} and b.deleted_at is null) else (select count(*)::int from mailbox_members mm join mailboxes b on b.id=mm.mailbox_id where mm.user_id=m.user_id and mm.tenant_id=${c.tenantId} and b.tenant_id=${c.tenantId} and b.deleted_at is null) end`.as(
@@ -252,10 +277,15 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
     const invitations = await r.db
       .selectFrom('invitations as i')
       .innerJoin('users as u', 'u.id', 'i.invited_by')
+      .leftJoin('access_profiles as ip', (join) =>
+        join.onRef('ip.id', '=', 'i.access_profile_id').onRef('ip.tenant_id', '=', 'i.tenant_id'),
+      )
       .select([
         'i.id',
         'i.email',
         'i.tenant_role',
+        'i.access_profile_id',
+        'ip.name as access_profile_name',
         'i.expires_at',
         'i.delivery_status',
         'i.delivery_error',
@@ -271,16 +301,21 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         email: u.email,
         full_name: u.full_name,
         role: u.role,
+        access_profile_id: u.access_profile_id,
+        access_profile_name: u.access_profile_name,
         status: u.status,
         created_at: u.created_at,
         mailbox_count: u.mailbox_count,
         avatar_url: avatarUrl(u),
       })),
-      invitations: isTenantAdmin(c.tenantRole) ? invitations : [],
+      invitations:
+        isTenantAdmin(c.tenantRole) || c.accessPermissions?.includes('users.view')
+          ? invitations
+          : [],
     };
   });
   app.get('/api/members/:userId/access', async (req) => {
-    const c = requireTenantAdmin(req.ctx);
+    const c = requireTenantAdmin(req.ctx, 'users.manage');
     const { userId } = z.object({ userId: z.uuid() }).parse(req.params);
     const member = await requireMember(c, r, userId);
     const boxes = await r.db
@@ -307,6 +342,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       .execute();
     return {
       tenant_role: member.role,
+      access_profile_id: member.access_profile_id,
       capabilities: member.capabilities,
       mailbox_roles: boxes.map((b) => ({
         ...b,
@@ -315,21 +351,46 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
     };
   });
   app.put('/api/members/:userId/access', async (req) => {
-    const c = requireTenantAdmin(req.ctx);
+    const c = requireTenantAdmin(req.ctx, 'users.manage');
     const { userId } = z.object({ userId: z.uuid() }).parse(req.params);
     const b = memberAccessSchema.parse(req.body);
     const member = await requireMember(c, r, userId);
+    if (c.accessProfileId && (userId === c.userId || isTenantAdmin(member.role))) throw forbidden();
     if (
       c.tenantRole !== 'owner' &&
       (member.role === 'owner' || (member.role !== b.tenant_role && isTenantAdmin(b.tenant_role)))
     )
       throw forbidden();
-    for (const box of b.mailbox_roles) await requireMailboxPerm(c, r.db, box.mailbox_id, 'read');
+    for (const box of b.mailbox_roles) {
+      const role = await requireMailboxPerm(c, r.db, box.mailbox_id, 'read');
+      if (
+        c.accessProfileId &&
+        box.role &&
+        ROLE_PERMS[box.role].some((p) => !ROLE_PERMS[role].includes(p))
+      )
+        throw forbidden();
+      if (c.accessProfileId && box.role) {
+        const scope = await readableFolders(c, r.db, box.mailbox_id);
+        if (
+          scope !== null &&
+          (!box.restrict_to_folders || box.folder_ids.some((id) => !scope.includes(id)))
+        )
+          throw forbidden();
+      }
+    }
     await r.db.transaction().execute(async (tx) => {
+      await tx
+        .selectFrom('tenants')
+        .select('id')
+        .where('id', '=', c.tenantId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      const selectedProfile = await assertProfileGrant(tx, c, b.access_profile_id, b.tenant_role);
       await tx
         .updateTable('tenant_members')
         .set({
           role: b.tenant_role,
+          access_profile_id: b.access_profile_id ?? null,
           capabilities: b.tenant_role === 'supervisor' ? b.capabilities : [],
         })
         .where('tenant_id', '=', c.tenantId)
@@ -352,15 +413,19 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         action: 'member.access_updated',
         entityType: 'user',
         entityId: userId,
-        metadata: { before: { tenant_role: member.role }, after: b },
+        metadata: {
+          before: { tenant_role: member.role, access_profile_id: member.access_profile_id },
+          after: b,
+          profile_name: selectedProfile?.name ?? null,
+        },
         ip: c.ip,
       });
     });
-    await emitAccessChanged(r, userId);
+    await emitAccessChanged(r, userId, member.access_profile_id !== (b.access_profile_id ?? null));
     return { ok: true };
   });
   app.delete('/api/members/:userId', async (req) => {
-    const c = requireTenantAdmin(req.ctx);
+    const c = requireTenantAdmin(req.ctx, 'users.manage');
     const { userId } = z.object({ userId: z.uuid() }).parse(req.params);
     z.object({ confirm: z.literal(true) }).parse(req.body);
     if (userId === c.userId)
@@ -368,6 +433,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
     await r.db.transaction().execute(async (tx) => {
       await lockStorageTenant(tx, c.tenantId);
       const member = await requireMember(c, { ...r, db: tx }, userId);
+      if (c.accessProfileId && isTenantAdmin(member.role)) throw forbidden();
       if (member.role === 'owner' && c.tenantRole !== 'owner') throw forbidden();
       await tx
         .updateTable('tenant_members')
@@ -421,10 +487,11 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
     return { ok: true };
   });
   app.put('/api/members/:userId/status', async (req) => {
-    const c = requireTenantAdmin(req.ctx);
+    const c = requireTenantAdmin(req.ctx, 'users.manage');
     const { userId } = z.object({ userId: z.uuid() }).parse(req.params);
     const b = z.object({ status: z.enum(['active', 'disabled']) }).parse(req.body);
     const member = await requireMember(c, r, userId);
+    if (c.accessProfileId && isTenantAdmin(member.role)) throw forbidden();
     if (userId === c.userId)
       throw new ApiError(409, 'conflict', 'Você não pode desativar sua própria conta.');
     if (member.role === 'owner' && c.tenantRole !== 'owner') throw forbidden();
@@ -497,121 +564,4 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       }
       return result;
     });
-  app.get('/api/audit-logs', async (req) => {
-    const c = requireCapability(req.ctx, 'audit');
-    const q = z
-      .object({
-        page: z.coerce.number().int().min(1).default(1),
-        pageSize: z.coerce.number().int().min(1).max(100).default(10),
-        from: z.iso.datetime().optional(),
-        to: z.iso.datetime().optional(),
-        actor_id: z.uuid().optional(),
-        actor_ids: z
-          .string()
-          .max(4000)
-          .transform((value) => z.array(z.uuid()).max(100).parse(value.split(',')))
-          .optional(),
-        action: z.string().max(100).optional(),
-        actions: z
-          .string()
-          .max(10000)
-          .transform((value) =>
-            z.array(z.string().min(1).max(100)).max(100).parse(value.split(',')),
-          )
-          .optional(),
-        search: z.string().trim().max(200).optional(),
-      })
-      .parse(req.query);
-    let query = r.db
-      .selectFrom('audit_logs as a')
-      .leftJoin('users as u', 'u.id', 'a.actor_id')
-      .where('a.tenant_id', '=', c.tenantId);
-    if (!isTenantAdmin(c.tenantRole)) {
-      const memberships = await r.db
-        .selectFrom('mailbox_members as mm')
-        .innerJoin('mailboxes as b', 'b.id', 'mm.mailbox_id')
-        .select('b.id')
-        .where('mm.tenant_id', '=', c.tenantId)
-        .where('mm.user_id', '=', c.userId)
-        .where('b.deleted_at', 'is', null)
-        .execute();
-      const scopes = await Promise.all(
-        memberships.map(
-          async (box) =>
-            sql`(m.mailbox_id=${box.id} and ${folderPredicate(await readableFolders(c, r.db, box.id))})`,
-        ),
-      );
-      const allowed = scopes.length ? sql`(${sql.join(scopes, sql` or `)})` : sql`false`;
-      query = query.where(sql<boolean>`(
-        (a.entity_type='mailbox' and a.entity_id in (select b.id from mailboxes b join mailbox_members mm on mm.mailbox_id=b.id where mm.tenant_id=${c.tenantId} and mm.user_id=${c.userId} and b.deleted_at is null)) or
-        (a.entity_type='thread' and exists(select 1 from messages m where m.thread_id=a.entity_id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${allowed})) or
-        (a.entity_type='message' and exists(select 1 from messages m where m.id=a.entity_id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${allowed}))
-      )`);
-    }
-    if (q.from) query = query.where('a.created_at', '>=', new Date(q.from));
-    if (q.to) query = query.where('a.created_at', '<=', new Date(q.to));
-    if (q.actor_id) query = query.where('a.actor_id', '=', q.actor_id);
-    if (q.actor_ids?.length) query = query.where('a.actor_id', 'in', q.actor_ids);
-    if (q.actions?.length) query = query.where('a.action', 'in', q.actions);
-    if (q.action)
-      query = query.where('a.action', 'like', q.action.replace(/[%_\\]/g, '\\$&') + '%');
-    if (q.search) {
-      const text = '%' + q.search.replace(/[%_\\]/g, '\\$&') + '%',
-        actions = Object.entries(AUDIT_ACTION_LABELS)
-          .filter(([, label]) =>
-            label
-              .toLocaleLowerCase('pt-BR')
-              .normalize('NFD')
-              .replace(/\p{Diacritic}/gu, '')
-              .includes(
-                q
-                  .search!.toLocaleLowerCase('pt-BR')
-                  .normalize('NFD')
-                  .replace(/\p{Diacritic}/gu, ''),
-              ),
-          )
-          .map(([key]) => key);
-      query = query.where((eb) =>
-        eb.or([
-          eb('u.full_name', 'ilike', text),
-          eb('a.action', 'ilike', text),
-          ...(actions.length ? [eb('a.action', 'in', actions)] : []),
-        ]),
-      );
-    }
-    const columns = {
-      action: sql`a.action`,
-      actor_name: sql`u.full_name`,
-      entity_type: sql`a.entity_type`,
-      created_at: sql`a.created_at`,
-    };
-    query = query.where(columnFilters(req.query, columns));
-    query = query.where(
-      sql<boolean>`not (a.entity_type='contact' and ((a.metadata->>'scope'='personal' and a.actor_id is distinct from ${c.userId}::uuid) or exists(select 1 from contacts c where c.id=a.entity_id and c.scope='personal' and c.owner_user_id<>${c.userId})))`,
-    );
-    const count = await query
-      .select((eb) => eb.fn.countAll<number>().as('n'))
-      .executeTakeFirstOrThrow();
-    const items = await query
-      .select([
-        'a.id',
-        'a.action',
-        'a.entity_type',
-        'a.entity_id',
-        'a.metadata',
-        'a.created_at',
-        'u.full_name as actor_name',
-      ])
-      .orderBy(columnOrder(req.query, columns, sql`a.created_at desc`))
-      .orderBy('a.id', 'desc')
-      .offset((q.page - 1) * q.pageSize)
-      .limit(q.pageSize)
-      .execute();
-    return {
-      items: items.map((item) => ({ ...item, metadata: safeAuditMetadata(item.metadata) })),
-      total: Number(count.n),
-      page: q.page,
-      pageSize: q.pageSize,
-    };
-  });
 }

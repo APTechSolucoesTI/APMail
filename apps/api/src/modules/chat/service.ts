@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { hasAccess } from '@apmail/shared';
 import { columnFilters, columnOrder } from '../list-columns.js';
 import { sql, type Selectable } from 'kysely';
 import { asJson, createNotification, type ChatMessages, type Database } from '@apmail/db';
@@ -32,6 +33,11 @@ export async function requireChat(
   lock = false,
 ) {
   const c = requireTenant(ctx);
+  if (
+    c.accessProfileId &&
+    !hasAccess({ role: c.tenantRole, access_permissions: c.accessPermissions }, 'chat')
+  )
+    throw forbidden();
   let query = db
     .selectFrom('chat_conversations as cc')
     .innerJoin('chat_participants as cp', 'cp.conversation_id', 'cc.id')
@@ -99,11 +105,15 @@ export async function participants(db: Database, tenantId: string, id: string) {
       j.onRef('tm.user_id', '=', 'cp.user_id').onRef('tm.tenant_id', '=', 'cp.tenant_id'),
     )
     .leftJoin('user_preferences as p', 'p.user_id', 'cp.user_id')
+    .leftJoin('access_profiles as ap', (j) =>
+      j.onRef('ap.id', '=', 'tm.access_profile_id').onRef('ap.tenant_id', '=', 'tm.tenant_id'),
+    )
     .select(['cp.user_id', 'p.notify_chat'])
     .where('cp.tenant_id', '=', tenantId)
     .where('cp.conversation_id', '=', id)
     .where('cp.left_at', 'is', null)
     .where('tm.status', '=', 'active')
+    .where(sql<boolean>`(tm.access_profile_id is null or 'chat'=any(ap.permissions))`)
     .execute();
 }
 async function changed(r: Resources, tenantId: string, id: string, extra: string[] = []) {

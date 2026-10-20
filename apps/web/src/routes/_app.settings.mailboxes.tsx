@@ -27,12 +27,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { api } from '@/lib/api';
 import { type Mailbox } from '@/lib/auth';
-import { requireAdmin } from '@/lib/settings';
+import { requireSettingsPermission } from '@/lib/settings';
 import { Plus, Settings, RefreshCw, HardDrive, Ellipsis, Trash2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 export const Route = createFileRoute('/_app/settings/mailboxes')({
-  beforeLoad: requireAdmin,
+  beforeLoad: () => requireSettingsPermission('mailboxes.manage'),
   validateSearch: listQuerySchema,
   component: Mailboxes,
 });

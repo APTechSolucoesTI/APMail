@@ -64,6 +64,17 @@ export type TenantRole = 'admin' | 'member' | 'owner' | 'supervisor';
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
+export interface AccessProfiles {
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  description: Generated<string>;
+  id: Generated<string>;
+  name: string;
+  permissions: Generated<string[]>;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface Attachments {
   content_id: string | null;
   content_type: Generated<string>;
@@ -80,13 +91,20 @@ export interface Attachments {
 
 export interface AuditLogs {
   action: string;
+  actor_email: string | null;
   actor_id: string | null;
+  actor_name: string | null;
   created_at: Generated<Timestamp>;
   entity_id: string | null;
   entity_type: string;
+  event_key: string | null;
   id: Generated<Int8>;
   ip: string | null;
+  mailbox_id: string | null;
+  message_content: string | null;
+  message_subject: string | null;
   metadata: Generated<Json>;
+  request_id: string | null;
   tenant_id: string;
 }
 
@@ -408,6 +426,7 @@ export interface GoogleMeetTranscriptEntries {
 
 export interface Invitations {
   accepted_at: Timestamp | null;
+  access_profile_id: string | null;
   capabilities: Generated<string[]>;
   created_at: Generated<Timestamp>;
   delivery_error: string | null;
@@ -997,6 +1016,7 @@ export interface TablePreferences {
 }
 
 export interface TenantMembers {
+  access_profile_id: string | null;
   capabilities: Generated<string[]>;
   created_at: Generated<Timestamp>;
   id: Generated<string>;
@@ -1156,6 +1176,7 @@ export interface UserTwoFactor {
 }
 
 export interface DB {
+  access_profiles: AccessProfiles;
   attachments: Attachments;
   audit_logs: AuditLogs;
   auth_two_factor_challenges: AuthTwoFactorChallenges;

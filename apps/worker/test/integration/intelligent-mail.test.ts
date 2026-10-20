@@ -29,6 +29,7 @@ import { hashPassword } from '../../../api/src/modules/auth.js';
 import { envSchema } from '../../src/env.js';
 import { ingestMessage } from '../../src/imap/ingest-message.js';
 import { handleOutboxSend } from '../../src/handlers/outbox-send.js';
+import { handleMailAction } from '../../src/handlers/mail-actions.js';
 import { sweepOutbox } from '../../src/handlers/outbox-maintenance.js';
 import { buildMdn } from '../../src/lib/mdn.js';
 import { transports } from '../../src/imap/connect.js';
@@ -806,6 +807,18 @@ it('usa EHLO público em respostas externas, SMTP global e teste de conexão, se
   expect(delivered.hello).toBe('app.apmail.com.br');
   expect(delivered.to).toContain('<destinatario@gmail.com>');
   expect((await simpleParser(delivered.raw)).inReplyTo).toBe(original.message_id_header);
+  const replyAudit = await db
+    .selectFrom('audit_logs')
+    .selectAll()
+    .where('tenant_id', '=', tenant)
+    .where('event_key', '=', draft.json().id + ':sent')
+    .executeTakeFirstOrThrow();
+  expect(replyAudit.action).toBe('message.replied');
+  expect(replyAudit.actor_id).toBe(owner);
+  expect(replyAudit.message_content).toContain('Resposta para domínio externo.');
+  const audited = await call('GET', '/api/audit-logs/' + replyAudit.id);
+  expect(audited.statusCode, audited.body).toBe(200);
+  expect(audited.json().message_content).toContain('Resposta para domínio externo.');
   expect(
     (
       await db
@@ -885,3 +898,36 @@ it('usa EHLO público em respostas externas, SMTP global e teste de conexão, se
     await new Promise<void>((resolve) => pop.close(() => resolve()));
   }
 }, 30000);
+
+it('audita solicitação e conclusão da exclusão real de uma mensagem, com idempotência do job', async () => {
+  // The previous SMTP scenario intentionally leaves a post-send contact suggestion pending.
+  await db
+    .updateTable('outbox')
+    .set({ contact_prompt_handled: true })
+    .where('tenant_id', '=', tenant)
+    .execute();
+  const row = await send(['delete-audit@qa.example']);
+  const action = await call('POST', '/api/mailboxes/' + boxId + '/messages/actions', {
+    type: 'delete',
+    message_ids: [row.sent_message_id],
+  });
+  expect(action.statusCode, action.body).toBe(202);
+  const actionId = action.json().action_id as string;
+  await handleMailAction(r, actionId, 'qa-' + actionId, true);
+  await handleMailAction(r, actionId, 'qa-' + actionId, true);
+  const events = await db
+    .selectFrom('audit_logs')
+    .select(['action', 'actor_id', 'message_content'])
+    .where('tenant_id', '=', tenant)
+    .where('entity_id', '=', row.sent_message_id!)
+    .where('action', 'in', ['message.delete_requested', 'message.deleted'])
+    .execute();
+  expect(events).toHaveLength(2);
+  expect(events.map((e) => e.action).sort()).toEqual([
+    'message.delete_requested',
+    'message.deleted',
+  ]);
+  expect(events.every((e) => e.actor_id === owner && e.message_content?.includes('Mensagem'))).toBe(
+    true,
+  );
+});

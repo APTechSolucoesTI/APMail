@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { UnrecoverableError } from 'bullmq';
-import { touchThreads, asJson } from '@apmail/db';
+import { touchThreads, asJson, audit } from '@apmail/db';
 import type { WorkerResources } from '../resources.js';
 import { transports } from '../imap/connect.js';
 import { withMailboxLock } from '../lib/mailbox-lock.js';
@@ -8,6 +8,7 @@ import { emitThreads } from '../lib/events.js';
 import { markMailboxError } from './mailbox-connection.js';
 import { isConnectionError } from '../lib/errors.js';
 import { handleFolderAction } from './folder-actions.js';
+import { userCanMailbox } from '../lib/mailbox-permissions.js';
 export const actionPayloadSchema = z.object({
   message_ids: z.array(z.uuid()).max(1000),
   target_folder_id: z.uuid().optional(),
@@ -73,6 +74,8 @@ export async function handleMailAction(
           throw new UnrecoverableError('O superadmin não pode organizar mensagens.');
         if (box.status !== 'active')
           throw new Error('Caixa indisponível. Reconecte antes de organizar mensagens.');
+        if (action.requested_by && !(await userCanMailbox(r, box, action.requested_by, 'organize')))
+          throw new UnrecoverableError('A permissão para organizar mensagens foi removida.');
         await r.db
           .updateTable('mail_actions')
           .set({ status: 'processing', attempts: action.attempts + 1 })
@@ -177,6 +180,35 @@ export async function handleMailAction(
             .execute();
         }
         await r.db.transaction().execute(async (trx) => {
+          const completed = await trx
+            .selectFrom('messages')
+            .select('id')
+            .where('tenant_id', '=', action.tenant_id)
+            .where('mailbox_id', '=', action.mailbox_id)
+            .where('id', 'in', payload.message_ids)
+            .execute();
+          for (const m of completed)
+            await audit(trx, {
+              tenantId: action.tenant_id,
+              actorId: action.requested_by,
+              action:
+                (
+                  {
+                    delete: 'message.deleted',
+                    move: 'message.moved',
+                    restore: 'message.restored',
+                    set_flag: 'message.flagged',
+                  } as Record<string, string>
+                )[action.type] ?? 'message.organized',
+              entityType: 'message',
+              entityId: m.id,
+              metadata: {
+                operation_id: action.id,
+                outcome: 'completed',
+                target_folder_id: payload.target_folder_id ?? null,
+              },
+              eventKey: action.id + ':' + m.id + ':completed',
+            });
           await trx
             .updateTable('mail_actions')
             .set({ status: 'done', processed_at: new Date(), last_error: null })
@@ -191,6 +223,20 @@ export async function handleMailAction(
           const last_error =
             'Não foi possível aplicar a alteração no servidor de e-mail. A alteração foi revertida.';
           await r.db.transaction().execute(async (trx) => {
+            await audit(trx, {
+              tenantId: action.tenant_id,
+              actorId: action.requested_by,
+              action: 'mail_action.failed',
+              entityType: 'mailbox',
+              entityId: action.mailbox_id,
+              metadata: {
+                operation_id: action.id,
+                outcome: 'failed',
+                message_ids: payload.message_ids,
+                reason: last_error,
+              },
+              eventKey: action.id + ':failed',
+            });
             const pending = await trx
               .selectFrom('messages')
               .select(['id', 'thread_id'])

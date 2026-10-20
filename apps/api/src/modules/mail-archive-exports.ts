@@ -14,7 +14,7 @@ export async function registerMailArchiveExports(app: FastifyInstance, r: Resour
     '/api/mailboxes/:id/archive-export',
     { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (req, reply) => {
-      const c = requireTenantAdmin(req.ctx),
+      const c = requireTenantAdmin(req.ctx, 'archives'),
         { id } = z.object({ id: z.uuid() }).parse(req.params);
       const { format, folder_id, include_deleted } = z
         .object({

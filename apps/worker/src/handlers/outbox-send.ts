@@ -268,9 +268,23 @@ export async function handleOutboxSend(
             await audit(tx, {
               tenantId: row.tenant_id,
               actorId: row.created_by,
-              action: 'message.sent',
+              action: row.is_auto_reply
+                ? 'message.auto_replied'
+                : ['reply', 'reply_all'].includes(row.kind)
+                  ? 'message.replied'
+                  : row.kind === 'forward'
+                    ? 'message.forwarded'
+                    : 'message.sent',
               entityType: 'message',
               entityId: messageId,
+              metadata: {
+                outcome: 'completed',
+                kind: row.kind,
+                reply_to_message_id: row.reply_to_message_id,
+                outbox_id: row.id,
+                request_read_receipt: row.request_read_receipt,
+              },
+              eventKey: row.id + ':sent',
             });
             // Admit and stage the complete local copy before delivery. Quota rejection
             // rolls everything back without sending; the tenant lock prevents races.
@@ -376,6 +390,16 @@ export async function handleOutboxSend(
                   : 'O encaminhamento automático foi interrompido porque a regra ou a permissão da empresa foi desativada.'
                 : connectionError(error, 'SMTP', 0);
     await r.db.transaction().execute(async (tx) => {
+      if (last)
+        await audit(tx, {
+          tenantId: row.tenant_id,
+          actorId: row.created_by,
+          action: 'outbox.failed',
+          entityType: 'outbox',
+          entityId: row.id,
+          metadata: { outcome: 'failed', reason: message, attempt: row.attempts },
+          eventKey: row.id + ':failed:' + row.submit_count,
+        });
       await tx
         .updateTable('outbox')
         .set({ status: last ? 'failed' : 'queued', last_error: message })

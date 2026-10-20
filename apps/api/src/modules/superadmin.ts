@@ -32,6 +32,7 @@ import type { Resources } from './resources.js';
 import { registerPlatformStorage } from './platform-storage.js';
 import { registerPlatformManagement } from './platform-management.js';
 import { registerPlatformMetering } from './platform-metering.js';
+import { assertProfileGrant } from './access-profiles.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 const pageSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -44,6 +45,15 @@ const pageSchema = z.object({
   tenant_id: z.uuid().optional(),
 });
 export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
+  app.get('/api/superadmin/tenants/:id/access-profiles', async (req) => {
+    requireSuperAdmin(req.ctx);
+    return r.db
+      .selectFrom('access_profiles')
+      .selectAll()
+      .where('tenant_id', '=', idOf(req.params))
+      .orderBy('name')
+      .execute();
+  });
   await registerPlatformMetering(app, r);
   await registerPlatformStorage(app, r);
   await registerPlatformManagement(app, r, record);
@@ -53,7 +63,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
       { tenant_id } = z.object({ tenant_id: z.uuid() }).parse(req.query);
     const member = await r.db
       .selectFrom('tenant_members')
-      .select(['role', 'capabilities'])
+      .select(['role', 'capabilities', 'access_profile_id'])
       .where('tenant_id', '=', tenant_id)
       .where('user_id', '=', id)
       .where('status', '!=', 'removed')
@@ -74,7 +84,12 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
       .where('m.tenant_id', '=', tenant_id)
       .where('m.user_id', '=', id)
       .execute();
-    return { tenant_role: member.role, capabilities: member.capabilities, mailbox_roles: roles };
+    return {
+      tenant_role: member.role,
+      capabilities: member.capabilities,
+      access_profile_id: member.access_profile_id,
+      mailbox_roles: roles,
+    };
   });
   app.put('/api/superadmin/users/:id/access', async (req) => {
     const c = requireSuperAdmin(req.ctx),
@@ -102,10 +117,17 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
         .forUpdate()
         .executeTakeFirst();
       if (!member) throw notFound();
+      await assertProfileGrant(
+        tx,
+        { ...c, tenantId: b.tenant_id },
+        b.access_profile_id,
+        b.tenant_role,
+      );
       await tx
         .updateTable('tenant_members')
         .set({
           role: b.tenant_role,
+          access_profile_id: b.access_profile_id ?? null,
           capabilities: b.tenant_role === 'supervisor' ? b.capabilities : [],
         })
         .where('tenant_id', '=', b.tenant_id)

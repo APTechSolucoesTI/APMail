@@ -1,7 +1,8 @@
+import { hasAccess, screenPermission, type AccessPermission } from '@apmail/shared';
 import { isTenantAdmin } from '@apmail/shared';
 import { canDelegate } from '@apmail/shared';
 import { NavigationGroup } from './navigation-group';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Link, Outlet, useNavigate, useLocation } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
@@ -74,8 +75,14 @@ export function AppShell() {
   const boxes = useQuery({
     queryKey: ['mailboxes', me.data?.current_tenant_id],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
+    enabled: hasAccess(
+      me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id),
+      'mail',
+    ),
   });
   const [open, setOpen] = useState(false);
+  const loggingOut = useRef(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(
     () => localStorage.getItem('apmail-sidebar') !== 'hidden',
   );
@@ -121,6 +128,11 @@ export function AppShell() {
       ])
         void client.invalidateQueries({ queryKey: [key] });
     });
+    socket.on('access:changed', () => {
+      void client.invalidateQueries({}, { cancelRefetch: false }).then(() => {
+        if (!socket.connected && !loggingOut.current) socket.connect();
+      });
+    });
     socket.on('mailboxes:changed', () => {
       for (const key of [
         'labels',
@@ -142,7 +154,7 @@ export function AppShell() {
         void client.resetQueries({ queryKey: [key] });
       void client.invalidateQueries({ queryKey: ['mailboxes'] });
       void client.invalidateQueries({ queryKey: ['mailbox'] });
-      void client.invalidateQueries({ queryKey: ['me'] });
+      void client.invalidateQueries({ queryKey: ['me'] }, { cancelRefetch: false });
     });
     socket.on(
       'notification:new',
@@ -187,10 +199,10 @@ export function AppShell() {
         }
       },
     );
-    socket.on(
-      'disconnect',
-      () => void client.invalidateQueries({ queryKey: ['me'] }, { cancelRefetch: false }),
-    );
+    socket.on('disconnect', () => {
+      if (!loggingOut.current)
+        void client.invalidateQueries({ queryKey: ['me'] }, { cancelRefetch: false });
+    });
     const invalidate = (...keys: string[]) => {
       for (const key of keys) void client.invalidateQueries({ queryKey: [key] });
     };
@@ -254,6 +266,12 @@ export function AppShell() {
     else if (me.data && !me.data.current_tenant_id)
       void navigate({ to: me.data.platform_admin ? '/superadmin' : '/onboarding' });
   }, [me.error, me.data, navigate]);
+  useEffect(() => {
+    const tenant = me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id);
+    const permission = screenPermission(pathname);
+    if (tenant?.access_profile_id && permission && !hasAccess(tenant, permission))
+      void navigate({ to: '/' });
+  }, [me.data, pathname, navigate]);
   if (!me.data)
     return (
       <div role="status" className="p-6">
@@ -262,6 +280,7 @@ export function AppShell() {
     );
   const tenant = me.data.tenants.find((t) => t.id === me.data!.current_tenant_id);
   const admin = isTenantAdmin(tenant?.role);
+  const allowed = (permission: AccessPermission) => hasAccess(tenant, permission);
   const sidebar = (
     <ScrollArea
       type="hover"
@@ -279,38 +298,53 @@ export function AppShell() {
           <Mail aria-hidden />
           APMail
         </Link>
-        <NavigationGroup id="productivity" label="Produtividade">
-          <Link
-            to="/calendar"
-            onClick={() => setOpen(false)}
-            activeProps={{ className: 'bg-accent text-accent-foreground' }}
-            className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-          >
-            <CalendarDays aria-hidden className="size-4" />
-            Calendário
-          </Link>
-          <Link
-            to="/scheduled"
-            onClick={() => setOpen(false)}
-            activeProps={{ className: 'bg-accent text-accent-foreground' }}
-            className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-          >
-            <Mail aria-hidden className="size-4" />
-            Envios e agendamentos
-          </Link>
-          <Link
-            to="/reminders"
-            onClick={() => setOpen(false)}
-            activeProps={{ className: 'bg-accent text-accent-foreground' }}
-            className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-          >
-            <BellRing aria-hidden className="size-4" />
-            Lembretes e tarefas
-          </Link>
+        <NavigationGroup
+          id="productivity"
+          label="Produtividade"
+          visible={allowed('calendar') || allowed('schedules') || allowed('reminders')}
+        >
+          {allowed('calendar') && (
+            <Link
+              to="/calendar"
+              onClick={() => setOpen(false)}
+              activeProps={{ className: 'bg-accent text-accent-foreground' }}
+              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+            >
+              <CalendarDays aria-hidden className="size-4" />
+              Calendário
+            </Link>
+          )}
+          {allowed('schedules') && (
+            <Link
+              to="/scheduled"
+              onClick={() => setOpen(false)}
+              activeProps={{ className: 'bg-accent text-accent-foreground' }}
+              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+            >
+              <Mail aria-hidden className="size-4" />
+              Envios e agendamentos
+            </Link>
+          )}
+          {allowed('reminders') && (
+            <Link
+              to="/reminders"
+              onClick={() => setOpen(false)}
+              activeProps={{ className: 'bg-accent text-accent-foreground' }}
+              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+            >
+              <BellRing aria-hidden className="size-4" />
+              Lembretes e tarefas
+            </Link>
+          )}
         </NavigationGroup>
-        <NavigationGroup id="communication" label="Comunicação">
+        <NavigationGroup
+          id="communication"
+          label="Comunicação"
+          visible={allowed('mail') || allowed('contacts') || allowed('chat')}
+        >
           <NavigationGroup
             id="mailboxes"
+            visible={allowed('mail')}
             indentContent
             label="Caixas de e-mail"
             icon={<Mail className="size-4" />}
@@ -322,28 +356,32 @@ export function AppShell() {
               <p className="px-2 py-3 text-xs text-muted-foreground">Sem caixas disponíveis</p>
             )}
           </NavigationGroup>
-          <Link
-            to="/contacts"
-            activeProps={{ className: 'bg-accent text-accent-foreground' }}
-            className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-            onClick={() => setOpen(false)}
-          >
-            <ContactRound aria-hidden className="size-4 shrink-0" />
-            Contatos
-          </Link>
-          <ChatNavigation onNavigate={() => setOpen(false)} />
+          {allowed('contacts') && (
+            <Link
+              to="/contacts"
+              activeProps={{ className: 'bg-accent text-accent-foreground' }}
+              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+              onClick={() => setOpen(false)}
+            >
+              <ContactRound aria-hidden className="size-4 shrink-0" />
+              Contatos
+            </Link>
+          )}
+          {allowed('chat') && <ChatNavigation onNavigate={() => setOpen(false)} />}
         </NavigationGroup>
-        <NavigationGroup id="analysis" label="Análises">
-          <Link
-            to="/reports"
-            onClick={() => setOpen(false)}
-            activeProps={{ className: 'bg-accent text-accent-foreground' }}
-            className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-          >
-            <BarChart3 aria-hidden className="size-4" />
-            Relatórios
-          </Link>
-          {tenant && (
+        <NavigationGroup id="analysis" label="Análises" visible={allowed('reports')}>
+          {allowed('reports') && (
+            <Link
+              to="/reports"
+              onClick={() => setOpen(false)}
+              activeProps={{ className: 'bg-accent text-accent-foreground' }}
+              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+            >
+              <BarChart3 aria-hidden className="size-4" />
+              Relatórios
+            </Link>
+          )}
+          {tenant && allowed('reports') && (
             <Link
               to="/dashboard"
               onClick={() => setOpen(false)}
@@ -369,35 +407,48 @@ export function AppShell() {
               ['/settings/signatures', 'Assinaturas'],
               ['/settings/labels', 'Etiquetas'],
               ['/settings/rules', 'Regras'],
-              ...(!admin && canDelegate(tenant?.role ?? null, tenant?.capabilities, 'members')
+              ...(!admin && tenant?.access_profile_id && allowed('profiles.manage')
+                ? [['/settings/access-profiles', 'Perfis de acesso']]
+                : []),
+              ...(!admin &&
+              (canDelegate(tenant?.role ?? null, tenant?.capabilities, 'members') ||
+                (!!tenant?.access_profile_id && allowed('users.view')))
                 ? [['/settings/users', 'Equipe']]
                 : []),
-              ...(!admin && canDelegate(tenant?.role ?? null, tenant?.capabilities, 'audit')
+              ...(!admin &&
+              (canDelegate(tenant?.role ?? null, tenant?.capabilities, 'audit') ||
+                (!!tenant?.access_profile_id && allowed('audit.view')))
                 ? [['/settings/audit', 'Auditoria']]
                 : []),
               ...(admin
                 ? [
                     ['/settings/users', 'Equipe e acessos'],
+                    ['/settings/access-profiles', 'Perfis de acesso'],
                     ['/settings/mailboxes', 'Caixas de e-mail'],
                     ['/settings/tenant', 'Empresa'],
                     ['/settings/audit', 'Auditoria'],
                   ]
                 : []),
-            ].map(([to, label]) => {
-              const Icon = settingsIcons[to!] ?? Settings;
-              return (
-                <Link
-                  key={to}
-                  to={to}
-                  activeProps={{ className: 'bg-accent text-accent-foreground' }}
-                  className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-                  onClick={() => setOpen(false)}
-                >
-                  <Icon aria-hidden className="size-4 shrink-0" />
-                  {label}
-                </Link>
-              );
-            })}
+            ]
+              .filter(([to]) => {
+                const permission = screenPermission(to!);
+                return !tenant?.access_profile_id || !permission || allowed(permission);
+              })
+              .map(([to, label]) => {
+                const Icon = settingsIcons[to!] ?? Settings;
+                return (
+                  <Link
+                    key={to}
+                    to={to}
+                    activeProps={{ className: 'bg-accent text-accent-foreground' }}
+                    className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+                    onClick={() => setOpen(false)}
+                  >
+                    <Icon aria-hidden className="size-4 shrink-0" />
+                    {label}
+                  </Link>
+                );
+              })}
           </NavigationGroup>
           {me.data.platform_admin && (
             <Link
@@ -481,7 +532,7 @@ export function AppShell() {
                       ))}
                     </select>
                   </div>
-                  <GlobalSearch key={me.data.current_tenant_id} />
+                  {allowed('mail') && <GlobalSearch key={me.data.current_tenant_id} />}
                   <div className="flex items-center gap-0 sm:gap-2">
                     <KeyboardHelp mailboxes={boxes.data ?? []} />
                     <NotificationBell />
@@ -499,11 +550,28 @@ export function AppShell() {
                       variant="ghost"
                       size="icon"
                       aria-label="Sair"
+                      disabled={signingOut}
                       onClick={async () => {
+                        if (loggingOut.current) return;
+                        loggingOut.current = true;
+                        setSigningOut(true);
                         stopArchiveTransfersForUser(me.data!.user.id);
-                        await api('/auth/logout', { method: 'POST' });
-                        client.clear();
-                        await navigate({ to: '/login' });
+                        socket.disconnect();
+                        try {
+                          await client.cancelQueries();
+                          await api('/auth/logout', { method: 'POST' });
+                          await navigate({ to: '/login' });
+                          client.clear();
+                        } catch (error) {
+                          loggingOut.current = false;
+                          setSigningOut(false);
+                          socket.connect();
+                          toast.error(
+                            error instanceof Error
+                              ? error.message
+                              : 'Não foi possível sair. Tente novamente.',
+                          );
+                        }
                       }}
                     >
                       <LogOut />
@@ -521,8 +589,12 @@ export function AppShell() {
                     tenantId={me.data.current_tenant_id}
                   />
                   <Outlet />
-                  <PostSendContacts />
-                  <ReminderCenter key={me.data.current_tenant_id} />
+                  {!signingOut && allowed('mail.send') && allowed('contacts') && (
+                    <PostSendContacts />
+                  )}
+                  {!signingOut && allowed('reminders') && (
+                    <ReminderCenter key={me.data.current_tenant_id} />
+                  )}
                 </main>
               </div>
             </NavigationLayout>

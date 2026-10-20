@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { sql } from 'kysely';
 import { z } from 'zod';
 import { hash, verify, Algorithm } from '@node-rs/argon2';
 import { audit } from '@apmail/db';
@@ -32,6 +33,12 @@ const publicUserColumns = [
   'current_tenant_id',
   'updated_at',
 ] as const;
+const notificationVisibility = (c: RequestContext) => sql<boolean>`(
+  ${!c.accessProfileId} or
+  (notifications.type='chat_message' and ${!!c.accessPermissions?.includes('chat')}) or
+  (notifications.type='reminder' and ${!!c.accessPermissions?.includes('reminders')}) or
+  (notifications.type not in ('chat_message','reminder') and ${!!c.accessPermissions?.includes('mail')})
+)`;
 export const avatarUrl = (user: { id: string; avatar_path: string | null; updated_at: Date }) =>
   user.avatar_path ? `/api/avatars/${user.id}?v=${user.updated_at.getTime()}` : null;
 export async function me(ctx: RequestContext, r: Resources) {
@@ -43,12 +50,20 @@ export async function me(ctx: RequestContext, r: Resources) {
   const tenants = await r.db
     .selectFrom('tenant_members')
     .innerJoin('tenants', 'tenants.id', 'tenant_members.tenant_id')
+    .leftJoin('access_profiles as ap', (join) =>
+      join
+        .onRef('ap.id', '=', 'tenant_members.access_profile_id')
+        .onRef('ap.tenant_id', '=', 'tenant_members.tenant_id'),
+    )
     .select([
       'tenants.id',
       'tenants.name',
       'tenants.slug',
       'tenant_members.role',
       'tenant_members.capabilities',
+      'tenant_members.access_profile_id',
+      'ap.name as access_profile_name',
+      'ap.permissions as access_permissions',
     ])
     .where('tenant_members.user_id', '=', ctx.userId)
     .where('tenant_members.status', '=', 'active')
@@ -377,6 +392,7 @@ export async function registerAuthRoutes(app: FastifyInstance, r: Resources) {
       .where('tenant_id', '=', c.tenantId)
       .where('user_id', '=', c.userId)
       .where('read_at', 'is', null)
+      .where(notificationVisibility(c))
       .executeTakeFirstOrThrow();
     return { count: Number(row.count) };
   });
@@ -392,7 +408,8 @@ export async function registerAuthRoutes(app: FastifyInstance, r: Resources) {
       .selectFrom('notifications')
       .selectAll()
       .where('tenant_id', '=', c.tenantId)
-      .where('user_id', '=', c.userId);
+      .where('user_id', '=', c.userId)
+      .where(notificationVisibility(c));
     if (q.before) query = query.where('created_at', '<', new Date(q.before));
     return query.orderBy('created_at', 'desc').limit(q.limit).execute();
   });

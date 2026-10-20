@@ -1,7 +1,14 @@
 import { api } from './api';
 import { queryClient } from './query-client';
 import { redirect } from '@tanstack/react-router';
-import { can, type MailboxRole, type TenantRole, type MailboxPerm } from '@apmail/shared';
+import {
+  can,
+  hasAccess,
+  type AccessPermission,
+  type MailboxRole,
+  type TenantRole,
+  type MailboxPerm,
+} from '@apmail/shared';
 import { createContext, useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
 export const TenantContext = createContext<string | null>(null);
@@ -20,7 +27,16 @@ export type Preferences = {
 };
 export type Me = {
   user: { id: string; email: string; full_name: string; avatar_url: string | null };
-  tenants: { id: string; name: string; slug: string; role: TenantRole; capabilities: string[] }[];
+  tenants: {
+    id: string;
+    name: string;
+    slug: string;
+    role: TenantRole;
+    capabilities: string[];
+    access_profile_id?: string | null;
+    access_profile_name?: string | null;
+    access_permissions?: string[] | null;
+  }[];
   platform_admin: boolean;
   support: null;
   current_tenant_id: string | null;
@@ -57,6 +73,13 @@ export const meQuery = { queryKey: ['me'], queryFn: () => api<Me>('/auth/me'), r
 export const useMailQueues = () =>
   useQuery(meQuery).data?.preferences.mail_queues_enabled !== false;
 export const useUserId = () => useQuery(meQuery).data?.user.id;
+export const useAccess = (permission: AccessPermission) => {
+  const me = useQuery(meQuery).data;
+  return hasAccess(
+    me?.tenants.find((t) => t.id === me.current_tenant_id),
+    permission,
+  );
+};
 export async function requireUser() {
   try {
     return await queryClient.fetchQuery({ ...meQuery, staleTime: 0 });

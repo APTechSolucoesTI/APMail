@@ -26,6 +26,10 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import { readEnv, type ApiEnv } from './env.js';
 import { ZodError, z } from 'zod';
 import { installAuth } from './plugins/auth.js';
+import { installProfileAccess } from './authz/profile-access.js';
+import { registerAccessProfileRoutes } from './modules/access-profiles.js';
+import { registerAuditRoutes } from './modules/audit.js';
+import { installActivityAudit } from './plugins/activity-audit.js';
 import { installSocket } from './plugins/socket.js';
 import { registerAuthRoutes } from './modules/auth.js';
 import { registerTwoFactorRoutes } from './modules/two-factor.js';
@@ -216,6 +220,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await sub.subscribe(platformChannel);
   const resources = { db, redis, io, queues: queueResources.queues, env: config };
   await installAuth(app, db, redis, config);
+  installProfileAccess(app);
   app.get(
     '/api/health/queues',
     { schema: { response: { 200: healthQueuesSchema } } },
@@ -257,9 +262,12 @@ export async function buildApp(config: ApiEnv = readEnv()) {
         .catch(() => undefined);
   });
   const sockets = installSocket(app, resources);
+  installActivityAudit(app, resources);
   await registerAuthRoutes(app, resources);
   await registerTwoFactorRoutes(app, resources);
   await registerTenantRoutes(app, resources);
+  await registerAccessProfileRoutes(app, resources);
+  await registerAuditRoutes(app, resources);
   await registerMailboxRoutes(app, resources);
   await registerInvitationRoutes(app, resources);
   await registerAvatarRoutes(app, resources);

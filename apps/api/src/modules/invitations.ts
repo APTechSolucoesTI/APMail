@@ -8,6 +8,7 @@ import { requireMailboxPerm } from '../authz/guards.js';
 import { hashToken, newToken, createSession } from '../plugins/auth.js';
 import { hashPassword } from './auth.js';
 import type { Resources } from './resources.js';
+import { assertProfileGrant } from './access-profiles.js';
 export async function registerInvitationRoutes(app: FastifyInstance, r: Resources) {
   async function send(
     to: string,
@@ -36,8 +37,10 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
     );
   }
   app.post('/api/invitations', async (req, reply) => {
-    const c = requireTenantAdmin(req.ctx);
+    const c = requireTenantAdmin(req.ctx, 'users.invite');
     const b = invitationSchema.parse(req.body);
+    await assertProfileGrant(r.db, c, b.access_profile_id, b.tenant_role);
+    if (c.accessProfileId && b.mailbox_roles.length) throw forbidden();
     if (b.tenant_role === 'admin' && c.tenantRole !== 'owner') throw forbidden();
     for (const box of b.mailbox_roles) await requireMailboxPerm(c, r.db, box.mailbox_id, 'read');
     const settings = await r.db
@@ -72,51 +75,79 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
       .where('users.email', '=', b.email)
       .executeTakeFirst();
     if (exists) throw new ApiError(409, 'conflict', 'Este e-mail já é membro da empresa.');
+    if (c.accessProfileId) {
+      const protectedMember = await r.db
+        .selectFrom('tenant_members as m')
+        .innerJoin('users as u', 'u.id', 'm.user_id')
+        .select('m.id')
+        .where('m.tenant_id', '=', c.tenantId)
+        .where('u.email', '=', b.email)
+        .where('m.role', 'in', ['owner', 'admin'])
+        .executeTakeFirst();
+      if (protectedMember) throw forbidden();
+    }
     const token = newToken();
-    const invite = await r.db
-      .insertInto('invitations')
-      .values({
-        ...b,
-        sender_mailbox_id: selected.id,
-        sender_context: 'tenant',
-        capabilities: b.tenant_role === 'supervisor' ? b.capabilities : [],
-        mailbox_roles: sql`${JSON.stringify(b.mailbox_roles)}::jsonb`,
-        tenant_id: c.tenantId,
-        invited_by: c.userId,
-        token_hash: hashToken(token),
-        expires_at: new Date(Date.now() + 7 * 86400000),
-      })
-      .returning(['id', 'email', 'expires_at'])
-      .executeTakeFirstOrThrow();
+    const invite = await r.db.transaction().execute(async (tx) => {
+      await tx
+        .selectFrom('tenants')
+        .select('id')
+        .where('id', '=', c.tenantId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      const profile = await assertProfileGrant(tx, c, b.access_profile_id, b.tenant_role);
+      const row = await tx
+        .insertInto('invitations')
+        .values({
+          ...b,
+          access_profile_id: b.access_profile_id ?? null,
+          sender_mailbox_id: selected.id,
+          sender_context: 'tenant',
+          capabilities: b.tenant_role === 'supervisor' ? b.capabilities : [],
+          mailbox_roles: sql`${JSON.stringify(b.mailbox_roles)}::jsonb`,
+          tenant_id: c.tenantId,
+          invited_by: c.userId,
+          token_hash: hashToken(token),
+          expires_at: new Date(Date.now() + 7 * 86400000),
+        })
+        .returning(['id', 'email', 'expires_at'])
+        .executeTakeFirstOrThrow();
+      await audit(tx, {
+        tenantId: c.tenantId,
+        actorId: c.userId,
+        action: 'member.invited',
+        entityType: 'invitation',
+        entityId: row.id,
+        metadata: {
+          email: b.email,
+          tenant_role: b.tenant_role,
+          profile_name: profile?.name ?? null,
+        },
+        ip: c.ip,
+        requestId: req.id,
+      });
+      return row;
+    });
     const tenant = await r.db
       .selectFrom('tenants')
       .select('name')
       .where('id', '=', c.tenantId)
       .executeTakeFirstOrThrow();
     await send(b.email, token, tenant.name, c.userId, invite.id);
-    await audit(r.db, {
-      tenantId: c.tenantId,
-      actorId: c.userId,
-      action: 'member.invited',
-      entityType: 'invitation',
-      entityId: invite.id,
-      metadata: { email: b.email, tenant_role: b.tenant_role },
-      ip: c.ip,
-    });
     return reply.code(201).send(invite);
   });
   app.post('/api/invitations/:id/resend', async (req) => {
-    const c = requireTenantAdmin(req.ctx);
+    const c = requireTenantAdmin(req.ctx, 'users.invite');
     const { id } = z.object({ id: z.uuid() }).parse(req.params);
     const inv = await r.db
       .selectFrom('invitations')
-      .select(['email', 'tenant_role', 'invited_by', 'sender_mailbox_id'])
+      .select(['email', 'tenant_role', 'invited_by', 'sender_mailbox_id', 'access_profile_id'])
       .where('tenant_id', '=', c.tenantId)
       .where('id', '=', id)
       .where('accepted_at', 'is', null)
       .where('revoked_at', 'is', null)
       .executeTakeFirst();
     if (!inv) throw notFound();
+    await assertProfileGrant(r.db, c, inv.access_profile_id, inv.tenant_role);
     let sender = r.db
       .selectFrom('mailboxes')
       .select('id')
@@ -165,17 +196,18 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
     return { ok: true };
   });
   app.delete('/api/invitations/:id', async (req) => {
-    const c = requireTenantAdmin(req.ctx);
+    const c = requireTenantAdmin(req.ctx, 'users.invite');
     const { id } = z.object({ id: z.uuid() }).parse(req.params);
     const inv = await r.db
       .selectFrom('invitations')
-      .select('tenant_role')
+      .select(['tenant_role', 'access_profile_id'])
       .where('tenant_id', '=', c.tenantId)
       .where('id', '=', id)
       .where('accepted_at', 'is', null)
       .where('revoked_at', 'is', null)
       .executeTakeFirst();
     if (!inv) throw notFound();
+    await assertProfileGrant(r.db, c, inv.access_profile_id, inv.tenant_role);
     if (inv.tenant_role === 'admin' && c.tenantRole !== 'owner') throw forbidden();
     await r.db
       .updateTable('invitations')
@@ -231,7 +263,15 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
     const userId = await r.db.transaction().execute(async (tx) => {
       const i = await tx
         .selectFrom('invitations')
-        .select(['id', 'tenant_id', 'email', 'tenant_role', 'mailbox_roles', 'capabilities'])
+        .select([
+          'id',
+          'tenant_id',
+          'email',
+          'tenant_role',
+          'mailbox_roles',
+          'capabilities',
+          'access_profile_id',
+        ])
         .where('token_hash', '=', hashToken(token))
         .where('accepted_at', 'is', null)
         .where('revoked_at', 'is', null)
@@ -283,11 +323,15 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
           role: i.tenant_role,
           status: 'active',
           capabilities: i.capabilities,
+          access_profile_id: i.access_profile_id,
         })
         .onConflict((oc) =>
-          oc
-            .columns(['tenant_id', 'user_id'])
-            .doUpdateSet({ role: i.tenant_role, status: 'active', capabilities: i.capabilities }),
+          oc.columns(['tenant_id', 'user_id']).doUpdateSet({
+            role: i.tenant_role,
+            status: 'active',
+            capabilities: i.capabilities,
+            access_profile_id: i.access_profile_id,
+          }),
         )
         .execute();
       const boxes = invitationSchema.shape.mailbox_roles.parse(i.mailbox_roles);

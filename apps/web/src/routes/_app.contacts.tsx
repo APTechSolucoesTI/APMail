@@ -1,3 +1,4 @@
+import { hasAccess } from '@apmail/shared';
 import { useState } from 'react';
 import { z } from 'zod';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
@@ -36,6 +37,7 @@ function Contacts() {
   const me = useQuery(meQuery).data,
     tenant = me?.tenants.find((t) => t.id === tenantId);
   const mayControl =
+    (tenant?.access_profile_id && hasAccess(tenant, 'contacts.delete')) ||
     isTenantAdmin(tenant?.role) ||
     canDelegate(tenant?.role ?? null, tenant?.capabilities, 'contacts_manage');
   const [editing, setEditing] = useState<string | null | undefined>(undefined);

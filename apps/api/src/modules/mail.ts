@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import { z } from 'zod';
-import { Storage, touchThreads, asJson } from '@apmail/db';
+import { Storage, touchThreads, asJson, audit } from '@apmail/db';
 import { toBullJobId, externalParticipants, type Address, type MailboxPerm } from '@apmail/shared';
 import { requireTenant, notFound, conflict, type RequestContext } from '../authz/context.js';
 import { requireMailboxPerm } from '../authz/guards.js';
@@ -543,6 +543,24 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       for (const m of messages) {
         const permanent =
           b.type === 'delete' && folders.find((f) => f.id === m.folder_id)?.special_use === 'trash';
+        await audit(trx, {
+          tenantId: c.tenantId,
+          actorId: c.userId,
+          action: 'message.' + b.type + '_requested',
+          entityType: 'message',
+          entityId: m.id,
+          metadata: {
+            operation_id: row.id,
+            outcome: 'requested',
+            permanent,
+            previous_folder_id: m.folder_id,
+            target_folder_id: destination?.id ?? null,
+            flagged: b.flagged ?? null,
+          },
+          ip: c.ip,
+          requestId: req.id,
+          eventKey: row.id + ':' + m.id + ':requested',
+        });
         await trx
           .updateTable('messages')
           .set({

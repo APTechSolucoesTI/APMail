@@ -1,4 +1,4 @@
-import { isTenantAdmin } from '@apmail/shared';
+import { isTenantAdmin, profileAllowsMailbox } from '@apmail/shared';
 import { sql } from 'kysely';
 import { can, type MailboxPerm, type QueueReason } from '@apmail/shared';
 import type { Database } from './threads.js';
@@ -14,12 +14,22 @@ export async function mailboxUserCan(
 ): Promise<boolean> {
   const member = await db
     .selectFrom('tenant_members')
-    .select('role')
-    .where('tenant_id', '=', tenantId)
+    .leftJoin('access_profiles as ap', (j) =>
+      j
+        .onRef('ap.id', '=', 'tenant_members.access_profile_id')
+        .onRef('ap.tenant_id', '=', 'tenant_members.tenant_id'),
+    )
+    .select(['role', 'tenant_members.access_profile_id', 'ap.permissions'])
+    .where('tenant_members.tenant_id', '=', tenantId)
     .where('user_id', '=', userId)
     .where('status', '=', 'active')
     .executeTakeFirst();
   if (!member) return false;
+  if (
+    member.access_profile_id &&
+    !profileAllowsMailbox({ role: member.role, access_permissions: member.permissions ?? [] }, perm)
+  )
+    return false;
   if (isTenantAdmin(member.role)) return true;
   const boxMember = await db
     .selectFrom('mailbox_members')

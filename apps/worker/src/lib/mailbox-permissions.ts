@@ -1,4 +1,10 @@
-import { can, canDelegate, isTenantAdmin, type MailboxPerm } from '@apmail/shared';
+import {
+  can,
+  canDelegate,
+  isTenantAdmin,
+  profileAllowsMailbox,
+  type MailboxPerm,
+} from '@apmail/shared';
 import type { WorkerResources } from '../resources.js';
 import type { Mailbox } from '../imap/connect.js';
 export async function userCanMailbox(
@@ -17,13 +23,27 @@ export async function userCanMailbox(
         .on('mm.mailbox_id', '=', box.id),
     )
     .innerJoin('tenants as tenant', 'tenant.id', 'tm.tenant_id')
-    .select(['tm.role', 'tm.capabilities', 'mm.role as mailbox_role'])
+    .leftJoin('access_profiles as p', (j) =>
+      j.onRef('p.id', '=', 'tm.access_profile_id').onRef('p.tenant_id', '=', 'tm.tenant_id'),
+    )
+    .select([
+      'tm.role',
+      'tm.capabilities',
+      'mm.role as mailbox_role',
+      'tm.access_profile_id',
+      'p.permissions',
+    ])
     .where('tm.tenant_id', '=', box.tenant_id)
     .where('tm.user_id', '=', userId)
     .where('tm.status', '=', 'active')
     .where('tenant.suspended_at', 'is', null)
     .where('tenant.deleted_at', 'is', null)
     .executeTakeFirst();
+  if (
+    access?.access_profile_id &&
+    !profileAllowsMailbox({ role: access.role, access_permissions: access.permissions ?? [] }, perm)
+  )
+    return false;
   return (
     !!access &&
     (isTenantAdmin(access.role) ||
