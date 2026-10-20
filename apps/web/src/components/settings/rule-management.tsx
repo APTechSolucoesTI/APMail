@@ -72,36 +72,40 @@ export function RuleManagement({
       setBusy(false);
     }
   };
-  const create = (vacation = false) =>
+  const create = (preset: 'custom' | 'auto_reply' | 'vacation' = 'custom') => {
+    const automatic = preset !== 'custom',
+      vacation = preset === 'vacation';
     setDraft({
       id: '',
       mailbox_id:
         mailboxId ??
-        (vacation ? available.find((b) => canMailbox(b, 'send'))?.id : available[0]?.id) ??
+        (automatic ? available.find((b) => canMailbox(b, 'send'))?.id : available[0]?.id) ??
         '',
       scope,
-      name: vacation ? 'Resposta de férias' : '',
+      name: vacation ? 'Resposta de férias' : automatic ? 'Auto-resposta' : '',
       is_active: true,
       priority: 100,
-      match_mode: vacation ? 'always' : 'all',
-      conditions: vacation ? [] : [{ field: 'from', operator: 'contains', value: '' }],
+      match_mode: automatic ? 'always' : 'all',
+      conditions: automatic ? [] : [{ field: 'from', operator: 'contains', value: '' }],
       exceptions: [],
       active_from: null,
       active_until: null,
-      actions: vacation
+      actions: automatic
         ? [
             {
               type: 'auto_reply',
-              subject: 'Ausência temporária',
-              message:
-                'Olá!\n\nEstou de férias e retornarei em breve. Responderei à sua mensagem assim que voltar.\n\nObrigado pela compreensão.',
-              cooldown_hours: 168,
+              subject: vacation ? 'Ausência temporária' : 'Recebemos sua mensagem',
+              message: vacation
+                ? 'Olá!\n\nEstou de férias e retornarei em breve. Responderei à sua mensagem assim que voltar.\n\nObrigado pela compreensão.'
+                : 'Olá!\n\nRecebemos sua mensagem e retornaremos assim que possível.\n\nObrigado pelo contato.',
+              cooldown_hours: vacation ? 168 : 24,
             },
           ]
         : [{ type: scope === 'personal' ? 'pin' : 'mark_flagged' }],
       stop_processing: false,
       created_at: '',
     });
+  };
   const table = (
     <ConfigurableTable
       listKey={'rules-' + scope + (mailboxId ? '-' + mailboxId : '')}
@@ -121,7 +125,16 @@ export function RuleManagement({
           {scope === 'mailbox' && (
             <Button
               variant="outline"
-              onClick={() => create(true)}
+              onClick={() => create('auto_reply')}
+              disabled={!available.some((b) => canMailbox(b, 'send'))}
+            >
+              Auto-resposta
+            </Button>
+          )}
+          {scope === 'mailbox' && (
+            <Button
+              variant="outline"
+              onClick={() => create('vacation')}
               disabled={!available.some((b) => canMailbox(b, 'send'))}
             >
               Resposta de férias

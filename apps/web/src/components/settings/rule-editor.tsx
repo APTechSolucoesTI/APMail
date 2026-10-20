@@ -527,7 +527,8 @@ export function RuleEditor({
         <fieldset className="space-y-3 rounded-lg border p-3">
           <legend className="px-1 text-sm font-semibold">Período de ativação</legend>
           <p className="text-xs text-muted-foreground">
-            Opcional · Fuso horário: {timezone}. Sem datas, a regra segue o controle Regra ativa.
+            Opcional · Fuso horário: {timezone}. Sem datas, a regra continua ativa até você
+            desativá-la.
           </p>
           {(['active_from', 'active_until'] as const).map((key, index) => (
             <div key={key} className="space-y-1">

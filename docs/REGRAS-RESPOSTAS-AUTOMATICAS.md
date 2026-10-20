@@ -5,6 +5,14 @@ As **Regras da caixa** controlam a organização compartilhada e as respostas au
 exigem permissão de regras e, para responder, permissão de envio em uma conta conectada.
 Caixas locais não enviam respostas.
 
+## Auto-resposta com texto fixo
+
+Em **Regras da caixa → Auto-resposta**, personalize o assunto e a mensagem.
+O modelo começa sem datas de início ou término e vale para qualquer remetente, com
+intervalo inicial de um dia por remetente, que pode ser ajustado. Ele continua funcionando
+até você desligar a chave da regra na coluna **Ativa**. Reative a mesma chave para voltar a responder.
+Condições, exceções e período são opcionais; as proteções de envio abaixo também se aplicam.
+
 ## Resposta de férias
 
 1. Abra **Regras da caixa → Resposta de férias**.
