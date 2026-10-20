@@ -5,24 +5,21 @@ As **Regras da caixa** controlam a organização compartilhada e as respostas au
 exigem permissão de regras e, para responder, permissão de envio em uma conta conectada.
 Caixas locais não enviam respostas.
 
-## Auto-resposta com texto fixo
+## Configurar a ação de resposta automática
 
-Em **Regras da caixa → Auto-resposta**, personalize o assunto e a mensagem.
-O modelo começa sem datas de início ou término e vale para qualquer remetente, com
-intervalo inicial de um dia por remetente, que pode ser ajustado. Ele continua funcionando
-até você desligar a chave da regra na coluna **Ativa**. Reative a mesma chave para voltar a responder.
-Condições, exceções e período são opcionais; as proteções de envio abaixo também se aplicam.
-
-## Resposta de férias
-
-1. Abra **Regras da caixa → Resposta de férias**.
-2. Confira a caixa e personalize o assunto e a mensagem. Sem assunto personalizado,
-   a resposta usa “Resposta automática” seguido do assunto recebido.
-3. Deixe **Todas as mensagens recebidas** ou escolha condições por remetente,
+1. Abra **Regras da caixa → Nova regra**, dê um nome à regra e escolha a caixa.
+2. Selecione **Todas as mensagens recebidas** ou escolha condições por remetente,
    destinatário, assunto, corpo ou anexos. Adicione exceções para ignorar casos específicos.
+3. Em **Ação**, selecione **Responder automaticamente** e personalize o assunto e a
+   mensagem. Sem assunto personalizado, a resposta usa “Resposta automática” seguido
+   do assunto recebido. O texto pode ser um aviso de recebimento, de férias ou outra resposta fixa.
 4. Configure o intervalo por remetente (padrão: sete dias) e, opcionalmente, início e término.
    As datas usam o fuso das preferências do usuário e são armazenadas como instantes UTC.
 5. Salve a regra. O backend processa novas mensagens mesmo com o navegador fechado.
+
+Sem datas, a regra continua funcionando até você desligar a chave na coluna **Ativa**.
+Reative a mesma chave para voltar a responder, preservando o texto configurado.
+As respostas automáticas usam o mesmo cadastro, condições e gerenciamento das demais regras.
 
 O teste de condições usa uma conversa recebida e não executa ações nem envia e-mails.
 Exceções são combinadas por “ou”; qualquer exceção correspondente impede a regra.

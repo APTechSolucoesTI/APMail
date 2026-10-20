@@ -72,36 +72,20 @@ export function RuleManagement({
       setBusy(false);
     }
   };
-  const create = (preset: 'custom' | 'auto_reply' | 'vacation' = 'custom') => {
-    const automatic = preset !== 'custom',
-      vacation = preset === 'vacation';
+  const create = () => {
     setDraft({
       id: '',
-      mailbox_id:
-        mailboxId ??
-        (automatic ? available.find((b) => canMailbox(b, 'send'))?.id : available[0]?.id) ??
-        '',
+      mailbox_id: mailboxId ?? available[0]?.id ?? '',
       scope,
-      name: vacation ? 'Resposta de férias' : automatic ? 'Auto-resposta' : '',
+      name: '',
       is_active: true,
       priority: 100,
-      match_mode: automatic ? 'always' : 'all',
-      conditions: automatic ? [] : [{ field: 'from', operator: 'contains', value: '' }],
+      match_mode: 'all',
+      conditions: [{ field: 'from', operator: 'contains', value: '' }],
       exceptions: [],
       active_from: null,
       active_until: null,
-      actions: automatic
-        ? [
-            {
-              type: 'auto_reply',
-              subject: vacation ? 'Ausência temporária' : 'Recebemos sua mensagem',
-              message: vacation
-                ? 'Olá!\n\nEstou de férias e retornarei em breve. Responderei à sua mensagem assim que voltar.\n\nObrigado pela compreensão.'
-                : 'Olá!\n\nRecebemos sua mensagem e retornaremos assim que possível.\n\nObrigado pelo contato.',
-              cooldown_hours: vacation ? 168 : 24,
-            },
-          ]
-        : [{ type: scope === 'personal' ? 'pin' : 'mark_flagged' }],
+      actions: [{ type: scope === 'personal' ? 'pin' : 'mark_flagged' }],
       stop_processing: false,
       created_at: '',
     });
@@ -117,30 +101,10 @@ export function RuleManagement({
       error={q.error}
       onRetry={() => void q.refetch()}
       toolbarLeft={
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => create()} disabled={!available.length}>
-            <Plus />
-            Nova regra
-          </Button>
-          {scope === 'mailbox' && (
-            <Button
-              variant="outline"
-              onClick={() => create('auto_reply')}
-              disabled={!available.some((b) => canMailbox(b, 'send'))}
-            >
-              Auto-resposta
-            </Button>
-          )}
-          {scope === 'mailbox' && (
-            <Button
-              variant="outline"
-              onClick={() => create('vacation')}
-              disabled={!available.some((b) => canMailbox(b, 'send'))}
-            >
-              Resposta de férias
-            </Button>
-          )}
-        </div>
+        <Button onClick={create} disabled={!available.length}>
+          <Plus />
+          Nova regra
+        </Button>
       }
       columns={[
         { id: 'priority', header: 'Prioridade', align: 'right', sortable: true },
