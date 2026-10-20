@@ -154,6 +154,15 @@ const workers = QUEUE_NAMES.map(
           await db.deleteFrom('sessions').where('expires_at', '<', now).execute();
           await db.deleteFrom('password_reset_tokens').where('expires_at', '<', now).execute();
           await db
+            .deleteFrom('auth_two_factor_challenges')
+            .where('expires_at', '<=', now)
+            .execute();
+          await db
+            .updateTable('user_two_factor')
+            .set({ pending_encrypted_secret: null, pending_expires_at: null })
+            .where('pending_expires_at', '<=', now)
+            .execute();
+          await db
             .deleteFrom('invitations')
             .where('expires_at', '<', now)
             .where('accepted_at', 'is', null)

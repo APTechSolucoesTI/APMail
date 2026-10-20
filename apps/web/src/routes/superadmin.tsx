@@ -25,6 +25,14 @@ import {
 import { useTheme } from '@/components/layout/theme-provider';
 import { TenantStorage } from '@/components/storage/storage-quotas';
 import { TableUserContext } from '@/hooks/use-table-preferences';
+import { TwoFactorSettings } from '@/components/settings/two-factor-settings';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 
 const sections = [
   'overview',
@@ -78,6 +86,7 @@ function SuperAdmin() {
       ? query.section
       : 'tenants';
   const [dialog, setDialog] = useState<ManagementDialog | null>(null);
+  const [securityOpen, setSecurityOpen] = useState(false);
   const me = useQuery(meQuery).data;
   const { theme, setTheme } = useTheme();
   useEffect(() => {
@@ -252,7 +261,10 @@ function SuperAdmin() {
         <div className="mx-auto max-w-screen-2xl space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="font-semibold">APMail · Administração</span>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setSecurityOpen(true)}>
+                Segurança · 2FA
+              </Button>
               <Button
                 variant="outline"
                 disabled={themeChange.isPending}
@@ -272,6 +284,15 @@ function SuperAdmin() {
               </Button>
             </div>
           </div>
+          <Dialog open={securityOpen} onOpenChange={setSecurityOpen}>
+            <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Segurança da conta</DialogTitle>
+                <DialogDescription>Proteja seu acesso à administração do APMail.</DialogDescription>
+              </DialogHeader>
+              <TwoFactorSettings />
+            </DialogContent>
+          </Dialog>
           <PageHeader
             title="Gestão da plataforma"
             description={

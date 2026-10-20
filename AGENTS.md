@@ -3,7 +3,8 @@
 ## Repositório e publicação
 
 - Repositório local: `E:\Sistemas\APMail`; branch de entrega: `main`.
-- O usuário solicitou commit e push das alterações relacionadas a cada entrega.
+- O usuário solicitou commit e push para alterações no código e arquivos necessários à implementação.
+- Operações de dados, configuração de contas e manutenção sem alteração de código não exigem commit.
 - O usuário cuida do Dokploy. Não fazer deploy sem solicitação explícita.
 - Preservar alterações locais e dados existentes, salvo limpeza expressamente autorizada.
 

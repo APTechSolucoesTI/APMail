@@ -59,6 +59,12 @@ Os envios SMTP e os testes de conexão anunciam o hostname público de `APP_URL`
 
 O superadmin pode definir quantidade de caixas e capacidade por empresa; proprietários e administradores distribuem a cota entre caixas. A interface apresenta consumo do APMail e do provedor. Importações bloqueadas pela cota preservam um checkpoint e retomam quando houver capacidade. Consulte [cotas de armazenamento](docs/COTAS-ARMAZENAMENTO.md).
 
-Filas de atendimento são opcionais por usuário em **Configurações → Preferências → Usar filas de atendimento no e-mail**. A opção vem ativada. Ao desativá-la, o usuário navega por pastas e etiquetas, sem status, responsáveis ou ações de atendimento na interface de e-mail. Os atendimentos compartilhados e seus históricos são preservados; a preferência não altera permissões nem o processamento da equipe. Persistência em `user_preferences.mail_queues_enabled`, migration `0046`.
+Filas de atendimento são opcionais por usuário em **Configurações → Preferências → E-mail → Usar filas de atendimento no e-mail**. A opção vem ativada. Ao desativá-la, o usuário navega por pastas e etiquetas, sem status, responsáveis ou ações de atendimento na interface de e-mail. Os atendimentos compartilhados e seus históricos são preservados; a preferência não altera permissões nem o processamento da equipe. Persistência em `user_preferences.mail_queues_enabled`, migration `0046`.
 
 As regras permitem respostas automáticas de férias, condições para todas as mensagens, exceções e período de ativação. Consulte [Regras e respostas automáticas](docs/REGRAS-RESPOSTAS-AUTOMATICAS.md) para configuração, permissões e limites do protocolo.
+
+As preferências têm abas **Geral**, **E-mail**, **Notificações**, **Convites** e **2FA**.
+Tema e fuso horário aparecem primeiro. A autenticação em dois fatores é opcional,
+compatível com Google Authenticator, com QR Code e códigos de recuperação. Exige a
+migration aditiva `0048`, preservando `CREDENTIALS_ENCRYPTION_KEY`. Consulte
+[Preferências e 2FA](docs/PREFERENCIAS-2FA.md) para ativação, segurança e publicação.

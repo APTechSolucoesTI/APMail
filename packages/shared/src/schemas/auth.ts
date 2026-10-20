@@ -10,6 +10,15 @@ import { SUPERVISOR_CAPABILITIES } from '../permissions.js';
 export const capabilitiesSchema = z.array(z.enum(SUPERVISOR_CAPABILITIES)).max(6).default([]);
 export const fullNameSchema = z.string().trim().min(2).max(120);
 export const loginSchema = z.object({ email: emailSchema, password: z.string().min(1).max(256) });
+export type PasswordLoginResult =
+  | { requires_two_factor: true; challenge: string; expires_at: string }
+  | { requires_two_factor: false; user: { id: string; email: string; full_name: string } };
+export type TwoFactorStatus = {
+  enabled: boolean;
+  enabled_at: string | null;
+  recovery_codes_remaining: number;
+};
+export type TwoFactorSetup = { manual_key: string; qr_code: string; expires_at: string };
 export const signupSchema = z.object({
   full_name: fullNameSchema,
   email: emailSchema,

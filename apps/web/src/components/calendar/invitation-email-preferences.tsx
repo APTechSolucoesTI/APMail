@@ -12,11 +12,12 @@ import { api } from '@/lib/api';
 import { useTenantId, canMailbox, type Mailbox } from '@/lib/auth';
 import type { Signature } from '@/lib/outbox';
 import { signaturePreview } from '@/lib/signature';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 
-export function InvitationEmailSettings() {
+export function InvitationEmailSettings({ className }: { className?: string } = {}) {
   const tenant = useTenantId();
   const preferences = useQuery({
     queryKey: ['invitation-email-preferences', tenant],
@@ -34,14 +35,17 @@ export function InvitationEmailSettings() {
     return (
       <section
         role="status"
-        className="max-w-2xl rounded-lg border bg-card p-4 text-sm text-muted-foreground"
+        className={cn(
+          'max-w-2xl rounded-lg border bg-card p-4 text-sm text-muted-foreground',
+          className,
+        )}
       >
         Carregando preferências de convites…
       </section>
     );
   if (preferences.isError || signatures.isError || mailboxes.isError)
     return (
-      <section className="max-w-2xl space-y-3 rounded-lg border bg-card p-4">
+      <section className={cn('max-w-2xl space-y-3 rounded-lg border bg-card p-4', className)}>
         <p role="alert" className="text-sm">
           Não foi possível carregar as preferências de convites.
         </p>
@@ -63,6 +67,7 @@ export function InvitationEmailSettings() {
       initial={preferences.data}
       signatures={signatures.data}
       mailboxes={mailboxes.data}
+      className={className}
     />
   );
 }
@@ -71,10 +76,12 @@ function InvitationEmailForm({
   initial,
   signatures,
   mailboxes,
+  className,
 }: {
   initial: InvitationEmailPreferences;
   signatures: Signature[];
   mailboxes: Mailbox[];
+  className?: string;
 }) {
   const tenant = useTenantId(),
     client = useQueryClient();
@@ -87,7 +94,7 @@ function InvitationEmailForm({
   const signatureValue =
     form.signature_mode === 'selected' ? (form.signature_id ?? '') : form.signature_mode;
   return (
-    <section className="max-w-2xl rounded-lg border bg-card p-4">
+    <section className={cn('max-w-2xl rounded-lg border bg-card p-4', className)}>
       <div className="mb-4 flex items-start gap-3">
         <Mail className="mt-0.5 size-5 shrink-0 text-primary" />
         <div>

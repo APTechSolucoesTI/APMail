@@ -21,6 +21,7 @@ import {
 } from '../authz/context.js';
 import { hashToken, newToken, createSession, invalidateSessions } from '../plugins/auth.js';
 import type { Resources } from './resources.js';
+import { completePasswordLogin } from './two-factor.js';
 export const hashPassword = (value: string) =>
   hash(value, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
 const publicUserColumns = [
@@ -157,20 +158,9 @@ export async function registerAuthRoutes(app: FastifyInstance, r: Resources) {
         throw new ApiError(401, 'unauthenticated', 'E-mail ou senha inválidos.');
       }
       await r.redis.del('auth-rate:login:' + hashToken(b.email));
-      await r.db
-        .updateTable('users')
-        .set({ last_login_at: new Date() })
-        .where('id', '=', user.id)
-        .execute();
-      await createSession(r.db, r.env, req, reply, user.id);
-      await auditUser(r, user.id, 'auth.login', req.ip);
-      return {
-        user: await r.db
-          .selectFrom('users')
-          .select(['id', 'email', 'full_name'])
-          .where('id', '=', user.id)
-          .executeTakeFirstOrThrow(),
-      };
+      const result = await completePasswordLogin(r, user.id, user.password_hash, req, reply);
+      if (!result.requires_two_factor) await auditUser(r, user.id, 'auth.login', req.ip);
+      return result;
     },
   );
   app.post('/api/auth/logout', async (req, reply) => {
@@ -234,13 +224,34 @@ export async function registerAuthRoutes(app: FastifyInstance, r: Resources) {
         .where('user_id', '=', token.user_id)
         .where('used_at', 'is', null)
         .execute();
+      await tx
+        .updateTable('user_two_factor')
+        .set({ pending_encrypted_secret: null, pending_expires_at: null })
+        .where('user_id', '=', token.user_id)
+        .execute();
       return token.user_id;
     });
     await invalidateSessions(r.db, r.redis, userId);
     r.io.in('user:' + userId).disconnectSockets(true);
-    await createSession(r.db, r.env, req, reply, userId);
+    // A password-reset link must never bypass an enrolled authenticator.
+    const requiresTwoFactor = await r.db.transaction().execute(async (tx) => {
+      await tx
+        .selectFrom('users')
+        .select('id')
+        .where('id', '=', userId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      const factor = await tx
+        .selectFrom('user_two_factor')
+        .select('enabled_at')
+        .where('user_id', '=', userId)
+        .executeTakeFirst();
+      if (!factor?.enabled_at) await createSession(tx, r.env, req, reply, userId);
+      return !!factor?.enabled_at;
+    });
+    if (requiresTwoFactor) reply.clearCookie('apmail_session', { path: '/' });
     await auditUser(r, userId, 'auth.password_changed', req.ip);
-    return { ok: true };
+    return { ok: true, requires_two_factor: requiresTwoFactor };
   });
   app.post('/api/auth/change-password', async (req) => {
     const c = requireAuth(req.ctx);

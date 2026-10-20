@@ -5,6 +5,7 @@ import { SchemaForm } from '@/components/forms/schema-form';
 import { AuthShell } from '@/components/layout/auth-shell';
 import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query-client';
+import { toast } from 'sonner';
 export const Route = createFileRoute('/reset-password')({
   validateSearch: z.object({ token: z.string().optional() }),
   component: Reset,
@@ -29,9 +30,15 @@ function Reset() {
           ]}
           submitLabel="Redefinir senha"
           onSubmit={async (b) => {
-            await api('/auth/reset-password', { method: 'POST', body: { ...b, token } });
+            const result = await api<{ requires_two_factor?: boolean }>('/auth/reset-password', {
+              method: 'POST',
+              body: { ...b, token },
+            });
             queryClient.clear();
-            await navigate({ to: '/' });
+            if (result.requires_two_factor) {
+              toast.success('Senha atualizada. Entre e confirme o código do autenticador.');
+              await navigate({ to: '/login' });
+            } else await navigate({ to: '/' });
           }}
         />
       )}

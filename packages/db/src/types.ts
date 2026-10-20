@@ -90,6 +90,16 @@ export interface AuditLogs {
   tenant_id: string;
 }
 
+export interface AuthTwoFactorChallenges {
+  attempts: Generated<number>;
+  created_at: Generated<Timestamp>;
+  expires_at: Timestamp;
+  factor_version: string;
+  password_fingerprint: string;
+  token_hash: string;
+  user_id: string;
+}
+
 export interface CalendarEmailPreferences {
   created_at: Generated<Timestamp>;
   mailbox_id: string | null;
@@ -1132,9 +1142,23 @@ export interface Users {
   updated_at: Generated<Timestamp>;
 }
 
+export interface UserTwoFactor {
+  created_at: Generated<Timestamp>;
+  enabled_at: Timestamp | null;
+  encrypted_secret: string | null;
+  last_used_step: Generated<Int8>;
+  pending_encrypted_secret: string | null;
+  pending_expires_at: Timestamp | null;
+  recovery_code_hashes: Generated<string[]>;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+  version: Generated<string>;
+}
+
 export interface DB {
   attachments: Attachments;
   audit_logs: AuditLogs;
+  auth_two_factor_challenges: AuthTwoFactorChallenges;
   calendar_email_preferences: CalendarEmailPreferences;
   calendar_events: CalendarEvents;
   calendars: Calendars;
@@ -1209,5 +1233,6 @@ export interface DB {
   threads: Threads;
   uploads: Uploads;
   user_preferences: UserPreferences;
+  user_two_factor: UserTwoFactor;
   users: Users;
 }

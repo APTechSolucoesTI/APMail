@@ -109,7 +109,43 @@ export async function createSession(
   req: FastifyRequest,
   reply: FastifyReply,
   userId: string,
-) {
+  verifiedFactorVersion?: string,
+): Promise<void> {
+  if (!db.isTransaction)
+    return db
+      .transaction()
+      .execute((tx) => createSession(tx, env, req, reply, userId, verifiedFactorVersion));
+  // Every session entry point (including invitations and password resets) shares this guard.
+  // Enrollment locks the same user row before revoking password-only sessions.
+  await db
+    .selectFrom('users')
+    .select('id')
+    .where('id', '=', userId)
+    .forUpdate()
+    .executeTakeFirstOrThrow();
+  const factor = await db
+    .selectFrom('user_two_factor')
+    .select(['enabled_at', 'version'])
+    .where('user_id', '=', userId)
+    .executeTakeFirst();
+  if (factor?.enabled_at && factor.version !== verifiedFactorVersion) {
+    const current =
+      req.ctx?.userId === userId
+        ? await db
+            .selectFrom('sessions')
+            .select('id')
+            .where('user_id', '=', userId)
+            .where('token_hash', '=', req.ctx.sessionHash)
+            .where('expires_at', '>', new Date())
+            .executeTakeFirst()
+        : null;
+    if (!current)
+      throw new ApiError(
+        401,
+        'two_factor_required',
+        'Confirme a autenticação em dois fatores para entrar.',
+      );
+  }
   const token = newToken();
   await db
     .insertInto('sessions')

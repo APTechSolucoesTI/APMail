@@ -28,6 +28,7 @@ import { ZodError, z } from 'zod';
 import { installAuth } from './plugins/auth.js';
 import { installSocket } from './plugins/socket.js';
 import { registerAuthRoutes } from './modules/auth.js';
+import { registerTwoFactorRoutes } from './modules/two-factor.js';
 import { registerTenantRoutes } from './modules/tenants.js';
 import { registerMailboxRoutes } from './modules/mailboxes.js';
 import { registerInvitationRoutes } from './modules/invitations.js';
@@ -75,6 +76,14 @@ export async function buildApp(config: ApiEnv = readEnv()) {
               'body.token',
               'password',
               'encrypted_password',
+              'body.code',
+              'body.challenge',
+              'encrypted_secret',
+              'pending_encrypted_secret',
+              'manual_key',
+              'qr_code',
+              'recovery_codes',
+              'recovery_code_hashes',
             ],
           },
   }).withTypeProvider<ZodTypeProvider>();
@@ -249,6 +258,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   });
   const sockets = installSocket(app, resources);
   await registerAuthRoutes(app, resources);
+  await registerTwoFactorRoutes(app, resources);
   await registerTenantRoutes(app, resources);
   await registerMailboxRoutes(app, resources);
   await registerInvitationRoutes(app, resources);
