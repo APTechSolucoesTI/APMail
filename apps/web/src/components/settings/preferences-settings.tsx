@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { toast } from 'sonner';
 import { InvitationEmailSettings } from '@/components/calendar/invitation-email-preferences';
 import { TwoFactorSettings } from '@/components/settings/two-factor-settings';
+import { CompositionSettings } from '@/components/settings/composition-settings';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
 
@@ -110,6 +111,7 @@ export function PreferencesSettings() {
               </TabsTrigger>
             ))}
             <TabsTrigger value="invitations">Convites</TabsTrigger>
+            {!q.data.platform_admin && <TabsTrigger value="composition">Composição</TabsTrigger>}
             <TabsTrigger value="two-factor">2FA</TabsTrigger>
           </TabsList>
         </div>
@@ -151,6 +153,9 @@ export function PreferencesSettings() {
         ))}
         <TabsContent value="invitations">
           <InvitationEmailSettings className="max-w-none" />
+        </TabsContent>
+        <TabsContent value="composition">
+          <CompositionSettings />
         </TabsContent>
         <TabsContent value="two-factor">
           <TwoFactorSettings />

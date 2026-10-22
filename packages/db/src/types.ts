@@ -532,6 +532,15 @@ export interface MailAutoReplyState {
   tenant_id: string;
 }
 
+export interface MailboxCompositionPreferences {
+  created_at: Generated<Timestamp>;
+  format: Json;
+  mailbox_id: string;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
 export interface MailboxCredentials {
   encrypted_password: string;
   mailbox_id: string;
@@ -1133,6 +1142,7 @@ export interface Uploads {
 }
 
 export interface UserPreferences {
+  composition_format: Json | null;
   density: Generated<string>;
   desktop_notifications: Generated<boolean>;
   load_remote_images: Generated<boolean>;
@@ -1211,6 +1221,7 @@ export interface DB {
   mail_auto_reply_state: MailAutoReplyState;
   mail_rules: MailRules;
   mail_schedule_series: MailScheduleSeries;
+  mailbox_composition_preferences: MailboxCompositionPreferences;
   mailbox_credentials: MailboxCredentials;
   mailbox_members: MailboxMembers;
   mailbox_purge_requests: MailboxPurgeRequests;

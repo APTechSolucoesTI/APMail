@@ -1088,6 +1088,14 @@ it('SMTP incorpora imagem de assinatura, inclui assinatura por ID e preserva ras
       })
     ).statusCode,
   ).toBe(200);
+  const cleared = (await api('GET', '/api/outbox/' + draft.id, editor)).json().body_html;
+  expect(cleared).not.toContain('cid:' + cid);
+  expect(cleared).not.toContain('Editor QA');
+  // ID-only clients still request insertion of the registered template; an explicit empty snapshot stays empty.
+  expect(
+    (await api('PATCH', '/api/outbox/' + draft.id, editor, { ...saved, body_html: '<p>Olá</p>' }))
+      .statusCode,
+  ).toBe(200);
   expect((await api('GET', '/api/outbox/' + draft.id, editor)).json().body_html).toContain(
     'cid:' + cid,
   );

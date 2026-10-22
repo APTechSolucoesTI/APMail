@@ -23,6 +23,7 @@ import {
 import { hashToken, newToken, createSession, invalidateSessions } from '../plugins/auth.js';
 import type { Resources } from './resources.js';
 import { completePasswordLogin } from './two-factor.js';
+import { registerCompositionPreferences } from './composition-preferences.js';
 export const hashPassword = (value: string) =>
   hash(value, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
 const publicUserColumns = [
@@ -127,6 +128,7 @@ export async function rateByEmail(
     throw new ApiError(429, 'rate_limited', 'Muitas tentativas. Aguarde alguns minutos.');
 }
 export async function registerAuthRoutes(app: FastifyInstance, r: Resources) {
+  await registerCompositionPreferences(app, r);
   app.post(
     '/api/auth/signup',
     { config: { rateLimit: { max: 5, timeWindow: '1 hour' } } },

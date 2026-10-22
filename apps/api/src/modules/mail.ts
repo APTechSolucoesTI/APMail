@@ -142,6 +142,9 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
   });
   app.get('/api/threads/:id', async (req) => {
     const { thread, role, c } = await requireThread(req.ctx, r, idOf(req.params));
+    const { message_id: messageId, folder_id: folderId } = z
+      .object({ message_id: z.uuid().optional(), folder_id: z.uuid().optional() })
+      .parse(req.query);
     const scope = await readableFolders(c, r.db, thread.mailbox_id);
     const messages = await r.db
       .selectFrom('messages as m')
@@ -179,9 +182,14 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       .where('m.tenant_id', '=', c.tenantId)
       .where('m.thread_id', '=', thread.id)
       .where('m.deleted_at', 'is', null)
+      .$if(!!messageId, (query) => query.where('m.id', '=', messageId!))
+      .$if(!!folderId, (query) => query.where('m.folder_id', '=', folderId!))
       .where(folderPredicate(scope))
-      .orderBy('m.message_at', 'asc')
+      .orderBy('m.message_at', folderId ? 'desc' : 'asc')
+      .orderBy('m.id')
+      .$if(!!folderId && !messageId, (query) => query.limit(1))
       .execute();
+    if ((messageId || folderId) && !messages.length) throw notFound();
     const attachments = messages.length
       ? await r.db
           .selectFrom('attachments')
@@ -276,7 +284,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       inbound = messages.filter((m) => m.direction === 'inbound' && !m.is_automated),
       outbound = messages.filter((m) => m.direction === 'outbound' && !m.is_mdn);
     const visibleThread =
-      scope === null
+      scope === null && !messageId && !folderId
         ? thread
         : {
             ...thread,

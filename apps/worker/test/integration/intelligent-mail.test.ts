@@ -931,3 +931,76 @@ it('audita solicitação e conclusão da exclusão real de uma mensagem, com ide
     true,
   );
 });
+
+it('preserva fonte e assinatura editada no rascunho, no MIME e na cópia enviada sem alterar o modelo', async () => {
+  const signature = await db
+    .insertInto('signatures')
+    .values({
+      tenant_id: tenant,
+      user_id: owner,
+      name: 'Assinatura editável QA',
+      body_html: '<p>Modelo original</p>',
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  const html = `<p><strong><em><u><s><span style="font-family: Georgia, serif; font-size: 20px; color: #123456">Texto com fonte pessoal</span></s></u></em></strong></p><div data-apmail-signature="${signature.id}"><p>Telefone corrigido somente neste envio</p></div>`;
+  const draft = await call('POST', '/api/outbox', {
+    mailbox_id: boxId,
+    subject: 'Assinatura editável',
+    to_addresses: [{ address: 'signature@qa.example', name: '' }],
+    body_html: html,
+    signature_id: signature.id,
+  });
+  expect(draft.statusCode, draft.body).toBe(201);
+  const id = draft.json().id;
+  const reopened = await call('GET', '/api/outbox/' + id);
+  expect(reopened.json().body_html).toContain('Telefone corrigido');
+  expect(reopened.json().body_html).not.toContain('Modelo original');
+  const submitted = await call('POST', '/api/outbox/' + id + '/submit', {});
+  expect(submitted.statusCode, submitted.body).toBe(200);
+  await db
+    .updateTable('outbox')
+    .set({ send_after: new Date(0) })
+    .where('id', '=', id)
+    .execute();
+  await handleOutboxSend(r, id, {
+    id: submitted.json().job_id,
+    attemptsMade: 0,
+    opts: { attempts: 1 },
+  });
+  const row = await db
+    .selectFrom('outbox')
+    .selectAll()
+    .where('id', '=', id)
+    .executeTakeFirstOrThrow();
+  expect(row.status).toBe('sent');
+  const mime = await simpleParser(deliveries.at(-1)!.raw);
+  const copy = await db
+    .selectFrom('messages')
+    .selectAll()
+    .where('id', '=', row.sent_message_id!)
+    .executeTakeFirstOrThrow();
+  expect(mime.html).toContain('font-family:Georgia, serif');
+  expect(mime.html).toContain('font-size:20px');
+  expect(mime.html).toContain('color:#123456');
+  expect(mime.html).toContain('Telefone corrigido');
+  expect(mime.html).not.toContain('Modelo original');
+  expect(copy.body_html).toBe(mime.html);
+  expect(
+    (
+      await db
+        .selectFrom('signatures')
+        .select('body_html')
+        .where('id', '=', signature.id)
+        .executeTakeFirstOrThrow()
+    ).body_html,
+  ).toBe('<p>Modelo original</p>');
+  const cleared = await call('POST', '/api/outbox', {
+    mailbox_id: boxId,
+    subject: 'Sem texto de assinatura',
+    body_html: `<p>Texto</p><div data-apmail-signature="${signature.id}"></div>`,
+    signature_id: signature.id,
+  });
+  expect(cleared.statusCode, cleared.body).toBe(201);
+  expect(cleared.json().body_html).not.toContain('Modelo original');
+});

@@ -16,10 +16,11 @@ export async function listThreads(
 ) {
   const scope = await readableFolders(c, r.db, boxId);
   let folderId: string | null = null;
+  let individualMessages = false;
   if (q.view === 'folder') {
     let query = r.db
       .selectFrom('folders')
-      .select('id')
+      .select(['id', 'special_use'])
       .where('tenant_id', '=', c.tenantId)
       .where('mailbox_id', '=', boxId)
       .where('deleted_at', 'is', null)
@@ -31,6 +32,7 @@ export async function listThreads(
     if (q.folder_id && !folder) throw notFound();
     if (!folder) return { items: [], total: 0, page: q.page, page_size: q.page_size };
     folderId = folder.id;
+    individualMessages = folder.special_use === 'sent';
   }
   if (q.view === 'label') {
     const label = q.label_id
@@ -68,13 +70,20 @@ export async function listThreads(
     conditions.push(
       sql`exists(select 1 from messages sm where sm.thread_id=t.id and sm.tenant_id=${c.tenantId} and sm.deleted_at is null and ${folderPredicate(scope, 'sm.folder_id')} and sm.search_vector @@ websearch_to_tsquery('pt_unaccent',${q.q}))`,
     );
+  const entryId = individualMessages ? sql`m.id` : sql`m.thread_id`;
+  const selectedMessage = (alias: string) =>
+    individualMessages ? sql`and m.id=${sql.ref(alias + '.entry_id')}` : sql``;
   const folderFilter = folderId ? sql`and m.folder_id=${folderId}` : sql``,
     order =
       q.sort === 'oldest'
-        ? sql`last_message_at asc nulls last,id`
+        ? sql`last_message_at asc nulls last,id,entry_id`
         : q.sort === 'waiting_longest'
-          ? sql`last_inbound_at asc nulls last,id`
-          : sql`is_pinned desc,last_message_at desc nulls last,id`;
+          ? sql`last_inbound_at asc nulls last,id,entry_id`
+          : sql`is_pinned desc,last_message_at desc nulls last,id,entry_id`;
+  const messageSearch =
+    individualMessages && q.q?.trim()
+      ? sql`and m.search_vector @@ websearch_to_tsquery('pt_unaccent',${q.q})`
+      : sql``;
   const columns = {
     subject: sql`latest.subject`,
     latest_from: sql`concat_ws(' ',latest.from_name,latest.from_address)`,
@@ -105,26 +114,26 @@ export async function listThreads(
   select t.id,t.assigned_to,t.queue_status,t.queue_excluded,t.is_pinned_global,us.last_read_at,(t.is_pinned_global or coalesce(us.is_pinned,false)) as is_pinned from threads t
   left join thread_user_state us on us.thread_id=t.id and us.tenant_id=${c.tenantId} and us.user_id=${c.userId} where ${sql.join(conditions, sql` and `)}
  ), fm as (
-  select m.thread_id,count(*)::int as message_count,max(m.message_at) as last_message_at,max(m.message_at) filter(where ${inbound}) as last_inbound_at,bool_or(m.has_attachments) as has_attachments
+  select m.thread_id,${entryId} as entry_id,count(*)::int as message_count,max(m.message_at) as last_message_at,max(m.message_at) filter(where ${inbound}) as last_inbound_at,bool_or(m.has_attachments) as has_attachments
   from messages m join eligible e on e.id=m.thread_id join folders f on f.id=m.folder_id
-  where m.tenant_id=${c.tenantId} and m.mailbox_id=${boxId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter} group by m.thread_id
+  where m.tenant_id=${c.tenantId} and m.mailbox_id=${boxId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter} ${messageSearch} group by m.thread_id,${entryId}
  ), matched as (
-  select e.id,latest.subject,concat_ws(' ',latest.from_name,latest.from_address) as latest_from_sort,u.full_name as assigned_to_sort,e.queue_status,e.is_pinned,e.is_pinned_global,fm.message_count,fm.has_attachments,fm.last_message_at,fm.last_inbound_at,
+  select e.id,fm.entry_id,${individualMessages ? sql`fm.entry_id` : sql`null::uuid`} as message_id,latest.subject,concat_ws(' ',latest.from_name,latest.from_address) as latest_from_sort,u.full_name as assigned_to_sort,e.queue_status,e.is_pinned,e.is_pinned_global,fm.message_count,fm.has_attachments,fm.last_message_at,fm.last_inbound_at,
    coalesce(fm.last_inbound_at>coalesce(e.last_read_at,'-infinity'::timestamptz),false) as is_unread,coalesce(${overdue},false) as is_overdue,
    case when u.id is null then null else jsonb_build_object('id',u.id,'full_name',u.full_name,'avatar_url',case when u.avatar_path is null then null else '/api/avatars/'||u.id::text||'?v='||extract(epoch from u.updated_at)::bigint end) end as assigned_to
-  from eligible e join fm on fm.thread_id=e.id join tenants tenant on tenant.id=${c.tenantId} left join users u on u.id=e.assigned_to join lateral (select m.subject,m.from_name,m.from_address from messages m where m.thread_id=e.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter} order by m.message_at desc,m.id limit 1) latest on true
+  from eligible e join fm on fm.thread_id=e.id join tenants tenant on tenant.id=${c.tenantId} left join users u on u.id=e.assigned_to join lateral (select m.subject,m.from_name,m.from_address from messages m where m.thread_id=e.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter} ${selectedMessage('fm')} order by m.message_at desc,m.id limit 1) latest on true
   where ${columnFilters(q, columns)} ${q.unread ? sql`and fm.last_inbound_at>coalesce(e.last_read_at,'-infinity'::timestamptz)` : sql``} ${q.queue === 'overdue' && q.view === 'queue' ? sql`and ${overdue}` : sql``}
  ), paged as (select * from matched order by ${listOrder} limit ${q.page_size} offset ${(q.page - 1) * q.page_size}), detailed as (
   select p.*,latest.snippet,jsonb_build_object('name',latest.from_name,'address',latest.from_address) as latest_from,latest.to_addresses as latest_to,latest.direction,
    case when latest.request_read_receipt then case when exists(select 1 from mdn_receipts receipt where receipt.original_message_id=latest.id and receipt.disposition='displayed') then 'confirmed' else 'waiting' end else null end as read_receipt_status,
    coalesce((select array_agg(distinct address) from (
-    select lower(m.from_address) as address from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter}
-    union select lower(a->>'address') from messages m cross join lateral jsonb_array_elements(m.to_addresses||m.cc_addresses) a where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter}
+    select lower(m.from_address) as address from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter} ${selectedMessage('p')}
+    union select lower(a->>'address') from messages m cross join lateral jsonb_array_elements(m.to_addresses||m.cc_addresses) a where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter} ${selectedMessage('p')}
    ) contacts where address<>lower(box.email_address) and not address=any(box.aliases)), '{}'::text[]) as participants,
    coalesce((select jsonb_agg(jsonb_build_object('id',l.id,'name',l.name,'color',l.color,'scope',l.scope) order by (l.scope='tenant') desc,l.name) from thread_personal_labels tl join personal_labels l on l.id=tl.label_id where tl.thread_id=p.id and tl.tenant_id=${c.tenantId} and (l.scope='tenant' or l.user_id=${c.userId}) and (l.mailbox_mode='all' or exists(select 1 from label_mailboxes lm where lm.label_id=l.id and lm.mailbox_id=${boxId} and lm.tenant_id=l.tenant_id))),'[]'::jsonb) as labels,
    exists(select 1 from outbox o where o.thread_id=p.id and o.tenant_id=${c.tenantId} and o.mdn_original_message_id is null and o.status in ('scheduled','queued','sending')) as has_scheduled
   from paged p join mailboxes box on box.id=${boxId} join lateral (
-   select m.id,m.subject,m.snippet,m.from_name,m.from_address,m.to_addresses,m.direction,m.request_read_receipt from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter}
+   select m.id,m.subject,m.snippet,m.from_name,m.from_address,m.to_addresses,m.direction,m.request_read_receipt from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${folderPredicate(scope)} ${folderFilter} ${selectedMessage('p')}
    order by ${q.q?.trim() ? sql`(m.search_vector @@ websearch_to_tsquery('pt_unaccent',${q.q})) desc,` : sql``} m.message_at desc,m.id limit 1
   ) latest on true
  ) select coalesce((select jsonb_agg(to_jsonb(detailed) order by ${listOrder}) from detailed),'[]'::jsonb) as items,(select count(*)::int from matched) as total

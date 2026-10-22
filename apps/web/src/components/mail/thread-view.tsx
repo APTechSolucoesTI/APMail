@@ -21,6 +21,7 @@ import { MessageCard } from './message-card';
 import { MessageActions } from './message-actions';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import type { ThreadDetail, Folder } from '@/lib/mail';
+import { threadDetailKey } from '@/lib/mail';
 import { ThreadLabels } from './thread-labels';
 import { LabelBadge } from './label-badge';
 import { ThreadWorkflow } from './thread-workflow';
@@ -28,12 +29,16 @@ import { ThreadNotes } from './thread-notes';
 import { ShareToChatDialog } from '@/components/chat/share-to-chat-dialog';
 export function ThreadView({
   threadId,
+  messageId,
+  folderId,
   mailboxId,
   folders,
   onClose,
   onCompose,
 }: {
   threadId: string;
+  messageId?: string;
+  folderId?: string;
   mailboxId: string;
   folders: Folder[];
   onClose: () => void;
@@ -44,15 +49,24 @@ export function ThreadView({
     client = useQueryClient(),
     me = useQuery(meQuery);
   const q = useQuery({
-    queryKey: ['thread', tenantId, threadId],
-    queryFn: () => api<ThreadDetail>('/threads/' + threadId),
+    queryKey: threadDetailKey(tenantId, threadId, messageId, folderId),
+    queryFn: () =>
+      api<ThreadDetail>(
+        '/threads/' +
+          threadId +
+          '?' +
+          new URLSearchParams({
+            ...(messageId ? { message_id: messageId } : {}),
+            ...(folderId ? { folder_id: folderId } : {}),
+          }),
+      ),
   });
   useSocketRoom('thread', threadId);
   const [acting, setActing] = useState(false);
   const [labelsOpen, setLabelsOpen] = useState(false);
   const lastMessage = q.data?.messages.at(-1)?.message_at;
   useEffect(() => {
-    if (!lastMessage) return;
+    if (!lastMessage || messageId || folderId) return;
     const timer = setTimeout(
       () =>
         void api('/threads/' + threadId + '/read', { method: 'POST' }).catch((e) =>
@@ -61,7 +75,7 @@ export function ThreadView({
       1000,
     );
     return () => clearTimeout(timer);
-  }, [threadId, lastMessage]);
+  }, [threadId, lastMessage, messageId, folderId]);
   const action = async (type: string, scope?: 'mailbox') => {
     setActing(true);
     try {
@@ -122,7 +136,9 @@ export function ThreadView({
             <MessageActions
               mailboxId={mailboxId}
               folders={folders}
-              threadIds={[threadId]}
+              {...(messageId || folderId
+                ? { messageIds: data.messages.map((message) => message.id) }
+                : { threadIds: [threadId] })}
               compact
             />
           )}

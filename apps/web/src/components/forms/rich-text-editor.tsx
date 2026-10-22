@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { COMPOSITION_FONTS, COMPOSITION_SIZES, type CompositionFormat } from '@apmail/shared';
 import { createPortal } from 'react-dom';
 import { useEditor, EditorContent, Node } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -38,6 +39,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { CompositionDefaults, setCompositionFormat } from '@/lib/composition-defaults';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -95,6 +97,28 @@ const EmailImage = Node.create({
     };
   },
 });
+const EmailSignature = Node.create({
+  name: 'emailSignature',
+  group: 'block',
+  content: 'block+',
+  defining: true,
+  isolating: true,
+  addAttributes() {
+    return {
+      signatureId: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('data-apmail-signature'),
+        renderHTML: (attributes) => ({ 'data-apmail-signature': attributes.signatureId }),
+      },
+    };
+  },
+  parseHTML() {
+    return [{ tag: 'div[data-apmail-signature]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['div', HTMLAttributes, 0];
+  },
+});
 export function RichTextEditor({
   value,
   onChange,
@@ -104,6 +128,7 @@ export function RichTextEditor({
   toolbarContainer,
   ribbon = false,
   compact = false,
+  defaultFormat,
 }: {
   value: string;
   onChange: (html: string) => void;
@@ -113,6 +138,7 @@ export function RichTextEditor({
   toolbarContainer?: HTMLElement | null;
   ribbon?: boolean;
   compact?: boolean;
+  defaultFormat?: CompositionFormat;
 }) {
   const [dialog, setDialog] = useState<'link' | 'image' | null>(null),
     [url, setUrl] = useState('');
@@ -150,8 +176,10 @@ export function RichTextEditor({
       StarterKit.configure({ link: { openOnClick: false } }),
       Placeholder.configure({ placeholder: 'Escreva sua mensagem…' }),
       EmailImage,
+      EmailSignature,
       ParagraphLayout,
       TextStyleKit,
+      CompositionDefaults,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       TableKit.configure({ table: { resizable: false } }),
     ],
@@ -180,6 +208,9 @@ export function RichTextEditor({
     if (editor && value !== editor.getHTML())
       editor.commands.setContent(value, { emitUpdate: false });
   }, [value, editor]);
+  useEffect(() => {
+    if (editor) setCompositionFormat(editor,defaultFormat);
+  }, [editor, defaultFormat]);
   if (!editor)
     return (
       <div role="status" className="min-h-40 rounded-md border p-3">
@@ -332,14 +363,7 @@ export function RichTextEditor({
                 value={editor.getAttributes('textStyle').fontFamily || 'Arial, sans-serif'}
                 onChange={(e) => editor.chain().focus().setFontFamily(e.target.value).run()}
               >
-                {[
-                  'Arial, sans-serif',
-                  'Verdana, sans-serif',
-                  'Tahoma, sans-serif',
-                  'Georgia, serif',
-                  'Times New Roman, serif',
-                  'Courier New, monospace',
-                ].map((font) => (
+                {COMPOSITION_FONTS.map((font) => (
                   <option key={font} value={font}>
                     {font.split(',')[0]}
                   </option>
@@ -354,7 +378,7 @@ export function RichTextEditor({
                 value={editor.getAttributes('textStyle').fontSize || '14px'}
                 onChange={(e) => editor.chain().focus().setFontSize(e.target.value).run()}
               >
-                {[10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48].map((size) => (
+                {COMPOSITION_SIZES.map((size) => (
                   <option key={size} value={`${size}px`}>
                     {size}
                   </option>
@@ -367,6 +391,7 @@ export function RichTextEditor({
                 type="color"
                 aria-label="Cor do texto"
                 className="h-8 w-9 rounded border"
+                value={editor.getAttributes('textStyle').color || '#111827'}
                 onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
               />
             </label>

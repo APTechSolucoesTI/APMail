@@ -1,5 +1,16 @@
 import type { Address, MailboxRole, ContactResolution, MdnRequest } from '@apmail/shared';
 import type { PersonalLabel } from './organization';
+export const threadDetailKey = (
+  tenantId: string | null,
+  threadId: string | undefined,
+  messageId?: string,
+  folderId?: string,
+) =>
+  messageId
+    ? ['thread', tenantId, threadId, messageId]
+    : folderId
+      ? ['thread', tenantId, threadId, 'folder', folderId]
+      : ['thread', tenantId, threadId];
 export type Folder = {
   id: string;
   name: string;
@@ -12,6 +23,7 @@ export type Folder = {
 };
 export type Thread = {
   id: string;
+  message_id?: string | null;
   subject: string;
   snippet: string;
   participants: string[];

@@ -20,14 +20,6 @@ export async function prepareSignature(
   inheritedCids: string[] = [],
 ) {
   let html = row.body_html;
-  if (row.signature_id)
-    html = html.replace(
-      new RegExp(
-        `<div\\b[^>]*data-apmail-signature\\s*=\\s*["']${row.signature_id}["'][^>]*>\\s*</div>`,
-        'gi',
-      ),
-      '',
-    );
   if (
     row.signature_id &&
     !new RegExp(`data-apmail-signature=["']${row.signature_id}["']`, 'i').test(html)

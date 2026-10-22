@@ -4,6 +4,8 @@ import DOMPurify from 'dompurify';
 import { toast } from 'sonner';
 import {
   can,
+  resolveCompositionFormat,
+  type CompositionPreferences,
   outboxSchema,
   replySubject,
   replyRecipients,
@@ -37,7 +39,7 @@ import { useMediaQuery } from '@/hooks/use-media-query';
 import { useComposingPresence } from '@/hooks/use-thread-presence';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
-import { signaturePreview } from '@/lib/signature';
+import { replaceComposerSignature } from '@/lib/composer-content';
 import { meQuery, useTenantId, canMailbox, type Mailbox } from '@/lib/auth';
 import type { Outbox, Signature } from '@/lib/outbox';
 import type { ThreadDetail } from '@/lib/mail';
@@ -109,6 +111,7 @@ export function Composer({
     queryFn: () => api<{ settings: { max_attachment_mb?: number } }>('/tenant'),
   });
   const draftId = mode.startsWith('draft:') ? mode.slice(6) : null;
+  const [openedSavedDraft] = useState(!!draftId);
   const replyId = /^(reply|reply_all|forward):/.test(mode) ? mode.split(':')[1] : null;
   const boxes = useQuery({
     queryKey: ['mailboxes', tenant],
@@ -117,6 +120,10 @@ export function Composer({
   const signatures = useQuery({
     queryKey: ['signatures', tenant],
     queryFn: () => api<Signature[]>('/signatures'),
+  });
+  const composition = useQuery({
+    queryKey: ['composition-preferences', tenant],
+    queryFn: () => api<CompositionPreferences>('/preferences/composition'),
   });
   const draft = useQuery({
     queryKey: ['outbox-detail', tenant, draftId],
@@ -131,7 +138,6 @@ export function Composer({
   const [data, setData] = useState<OutboxInput>(() => blank(mailboxId)),
     [body, setBody] = useState(''),
     [quote, setQuote] = useState(''),
-    [signatureHtml, setSignatureHtml] = useState(''),
     [files, setFiles] = useState<Attached[]>([]);
   const [ready, setReady] = useState(false),
     [edited, setEdited] = useState(false),
@@ -160,13 +166,7 @@ export function Composer({
   );
   const combined = {
     ...data,
-    body_html: DOMPurify.sanitize(
-      body +
-        (data.signature_id
-          ? `<div data-apmail-signature="${data.signature_id}">${signatureHtml}</div>`
-          : '') +
-        quote,
-    ),
+    body_html: DOMPurify.sanitize(body + quote),
     attachments: files.map((f) => f.ref),
   };
   const current = useRef(combined);
@@ -176,6 +176,7 @@ export function Composer({
   useEffect(() => {
     if (
       initialized.current ||
+      composition.isPending ||
       !boxes.data ||
       !signatures.data ||
       !me.data ||
@@ -198,21 +199,13 @@ export function Composer({
         const doc = new DOMParser().parseFromString(value.body_html, 'text/html');
         const sig = doc.querySelector('[data-apmail-signature]'),
           q = doc.querySelector('blockquote[data-apmail-quote]');
-        if (sig) {
-          setSignatureHtml(
-            sig.innerHTML.trim() ||
-              signatures.data.find((s) => s.id === value.signature_id)?.body_html ||
-              '',
-          );
-          sig.remove();
-        } else if (value.signature_id) {
-          setSignatureHtml(
-            signatures.data.find((s) => s.id === value.signature_id)?.body_html ?? '',
-          );
-        }
         if (q) {
           setQuote(q.outerHTML);
           q.remove();
+        }
+        if (!sig && value.signature_id) {
+          const template = signatures.data.find((s) => s.id === value.signature_id);
+          if (template) doc.body.innerHTML = replaceComposerSignature(doc.body.innerHTML, template);
         }
         content = doc.body.innerHTML;
         setFiles(
@@ -241,7 +234,7 @@ export function Composer({
           signatures.data.find((s) => s.is_default && !s.mailbox_id);
         if (s) {
           value.signature_id = s.id;
-          setSignatureHtml(s.body_html);
+          content = replaceComposerSignature('<p></p>', s);
         }
         if (replyId && conversation.data) {
           const m = conversation.data.messages.find((m) => m.id === replyId),
@@ -292,6 +285,7 @@ export function Composer({
     initialRecipient,
     mode,
     me.data,
+    composition.isPending,
   ]);
   const save = async (): Promise<Outbox> => {
     if (savePromise.current) {
@@ -632,7 +626,7 @@ export function Composer({
                       onSelect={() => {
                         setEdited(true);
                         setData((d) => ({ ...d, signature_id: null }));
-                        setSignatureHtml('');
+                        setBody((html) => replaceComposerSignature(html, null));
                       }}
                     >
                       Sem assinatura
@@ -645,7 +639,7 @@ export function Composer({
                           onSelect={() => {
                             setEdited(true);
                             setData((d) => ({ ...d, signature_id: s.id }));
-                            setSignatureHtml(s.body_html);
+                            setBody((html) => replaceComposerSignature(html, s));
                           }}
                         >
                           {s.name}
@@ -733,22 +727,14 @@ export function Composer({
                         mailbox_id: id,
                         signature_id: s?.id ?? null,
                         body_html: DOMPurify.sanitize(
-                          body +
-                            (s
-                              ? '<div data-apmail-signature="' +
-                                s.id +
-                                '">' +
-                                s.body_html +
-                                '</div>'
-                              : '') +
-                            quote,
+                          replaceComposerSignature(body, s ?? null) + quote,
                         ),
                       };
                       await api('/outbox/' + row.id, { method: 'PATCH', body: next });
                       savedJson.current = JSON.stringify(next);
                       current.current = next;
                       setData((d) => ({ ...d, mailbox_id: id, signature_id: s?.id ?? null }));
-                      setSignatureHtml(s?.body_html ?? '');
+                      setBody(replaceComposerSignature(body, s ?? null));
                       setEdited(true);
                       await client.invalidateQueries({ queryKey: ['outbox', tenant] });
                     } catch (err) {
@@ -863,6 +849,11 @@ export function Composer({
                 ribbon
                 toolbarContainer={ribbonContainer}
                 value={body}
+                defaultFormat={
+                  !openedSavedDraft
+                    ? resolveCompositionFormat(composition.data, data.mailbox_id)
+                    : undefined
+                }
                 onImageUpload={async (file) => {
                   const uploadId = await upload(file, true);
                   if (!uploadId) throw new Error('Não foi possível incorporar a imagem.');
@@ -871,14 +862,11 @@ export function Composer({
                 onChange={(value) => {
                   setEdited(true);
                   setBody(value);
+                  const doc = new DOMParser().parseFromString(value, 'text/html');
+                  if (!doc.querySelector('[data-apmail-signature]'))
+                    setData((d) => ({ ...d, signature_id: null }));
                 }}
               />
-              {data.signature_id && (
-                <div
-                  className="rounded-md border p-3 text-sm"
-                  dangerouslySetInnerHTML={{ __html: signaturePreview(signatureHtml) }}
-                />
-              )}
               {quote && (
                 <div>
                   <Button

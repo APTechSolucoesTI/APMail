@@ -12,6 +12,7 @@ import { useTenantId, meQuery, useMailQueues, canMailbox, type Mailbox } from '@
 import { mailSearchSchema } from '@/lib/search-params/mail';
 import {
   folderLabel,
+  threadDetailKey,
   flattenFolders,
   type Folder,
   type Thread,
@@ -127,7 +128,7 @@ function MailPage() {
     [pendingCompose, setPendingCompose] = useState<string | null>(null);
   const change = (patch: Partial<typeof search>) =>
     void navigate({ search: { ...search, ...patch } });
-  const close = () => change({ thread: undefined });
+  const close = () => change({ thread: undefined, message: undefined });
   const clearFilters = () =>
     change({
       q: undefined,
@@ -145,12 +146,18 @@ function MailPage() {
     folder = flattenFolders(folders.data ?? []).find((f) =>
       search.folderId ? f.id === search.folderId : f.special_use === 'inbox',
     );
+  const selectedThreads = [
+    ...new Set(
+      items.filter((item) => selected.includes(item.message_id ?? item.id)).map((item) => item.id),
+    ),
+  ];
+  const individualMessages = search.view === 'folder' && folder?.special_use === 'sent';
   const mark = async (action: 'read' | 'unread' | 'done' | 'reopen') => {
     setUpdating(true);
     try {
       await api('/mailboxes/' + mailboxId + '/threads/bulk', {
         method: 'POST',
-        body: { thread_ids: selected, action },
+        body: { thread_ids: selectedThreads, action },
       });
       setSelection({ context, ids: [] });
       await threads.refetch();
@@ -169,18 +176,27 @@ function MailPage() {
   };
   const move = (direction: number) => {
     if (!items.length) return;
-    const current = items.findIndex((t) => t.id === search.thread),
+    const current = items.findIndex(
+        (t) => t.id === search.thread && (!t.message_id || t.message_id === search.message),
+      ),
       next =
         current < 0
           ? direction > 0
             ? 0
             : items.length - 1
           : Math.min(items.length - 1, Math.max(0, current + direction));
-    change({ thread: items[next]!.id });
+    change({ thread: items[next]!.id, message: items[next]!.message_id ?? undefined });
   };
   const compose = (kind: string) => {
     const message = client
-      .getQueryData<ThreadDetail>(['thread', tenantId, search.thread])
+      .getQueryData<ThreadDetail>(
+        threadDetailKey(
+          tenantId,
+          search.thread,
+          search.message,
+          individualMessages ? folder?.id : undefined,
+        ),
+      )
       ?.messages.at(-1);
     if (message && box.data && canMailbox(box.data, 'send')) openComposer(kind + ':' + message.id);
   };
@@ -234,7 +250,13 @@ function MailPage() {
             onChange={(q) =>
               change({
                 q: q || undefined,
-                view: q ? 'search' : search.view === 'search' ? 'folder' : search.view,
+                view: q
+                  ? individualMessages
+                    ? 'folder'
+                    : 'search'
+                  : search.view === 'search'
+                    ? 'folder'
+                    : search.view,
                 page: 1,
               })
             }
@@ -300,7 +322,10 @@ function MailPage() {
               disabled={!items.length}
               aria-label="Selecionar conversas da página"
               onCheckedChange={(v) =>
-                setSelection({ context, ids: v === true ? items.map((t) => t.id) : [] })
+                setSelection({
+                  context,
+                  ids: v === true ? items.map((t) => t.message_id ?? t.id) : [],
+                })
               }
             />
             Selecionar página
@@ -327,7 +352,7 @@ function MailPage() {
           <div className="flex flex-wrap items-center gap-2">
             <ThreadLabels
               mailboxId={mailboxId}
-              threadIds={selected}
+              threadIds={selectedThreads}
               onDone={() => setSelection({ context, ids: [] })}
             />
             {queuesEnabled && can(box.data.role, 'queue') && (
@@ -352,7 +377,7 @@ function MailPage() {
                 </Button>
                 <ThreadAssignee
                   mailboxId={mailboxId}
-                  threadIds={selected}
+                  threadIds={selectedThreads}
                   role={box.data.role}
                   onComplete={() => setSelection({ context, ids: [] })}
                 />
@@ -381,7 +406,7 @@ function MailPage() {
             <MessageActions
               mailboxId={mailboxId}
               folders={folders.data ?? []}
-              threadIds={selected}
+              {...(individualMessages ? { messageIds: selected } : { threadIds: selectedThreads })}
               compact
               onDone={() => setSelection({ context, ids: [] })}
             />
@@ -431,18 +456,20 @@ function MailPage() {
           items.map((t) => (
             <ThreadListItem
               contacts={threads.data?.contacts}
-              key={t.id}
+              key={t.message_id ?? t.id}
               thread={t}
               query={search.q}
-              selected={selected.includes(t.id)}
-              active={search.thread === t.id}
+              selected={selected.includes(t.message_id ?? t.id)}
+              active={search.thread === t.id && (!t.message_id || search.message === t.message_id)}
               onSelect={(v) =>
                 setSelection({
                   context,
-                  ids: v ? [...selected, t.id] : selected.filter((id) => id !== t.id),
+                  ids: v
+                    ? [...selected, t.message_id ?? t.id]
+                    : selected.filter((id) => id !== (t.message_id ?? t.id)),
                 })
               }
-              onOpen={() => change({ thread: t.id })}
+              onOpen={() => change({ thread: t.id, message: t.message_id ?? undefined })}
             />
           ))
         )}
@@ -455,22 +482,31 @@ function MailPage() {
       />
     </section>
   );
-  const reading = search.thread ? (
-    <ThreadView
-      key={search.thread}
-      threadId={search.thread}
-      mailboxId={mailboxId}
-      folders={folders.data ?? []}
-      onClose={close}
-      onCompose={box.data && canMailbox(box.data, 'send') ? openComposer : undefined}
-    />
-  ) : (
-    <EmptyState
-      icon={FolderOpen}
-      title="Selecione uma conversa"
-      description="Escolha um e-mail na lista para ver as mensagens e os anexos."
-    />
-  );
+  const reading =
+    search.thread && search.view === 'folder' && !folder ? (
+      folders.isPending ? (
+        <LoadingState />
+      ) : (
+        <ErrorState onRetry={() => void folders.refetch()} />
+      )
+    ) : search.thread ? (
+      <ThreadView
+        key={search.message ?? search.thread}
+        threadId={search.thread}
+        messageId={individualMessages ? search.message : undefined}
+        folderId={individualMessages ? folder?.id : undefined}
+        mailboxId={mailboxId}
+        folders={folders.data ?? []}
+        onClose={close}
+        onCompose={box.data && canMailbox(box.data, 'send') ? openComposer : undefined}
+      />
+    ) : (
+      <EmptyState
+        icon={FolderOpen}
+        title="Selecione uma conversa"
+        description="Escolha um e-mail na lista para ver as mensagens e os anexos."
+      />
+    );
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <header className="flex shrink-0 flex-wrap items-start justify-between gap-3">

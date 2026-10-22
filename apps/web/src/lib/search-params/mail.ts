@@ -15,6 +15,7 @@ export const mailSearchSchema = z.object({
     .union([z.literal(10), z.literal(20), z.literal(30), z.literal(50), z.literal(100)])
     .default(10),
   thread: z.uuid().optional(),
+  message: z.uuid().optional(),
   compose: z.string().optional(),
   toEmail: z.email().max(254).optional(),
   toName: z.string().max(120).optional(),

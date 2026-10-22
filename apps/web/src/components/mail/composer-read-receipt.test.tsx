@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { api } from '@/lib/api';
 import { Composer } from './composer';
 import { meQuery } from '@/lib/auth';
+import { DEFAULT_COMPOSITION_FORMAT } from '@apmail/shared';
 vi.mock('@/lib/api', () => ({ api: vi.fn() }));
 vi.mock('@/components/forms/rich-text-editor', () => ({ RichTextEditor: () => <div>Editor</div> }));
 vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => false }));
@@ -20,6 +21,8 @@ function open(preference: boolean, mode = 'new') {
     preferences: { request_read_receipt: preference, timezone: 'America/Sao_Paulo' },
   });
   vi.mocked(api).mockImplementation(async (path) => {
+    if (path === '/preferences/composition')
+      return { default_format: DEFAULT_COMPOSITION_FORMAT, overrides: [] };
     if (path === '/mailboxes')
       return [
         { id, email_address: 'box@example.com', aliases: [], role: 'editor', status: 'active' },
