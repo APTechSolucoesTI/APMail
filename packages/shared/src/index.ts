@@ -30,3 +30,4 @@ export * from './invitation-email.js';
 export * from './google-meet.js';
 export * from './access.js';
 export * from './composition.js';
+export * from './company.js';

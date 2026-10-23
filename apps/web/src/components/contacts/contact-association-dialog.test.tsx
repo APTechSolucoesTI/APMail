@@ -3,7 +3,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { api } from '@/lib/api';
 import { ContactAssociationDialog } from './contact-association-dialog';
-vi.mock('@/lib/auth', () => ({ useTenantId: () => 'tenant', useUserId: () => 'user' }));
+const grants = vi.hoisted(() => new Set<string>());
+vi.mock('@/lib/auth', () => ({
+  useTenantId: () => 'tenant',
+  useUserId: () => 'user',
+  useAccess: (permission: string) => grants.has(permission),
+}));
 vi.mock('@/lib/api', () => ({ api: vi.fn() }));
 const contact = {
   id: 'person',
@@ -14,6 +19,29 @@ const contact = {
 };
 beforeEach(() => {
   vi.mocked(api).mockReset();
+  grants.clear();
+  for (const permission of ['contacts', 'contacts.create', 'contacts.edit']) grants.add(permission);
+});
+it('oferece somente criação quando vincular endereços não é permitido', () => {
+  grants.delete('contacts.edit');
+  open(undefined, false);
+  expect(screen.getByRole('button', { name: /Criar novo contato/ })).toBeVisible();
+  expect(
+    screen.queryByRole('button', { name: /Vincular a contato existente/ }),
+  ).not.toBeInTheDocument();
+});
+it('oferece somente vínculo quando cadastrar contatos não é permitido', () => {
+  grants.delete('contacts.create');
+  open(undefined, false);
+  expect(screen.getByRole('button', { name: /Vincular a contato existente/ })).toBeVisible();
+  expect(screen.queryByRole('button', { name: /Criar novo contato/ })).not.toBeInTheDocument();
+});
+it('não abre a oferta de cadastro para usuários somente de consulta', () => {
+  grants.delete('contacts.create');
+  grants.delete('contacts.edit');
+  open();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(api).not.toHaveBeenCalled();
 });
 const open = (
   addresses = [{ address: 'novo@empresa.com', name: 'Nome SMTP' }],

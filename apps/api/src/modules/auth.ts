@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { hash, verify, Algorithm } from '@node-rs/argon2';
-import { audit } from '@apmail/db';
+import { audit, asJson } from '@apmail/db';
 import {
   signupSchema,
   loginSchema,
@@ -35,7 +35,7 @@ const publicUserColumns = [
   'updated_at',
 ] as const;
 const notificationVisibility = (c: RequestContext) => sql<boolean>`(
-  ${!c.accessProfileId} or
+  ${!(c.accessRestricted ?? !!c.accessProfileId)} or
   (notifications.type='chat_message' and ${!!c.accessPermissions?.includes('chat')}) or
   (notifications.type='reminder' and ${!!c.accessPermissions?.includes('reminders')}) or
   (notifications.type not in ('chat_message','reminder') and ${!!c.accessPermissions?.includes('mail')})
@@ -64,7 +64,10 @@ export async function me(ctx: RequestContext, r: Resources) {
       'tenant_members.capabilities',
       'tenant_members.access_profile_id',
       'ap.name as access_profile_name',
-      'ap.permissions as access_permissions',
+      sql<string[] | null>`coalesce(tenant_members.custom_permissions,ap.permissions)`.as(
+        'access_permissions',
+      ),
+      sql<boolean>`tenant_members.custom_permissions is not null`.as('has_custom_permissions'),
     ])
     .where('tenant_members.user_id', '=', ctx.userId)
     .where('tenant_members.status', '=', 'active')
@@ -327,7 +330,11 @@ export async function registerAuthRoutes(app: FastifyInstance, r: Resources) {
     const c = requireAuth(req.ctx);
     const b = tenantSchema.parse(req.body);
     const tenant = await r.db.transaction().execute(async (tx) => {
-      const t = await tx.insertInto('tenants').values(b).returningAll().executeTakeFirstOrThrow();
+      const t = await tx
+        .insertInto('tenants')
+        .values({ ...b, company_details: asJson(b.company_details ?? {}) })
+        .returningAll()
+        .executeTakeFirstOrThrow();
       await tx
         .insertInto('tenant_members')
         .values({ tenant_id: t.id, user_id: c.userId, role: 'owner' })

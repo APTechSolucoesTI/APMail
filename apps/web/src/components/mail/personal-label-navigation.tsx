@@ -18,7 +18,9 @@ export function PersonalLabelNavigation({
       queryKey: ['labels', useTenantId(), user, mailboxId],
       queryFn: () => api<PersonalLabel[]>('/labels?mailbox_id=' + mailboxId),
     }),
-    search = useLocation().search as { labelId?: string; view?: string };
+    location = useLocation(),
+    search = location.search as { labelId?: string; view?: string };
+  const activeMailbox = location.pathname === '/mail/' + mailboxId;
   if (q.isPending)
     return (
       <p role="status" className="px-2 py-2 text-xs text-muted-foreground">
@@ -47,7 +49,7 @@ export function PersonalLabelNavigation({
           onClick={onNavigate}
           className={cn(
             'flex min-h-11 sm:min-h-8 min-w-0 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted',
-            search.view === 'label' && search.labelId === l.id && 'bg-secondary',
+            activeMailbox && search.view === 'label' && search.labelId === l.id && 'bg-secondary',
           )}
         >
           <Tag className="size-4 shrink-0" />

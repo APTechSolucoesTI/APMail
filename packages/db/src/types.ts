@@ -71,6 +71,7 @@ export interface AccessProfiles {
   id: Generated<string>;
   name: string;
   permissions: Generated<string[]>;
+  system_role: string | null;
   tenant_id: string;
   updated_at: Generated<Timestamp>;
 }
@@ -1028,6 +1029,10 @@ export interface TenantMembers {
   access_profile_id: string | null;
   capabilities: Generated<string[]>;
   created_at: Generated<Timestamp>;
+  /**
+   * Optional personal permission snapshot, isolated to this membership. NULL inherits the assigned profile/role.
+   */
+  custom_permissions: string[] | null;
   id: Generated<string>;
   role: Generated<TenantRole>;
   status: Generated<MemberStatus>;
@@ -1037,6 +1042,10 @@ export interface TenantMembers {
 }
 
 export interface Tenants {
+  /**
+   * Company registration, address and contact data. Validated at API boundaries; no credentials.
+   */
+  company_details: Generated<Json>;
   created_at: Generated<Timestamp>;
   deleted_at: Timestamp | null;
   id: Generated<string>;

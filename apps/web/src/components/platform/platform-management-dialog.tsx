@@ -13,6 +13,7 @@ import {
 } from '@apmail/shared';
 import { api } from '@/lib/api';
 import { SchemaForm, type FormField } from '@/components/forms/schema-form';
+import { CompanyForm } from '@/components/forms/company-fields';
 import { AccessEditor } from '@/components/forms/access-editor';
 import { connectionFields } from '@/components/forms/mailbox-wizard';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
@@ -89,6 +90,11 @@ export function PlatformManagementDialog({
       ),
     enabled: dialog?.kind === 'mailbox-edit',
   });
+  const tenantConfig = useQuery({
+    queryKey: ['platform', 'company-registration', dialog?.tenantId],
+    queryFn: () => api<PlatformRow>('/superadmin/tenants/' + dialog?.tenantId),
+    enabled: dialog?.kind === 'tenant-edit',
+  });
   const [protocolChoice, setProtocolChoice] = useState<{
     dialog: ManagementDialog | null;
     value: string;
@@ -106,7 +112,12 @@ export function PlatformManagementDialog({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="max-h-[90dvh] overflow-y-auto">
+      <DialogContent
+        className={
+          'max-h-[90dvh] overflow-y-auto ' +
+          (dialog?.kind === 'tenant-create' || dialog?.kind === 'tenant-edit' ? 'sm:max-w-3xl' : '')
+        }
+      >
         <DialogHeader>
           <DialogTitle>{dialog ? titles[dialog.kind] : 'Gestão da empresa'}</DialogTitle>
           <DialogDescription>
@@ -123,39 +134,56 @@ export function PlatformManagementDialog({
             onDone={() => void onSaved()}
           />
         )}
-        {(dialog?.kind === 'tenant-create' || dialog?.kind === 'tenant-edit') && (
-          <SchemaForm
-            key={dialog.kind + ':' + dialog.row?.id}
-            schema={
-              dialog.kind === 'tenant-create'
-                ? tenantSchema.extend({ owner_email: emailSchema })
-                : tenantSchema
-            }
-            defaults={
-              dialog.kind === 'tenant-edit'
-                ? { name: dialog.row?.name, slug: dialog.row?.slug }
-                : {}
-            }
-            fields={[
-              { name: 'name', label: 'Nome da empresa' },
-              { name: 'slug', label: 'Identificador' },
-              ...(dialog.kind === 'tenant-create'
-                ? [{ name: 'owner_email', label: 'E-mail do proprietário', type: 'email' as const }]
-                : []),
-            ]}
-            onSubmit={async (b) => {
-              if (dialog.kind === 'tenant-create') {
-                const tenant = await api<PlatformRow>('/superadmin/tenants', {
-                  method: 'POST',
-                  body: b,
-                });
-                await onSaved({ tenant });
-              } else {
-                await api('/superadmin/tenants/' + dialog.tenantId, { method: 'PATCH', body: b });
-                await onSaved();
+        {dialog?.kind === 'tenant-edit' && tenantConfig.isLoading ? (
+          <LoadingState />
+        ) : dialog?.kind === 'tenant-edit' && !tenantConfig.data ? (
+          <ErrorState onRetry={() => void tenantConfig.refetch()} />
+        ) : (
+          (dialog?.kind === 'tenant-create' || dialog?.kind === 'tenant-edit') && (
+            <CompanyForm
+              key={dialog.kind + ':' + dialog.row?.id}
+              schema={
+                dialog.kind === 'tenant-create'
+                  ? tenantSchema.extend({ owner_email: emailSchema })
+                  : tenantSchema
               }
-            }}
-          />
+              defaults={
+                dialog.kind === 'tenant-edit'
+                  ? {
+                      name: tenantConfig.data?.name,
+                      slug: tenantConfig.data?.slug,
+                      company_details: tenantConfig.data?.company_details ?? {},
+                    }
+                  : { company_details: {} }
+              }
+              lookupPath="/superadmin/company-lookup/"
+              fields={[
+                { name: 'name', label: 'Nome da empresa' },
+                { name: 'slug', label: 'Identificador' },
+                ...(dialog.kind === 'tenant-create'
+                  ? [
+                      {
+                        name: 'owner_email',
+                        label: 'E-mail do proprietário',
+                        type: 'email' as const,
+                      },
+                    ]
+                  : []),
+              ]}
+              onSubmit={async (b) => {
+                if (dialog.kind === 'tenant-create') {
+                  const tenant = await api<PlatformRow>('/superadmin/tenants', {
+                    method: 'POST',
+                    body: b,
+                  });
+                  await onSaved({ tenant });
+                } else {
+                  await api('/superadmin/tenants/' + dialog.tenantId, { method: 'PATCH', body: b });
+                  await onSaved();
+                }
+              }}
+            />
+          )
         )}
         {(dialog?.kind === 'user-create' || dialog?.kind === 'user-edit') && (
           <>

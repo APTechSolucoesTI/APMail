@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import type { Address } from '@apmail/shared';
-import { useTenantId, useUserId } from '@/lib/auth';
+import { useTenantId, useUserId, useAccess } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { ContactAssociationDialog } from './contact-association-dialog';
 const subscribe = (callback: () => void) => {
@@ -19,6 +19,10 @@ const occupied = () =>
     '[role="dialog"][data-state="open"]:not([data-contact-association]),[role="alertdialog"][data-state="open"]',
   );
 export function PostSendContacts() {
+  const canRead = useAccess('contacts'),
+    canCreate = useAccess('contacts.create'),
+    canEdit = useAccess('contacts.edit');
+  const canAssociate = canRead && (canCreate || canEdit);
   const tenant = useTenantId(),
     user = useUserId(),
     client = useQueryClient();
@@ -26,7 +30,7 @@ export function PostSendContacts() {
   const queryKey = ['contact-prompts', tenant, user];
   const prompt = useQuery({
     queryKey,
-    enabled: !!tenant && !!user && !hasModal,
+    enabled: canAssociate && !!tenant && !!user && !hasModal,
     queryFn: () =>
       api<{ id: string; addresses: Address[] } | null>('/outbox/contact-prompts/next', {
         method: 'POST',
@@ -37,7 +41,7 @@ export function PostSendContacts() {
     retry: false,
     refetchInterval: (query) => (query.state.data ? false : 5000),
   });
-  if (!prompt.data || hasModal) return null;
+  if (!canAssociate || !prompt.data || hasModal) return null;
   // Delay display while another modal/composer is open; delivery is already complete.
   return (
     <ContactAssociationDialog

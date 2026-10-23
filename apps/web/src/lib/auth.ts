@@ -36,6 +36,7 @@ export type Me = {
     access_profile_id?: string | null;
     access_profile_name?: string | null;
     access_permissions?: string[] | null;
+    has_custom_permissions?: boolean;
   }[];
   platform_admin: boolean;
   support: null;

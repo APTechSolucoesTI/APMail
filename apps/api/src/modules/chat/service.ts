@@ -34,7 +34,7 @@ export async function requireChat(
 ) {
   const c = requireTenant(ctx);
   if (
-    c.accessProfileId &&
+    (c.accessRestricted ?? !!c.accessProfileId) &&
     !hasAccess({ role: c.tenantRole, access_permissions: c.accessPermissions }, 'chat')
   )
     throw forbidden();
@@ -113,7 +113,9 @@ export async function participants(db: Database, tenantId: string, id: string) {
     .where('cp.conversation_id', '=', id)
     .where('cp.left_at', 'is', null)
     .where('tm.status', '=', 'active')
-    .where(sql<boolean>`(tm.access_profile_id is null or 'chat'=any(ap.permissions))`)
+    .where(
+      sql<boolean>`((tm.access_profile_id is null and tm.custom_permissions is null) or 'chat'=any(coalesce(tm.custom_permissions,ap.permissions)))`,
+    )
     .execute();
 }
 async function changed(r: Resources, tenantId: string, id: string, extra: string[] = []) {

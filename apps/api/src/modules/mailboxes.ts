@@ -69,7 +69,7 @@ async function details(ctx: RequestContext, r: Resources, id: string) {
       (p) =>
         (row.receiving_protocol !== 'local' || p !== 'send') &&
         (can(role, p) || canDelegate(c.tenantRole, c.capabilities, p)) &&
-        (!c.accessProfileId ||
+        (!(c.accessRestricted ?? !!c.accessProfileId) ||
           profileAllowsMailbox({ role: c.tenantRole, access_permissions: c.accessPermissions }, p)),
     ),
   };
@@ -104,7 +104,7 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
             (p) =>
               (box.receiving_protocol !== 'local' || p !== 'send') &&
               (can(role, p) || canDelegate(c.tenantRole, c.capabilities, p)) &&
-              (!c.accessProfileId ||
+              (!(c.accessRestricted ?? !!c.accessProfileId) ||
                 profileAllowsMailbox(
                   { role: c.tenantRole, access_permissions: c.accessPermissions },
                   p,

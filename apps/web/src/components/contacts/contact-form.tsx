@@ -11,7 +11,7 @@ import { Send, History, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { invalidateContactResolution } from '@/lib/contact-resolution';
-import { meQuery, useTenantId } from '@/lib/auth';
+import { meQuery, useTenantId, useAccess } from '@/lib/auth';
 import {
   Dialog,
   DialogContent,
@@ -23,10 +23,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { LoadingState, ErrorState } from '@/components/data/data-state';
+import { LoadingState, ErrorState, NoPermissionState } from '@/components/data/data-state';
 import { DirectoryHeader, ChannelPicker, useDirectorySearch } from './directory-fields';
 import { ContactSendDialog } from './contact-send';
 import { ContactHistory } from './contact-history';
+import { ContactReadOnly } from './contact-readonly';
 function SuggestionInput({
   field,
   label,
@@ -77,12 +78,14 @@ export function ContactEditorDialog({
   name?: string;
   onClose: () => void;
 }) {
+  const canRead = useAccess('contacts'),
+    canWrite = useAccess(id ? 'contacts.edit' : 'contacts.create');
   const tenant = useTenantId(),
     user = useQuery(meQuery).data?.user.id;
   const q = useQuery({
     queryKey: ['contact', tenant, user, id],
     queryFn: ({ signal }) => api<ContactDetail>('/contacts/' + id, { signal }),
-    enabled: !!id,
+    enabled: !!id && canRead,
   });
   const defaults: ContactInput = {
     name,
@@ -113,13 +116,21 @@ export function ContactEditorDialog({
     >
       <DialogContent className="flex max-h-[90dvh] flex-col gap-0 p-0 sm:max-w-5xl">
         <DirectoryHeader
-          title={id ? 'Editar contato' : 'Novo contato'}
-          description="Organize os dados e canais do contato. Informe o nome completo e ao menos um e-mail ou telefone."
+          title={id ? (canWrite ? 'Editar contato' : 'Consultar contato') : 'Novo contato'}
+          description={
+            canWrite
+              ? 'Organize os dados e canais do contato. Informe o nome completo e ao menos um e-mail ou telefone.'
+              : 'Consulte os dados e canais cadastrados deste contato.'
+          }
         />
-        {id && q.isLoading ? (
+        {!canRead || (!id && !canWrite) ? (
+          <NoPermissionState />
+        ) : id && q.isLoading ? (
           <LoadingState />
         ) : id && q.error ? (
           <ErrorState onRetry={() => void q.refetch()} />
+        ) : id && !canWrite && q.data ? (
+          <ContactReadOnly contact={q.data} onClose={onClose} />
         ) : (
           <ContactForm key={id ?? 'new'} id={id} initial={q.data ?? defaults} onClose={onClose} />
         )}
@@ -136,6 +147,8 @@ function ContactForm({
   initial: ContactInput | ContactDetail;
   onClose: () => void;
 }) {
+  const canSave = useAccess(id ? 'contacts.edit' : 'contacts.create'),
+    canSend = useAccess('mail.send');
   const form = useForm<ContactInput>({
       defaultValues: {
         ...initial,
@@ -197,6 +210,7 @@ function ContactForm({
     }
   };
   const save = async () => {
+    if (!canSave) throw new Error('Você não tem permissão para alterar este contato.');
     setErrors({});
     const parsed = contactSchema.safeParse(form.getValues());
     if (!parsed.success) {
@@ -294,19 +308,21 @@ function ContactForm({
             ? 'Individual: visível somente para você'
             : 'Global: compartilhado com a empresa'}
         </p>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={!id || busy || !values.emails.length}
-          onClick={() => {
-            if (form.formState.isDirty) setConfirmSend(true);
-            else void sendSaved();
-          }}
-        >
-          <Send aria-hidden />
-          Enviar novo e-mail
-        </Button>
+        {canSend && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!id || busy || !values.emails.length}
+            onClick={() => {
+              if (form.formState.isDirty) setConfirmSend(true);
+              else void sendSaved();
+            }}
+          >
+            <Send aria-hidden />
+            Enviar novo e-mail
+          </Button>
+        )}
         {!values.emails.length && (
           <p className="w-full text-xs text-muted-foreground">
             Cadastre um e-mail para enviar mensagens.

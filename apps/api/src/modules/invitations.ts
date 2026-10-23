@@ -40,7 +40,7 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
     const c = requireTenantAdmin(req.ctx, 'users.invite');
     const b = invitationSchema.parse(req.body);
     await assertProfileGrant(r.db, c, b.access_profile_id, b.tenant_role);
-    if (c.accessProfileId && b.mailbox_roles.length) throw forbidden();
+    if ((c.accessRestricted ?? !!c.accessProfileId) && b.mailbox_roles.length) throw forbidden();
     if (b.tenant_role === 'admin' && c.tenantRole !== 'owner') throw forbidden();
     for (const box of b.mailbox_roles) await requireMailboxPerm(c, r.db, box.mailbox_id, 'read');
     const settings = await r.db
@@ -75,7 +75,7 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
       .where('users.email', '=', b.email)
       .executeTakeFirst();
     if (exists) throw new ApiError(409, 'conflict', 'Este e-mail já é membro da empresa.');
-    if (c.accessProfileId) {
+    if (c.accessRestricted ?? !!c.accessProfileId) {
       const protectedMember = await r.db
         .selectFrom('tenant_members as m')
         .innerJoin('users as u', 'u.id', 'm.user_id')
@@ -324,6 +324,7 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
           status: 'active',
           capabilities: i.capabilities,
           access_profile_id: i.access_profile_id,
+          custom_permissions: null,
         })
         .onConflict((oc) =>
           oc.columns(['tenant_id', 'user_id']).doUpdateSet({
@@ -331,6 +332,7 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
             status: 'active',
             capabilities: i.capabilities,
             access_profile_id: i.access_profile_id,
+            custom_permissions: null,
           }),
         )
         .execute();

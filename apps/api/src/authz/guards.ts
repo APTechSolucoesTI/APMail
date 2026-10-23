@@ -11,7 +11,7 @@ export async function getMailboxRole(
 ): Promise<MailboxRole | null> {
   const c = requireTenant(ctx);
   if (
-    c.accessProfileId &&
+    (c.accessRestricted ?? !!c.accessProfileId) &&
     !hasAccess({ role: c.tenantRole, access_permissions: c.accessPermissions }, 'mail') &&
     !hasAccess({ role: c.tenantRole, access_permissions: c.accessPermissions }, 'mailboxes.manage')
   )
@@ -48,7 +48,7 @@ export async function requireMailboxPerm(
   id: string,
   perm: MailboxPerm,
 ) {
-  if (ctx.accessProfileId) {
+  if (ctx.accessRestricted ?? !!ctx.accessProfileId) {
     if (
       !profileAllowsMailbox(
         { role: ctx.tenantRole, access_permissions: ctx.accessPermissions },

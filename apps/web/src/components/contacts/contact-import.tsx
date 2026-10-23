@@ -2,7 +2,7 @@
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { useRef } from 'react';
 import { OUTLOOK_FIELDS, type ImportRow } from '@apmail/shared';
-import { useTenantId, useUserId } from '@/lib/auth';
+import { useTenantId, useUserId, useAccess } from '@/lib/auth';
 import { api } from '@/lib/api';
 import {
   Dialog,
@@ -65,6 +65,7 @@ const resultLabels: Record<string, string> = {
   ambiguous: 'Revisão necessária',
 };
 export function ContactImportDialog({ onClose }: { onClose: () => void }) {
+  const canEdit = useAccess('contacts.edit');
   const stop = useRef(false);
   const [importing, setImporting] = useState(false);
   const client = useQueryClient(),
@@ -144,7 +145,7 @@ export function ContactImportDialog({ onClose }: { onClose: () => void }) {
     }
   };
   const run = async () => {
-    if (!preview || busy) return;
+    if (!preview || busy || (duplicates === 'update' && !canEdit)) return;
     stop.current = false;
     setImporting(true);
     setBusy(true);
@@ -364,13 +365,21 @@ export function ContactImportDialog({ onClose }: { onClose: () => void }) {
               onChange={(e) => setDuplicates(e.target.value as 'skip' | 'update')}
             >
               <option value="skip">Ignorar existentes</option>
-              <option value="update">Atualizar existentes com os dados do arquivo</option>
+              <option value="update" disabled={!canEdit}>
+                Atualizar existentes com os dados do arquivo
+              </option>
             </select>
             <p className="text-xs text-muted-foreground">
               Atualizar preenche os dados do arquivo sem apagar campos vazios, canais e endereços já
               cadastrados; não altera o escopo nem os apelidos. Correspondências com mais de um
               contato exigem revisão manual.
             </p>
+            {!canEdit && (
+              <p className="text-xs text-muted-foreground">
+                Seu acesso permite importar novos contatos. Atualizar contatos existentes exige a
+                permissão de edição.
+              </p>
+            )}
             {result && (
               <>
                 <p role="status">
@@ -433,7 +442,12 @@ export function ContactImportDialog({ onClose }: { onClose: () => void }) {
             Fechar
           </Button>
           <Button
-            disabled={!preview || busy || result?.cursor === preview.total}
+            disabled={
+              !preview ||
+              busy ||
+              result?.cursor === preview.total ||
+              (duplicates === 'update' && !canEdit)
+            }
             onClick={() => void run()}
           >
             {busy ? 'Importando…' : result?.cursor ? 'Continuar' : 'Confirmar importação'}

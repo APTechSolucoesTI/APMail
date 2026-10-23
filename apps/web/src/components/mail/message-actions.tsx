@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { FolderInput, Trash2, Undo2, Flag, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { useAccess } from '@/lib/auth';
 import { flattenFolders, folderLabel, type Folder } from '@/lib/mail';
 import { Button } from '@/components/ui/button';
 import {
@@ -37,6 +38,10 @@ export function MessageActions({
   onDone?: () => void;
   compact?: boolean;
 }) {
+  const mayMove = useAccess('mail.move'),
+    mayDelete = useAccess('mail.delete'),
+    mayRestore = useAccess('mail.restore'),
+    mayFlag = useAccess('mail.flag');
   const client = useQueryClient(),
     [move, setMove] = useState(false),
     [remove, setRemove] = useState(false),
@@ -58,6 +63,7 @@ export function MessageActions({
     },
     onError: (e) => toast.error(e.message),
   });
+  if (!mayMove && !mayDelete && !mayRestore && !(mayFlag && flagged !== undefined)) return null;
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
       {compact ? (
@@ -78,57 +84,73 @@ export function MessageActions({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
-            <DropdownMenuItem onSelect={() => setMove(true)}>
-              <FolderInput /> Mover para pasta
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => mutation.mutate({ type: 'restore' })}>
-              <Undo2 /> Restaurar
-            </DropdownMenuItem>
-            {flagged !== undefined && (
+            {mayMove && (
+              <DropdownMenuItem onSelect={() => setMove(true)}>
+                <FolderInput /> Mover para pasta
+              </DropdownMenuItem>
+            )}
+            {mayRestore && (
+              <DropdownMenuItem onSelect={() => mutation.mutate({ type: 'restore' })}>
+                <Undo2 /> Restaurar
+              </DropdownMenuItem>
+            )}
+            {mayFlag && flagged !== undefined && (
               <DropdownMenuItem
                 onSelect={() => mutation.mutate({ type: 'set_flag', flagged: !flagged })}
               >
                 <Flag /> {flagged ? 'Remover sinalização' : 'Sinalizar'}
               </DropdownMenuItem>
             )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={() => setRemove(true)}>
-              <Trash2 /> Excluir
-            </DropdownMenuItem>
+            {mayDelete && (
+              <>
+                {(mayMove || mayRestore || (mayFlag && flagged !== undefined)) && (
+                  <DropdownMenuSeparator />
+                )}
+                <DropdownMenuItem variant="destructive" onSelect={() => setRemove(true)}>
+                  <Trash2 /> Excluir
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       ) : (
         <>
-          <Button
-            ref={moveTrigger}
-            size="sm"
-            variant="ghost"
-            disabled={mutation.isPending}
-            onClick={() => setMove(true)}
-          >
-            <FolderInput />
-            Mover
-          </Button>
-          <Button
-            ref={removeTrigger}
-            size="sm"
-            variant="ghost"
-            disabled={mutation.isPending}
-            onClick={() => setRemove(true)}
-          >
-            <Trash2 />
-            Excluir
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={mutation.isPending}
-            onClick={() => mutation.mutate({ type: 'restore' })}
-          >
-            <Undo2 />
-            Restaurar
-          </Button>
-          {flagged !== undefined && (
+          {mayMove && (
+            <Button
+              ref={moveTrigger}
+              size="sm"
+              variant="ghost"
+              disabled={mutation.isPending}
+              onClick={() => setMove(true)}
+            >
+              <FolderInput />
+              Mover
+            </Button>
+          )}
+          {mayDelete && (
+            <Button
+              ref={removeTrigger}
+              size="sm"
+              variant="ghost"
+              disabled={mutation.isPending}
+              onClick={() => setRemove(true)}
+            >
+              <Trash2 />
+              Excluir
+            </Button>
+          )}
+          {mayRestore && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={mutation.isPending}
+              onClick={() => mutation.mutate({ type: 'restore' })}
+            >
+              <Undo2 />
+              Restaurar
+            </Button>
+          )}
+          {mayFlag && flagged !== undefined && (
             <Button
               size="sm"
               variant="ghost"
@@ -142,7 +164,7 @@ export function MessageActions({
         </>
       )}
       <ConfirmDialog
-        open={remove}
+        open={remove && mayDelete}
         onOpenChange={setRemove}
         returnFocusRef={removeTrigger}
         destructive
@@ -151,7 +173,7 @@ export function MessageActions({
         description={`${threadIds ? threadIds.length + ' conversa(s)' : messageIds?.length + ' mensagem(ns)'} serão movidas para a Lixeira. Mensagens que já estão na Lixeira serão excluídas definitivamente.`}
         onConfirm={() => mutation.mutateAsync({ type: 'delete' })}
       />
-      <Dialog open={move} onOpenChange={setMove}>
+      <Dialog open={move && mayMove} onOpenChange={setMove}>
         <DialogContent
           onCloseAutoFocus={(event) => {
             event.preventDefault();

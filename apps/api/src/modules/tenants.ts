@@ -1,5 +1,7 @@
 import { isTenantAdmin } from '@apmail/shared';
 import { ROLE_PERMS } from '@apmail/shared';
+import { companyDetailsSchema, cnpjSchema } from '@apmail/shared';
+import { lookupCompany } from '../lib/company-lookup.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sql, type Kysely } from 'kysely';
@@ -30,7 +32,7 @@ export async function requireMember(ctx: RequestContext, r: Resources, userId: s
   const c = requireTenant(ctx);
   const row = await r.db
     .selectFrom('tenant_members')
-    .select(['id', 'role', 'status', 'capabilities', 'access_profile_id'])
+    .select(['id', 'role', 'status', 'capabilities', 'access_profile_id', 'custom_permissions'])
     .where('tenant_id', '=', c.tenantId)
     .where('user_id', '=', userId)
     .where('status', '!=', 'removed')
@@ -129,7 +131,7 @@ export async function setMailboxMember(
   const c = requireTenantAdmin(ctx, 'users.manage');
   const currentRole = await requireMailboxPerm(c, r.db, mailboxId, 'read');
   const member = await requireMember(c, r, userId);
-  if (c.accessProfileId) {
+  if (c.accessRestricted ?? !!c.accessProfileId) {
     if (
       userId === c.userId ||
       isTenantAdmin(member.role) ||
@@ -164,6 +166,15 @@ export async function setMailboxMember(
   await emitAccessChanged(r, userId);
 }
 export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
+  app.get(
+    '/api/tenant/company-lookup/:cnpj',
+    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req) => {
+      requireTenantAdmin(req.ctx, 'company.manage');
+      const { cnpj } = z.object({ cnpj: cnpjSchema }).parse(req.params);
+      return lookupCompany(cnpj);
+    },
+  );
   app.get('/api/tenant', async (req) => {
     const c = requireTenant(req.ctx);
     return r.db
@@ -180,6 +191,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         name: z.string().trim().min(2).max(120).optional(),
         timezone: timezoneSchema.optional(),
         settings: tenantSettingsSchema.optional(),
+        company_details: companyDetailsSchema.optional(),
       })
       .parse(req.body);
     if (b.settings?.default_invitation_mailbox_id) {
@@ -203,6 +215,9 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       .updateTable('tenants')
       .set({
         ...b,
+        ...(b.company_details
+          ? { company_details: sql`company_details || ${JSON.stringify(b.company_details)}::jsonb` }
+          : {}),
         settings: b.settings ? sql`settings || ${JSON.stringify(b.settings)}::jsonb` : old.settings,
       })
       .where('id', '=', c.tenantId)
@@ -218,6 +233,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         name: next.name,
         timezone: next.timezone,
         settings: next.settings,
+        company_details: next.company_details,
       }),
       ip: c.ip,
     });
@@ -355,7 +371,11 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
     const { userId } = z.object({ userId: z.uuid() }).parse(req.params);
     const b = memberAccessSchema.parse(req.body);
     const member = await requireMember(c, r, userId);
-    if (c.accessProfileId && (userId === c.userId || isTenantAdmin(member.role))) throw forbidden();
+    if (
+      (c.accessRestricted ?? !!c.accessProfileId) &&
+      (userId === c.userId || isTenantAdmin(member.role))
+    )
+      throw forbidden();
     if (
       c.tenantRole !== 'owner' &&
       (member.role === 'owner' || (member.role !== b.tenant_role && isTenantAdmin(b.tenant_role)))
@@ -364,12 +384,12 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
     for (const box of b.mailbox_roles) {
       const role = await requireMailboxPerm(c, r.db, box.mailbox_id, 'read');
       if (
-        c.accessProfileId &&
+        (c.accessRestricted ?? !!c.accessProfileId) &&
         box.role &&
         ROLE_PERMS[box.role].some((p) => !ROLE_PERMS[role].includes(p))
       )
         throw forbidden();
-      if (c.accessProfileId && box.role) {
+      if ((c.accessRestricted ?? !!c.accessProfileId) && box.role) {
         const scope = await readableFolders(c, r.db, box.mailbox_id);
         if (
           scope !== null &&
@@ -391,6 +411,10 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         .set({
           role: b.tenant_role,
           access_profile_id: b.access_profile_id ?? null,
+          ...(member.access_profile_id !== (b.access_profile_id ?? null) ||
+          member.role !== b.tenant_role
+            ? { custom_permissions: null }
+            : {}),
           capabilities: b.tenant_role === 'supervisor' ? b.capabilities : [],
         })
         .where('tenant_id', '=', c.tenantId)
@@ -433,7 +457,8 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
     await r.db.transaction().execute(async (tx) => {
       await lockStorageTenant(tx, c.tenantId);
       const member = await requireMember(c, { ...r, db: tx }, userId);
-      if (c.accessProfileId && isTenantAdmin(member.role)) throw forbidden();
+      if ((c.accessRestricted ?? !!c.accessProfileId) && isTenantAdmin(member.role))
+        throw forbidden();
       if (member.role === 'owner' && c.tenantRole !== 'owner') throw forbidden();
       await tx
         .updateTable('tenant_members')
@@ -491,7 +516,8 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
     const { userId } = z.object({ userId: z.uuid() }).parse(req.params);
     const b = z.object({ status: z.enum(['active', 'disabled']) }).parse(req.body);
     const member = await requireMember(c, r, userId);
-    if (c.accessProfileId && isTenantAdmin(member.role)) throw forbidden();
+    if ((c.accessRestricted ?? !!c.accessProfileId) && isTenantAdmin(member.role))
+      throw forbidden();
     if (userId === c.userId)
       throw new ApiError(409, 'conflict', 'Você não pode desativar sua própria conta.');
     if (member.role === 'owner' && c.tenantRole !== 'owner') throw forbidden();

@@ -30,6 +30,8 @@ import { envSchema } from '../../src/env.js';
 import { ingestMessage } from '../../src/imap/ingest-message.js';
 import { handleOutboxSend } from '../../src/handlers/outbox-send.js';
 import { handleMailAction } from '../../src/handlers/mail-actions.js';
+import { handleFolderAction } from '../../src/handlers/folder-actions.js';
+import { handleRulesApply } from '../../src/handlers/rules-apply.js';
 import { sweepOutbox } from '../../src/handlers/outbox-maintenance.js';
 import { buildMdn } from '../../src/lib/mdn.js';
 import { transports } from '../../src/imap/connect.js';
@@ -932,6 +934,210 @@ it('audita solicitação e conclusão da exclusão real de uma mensagem, com ide
   );
 });
 
+it('revalidates personal send permission before delivering a queued email', async () => {
+  await db
+    .updateTable('mailbox_members')
+    .set({ role: 'editor' })
+    .where('tenant_id', '=', tenant)
+    .where('mailbox_id', '=', boxId)
+    .where('user_id', '=', member)
+    .execute();
+  const draft = await call(
+    'POST',
+    '/api/outbox',
+    {
+      mailbox_id: boxId,
+      subject: 'Envio revogado',
+      to_addresses: [{ address: 'revoked@qa.example', name: '' }],
+      body_html: '<p>Não transmitir</p>',
+    },
+    member,
+  );
+  expect(draft.statusCode, draft.body).toBe(201);
+  const id = draft.json().id,
+    submitted = await call('POST', '/api/outbox/' + id + '/submit', {}, member);
+  expect(submitted.statusCode, submitted.body).toBe(200);
+  const delivered = deliveries.length;
+  await db
+    .updateTable('outbox')
+    .set({ send_after: new Date(0) })
+    .where('id', '=', id)
+    .execute();
+  await db
+    .updateTable('tenant_members')
+    .set({ custom_permissions: ['mail'] })
+    .where('tenant_id', '=', tenant)
+    .where('user_id', '=', member)
+    .execute();
+  try {
+    await expect(
+      handleOutboxSend(r, id, {
+        id: submitted.json().job_id,
+        attemptsMade: 0,
+        opts: { attempts: 1 },
+      }),
+    ).rejects.toThrow();
+    expect(deliveries).toHaveLength(delivered);
+    expect(
+      (
+        await db
+          .selectFrom('outbox')
+          .select('status')
+          .where('id', '=', id)
+          .executeTakeFirstOrThrow()
+      ).status,
+    ).toBe('failed');
+  } finally {
+    await db
+      .updateTable('tenant_members')
+      .set({ custom_permissions: null })
+      .where('tenant_id', '=', tenant)
+      .where('user_id', '=', member)
+      .execute();
+    await db
+      .updateTable('mailbox_members')
+      .set({ role: 'viewer' })
+      .where('tenant_id', '=', tenant)
+      .where('mailbox_id', '=', boxId)
+      .where('user_id', '=', member)
+      .execute();
+  }
+});
+it('does not execute an existing mailbox rule after flag permission is revoked', async () => {
+  const thread = await db
+    .insertInto('threads')
+    .values({ tenant_id: tenant, mailbox_id: boxId, subject: 'Rule permission regression' })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  const msg = await db
+    .insertInto('messages')
+    .values({
+      tenant_id: tenant,
+      mailbox_id: boxId,
+      thread_id: thread.id,
+      folder_id: inbox.id,
+      direction: 'inbound',
+      subject: 'Rule permission regression',
+      from_address: 'rule-permission@qa.example',
+      message_at: new Date(),
+      message_id_header: '<' + randomUUID() + '@qa.example>',
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  const rule = await db
+    .insertInto('mail_rules')
+    .values({
+      tenant_id: tenant,
+      mailbox_id: boxId,
+      created_by: member,
+      scope: 'mailbox',
+      name: 'Restricted flag',
+      is_active: true,
+      priority: 1,
+      match_mode: 'all',
+      conditions: asJson([
+        { field: 'from', operator: 'equals', value: 'rule-permission@qa.example' },
+      ]),
+      actions: asJson([{ type: 'mark_flagged' }]),
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  await db
+    .updateTable('mailbox_members')
+    .set({ role: 'mailbox_admin' })
+    .where('tenant_id', '=', tenant)
+    .where('mailbox_id', '=', boxId)
+    .where('user_id', '=', member)
+    .execute();
+  await db
+    .updateTable('tenant_members')
+    .set({ custom_permissions: ['mail', 'rules'] })
+    .where('tenant_id', '=', tenant)
+    .where('user_id', '=', member)
+    .execute();
+  try {
+    await handleRulesApply(r, rule.id, null, 'qa-rule-permission-' + rule.id);
+    expect(
+      (
+        await db
+          .selectFrom('messages')
+          .select('is_flagged')
+          .where('id', '=', msg.id)
+          .executeTakeFirstOrThrow()
+      ).is_flagged,
+    ).toBe(false);
+  } finally {
+    await db
+      .updateTable('tenant_members')
+      .set({ custom_permissions: null })
+      .where('tenant_id', '=', tenant)
+      .where('user_id', '=', member)
+      .execute();
+    await db
+      .updateTable('mailbox_members')
+      .set({ role: 'viewer' })
+      .where('tenant_id', '=', tenant)
+      .where('mailbox_id', '=', boxId)
+      .where('user_id', '=', member)
+      .execute();
+  }
+});
+it('revalidates permissions before a queued folder action', async () => {
+  const folder = await db
+    .selectFrom('folders')
+    .selectAll()
+    .where('mailbox_id', '=', boxId)
+    .where('special_use', '=', 'inbox')
+    .executeTakeFirstOrThrow();
+  const action = await db
+    .insertInto('mail_actions')
+    .values({
+      tenant_id: tenant,
+      mailbox_id: boxId,
+      requested_by: member,
+      type: 'create_folder',
+      payload: asJson({
+        name: 'Blocked child',
+        imap_path: 'INBOX/Blocked-' + randomUUID(),
+        parent_id: folder.id,
+      }),
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  await db
+    .updateTable('tenant_members')
+    .set({ custom_permissions: ['mail'] })
+    .where('tenant_id', '=', tenant)
+    .where('user_id', '=', member)
+    .execute();
+  try {
+    await expect(handleFolderAction(r, action, 'qa-folder-' + action.id, true)).rejects.toThrow();
+    expect(
+      (
+        await db
+          .selectFrom('mail_actions')
+          .select('status')
+          .where('id', '=', action.id)
+          .executeTakeFirstOrThrow()
+      ).status,
+    ).toBe('failed');
+    expect(
+      await db
+        .selectFrom('folders')
+        .select('id')
+        .where('mailbox_id', '=', boxId)
+        .where('name', '=', 'Blocked child')
+        .execute(),
+    ).toHaveLength(0);
+  } finally {
+    await db
+      .updateTable('tenant_members')
+      .set({ custom_permissions: null })
+      .where('tenant_id', '=', tenant)
+      .where('user_id', '=', member)
+      .execute();
+  }
+});
 it('preserva fonte e assinatura editada no rascunho, no MIME e na cópia enviada sem alterar o modelo', async () => {
   const signature = await db
     .insertInto('signatures')

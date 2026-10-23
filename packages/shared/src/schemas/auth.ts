@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { companyDetailsSchema } from '../company.js';
 export const passwordSchema = z
   .string()
   .min(8, 'Use ao menos 8 caracteres.')
@@ -27,6 +28,7 @@ export const signupSchema = z.object({
 export const tenantSchema = z.object({
   name: z.string().trim().min(2).max(120),
   slug: z.string().regex(/^[a-z0-9-]{3,60}$/),
+  company_details: companyDetailsSchema.optional(),
 });
 export const timezoneSchema = z.string().refine((v) => {
   try {

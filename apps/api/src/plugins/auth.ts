@@ -45,6 +45,7 @@ export async function contextForToken(
           'tenant_members.role',
           'tenant_members.capabilities',
           'tenant_members.access_profile_id',
+          'tenant_members.custom_permissions',
           'ap.permissions as access_permissions',
         ])
         .where('tenant_members.user_id', '=', session.user_id)
@@ -66,11 +67,14 @@ export async function contextForToken(
     tenantRole: platform ? null : (member?.role ?? null),
     capabilities: platform ? [] : (member?.capabilities ?? []),
     accessProfileId: platform ? null : (member?.access_profile_id ?? null),
+    accessRestricted:
+      !platform &&
+      !!member &&
+      (member.access_profile_id !== null || member.custom_permissions !== null),
     accessPermissions: platform
       ? null
-      : member?.access_profile_id
-        ? (member.access_permissions ?? [])
-        : null,
+      : (member?.custom_permissions ??
+        (member?.access_profile_id ? (member.access_permissions ?? []) : null)),
     platformAdmin: !!platform,
     ip,
     requestId,

@@ -18,6 +18,8 @@ function open(preference: boolean, mode = 'new') {
   });
   client.setQueryData(meQuery.queryKey, {
     user: { id: 'user' },
+    current_tenant_id: 'tenant',
+    tenants: [{ id: 'tenant', role: 'owner', access_permissions: null }],
     preferences: { request_read_receipt: preference, timezone: 'America/Sao_Paulo' },
   });
   vi.mocked(api).mockImplementation(async (path) => {

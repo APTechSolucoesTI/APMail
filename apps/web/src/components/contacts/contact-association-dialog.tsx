@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { UserPlus, Link2, ArrowLeft, Search, Check } from 'lucide-react';
 import { contactSchema, uniqueAddresses, type Address } from '@apmail/shared';
 import { api } from '@/lib/api';
-import { useTenantId, useUserId } from '@/lib/auth';
+import { useTenantId, useUserId, useAccess } from '@/lib/auth';
 import { invalidateContactResolution } from '@/lib/contact-resolution';
 import { useDirectorySearch } from './directory-fields';
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,9 @@ export function ContactAssociationDialog({
   afterSend?: boolean;
   onClose: () => void;
 }) {
+  const canRead = useAccess('contacts'),
+    canCreate = useAccess('contacts.create'),
+    canEdit = useAccess('contacts.edit');
   const items = uniqueAddresses(addresses),
     [index, setIndex] = useState(0);
   const [step, setStep] = useState<'offer' | 'choose' | 'create' | 'link'>(
@@ -51,7 +54,7 @@ export function ContactAssociationDialog({
   });
   const contacts = useQuery({
     queryKey: ['contacts', 'association', tenant, user, term],
-    enabled: step === 'link',
+    enabled: canRead && canEdit && step === 'link',
     queryFn: ({ signal }) =>
       api<{ items: ContactOption[]; total: number }>(
         '/contacts?' + new URLSearchParams({ search: term, pageSize: '20' }),
@@ -82,7 +85,7 @@ export function ContactAssociationDialog({
     form.reset({ name: items[next]!.name, company: '', job_title: '' });
   };
   const run = async (action: () => Promise<unknown>, success: string) => {
-    if (busy || !address) return;
+    if (busy || !address || !canRead || (step === 'create' ? !canCreate : !canEdit)) return;
     setBusy(true);
     setError('');
     try {
@@ -109,7 +112,7 @@ export function ContactAssociationDialog({
       setBusy(false);
     }
   };
-  if (!address) return null;
+  if (!address || !canRead || (!canCreate && !canEdit)) return null;
   return (
     <Dialog
       open
@@ -162,32 +165,36 @@ export function ContactAssociationDialog({
           </div>
         ) : step === 'choose' ? (
           <div className="space-y-3">
-            <Button
-              variant="outline"
-              className="h-auto min-h-16 w-full justify-start gap-3 whitespace-normal p-4 text-left"
-              onClick={() => setStep('create')}
-            >
-              <UserPlus className="size-5 shrink-0" />
-              <span>
-                <span className="block font-semibold">Criar novo contato</span>
-                <span className="block text-xs font-normal text-muted-foreground">
-                  Usar os dados da mensagem e completar a ficha.
+            {canCreate && (
+              <Button
+                variant="outline"
+                className="h-auto min-h-16 w-full justify-start gap-3 whitespace-normal p-4 text-left"
+                onClick={() => setStep('create')}
+              >
+                <UserPlus className="size-5 shrink-0" />
+                <span>
+                  <span className="block font-semibold">Criar novo contato</span>
+                  <span className="block text-xs font-normal text-muted-foreground">
+                    Usar os dados da mensagem e completar a ficha.
+                  </span>
                 </span>
-              </span>
-            </Button>
-            <Button
-              variant="outline"
-              className="h-auto min-h-16 w-full justify-start gap-3 whitespace-normal p-4 text-left"
-              onClick={() => setStep('link')}
-            >
-              <Link2 className="size-5 shrink-0" />
-              <span>
-                <span className="block font-semibold">Vincular a contato existente</span>
-                <span className="block text-xs font-normal text-muted-foreground">
-                  Preservar todos os endereços já cadastrados.
+              </Button>
+            )}
+            {canEdit && (
+              <Button
+                variant="outline"
+                className="h-auto min-h-16 w-full justify-start gap-3 whitespace-normal p-4 text-left"
+                onClick={() => setStep('link')}
+              >
+                <Link2 className="size-5 shrink-0" />
+                <span>
+                  <span className="block font-semibold">Vincular a contato existente</span>
+                  <span className="block text-xs font-normal text-muted-foreground">
+                    Preservar todos os endereços já cadastrados.
+                  </span>
                 </span>
-              </span>
-            </Button>
+              </Button>
+            )}
             <div className="flex flex-wrap justify-end gap-2">
               {items.length > 1 && (
                 <Button
@@ -285,7 +292,7 @@ export function ContactAssociationDialog({
                 <ArrowLeft />
                 Voltar
               </Button>
-              <Button disabled={busy}>{busy ? 'Salvando…' : 'Salvar contato'}</Button>
+              <Button disabled={busy || !canCreate}>{busy ? 'Salvando…' : 'Salvar contato'}</Button>
             </div>
           </form>
         ) : (
@@ -315,7 +322,8 @@ export function ContactAssociationDialog({
                 <ErrorState onRetry={() => void contacts.refetch()} />
               ) : !contacts.data?.items.length ? (
                 <p className="p-4 text-sm text-muted-foreground">
-                  Nenhum contato encontrado. Ajuste a busca ou crie um novo contato.
+                  Nenhum contato encontrado.{' '}
+                  {canCreate ? 'Ajuste a busca ou crie um novo contato.' : 'Ajuste a busca.'}
                 </p>
               ) : (
                 contacts.data.items.map((contact) => (
@@ -368,7 +376,7 @@ export function ContactAssociationDialog({
                 Voltar
               </Button>
               <Button
-                disabled={!selected || busy}
+                disabled={!selected || busy || !canEdit}
                 onClick={() =>
                   void run(
                     () =>

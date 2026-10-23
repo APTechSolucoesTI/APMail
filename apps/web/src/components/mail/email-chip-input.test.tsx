@@ -4,7 +4,11 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { waitFor } from '@testing-library/react';
 import { api } from '@/lib/api';
-vi.mock('@/lib/auth', () => ({ useTenantId: () => 'tenant', useUserId: () => 'user' }));
+vi.mock('@/lib/auth', () => ({
+  useTenantId: () => 'tenant',
+  useUserId: () => 'user',
+  useAccess: () => true,
+}));
 vi.mock('@/lib/api', () => ({ api: vi.fn() }));
 import type { Address } from '@apmail/shared';
 import { EmailChipInput } from './email-chip-input';

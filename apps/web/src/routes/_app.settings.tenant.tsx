@@ -3,7 +3,13 @@ import type { Mailbox } from '@/lib/auth';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
-import { tenantSettingsSchema, timezoneSchema } from '@apmail/shared';
+import {
+  tenantSettingsSchema,
+  timezoneSchema,
+  companyDetailsSchema,
+  type CompanyDetails,
+} from '@apmail/shared';
+import { CompanyForm } from '@/components/forms/company-fields';
 import { PageHeader } from '@/components/layout/page-header';
 import { SchemaForm } from '@/components/forms/schema-form';
 import { api } from '@/lib/api';
@@ -25,7 +31,12 @@ function Tenant() {
   const q = useQuery({
     queryKey: ['tenant', useTenantId()],
     queryFn: () =>
-      api<{ name: string; timezone: string; settings: Record<string, unknown> }>('/tenant'),
+      api<{
+        name: string;
+        timezone: string;
+        settings: Record<string, unknown>;
+        company_details: CompanyDetails;
+      }>('/tenant'),
   });
   return (
     <>
@@ -35,71 +46,91 @@ function Tenant() {
       ) : !q.data ? (
         <ErrorState onRetry={() => void q.refetch()} />
       ) : (
-        <section className="max-w-2xl rounded-lg border bg-card p-4">
-          <p className="mb-4 rounded-md border bg-secondary p-3 text-sm">
-            O modo da agenda vale somente para novos contatos. Contatos existentes mantêm sua
-            visibilidade. Contatos individuais anteriores nunca serão compartilhados ao selecionar
-            Global.
-          </p>
-          <SchemaForm
-            cancelLabel="Cancelar"
-            schema={z.object({
-              name: z.string().min(2).max(120),
-              timezone: timezoneSchema,
-              settings: tenantSettingsSchema,
-            })}
-            defaults={{ ...q.data, settings: { contact_mode: 'tenant', ...q.data?.settings } }}
-            fields={[
-              { name: 'name', label: 'Nome da empresa' },
-              {
-                name: 'settings.contact_mode',
-                label: 'Modo de novos contatos',
-                type: 'select',
-                options: [
-                  { value: 'tenant', label: 'Global — compartilhados com a empresa' },
-                  { value: 'personal', label: 'Individual — privados por usuário' },
-                ],
-              },
-              { name: 'timezone', label: 'Fuso horário', type: 'timezone' },
-              {
-                name: 'settings.max_attachment_mb',
-                label: 'Limite por anexo (MB)',
-                type: 'number',
-              },
-              {
-                name: 'settings.sla_first_response_hours',
-                label: 'SLA da primeira resposta (horas)',
-                type: 'number',
-              },
-              {
-                name: 'settings.default_sync_days',
-                label: 'Dias de importação inicial',
-                type: 'number',
-              },
-              {
-                name: 'settings.default_invitation_mailbox_id',
-                label: 'Caixa padrão para convites',
-                type: 'select',
-                options: [
-                  { value: '', label: 'Primeira caixa ativa' },
-                  ...(boxes.data ?? [])
-                    .filter((b) => b.status === 'active')
-                    .map((b) => ({ value: b.id, label: `${b.name} (${b.email_address})` })),
-                ],
-              },
-              {
-                name: 'settings.allow_external_auto_forward',
-                label: 'Permitir encaminhamento automático externo',
-                type: 'checkbox',
-              },
-            ]}
-            onSubmit={async (b) => {
-              await api('/tenant', { method: 'PATCH', body: b });
-              await client.invalidateQueries();
-              toast.success('Empresa atualizada.');
-            }}
-          />
-        </section>
+        <div className="max-w-3xl space-y-6">
+          <section className="rounded-lg border bg-card p-4 sm:p-6">
+            <h2 className="mb-1 text-xl font-semibold">Cadastro da empresa</h2>
+            <p className="mb-6 text-sm text-muted-foreground">
+              Mantenha a identificação, o endereço e os canais de contato atualizados.
+            </p>
+            <CompanyForm
+              key={tenantId}
+              schema={z.object({ company_details: companyDetailsSchema })}
+              defaults={{ company_details: q.data.company_details ?? {} }}
+              lookupPath="/tenant/company-lookup/"
+              onSubmit={async (values) => {
+                await api('/tenant', { method: 'PATCH', body: values });
+                await client.invalidateQueries({ queryKey: ['tenant', tenantId] });
+                toast.success('Cadastro da empresa atualizado.');
+              }}
+            />
+          </section>
+          <section className="rounded-lg border bg-card p-4 sm:p-6">
+            <h2 className="mb-4 text-xl font-semibold">Padrões operacionais</h2>
+            <p className="mb-4 rounded-md border bg-secondary p-3 text-sm">
+              O modo da agenda vale somente para novos contatos. Contatos existentes mantêm sua
+              visibilidade. Contatos individuais anteriores nunca serão compartilhados ao selecionar
+              Global.
+            </p>
+            <SchemaForm
+              cancelLabel="Cancelar"
+              schema={z.object({
+                name: z.string().min(2).max(120),
+                timezone: timezoneSchema,
+                settings: tenantSettingsSchema,
+              })}
+              defaults={{ ...q.data, settings: { contact_mode: 'tenant', ...q.data?.settings } }}
+              fields={[
+                { name: 'name', label: 'Nome da empresa' },
+                {
+                  name: 'settings.contact_mode',
+                  label: 'Modo de novos contatos',
+                  type: 'select',
+                  options: [
+                    { value: 'tenant', label: 'Global — compartilhados com a empresa' },
+                    { value: 'personal', label: 'Individual — privados por usuário' },
+                  ],
+                },
+                { name: 'timezone', label: 'Fuso horário', type: 'timezone' },
+                {
+                  name: 'settings.max_attachment_mb',
+                  label: 'Limite por anexo (MB)',
+                  type: 'number',
+                },
+                {
+                  name: 'settings.sla_first_response_hours',
+                  label: 'SLA da primeira resposta (horas)',
+                  type: 'number',
+                },
+                {
+                  name: 'settings.default_sync_days',
+                  label: 'Dias de importação inicial',
+                  type: 'number',
+                },
+                {
+                  name: 'settings.default_invitation_mailbox_id',
+                  label: 'Caixa padrão para convites',
+                  type: 'select',
+                  options: [
+                    { value: '', label: 'Primeira caixa ativa' },
+                    ...(boxes.data ?? [])
+                      .filter((b) => b.status === 'active')
+                      .map((b) => ({ value: b.id, label: `${b.name} (${b.email_address})` })),
+                  ],
+                },
+                {
+                  name: 'settings.allow_external_auto_forward',
+                  label: 'Permitir encaminhamento automático externo',
+                  type: 'checkbox',
+                },
+              ]}
+              onSubmit={async (b) => {
+                await api('/tenant', { method: 'PATCH', body: b });
+                await client.invalidateQueries();
+                toast.success('Empresa atualizada.');
+              }}
+            />
+          </section>
+        </div>
       )}
       {tenantId && (
         <div className="mt-6">

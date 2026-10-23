@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import {
   can,
   canDelegate,
@@ -31,7 +32,8 @@ export async function userCanMailbox(
       'tm.capabilities',
       'mm.role as mailbox_role',
       'tm.access_profile_id',
-      'p.permissions',
+      'tm.custom_permissions',
+      sql<string[] | null>`coalesce(tm.custom_permissions,p.permissions)`.as('permissions'),
     ])
     .where('tm.tenant_id', '=', box.tenant_id)
     .where('tm.user_id', '=', userId)
@@ -40,7 +42,8 @@ export async function userCanMailbox(
     .where('tenant.deleted_at', 'is', null)
     .executeTakeFirst();
   if (
-    access?.access_profile_id &&
+    access &&
+    (access.access_profile_id || access.custom_permissions !== null) &&
     !profileAllowsMailbox({ role: access.role, access_permissions: access.permissions ?? [] }, perm)
   )
     return false;

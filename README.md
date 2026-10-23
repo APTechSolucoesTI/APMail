@@ -73,7 +73,11 @@ migration aditiva `0048`, preservando `CREDENTIALS_ENCRYPTION_KEY`. Consulte
 
 ## Perfis de acesso e auditoria
 
-Perfis personalizados em **Equipe e acessos → Perfis de acesso**, com permissões
-por tela e ação, e auditoria detalhada com conteúdo restrito, filtros e exportação.
+Perfis personalizados em **Equipe e acesso → Perfis de acesso**, com permissões
+por tela e ação, exceções em **Permissões por usuário**, e auditoria detalhada com conteúdo restrito, filtros e exportação.
 Veja [Perfis e auditoria](docs/PERFIS-E-AUDITORIA.md). Publicação requer as migrations
-aditivas **0049** e **0050**, executadas pelo migrador habitual.
+aditivas **0049**, **0050** e **0053–0055**, executadas pelo migrador habitual.
+
+O cadastro da empresa inclui identificação, CNPJ com consulta automática, endereço
+e contato, disponível também no Superadmin. Requer a migration aditiva **0052**.
+Veja [Cadastro de empresas](docs/COMPANY-DETAILS.md).

@@ -14,6 +14,7 @@ import {
   type RequestContext,
 } from '../authz/context.js';
 import type { Resources } from './resources.js';
+import { registerUserPermissions } from './user-permissions.js';
 
 export async function assertProfileGrant(
   db: Kysely<DB>,
@@ -22,7 +23,7 @@ export async function assertProfileGrant(
   role: string,
 ) {
   if (!profileId) {
-    if (c.accessProfileId)
+    if (c.accessRestricted ?? !!c.accessProfileId)
       throw new ApiError(
         403,
         'forbidden',
@@ -43,17 +44,27 @@ export async function assertProfileGrant(
     .where('id', '=', profileId)
     .executeTakeFirst();
   if (!profile) throw notFound();
-  if (c.accessProfileId && profile.permissions.some((p) => !c.accessPermissions?.includes(p)))
+  if (profile.system_role)
+    throw new ApiError(
+      400,
+      'validation_error',
+      'Selecione o papel correspondente ao perfil padrão.',
+    );
+  if (
+    (c.accessRestricted ?? !!c.accessProfileId) &&
+    profile.permissions.some((p) => !c.accessPermissions?.includes(p))
+  )
     throw new ApiError(403, 'forbidden', 'Você não pode conceder permissões superiores às suas.');
   return profile;
 }
 export async function registerAccessProfileRoutes(app: FastifyInstance, r: Resources) {
+  await registerUserPermissions(app, r);
   app.get('/api/access-profiles', async (req) => {
     const c = requireTenant(req.ctx);
-    if (!c.accessProfileId) requireCapability(req.ctx, 'members');
+    if (!(c.accessRestricted ?? !!c.accessProfileId)) requireCapability(req.ctx, 'members');
     // Assigned members can read their own description; the editor additionally needs team access.
     if (
-      c.accessProfileId &&
+      (c.accessRestricted ?? !!c.accessProfileId) &&
       !c.accessPermissions?.some((p) => ['users.view', 'profiles.manage'].includes(p))
     )
       throw forbidden();
@@ -61,10 +72,10 @@ export async function registerAccessProfileRoutes(app: FastifyInstance, r: Resou
       .selectFrom('access_profiles as p')
       .selectAll('p')
       .select([
-        sql<number>`(select count(*)::int from tenant_members m where m.tenant_id=p.tenant_id and m.access_profile_id=p.id and m.status<>'removed')`.as(
+        sql<number>`(select count(*)::int from tenant_members m where m.tenant_id=p.tenant_id and (m.access_profile_id=p.id or (p.system_role is not null and m.access_profile_id is null and m.role::text=p.system_role)) and m.status<>'removed')`.as(
           'member_count',
         ),
-        sql<number>`(select count(*)::int from invitations i where i.tenant_id=p.tenant_id and i.access_profile_id=p.id and i.accepted_at is null and i.revoked_at is null and i.expires_at>now())`.as(
+        sql<number>`(select count(*)::int from invitations i where i.tenant_id=p.tenant_id and (i.access_profile_id=p.id or (p.system_role is not null and i.access_profile_id is null and i.tenant_role::text=p.system_role)) and i.accepted_at is null and i.revoked_at is null and i.expires_at>now())`.as(
           'invitation_count',
         ),
       ])
@@ -85,7 +96,10 @@ export async function registerAccessProfileRoutes(app: FastifyInstance, r: Resou
             'validation_error',
             'Inclua também o acesso à tela relacionada às ações selecionadas.',
           );
-        if (c.accessProfileId && b.permissions.some((p) => !c.accessPermissions?.includes(p)))
+        if (
+          (c.accessRestricted ?? !!c.accessProfileId) &&
+          b.permissions.some((p) => !c.accessPermissions?.includes(p))
+        )
           throw forbidden();
         const id = method === 'PUT' ? z.object({ id: z.uuid() }).parse(req.params).id : null;
         const profile = await r.db.transaction().execute(async (tx) => {
@@ -105,9 +119,15 @@ export async function registerAccessProfileRoutes(app: FastifyInstance, r: Resou
                 .executeTakeFirst()
             : null;
           if (id && !old) throw notFound();
+          if (old?.system_role)
+            throw new ApiError(
+              409,
+              'system_profile',
+              'Perfis do sistema são protegidos. Duplique para personalizar.',
+            );
           if (
             old &&
-            c.accessProfileId &&
+            (c.accessRestricted ?? !!c.accessProfileId) &&
             old.permissions.some((p) => !c.accessPermissions?.includes(p))
           )
             throw forbidden();

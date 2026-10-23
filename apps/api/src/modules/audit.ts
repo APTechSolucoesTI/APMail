@@ -47,7 +47,7 @@ export async function visibleAuditQuery(r: Resources, c: ReturnType<typeof requi
     .leftJoin('users as u', 'u.id', 'a.actor_id')
     .where('a.tenant_id', '=', c.tenantId);
   // Legacy supervisors keep their mailbox/folder scope. A custom profile explicitly grants company audit access.
-  if (!isTenantAdmin(c.tenantRole) && !c.accessProfileId) {
+  if (!isTenantAdmin(c.tenantRole) && !(c.accessRestricted ?? !!c.accessProfileId)) {
     const boxes = await r.db
       .selectFrom('mailbox_members as mm')
       .innerJoin('mailboxes as b', 'b.id', 'mm.mailbox_id')

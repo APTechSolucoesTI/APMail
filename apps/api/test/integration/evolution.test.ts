@@ -1020,7 +1020,8 @@ it('gestão global edita capacidades e caixas sem promover o próprio ator', asy
     conditions: [{ field: 'subject', operator: 'equals', value: 'QA' }],
     actions: [{ type: 'move_to_folder', folder_id: hidden }],
   };
-  expect((await call('POST', '/api/rules', member, rule)).statusCode).toBe(404);
+  // Rules capability does not grant the separate move action to a viewer.
+  expect((await call('POST', '/api/rules', member, rule)).statusCode).toBe(403);
 });
 it('consulta CEP e retira a consulta CNPJ do diretório de contatos', async () => {
   const cnpj = '12345678000195',

@@ -41,6 +41,7 @@ import { Route as AppSettingsProfileRouteImport } from './routes/_app.settings.p
 import { Route as AppSettingsRulesRouteImport } from './routes/_app.settings.rules'
 import { Route as AppSettingsSignaturesRouteImport } from './routes/_app.settings.signatures'
 import { Route as AppSettingsTenantRouteImport } from './routes/_app.settings.tenant'
+import { Route as AppSettingsUserPermissionsRouteImport } from './routes/_app.settings.user-permissions'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app.settings.users'
 import { Route as AppReportsMeetMeetingIdRouteImport } from './routes/_app.reports_.meet_.$meetingId'
 import { Route as AppSettingsMailboxesMailboxIdRouteImport } from './routes/_app.settings.mailboxes_.$mailboxId'
@@ -205,6 +206,12 @@ const AppSettingsTenantRoute = AppSettingsTenantRouteImport.update({
   path: '/settings/tenant',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsUserPermissionsRoute =
+  AppSettingsUserPermissionsRouteImport.update({
+    id: '/settings/user-permissions',
+    path: '/settings/user-permissions',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppSettingsUsersRoute = AppSettingsUsersRouteImport.update({
   id: '/settings/users',
   path: '/settings/users',
@@ -253,6 +260,7 @@ export interface FileRoutesByFullPath {
   '/settings/rules': typeof AppSettingsRulesRoute
   '/settings/signatures': typeof AppSettingsSignaturesRoute
   '/settings/tenant': typeof AppSettingsTenantRoute
+  '/settings/user-permissions': typeof AppSettingsUserPermissionsRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/chat/': typeof AppChatIndexRoute
   '/reports/meet/$meetingId': typeof AppReportsMeetMeetingIdRoute
@@ -288,6 +296,7 @@ export interface FileRoutesByTo {
   '/settings/rules': typeof AppSettingsRulesRoute
   '/settings/signatures': typeof AppSettingsSignaturesRoute
   '/settings/tenant': typeof AppSettingsTenantRoute
+  '/settings/user-permissions': typeof AppSettingsUserPermissionsRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/chat': typeof AppChatIndexRoute
   '/reports/meet/$meetingId': typeof AppReportsMeetMeetingIdRoute
@@ -326,6 +335,7 @@ export interface FileRoutesById {
   '/_app/settings/rules': typeof AppSettingsRulesRoute
   '/_app/settings/signatures': typeof AppSettingsSignaturesRoute
   '/_app/settings/tenant': typeof AppSettingsTenantRoute
+  '/_app/settings/user-permissions': typeof AppSettingsUserPermissionsRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
   '/_app/chat/': typeof AppChatIndexRoute
   '/_app/reports_/meet_/$meetingId': typeof AppReportsMeetMeetingIdRoute
@@ -364,6 +374,7 @@ export interface FileRouteTypes {
     | '/settings/rules'
     | '/settings/signatures'
     | '/settings/tenant'
+    | '/settings/user-permissions'
     | '/settings/users'
     | '/chat/'
     | '/reports/meet/$meetingId'
@@ -399,6 +410,7 @@ export interface FileRouteTypes {
     | '/settings/rules'
     | '/settings/signatures'
     | '/settings/tenant'
+    | '/settings/user-permissions'
     | '/settings/users'
     | '/chat'
     | '/reports/meet/$meetingId'
@@ -436,6 +448,7 @@ export interface FileRouteTypes {
     | '/_app/settings/rules'
     | '/_app/settings/signatures'
     | '/_app/settings/tenant'
+    | '/_app/settings/user-permissions'
     | '/_app/settings/users'
     | '/_app/chat/'
     | '/_app/reports_/meet_/$meetingId'
@@ -680,6 +693,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsTenantRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/user-permissions': {
+      id: '/_app/settings/user-permissions'
+      path: '/settings/user-permissions'
+      fullPath: '/settings/user-permissions'
+      preLoaderRoute: typeof AppSettingsUserPermissionsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/users': {
       id: '/_app/settings/users'
       path: '/settings/users'
@@ -739,6 +759,7 @@ interface AppRouteChildren {
   AppSettingsRulesRoute: typeof AppSettingsRulesRoute
   AppSettingsSignaturesRoute: typeof AppSettingsSignaturesRoute
   AppSettingsTenantRoute: typeof AppSettingsTenantRoute
+  AppSettingsUserPermissionsRoute: typeof AppSettingsUserPermissionsRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRoute
   AppReportsMeetMeetingIdRoute: typeof AppReportsMeetMeetingIdRoute
   AppSettingsMailboxesMailboxIdRoute: typeof AppSettingsMailboxesMailboxIdRoute
@@ -766,6 +787,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsRulesRoute: AppSettingsRulesRoute,
   AppSettingsSignaturesRoute: AppSettingsSignaturesRoute,
   AppSettingsTenantRoute: AppSettingsTenantRoute,
+  AppSettingsUserPermissionsRoute: AppSettingsUserPermissionsRoute,
   AppSettingsUsersRoute: AppSettingsUsersRoute,
   AppReportsMeetMeetingIdRoute: AppReportsMeetMeetingIdRoute,
   AppSettingsMailboxesMailboxIdRoute: AppSettingsMailboxesMailboxIdRoute,

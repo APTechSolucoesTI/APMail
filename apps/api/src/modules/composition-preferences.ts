@@ -21,7 +21,7 @@ export async function registerCompositionPreferences(app: FastifyInstance, r: Re
       .where('user_id', '=', c.userId)
       .executeTakeFirstOrThrow();
     const allowed =
-      !c.accessProfileId ||
+      !(c.accessRestricted ?? !!c.accessProfileId) ||
       profileAllowsMailbox({ role: c.tenantRole, access_permissions: c.accessPermissions }, 'read');
     const rows = allowed
       ? await r.db

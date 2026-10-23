@@ -133,7 +133,7 @@ beforeAll(async () => {
       subject: 'Proposta especial',
       body_text: 'Olá Ana, confirmamos a proposta de R$ 4.500.',
       from_address: 'comercial@qa.example',
-      to_addresses: sql`${JSON.stringify([{ email: 'ana@cliente.example', name: 'Ana' }])}::jsonb`,
+      to_addresses: sql`${JSON.stringify([{ address: 'ana@cliente.example', name: 'Ana' }])}::jsonb`,
       direction: 'outbound',
       message_at: new Date(),
       message_id_header: '<' + message + '@qa.example>',
@@ -143,6 +143,201 @@ beforeAll(async () => {
 afterAll(async () => {
   await app.close();
   await db.destroy();
+});
+
+it('exposes real system role profiles and protects them from editing', async () => {
+  const rows = (await call('GET', '/access-profiles', owner.cookie)).json();
+  expect(
+    rows
+      .filter((p: { system_role: string | null }) => p.system_role)
+      .map((p: { system_role: string }) => p.system_role)
+      .sort(),
+  ).toEqual(['admin', 'member', 'owner', 'supervisor']);
+  expect(rows.find((p: { system_role: string }) => p.system_role === 'owner').member_count).toBe(1);
+  expect(rows.find((p: { system_role: string }) => p.system_role === 'member').member_count).toBe(
+    1,
+  );
+  const builtin = rows.find((p: { system_role: string }) => p.system_role === 'member');
+  expect(
+    (
+      await call('PUT', '/access-profiles/' + builtin.id, owner.cookie, {
+        name: 'Alterar base',
+        permissions: ['mail'],
+      })
+    ).statusCode,
+  ).toBe(409);
+});
+it('protects owner and administrator permissions from personal overrides', async () => {
+  for (const actor of [owner, admin])
+    for (const target of [owner, admin]) {
+      expect(
+        (
+          await call('PUT', '/members/' + target.id + '/permissions', actor.cookie, {
+            permissions: [],
+          })
+        ).statusCode,
+      ).toBe(403);
+    }
+  expect((await call('GET', '/audit-logs', admin.cookie)).statusCode).toBe(200);
+});
+it('preserves personal deletion for a legacy member without granting global deletion', async () => {
+  const person = await account();
+  const personal = randomUUID(),
+    global = randomUUID();
+  await db
+    .insertInto('contacts')
+    .values([
+      {
+        id: personal,
+        tenant_id: tenant,
+        created_by: person.id,
+        owner_user_id: person.id,
+        scope: 'personal',
+        name: 'Pessoal',
+      },
+      {
+        id: global,
+        tenant_id: tenant,
+        created_by: owner.id,
+        scope: 'tenant',
+        owner_user_id: null,
+        name: 'Global',
+      },
+    ])
+    .execute();
+  const path = '/members/' + person.id + '/permissions';
+  const base = (await call('GET', path, owner.cookie)).json().base_permissions;
+  expect(base).toContain('contacts.delete');
+  expect((await call('PUT', path, owner.cookie, { permissions: base })).statusCode).toBe(200);
+  expect((await call('DELETE', '/contacts/' + global, person.cookie)).statusCode).toBe(403);
+  expect((await call('DELETE', '/contacts/' + personal, person.cookie)).statusCode).toBe(200);
+});
+it('does not allow mailbox rules to bypass move and flag permissions', async () => {
+  const person = await account(),
+    p = await profile('Regras limitadas', ['mail', 'rules']);
+  await assign(person, p.id, [
+    { mailbox_id: mailbox, role: 'mailbox_admin', restrict_to_folders: false, folder_ids: [] },
+  ]);
+  for (const scope of ['personal', 'mailbox']) {
+    const result = await call('POST', '/rules', person.cookie, {
+      name: 'Marcar mensagens',
+      mailbox_id: mailbox,
+      scope,
+      is_active: true,
+      priority: 1,
+      match_mode: 'all',
+      stop_processing: false,
+      conditions: [{ field: 'from', operator: 'contains', value: 'example' }],
+      actions: [{ type: 'mark_flagged' }],
+      apply_existing: true,
+    });
+    expect(result.statusCode, result.body).toBe(403);
+  }
+});
+it('enforces independent contact actions and personal permission snapshots without changing colleagues', async () => {
+  const person = await account(),
+    colleague = await account();
+  const base = await profile('Consulta', ['contacts']);
+  await assign(person, base.id);
+  await assign(colleague, base.id);
+  expect((await call('GET', '/contacts', person.cookie)).statusCode).toBe(200);
+  expect((await call('POST', '/contacts', person.cookie, { name: 'Bloqueado' })).statusCode).toBe(
+    403,
+  );
+  const path = '/members/' + person.id + '/permissions';
+  expect((await call('GET', path, owner.cookie)).json().permissions).toEqual(['contacts']);
+  expect(
+    (await call('PUT', path, owner.cookie, { permissions: ['contacts', 'contacts.create'] }))
+      .statusCode,
+  ).toBe(200);
+  const created = await call('POST', '/contacts', person.cookie, {
+    name: 'Criado com exceção',
+    emails: [{ email: 'exception@qa.example' }],
+  });
+  expect(created.statusCode, created.body).toBe(201);
+  expect(
+    (await call('PUT', '/contacts/' + created.json().id, person.cookie, { name: 'Não autorizado' }))
+      .statusCode,
+  ).toBe(403);
+  expect((await call('DELETE', '/contacts/' + created.json().id, person.cookie)).statusCode).toBe(
+    403,
+  );
+  expect(
+    (await call('POST', '/contacts', colleague.cookie, { name: 'Sem exceção' })).statusCode,
+  ).toBe(403);
+  expect(
+    (
+      await call('PUT', path, person.cookie, {
+        permissions: ['contacts', 'users.manage', 'users.view'],
+      })
+    ).statusCode,
+  ).toBe(403);
+  expect((await call('GET', path, outsider.cookie)).statusCode).toBe(404);
+  expect((await call('PUT', path, owner.cookie, { permissions: null })).statusCode).toBe(200);
+  expect((await call('POST', '/contacts', person.cookie, { name: 'Revogado' })).statusCode).toBe(
+    403,
+  );
+  const legacy = await account();
+  expect(
+    (
+      await call('PUT', '/members/' + legacy.id + '/permissions', owner.cookie, {
+        permissions: ['contacts'],
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect((await call('GET', '/mailboxes', legacy.cookie)).statusCode).toBe(403);
+  expect((await call('GET', '/contacts', legacy.cookie)).statusCode).toBe(200);
+});
+it('authorizes a move without granting deletion, restoration or flags', async () => {
+  const person = await account(),
+    p = await profile('Mover somente', ['mail', 'mail.organize', 'mail.move']);
+  await assign(person, p.id, [
+    { mailbox_id: mailbox, role: 'mailbox_admin', restrict_to_folders: false, folder_ids: [] },
+  ]);
+  const source = randomUUID(),
+    target = randomUUID(),
+    id = randomUUID();
+  await db
+    .insertInto('folders')
+    .values([
+      { id: source, tenant_id: tenant, mailbox_id: mailbox, name: 'Origem', imap_path: 'Origem' },
+      { id: target, tenant_id: tenant, mailbox_id: mailbox, name: 'Destino', imap_path: 'Destino' },
+    ])
+    .execute();
+  await db
+    .insertInto('messages')
+    .values({
+      id,
+      tenant_id: tenant,
+      mailbox_id: mailbox,
+      thread_id: thread,
+      folder_id: source,
+      subject: 'Ação granular',
+      direction: 'inbound',
+      from_address: 'granular@qa.example',
+      message_id_header: '<' + id + '@qa.example>',
+      message_at: new Date(),
+    })
+    .execute();
+  for (const type of ['delete', 'restore', 'set_flag'])
+    expect(
+      (
+        await call('POST', '/mailboxes/' + mailbox + '/messages/actions', person.cookie, {
+          type,
+          message_ids: [id],
+          flagged: true,
+        })
+      ).statusCode,
+    ).toBe(403);
+  const result = await call('POST', '/mailboxes/' + mailbox + '/messages/actions', person.cookie, {
+    type: 'move',
+    message_ids: [id],
+    target_folder_id: target,
+  });
+  expect(result.statusCode, result.body).toBe(202);
+  const box = (await call('GET', '/mailboxes/' + mailbox, person.cookie)).json();
+  expect(box.permissions).toContain('move');
+  expect(box.permissions).not.toContain('delete');
 });
 
 it('administradores acessam auditoria; membros comuns não consultam nem exportam', async () => {

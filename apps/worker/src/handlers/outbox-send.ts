@@ -91,6 +91,8 @@ export async function handleOutboxSend(
       .where('deleted_at', 'is', null)
       .executeTakeFirst();
     if (!box || box.status !== 'active') throw new Error('mailbox_unavailable');
+    if (!(await userCanMailbox(r, box, row.created_by, 'send')))
+      throw new Error('send_permission_revoked');
     if (row.is_auto_reply && !(await userCanMailbox(r, box, row.created_by, 'rules')))
       throw new Error('send_permission_revoked');
     const membership = await r.db

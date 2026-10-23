@@ -2,10 +2,11 @@
 
 ## Uso
 
-Em **Configurações → Equipe e acessos → Perfis de acesso**, crie um perfil a partir
-de um modelo ou selecione as telas e ações necessárias. Atribua-o ao convidar ou
-editar um usuário. O modelo **Cadastro de usuários** libera somente a consulta da
-equipe e os convites, sem acesso aos e-mails ou à edição de membros existentes.
+Em **Configurações → Equipe e acesso → Perfis de acesso**, crie um perfil ou duplique
+um dos quatro perfis do sistema, persistidos por empresa: Proprietário,
+Administrador, Supervisor e Membro. Esses perfis padrão são protegidos. Atribua o
+perfil ao convidar ou editar um usuário. Para criar uma função somente de convites,
+selecione Consultar equipe e Convidar usuários.
 
 Os papéis anteriores e as permissões das caixas/pastas são preservados. Proprietário
 e Administrador continuam como papéis protegidos. Perfis personalizados substituem
@@ -18,6 +19,25 @@ só pode conceder permissões iguais ou inferiores às próprias e não altera o
 acesso nem contas administrativas. O perfil não pode ser excluído enquanto houver
 usuários vinculados ou convites pendentes. Modificações valem nas próximas requisições
 e atualizam os acessos conectados.
+
+Os submenus separam mover, excluir, restaurar e sinalizar mensagens. Em contatos,
+consulta, criação, edição e exclusão são ações independentes. Marcar uma categoria
+não marca todas as ações; dependências são selecionadas automaticamente. Perfis
+anteriores com permissões agrupadas são expandidos pela migration para preservar
+suas ações. Os acessos a caixas e pastas continuam sendo uma segunda restrição.
+
+Em **Permissões por usuário**, selecione um integrante para copiar e ajustar suas
+permissões efetivas. Salvar cria um snapshot individual daquela associação à empresa:
+outros usuários não mudam, e alterações posteriores no perfil não substituem a cópia.
+**Restaurar permissões do perfil** remove a exceção e restabelece a herança. Trocar
+o perfil/papel também limpa a cópia. Proprietários e administradores são protegidos.
+As capacidades adicionais dos supervisores e os limites de exclusão dos contatos
+globais são preservados para usuários com papéis legados; contatos pessoais continuam
+excluíveis quando a permissão de exclusão estiver marcada.
+
+A API valida dependências e limita a concessão ao acesso do gestor. Permissões são
+relidas dentro do bloqueio transacional da empresa; revogações atualizam sockets e
+são verificadas também nos envios, regras automáticas e alterações de pasta pendentes.
 
 O convite continua sendo enviado pela caixa ativa padrão da empresa. Quem tem somente
 permissão de convidar não precisa abrir a caixa nem configurar SMTP. Para evitar
@@ -64,6 +84,9 @@ SMTP; não comprovam entrega na caixa do destinatário nem leitura.
 ## Arquitetura e publicação
 
 - Migrations aditivas `0049_access_profiles_audit.sql` e `0050_audit_event_keys.sql`.
+- Migrations `0053`–`0055`: perfis de sistema, granularidade, compatibilidade de
+  nomes existentes e `tenant_members.custom_permissions` (`NULL` herda; `[]` nega
+  os módulos). Não apagam nem renomeiam perfis personalizados existentes.
 - `access_profiles`, associação em `tenant_members` e `invitations`, com FK composta
   por empresa e perfil, índices e proteção contra associação a outra empresa.
 - Permissões e dependências centralizadas em `packages/shared/src/access.ts`.

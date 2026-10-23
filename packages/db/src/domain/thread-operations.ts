@@ -19,14 +19,21 @@ export async function mailboxUserCan(
         .onRef('ap.id', '=', 'tenant_members.access_profile_id')
         .onRef('ap.tenant_id', '=', 'tenant_members.tenant_id'),
     )
-    .select(['role', 'tenant_members.access_profile_id', 'ap.permissions'])
+    .select([
+      'role',
+      'tenant_members.access_profile_id',
+      'tenant_members.custom_permissions',
+      sql<string[] | null>`coalesce(tenant_members.custom_permissions,ap.permissions)`.as(
+        'permissions',
+      ),
+    ])
     .where('tenant_members.tenant_id', '=', tenantId)
     .where('user_id', '=', userId)
     .where('status', '=', 'active')
     .executeTakeFirst();
   if (!member) return false;
   if (
-    member.access_profile_id &&
+    (member.access_profile_id || member.custom_permissions !== null) &&
     !profileAllowsMailbox({ role: member.role, access_permissions: member.permissions ?? [] }, perm)
   )
     return false;

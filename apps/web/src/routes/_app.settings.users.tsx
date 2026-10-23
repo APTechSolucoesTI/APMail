@@ -55,12 +55,10 @@ function Users() {
     me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id)?.role,
   );
   const currentTenant = me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id);
-  const invite = currentTenant?.access_profile_id
-    ? hasAccess(currentTenant, 'users.invite')
-    : admin;
-  const manage = currentTenant?.access_profile_id
-    ? hasAccess(currentTenant, 'users.manage')
-    : admin;
+  const invite =
+    currentTenant?.access_permissions != null ? hasAccess(currentTenant, 'users.invite') : admin;
+  const manage =
+    currentTenant?.access_permissions != null ? hasAccess(currentTenant, 'users.manage') : admin;
   const query = Route.useSearch();
   const navigate = useNavigate();
   const client = useQueryClient();
@@ -214,7 +212,7 @@ function Users() {
             ) : null
           ) : manage &&
             (m.role !== 'owner' || owner) &&
-            (!currentTenant?.access_profile_id || !isTenantAdmin(m.role)) ? (
+            (currentTenant?.access_permissions == null || !isTenantAdmin(m.role)) ? (
             <>
               <Button
                 size="icon"

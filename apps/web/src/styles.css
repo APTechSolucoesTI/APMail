@@ -119,10 +119,23 @@
 }
 
 @theme inline {
-  --text-sm: 0.8125rem;
-  --text-sm--line-height: 1.25rem;
-  --text-page-title: 1.375rem;
-  --text-page-title--line-height: 1.875rem;
+  /* Compact operational type; keep the root rem and control dimensions stable. */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.75rem;
+  --text-sm--line-height: 1.125rem;
+  --text-base: 0.90625rem;
+  --text-base--line-height: 1.375rem;
+  --text-lg: 1.03125rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.15625rem;
+  --text-xl--line-height: 1.625rem;
+  --text-2xl: 1.40625rem;
+  --text-2xl--line-height: 1.875rem;
+  --text-3xl: 1.78125rem;
+  --text-3xl--line-height: 2.125rem;
+  --text-page-title: 1.28125rem;
+  --text-page-title--line-height: 1.75rem;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

@@ -1,9 +1,9 @@
-import { hasAccess } from '@apmail/shared';
+import { hasAccess, canManageTenantContacts } from '@apmail/shared';
 import { useState } from 'react';
 import { z } from 'zod';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { listQuerySchema, isTenantAdmin, canDelegate, type ListResult } from '@apmail/shared';
+import { listQuerySchema, type ListResult } from '@apmail/shared';
 import { useTenantId, meQuery } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { PageHeader } from '@/components/layout/page-header';
@@ -11,7 +11,7 @@ import { ConfigurableTable } from '@/components/data/configurable-table';
 import { Button } from '@/components/ui/button';
 import { ContactEditorDialog } from '@/components/contacts/contact-editor';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
-import { Pencil, Trash2, UserPlus } from 'lucide-react';
+import { Eye, Pencil, Trash2, UserPlus } from 'lucide-react';
 import { ContactImportDialog } from '@/components/contacts/contact-import';
 import { toast } from 'sonner';
 type Row = {
@@ -36,10 +36,10 @@ function Contacts() {
     client = useQueryClient();
   const me = useQuery(meQuery).data,
     tenant = me?.tenants.find((t) => t.id === tenantId);
-  const mayControl =
-    (tenant?.access_profile_id && hasAccess(tenant, 'contacts.delete')) ||
-    isTenantAdmin(tenant?.role) ||
-    canDelegate(tenant?.role ?? null, tenant?.capabilities, 'contacts_manage');
+  const mayControl = canManageTenantContacts(tenant);
+  const canCreate = hasAccess(tenant, 'contacts.create'),
+    canEdit = hasAccess(tenant, 'contacts.edit'),
+    canDelete = hasAccess(tenant, 'contacts.delete');
   const [editing, setEditing] = useState<string | null | undefined>(undefined);
   const [importing, setImporting] = useState(false);
   const selected = editing !== undefined ? editing : query.contactId;
@@ -72,15 +72,17 @@ function Contacts() {
         title="Contatos"
         description="Contatos globais da empresa e sua agenda individual."
         actions={
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setImporting(true)}>
-              Importar
-            </Button>
-            <Button onClick={() => setEditing(null)}>
-              <UserPlus />
-              Novo contato
-            </Button>
-          </div>
+          canCreate ? (
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setImporting(true)}>
+                Importar
+              </Button>
+              <Button onClick={() => setEditing(null)}>
+                <UserPlus />
+                Novo contato
+              </Button>
+            </div>
+          ) : undefined
         }
       />
       <ConfigurableTable
@@ -129,13 +131,14 @@ function Contacts() {
             <Button
               variant="ghost"
               size="icon"
-              aria-label={'Editar ' + row.name}
+              aria-label={(canEdit ? 'Editar ' : 'Visualizar ') + row.name}
               onClick={() => setEditing(row.id)}
             >
-              <Pencil />
+              {canEdit ? <Pencil /> : <Eye />}
             </Button>
-            {(mayControl || row.scope === 'personal') && (
+            {canDelete && (mayControl || row.scope === 'personal') && (
               <ConfirmDialog
+                destructive
                 trigger={
                   <Button variant="ghost" size="icon" aria-label={'Excluir ' + row.name}>
                     <Trash2 className="text-destructive" />
@@ -154,7 +157,7 @@ function Contacts() {
           </div>
         )}
       />
-      {importing && <ContactImportDialog onClose={() => setImporting(false)} />}
+      {importing && canCreate && <ContactImportDialog onClose={() => setImporting(false)} />}
       {selected !== undefined && (
         <ContactEditorDialog
           id={selected ?? undefined}

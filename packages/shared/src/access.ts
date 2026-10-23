@@ -12,6 +12,7 @@ export const ACCESS_PERMISSIONS = [
   },
   {
     key: 'mail.send',
+    parent: 'mail',
     group: 'Comunicação',
     label: 'Enviar e responder',
     description: 'Compor, responder e encaminhar pelas caixas autorizadas.',
@@ -19,17 +20,47 @@ export const ACCESS_PERMISSIONS = [
   {
     key: 'mail.organize',
     group: 'Comunicação',
-    label: 'Organizar e excluir mensagens',
-    description: 'Mover, excluir, restaurar e sinalizar mensagens nas caixas autorizadas.',
+    label: 'Organizar mensagens',
+    parent: 'mail',
+    description: 'Grupo de ações de organização; selecione abaixo cada ação autorizada.',
   },
+  ...(['move', 'delete', 'restore', 'flag'] as const).map((action, index) => ({
+    key: `mail.${action}` as const,
+    group: 'Comunicação',
+    parent: 'mail.organize',
+    label: ['Mover mensagens', 'Excluir mensagens', 'Restaurar mensagens', 'Sinalizar mensagens'][
+      index
+    ]!,
+    description: [
+      'Mover entre pastas autorizadas.',
+      'Mover para a Lixeira ou excluir definitivamente.',
+      'Restaurar mensagens para a caixa de entrada.',
+      'Adicionar ou remover sinalização.',
+    ][index]!,
+  })),
   {
     key: 'contacts',
     group: 'Comunicação',
     label: 'Contatos',
-    description: 'Consultar, criar e editar contatos e empresas.',
+    description: 'Consultar contatos e empresas nos escopos autorizados.',
+  },
+  {
+    key: 'contacts.create',
+    group: 'Comunicação',
+    parent: 'contacts',
+    label: 'Criar contatos',
+    description: 'Cadastrar contatos e empresas e importar novos cadastros.',
+  },
+  {
+    key: 'contacts.edit',
+    group: 'Comunicação',
+    parent: 'contacts',
+    label: 'Editar contatos',
+    description: 'Editar dados e vincular endereços a contatos existentes.',
   },
   {
     key: 'contacts.delete',
+    parent: 'contacts',
     group: 'Comunicação',
     label: 'Excluir contatos',
     description: 'Excluir contatos e empresas, conforme o escopo de compartilhamento.',
@@ -73,6 +104,7 @@ export const ACCESS_PERMISSIONS = [
   },
   {
     key: 'users.invite',
+    parent: 'users.view',
     group: 'Equipe e acesso',
     label: 'Convidar usuários',
     description:
@@ -80,6 +112,7 @@ export const ACCESS_PERMISSIONS = [
   },
   {
     key: 'users.manage',
+    parent: 'users.view',
     group: 'Equipe e acesso',
     label: 'Gerenciar usuários',
     description:
@@ -87,6 +120,7 @@ export const ACCESS_PERMISSIONS = [
   },
   {
     key: 'profiles.manage',
+    parent: 'users.view',
     group: 'Equipe e acesso',
     label: 'Perfis de acesso',
     description: 'Criar e editar perfis. Não permite conceder permissões superiores às próprias.',
@@ -100,6 +134,7 @@ export const ACCESS_PERMISSIONS = [
   },
   {
     key: 'audit.content',
+    parent: 'audit.view',
     group: 'Auditoria',
     label: 'Consultar conteúdo auditado',
     description:
@@ -161,6 +196,7 @@ export const accessProfileSchema = z.object({
 });
 export type AccessProfile = z.infer<typeof accessProfileSchema> & {
   id: string;
+  system_role?: TenantRole | null;
   member_count: number;
   invitation_count: number;
 };
@@ -169,8 +205,9 @@ export type AccessIdentity = {
   access_permissions?: readonly string[] | null;
 };
 export function profileAllowsMailbox(identity: AccessIdentity, permission: MailboxPerm) {
-  const required: AccessPermission =
-    permission === 'send'
+  const required: AccessPermission = ['move', 'delete', 'restore', 'flag'].includes(permission)
+    ? (`mail.${permission}` as AccessPermission)
+    : permission === 'send'
       ? 'mail.send'
       : permission === 'rules'
         ? 'rules'
@@ -212,6 +249,12 @@ export const permissionDependencies: Partial<Record<AccessPermission, AccessPerm
   'mailboxes.manage': ['mail'],
   'mail.send': ['mail'],
   'mail.organize': ['mail'],
+  'mail.move': ['mail.organize', 'mail'],
+  'mail.delete': ['mail.organize', 'mail'],
+  'mail.restore': ['mail.organize', 'mail'],
+  'mail.flag': ['mail.organize', 'mail'],
+  'contacts.create': ['contacts'],
+  'contacts.edit': ['contacts'],
   'contacts.delete': ['contacts'],
   'users.invite': ['users.view'],
   'users.manage': ['users.view'],
@@ -225,6 +268,7 @@ export const profileMissingDependencies = (permissions: readonly string[]) =>
 export function screenPermission(path: string): AccessPermission | null {
   const prefixes: [string, AccessPermission][] = [
     ['/settings/access-profiles', 'profiles.manage'],
+    ['/settings/user-permissions', 'users.manage'],
     ['/settings/users', 'users.view'],
     ['/settings/audit', 'audit.view'],
     ['/settings/mailboxes', 'mailboxes.manage'],
@@ -243,4 +287,46 @@ export function screenPermission(path: string): AccessPermission | null {
     ['/mail/', 'mail'],
   ];
   return prefixes.find(([prefix]) => path.startsWith(prefix))?.[1] ?? null;
+}
+
+/** Mirrors the existing role/capability gates; mailbox and folder grants remain independent. */
+export function legacyAccessPermissions(
+  role: TenantRole,
+  capabilities: readonly string[] = [],
+): AccessPermission[] {
+  if (isTenantAdmin(role)) return ACCESS_PERMISSIONS.map((p) => p.key);
+  const result = ACCESS_PERMISSIONS.filter((permission) => hasAccess({ role }, permission.key)).map(
+    (p) => p.key,
+  );
+  const delegated: Partial<Record<AccessPermission, string>> = {
+    'users.view': 'members',
+    'audit.view': 'audit',
+  };
+  return [
+    ...new Set([
+      ...result,
+      ...Object.entries(delegated)
+        .filter(([, capability]) => role === 'supervisor' && capabilities.includes(capability!))
+        .map(([key]) => key as AccessPermission),
+    ]),
+  ];
+}
+
+/** Personal snapshots preserve the legacy scope boundary for shared contact deletion. */
+export function canManageTenantContacts(
+  identity:
+    | {
+        role?: TenantRole | null;
+        capabilities?: readonly string[];
+        access_profile_id?: string | null;
+        access_permissions?: readonly string[] | null;
+      }
+    | undefined,
+) {
+  if (!identity || !hasAccess(identity, 'contacts.delete')) return false;
+  return (
+    !!identity.access_profile_id ||
+    isTenantAdmin(identity.role) ||
+    (identity.role === 'supervisor' && !!identity.capabilities?.includes('contacts_manage'))
+  );
 }

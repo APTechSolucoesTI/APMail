@@ -24,7 +24,7 @@ export async function requireAdmin() {
 export async function requireSettingsCapability(capability: string) {
   const me = await requireCompany(),
     tenant = me.tenants.find((t) => t.id === me.current_tenant_id);
-  if (tenant?.access_profile_id) {
+  if (tenant?.access_permissions != null) {
     const permission = (
       { members: 'users.view', audit: 'audit.view' } as Record<string, AccessPermission>
     )[capability];

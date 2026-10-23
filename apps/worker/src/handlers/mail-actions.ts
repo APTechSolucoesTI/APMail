@@ -74,7 +74,21 @@ export async function handleMailAction(
           throw new UnrecoverableError('O superadmin não pode organizar mensagens.');
         if (box.status !== 'active')
           throw new Error('Caixa indisponível. Reconecte antes de organizar mensagens.');
-        if (action.requested_by && !(await userCanMailbox(r, box, action.requested_by, 'organize')))
+        if (
+          action.requested_by &&
+          !(await userCanMailbox(
+            r,
+            box,
+            action.requested_by,
+            action.type === 'set_flag'
+              ? 'flag'
+              : action.type === 'delete'
+                ? 'delete'
+                : action.type === 'restore'
+                  ? 'restore'
+                  : 'move',
+          ))
+        )
           throw new UnrecoverableError('A permissão para organizar mensagens foi removida.');
         await r.db
           .updateTable('mail_actions')

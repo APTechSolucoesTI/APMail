@@ -13,9 +13,10 @@ export function routePermission(
     )
   )
     return 'personal';
-  if (/^\/api\/(tenants(?:\/|$)|tenant$)/.test(path))
+  if (/^\/api\/(tenants(?:\/|$)|tenant(?:\/|$))/.test(path))
     return method === 'GET' ? 'personal' : 'company.manage';
   if (/^\/api\/members\/directory$/.test(path)) return 'personal';
+  if (/^\/api\/members\/[^/]+\/permissions$/.test(path)) return 'users.manage';
   if (/^\/api\/access-profiles(?:\/|$)/.test(path))
     return method === 'GET' ? 'personal' : 'profiles.manage';
   if (/^\/api\/invitations(?:\/|$)/.test(path)) return 'users.invite';
@@ -33,7 +34,13 @@ export function routePermission(
       path,
     )
   )
-    return 'contacts';
+    return method === 'GET' || /\/(resolve|lookup)(?:\/|$)/.test(path)
+      ? 'contacts'
+      : method === 'DELETE'
+        ? 'contacts.delete'
+        : method === 'PUT' || method === 'PATCH' || /\/[^/]+\/emails$/.test(path)
+          ? 'contacts.edit'
+          : 'contacts.create';
   if (/^\/api\/(chat|chats)(?:\/|$)/.test(path)) return 'chat';
   if (/^\/api\/(reports|dashboard)(?:\/|$)/.test(path)) return 'reports';
   if (/^\/api\/(signatures)(?:\/|$)/.test(path)) return 'signatures';
@@ -71,7 +78,7 @@ export function routePermission(
 export function installProfileAccess(app: FastifyInstance) {
   app.addHook('preHandler', async (req) => {
     const c = req.ctx;
-    if (!c?.accessProfileId || !c.tenantId || c.platformAdmin) return;
+    if (!(c?.accessRestricted ?? !!c?.accessProfileId) || !c.tenantId || c.platformAdmin) return;
     const permission = routePermission(req.url.split('?')[0]!, req.method);
     if (permission === 'personal') return;
     if (

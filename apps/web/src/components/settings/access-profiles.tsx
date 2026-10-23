@@ -4,23 +4,17 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Copy, Trash2, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  ACCESS_PERMISSIONS,
-  accessProfileSchema,
-  permissionDependencies,
-  type AccessProfile,
-  type AccessPermission,
-} from '@apmail/shared';
+import { accessProfileSchema, ROLE_LABELS, type AccessProfile } from '@apmail/shared';
 import type { z } from 'zod';
 import { api } from '@/lib/api';
 import { meQuery, useTenantId } from '@/lib/auth';
 import { PageHeader } from '@/components/layout/page-header';
 import { TeamNavigation } from './team-navigation';
+import { PermissionPicker } from './permission-picker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -34,42 +28,6 @@ import { Pagination } from '@/components/data/pagination';
 import { LoadingState, ErrorState, EmptyState } from '@/components/data/data-state';
 
 type ProfileInput = z.infer<typeof accessProfileSchema>;
-const standardTemplates = [
-  {
-    name: 'Administrador',
-    description:
-      'Modelo de administração completa. Proprietário e administrador permanecem protegidos pelo sistema.',
-    permissions: ACCESS_PERMISSIONS.map((p) => p.key),
-  },
-  {
-    name: 'Operação de e-mail',
-    description:
-      'E-mail, calendário, contatos e produtividade, mantendo as permissões individuais das caixas.',
-    permissions: [
-      'mail',
-      'mail.send',
-      'mail.organize',
-      'contacts',
-      'calendar',
-      'reminders',
-      'schedules',
-      'signatures',
-      'labels',
-      'integrations',
-    ] as AccessPermission[],
-  },
-  {
-    name: 'Cadastro de usuários',
-    description:
-      'Somente a tela de equipe e a criação de convites, sem acesso a e-mails ou edição de membros.',
-    permissions: ['users.view', 'users.invite'] as AccessPermission[],
-  },
-  {
-    name: 'Auditor',
-    description: 'Histórico operacional, sem conteúdo das mensagens e sem alterar dados.',
-    permissions: ['audit.view'] as AccessPermission[],
-  },
-];
 export function AccessProfiles() {
   const tenantId = useTenantId(),
     client = useQueryClient();
@@ -110,30 +68,10 @@ export function AccessProfiles() {
         </div>
         <p className="mt-1 text-muted-foreground">
           Crie um perfil e atribua-o ao convidar ou editar um usuário. O perfil limita módulos e
-          ações; caixas e pastas continuam com acesso individual. Os papéis atuais são preservados.
-          Proprietário e Administrador mantêm seus acessos de administração.
+          ações; caixas e pastas continuam com acesso individual. Perfis do sistema são protegidos:
+          duplique um deles para criar uma versão personalizada. Exceções individuais ficam em
+          Permissões por usuário.
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {standardTemplates.map((t) => (
-            <Button
-              key={t.name}
-              size="sm"
-              variant="outline"
-              title={t.description}
-              onClick={() =>
-                setEditing({
-                  values: {
-                    ...t,
-                    name: t.name === 'Administrador' ? 'Administração personalizada' : t.name,
-                  },
-                })
-              }
-            >
-              <Copy className="size-3.5" />
-              {t.name}
-            </Button>
-          ))}
-        </div>
       </div>
       <div className="mb-3 max-w-sm space-y-1">
         <Label htmlFor="profile-search">Buscar perfis</Label>
@@ -153,11 +91,11 @@ export function AccessProfiles() {
         <ErrorState onRetry={() => void q.refetch()} />
       ) : !rows.length ? (
         <EmptyState
-          title={search ? 'Nenhum perfil encontrado' : 'Nenhum perfil personalizado'}
+          title={search ? 'Nenhum perfil encontrado' : 'Nenhum perfil de acesso'}
           description={
             search
               ? 'Ajuste a busca para encontrar um perfil.'
-              : 'Comece por um modelo acima ou crie um perfil com as permissões necessárias.'
+              : 'Crie um perfil com as permissões necessárias para sua equipe.'
           }
         />
       ) : (
@@ -194,7 +132,12 @@ export function AccessProfiles() {
               className="flex flex-col gap-3 border-b p-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="min-w-0">
-                <h2 className="text-sm font-semibold">{p.name}</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-sm font-semibold">
+                    {p.system_role ? ROLE_LABELS[p.system_role] : p.name}
+                  </h2>
+                  {p.system_role && <Badge variant="secondary">Perfil do sistema</Badge>}
+                </div>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {p.description || 'Sem descrição.'}
                 </p>
@@ -206,14 +149,16 @@ export function AccessProfiles() {
                 </div>
               </div>
               <div className="flex shrink-0 gap-1">
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={'Editar perfil ' + p.name}
-                  onClick={() => setEditing({ id: p.id, values: p })}
-                >
-                  <Pencil className="size-4" />
-                </Button>
+                {!p.system_role && (
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={'Editar perfil ' + p.name}
+                    onClick={() => setEditing({ id: p.id, values: p })}
+                  >
+                    <Pencil className="size-4" />
+                  </Button>
+                )}
                 <Button
                   size="icon-sm"
                   variant="ghost"
@@ -224,26 +169,28 @@ export function AccessProfiles() {
                 >
                   <Copy className="size-4" />
                 </Button>
-                <ConfirmDialog
-                  destructive
-                  title="Excluir perfil de acesso?"
-                  description="Só é possível excluir um perfil sem usuários ou convites pendentes. O histórico das alterações será preservado."
-                  trigger={
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      className="text-destructive"
-                      aria-label={'Excluir perfil ' + p.name}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  }
-                  onConfirm={async () => {
-                    await api('/access-profiles/' + p.id, { method: 'DELETE' });
-                    await refresh();
-                    toast.success('Perfil excluído.');
-                  }}
-                />
+                {!p.system_role && (
+                  <ConfirmDialog
+                    destructive
+                    title="Excluir perfil de acesso?"
+                    description="Só é possível excluir um perfil sem usuários ou convites pendentes. O histórico das alterações será preservado."
+                    trigger={
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        className="text-destructive"
+                        aria-label={'Excluir perfil ' + p.name}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    }
+                    onConfirm={async () => {
+                      await api('/access-profiles/' + p.id, { method: 'DELETE' });
+                      await refresh();
+                      toast.success('Perfil excluído.');
+                    }}
+                  />
+                )}
               </div>
             </article>
           ))}
@@ -265,8 +212,9 @@ export function AccessProfiles() {
           <DialogHeader>
             <DialogTitle>{editing?.id ? 'Editar perfil' : 'Criar perfil de acesso'}</DialogTitle>
             <DialogDescription>
-              As alterações passam a valer para todos os usuários vinculados a este perfil. Sem
-              permissões selecionadas, apenas perfil pessoal e preferências ficam disponíveis.
+              As alterações passam a valer para usuários que herdam este perfil. Exceções
+              individuais são preservadas. Sem permissões selecionadas, apenas perfil pessoal e
+              preferências ficam disponíveis.
             </DialogDescription>
           </DialogHeader>
           {editing && (
@@ -308,12 +256,6 @@ function ProfileForm({
   const selected = useWatch({ control: form.control, name: 'permissions' }),
     busy = form.formState.isSubmitting;
   const [error, setError] = useState('');
-  function toggle(key: AccessPermission, checked: boolean) {
-    const next = checked
-      ? [...new Set([...selected, key, ...(permissionDependencies[key] ?? [])])]
-      : selected.filter((p) => p !== key && !permissionDependencies[p]?.includes(key));
-    form.setValue('permissions', next, { shouldDirty: true });
-  }
   return (
     <form
       className="space-y-5"
@@ -354,63 +296,12 @@ function ProfileForm({
           />
         </div>
       </div>
-      <div className="flex items-center justify-between gap-2 text-sm">
-        <p className="font-semibold">
-          Telas e ações{' '}
-          <span className="font-normal text-muted-foreground">
-            · {selected.length} selecionadas
-          </span>
-        </p>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={busy}
-          onClick={() => form.setValue('permissions', [])}
-        >
-          Limpar
-        </Button>
-      </div>
-      {Array.from(new Set(ACCESS_PERMISSIONS.map((p) => p.group))).map((group) => (
-        <fieldset key={group} className="rounded-lg border p-3">
-          <legend className="px-1 text-sm font-semibold">{group}</legend>
-          <div className="grid gap-1 sm:grid-cols-2">
-            {ACCESS_PERMISSIONS.filter((p) => p.group === group).map((p) => {
-              const unavailable =
-                tenant?.access_profile_id && !tenant.access_permissions?.includes(p.key);
-              return (
-                <label
-                  key={p.key}
-                  htmlFor={'permission-' + p.key}
-                  className={
-                    'flex cursor-pointer items-start gap-3 rounded-md p-2 hover:bg-muted ' +
-                    (unavailable ? 'opacity-50' : '')
-                  }
-                >
-                  <Checkbox
-                    aria-label={p.label}
-                    aria-describedby={'permission-help-' + p.key}
-                    id={'permission-' + p.key}
-                    checked={selected.includes(p.key)}
-                    disabled={busy || !!unavailable}
-                    onCheckedChange={(checked) => toggle(p.key, checked === true)}
-                  />
-                  <span>
-                    <span className="block text-sm font-medium">{p.label}</span>
-                    <span
-                      id={'permission-help-' + p.key}
-                      className="mt-1 block text-xs text-muted-foreground"
-                    >
-                      {p.description}
-                      {unavailable ? ' Não disponível no seu perfil.' : ''}
-                    </span>
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-        </fieldset>
-      ))}
+      <PermissionPicker
+        value={selected}
+        onChange={(permissions) => form.setValue('permissions', permissions, { shouldDirty: true })}
+        allowedPermissions={tenant?.access_permissions}
+        disabled={busy}
+      />
       {error && (
         <p
           role="alert"

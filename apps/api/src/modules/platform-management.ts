@@ -60,7 +60,7 @@ export async function registerPlatformManagement(
     const { id } = paramsSchema.parse(req.params);
     const tenant = await r.db
       .selectFrom('tenants')
-      .select(['id', 'name', 'slug', 'suspended_at'])
+      .select(['id', 'name', 'slug', 'suspended_at', 'company_details'])
       .where('id', '=', id)
       .where('deleted_at', 'is', null)
       .executeTakeFirst();

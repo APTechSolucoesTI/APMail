@@ -1,6 +1,6 @@
 import { isTenantAdmin } from '@apmail/shared';
 import { canDelegate, type TenantRole } from '@apmail/shared';
-import { hasAccess, type AccessPermission } from '@apmail/shared';
+import { hasAccess, canManageTenantContacts, type AccessPermission } from '@apmail/shared';
 export type RequestContext = {
   userId: string;
   tenantId: string | null;
@@ -12,6 +12,7 @@ export type RequestContext = {
   capabilities?: string[];
   platformAdmin?: boolean;
   accessProfileId?: string | null;
+  accessRestricted?: boolean;
   accessPermissions?: string[] | null;
 };
 declare module 'fastify' {
@@ -48,7 +49,7 @@ export function requireTenant(
 }
 export function requireTenantAdmin(ctx: RequestContext | null, permission?: AccessPermission) {
   const c = requireTenant(ctx);
-  if (c.accessProfileId && permission) {
+  if ((c.accessRestricted ?? !!c.accessProfileId) && permission) {
     if (!hasAccess({ role: c.tenantRole, access_permissions: c.accessPermissions }, permission))
       throw forbidden();
     return c;
@@ -63,7 +64,19 @@ export function requireTenantOwner(ctx: RequestContext | null) {
 }
 export function requireCapability(ctx: RequestContext | null, capability: string) {
   const c = requireTenant(ctx);
-  if (c.accessProfileId) {
+  if (capability === 'contacts_manage') {
+    if (
+      !canManageTenantContacts({
+        role: c.tenantRole,
+        capabilities: c.capabilities,
+        access_profile_id: c.accessProfileId,
+        access_permissions: c.accessPermissions,
+      })
+    )
+      throw forbidden();
+    return c;
+  }
+  if (c.accessRestricted ?? !!c.accessProfileId) {
     const permissions: Record<string, AccessPermission> = {
       members: 'users.view',
       audit: 'audit.view',

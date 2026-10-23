@@ -1,16 +1,17 @@
 import { useQuery, type QueryClient } from '@tanstack/react-query';
 import { normalizeContactEmail, type ContactResolution } from '@apmail/shared';
-import { useTenantId, useUserId } from './auth';
+import { useAccess, useTenantId, useUserId } from './auth';
 import { api } from './api';
 export function useContactResolution(values: string[]) {
   const tenant = useTenantId(),
-    user = useUserId();
+    user = useUserId(),
+    canReadContacts = useAccess('contacts');
   const emails = [
     ...new Set(values.map(normalizeContactEmail).filter((v): v is string => !!v)),
   ].sort();
   return useQuery({
     queryKey: ['contact-resolution', tenant, user, emails],
-    enabled: !!tenant && !!user && !!emails.length,
+    enabled: canReadContacts && !!tenant && !!user && !!emails.length,
     queryFn: ({ signal }) =>
       api<{ contacts: ContactResolution }>('/contacts/resolve', {
         method: 'POST',

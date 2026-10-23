@@ -105,9 +105,8 @@ async function applyRule(
     return false;
   for (const action of rule.actions) {
     if (
-      row.scope === 'personal' &&
       ['move_to_folder', 'mark_flagged'].includes(action.type) &&
-      !(await userCanMailbox(r, box, row.owner_user_id!, 'organize'))
+      !(await userCanMailbox(r, box, actor, action.type === 'move_to_folder' ? 'move' : 'flag'))
     )
       continue;
     if (action.type === 'auto_reply') {

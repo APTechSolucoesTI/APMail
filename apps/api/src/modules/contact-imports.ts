@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import { asJson, lockStorageTenant } from '@apmail/db';
 import {
+  hasAccess,
   contactSchema,
   parseContactCsv,
   mapContactCsv,
@@ -230,6 +231,16 @@ export async function registerContactImports(app: FastifyInstance, r: Resources)
     const c = requireTenant(req.ctx),
       id = z.object({ id: z.uuid() }).parse(req.params).id,
       b = z.object({ duplicates: z.enum(['skip', 'update']).default('skip') }).parse(req.body);
+    if (
+      (c.accessRestricted ?? !!c.accessProfileId) &&
+      b.duplicates === 'update' &&
+      !hasAccess({ role: c.tenantRole, access_permissions: c.accessPermissions }, 'contacts.edit')
+    )
+      throw new ApiError(
+        403,
+        'forbidden',
+        'Você não tem permissão para atualizar contatos existentes.',
+      );
     for (let batch = 0; batch < 100; batch++) {
       const done = await r.db.transaction().execute(async (tx) => {
         await lockStorageTenant(tx, c.tenantId);

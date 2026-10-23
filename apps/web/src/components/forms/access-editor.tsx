@@ -12,7 +12,7 @@ import { api } from '@/lib/api';
 import { meQuery, type Mailbox } from '@/lib/auth';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
-import { LoadingState, ErrorState } from '@/components/data/data-state';
+import { LoadingState, ErrorState, EmptyState } from '@/components/data/data-state';
 import { toast } from 'sonner';
 import { FolderAccessPicker, type FolderAccess } from './folder-access-picker';
 type Access = {
@@ -67,7 +67,7 @@ function AccessForm({
   const tenantId = useTenantId();
   const me = useQuery(meQuery);
   const actor = me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id);
-  const customActor = !!actor?.access_profile_id;
+  const customActor = !platformTenantId && actor?.access_permissions != null;
   const profiles = useQuery({
     queryKey: ['access-profiles', platformTenantId ?? tenantId],
     queryFn: () =>
@@ -95,14 +95,37 @@ function AccessForm({
     queryFn: () => api<{ settings: { default_invitation_mailbox_id?: string } }>('/tenant'),
     enabled: !userId && !customActor,
   });
-  if (!platformTenantId && profiles.isError)
-    return <ErrorState onRetry={() => void profiles.refetch()} />;
-  if (
-    boxes.isLoading ||
-    (!platformTenantId && profiles.isLoading) ||
-    (!userId && tenantSettings.isLoading)
-  )
+  const availableProfiles = (profiles.data ?? []).filter((profile) => {
+    // Restricted actors must assign a persisted custom profile; legacy roles also carry capabilities.
+    if (customActor && profile.system_role) return false;
+    if (profile.system_role === 'owner') return owner && !!userId && !customActor;
+    if (profile.system_role === 'admin')
+      return !customActor && (owner || (!!userId && initial.tenant_role === 'admin'));
+    return (
+      !customActor ||
+      profile.permissions.every((permission) => actor?.access_permissions?.includes(permission))
+    );
+  });
+  const initialProfile =
+    availableProfiles.find((profile) =>
+      initial.access_profile_id
+        ? profile.id === initial.access_profile_id
+        : profile.system_role === initial.tenant_role,
+    ) ?? (!userId && customActor ? availableProfiles[0] : undefined);
+  const profileFor = (value: unknown) =>
+    availableProfiles.find((profile) => 'profile:' + profile.id === String(value));
+  if (profiles.isError) return <ErrorState onRetry={() => void profiles.refetch()} />;
+  if (boxes.isError) return <ErrorState onRetry={() => void boxes.refetch()} />;
+  if (tenantSettings.isError) return <ErrorState onRetry={() => void tenantSettings.refetch()} />;
+  if (boxes.isLoading || profiles.isLoading || (!userId && tenantSettings.isLoading))
     return <LoadingState />;
+  if (!availableProfiles.length)
+    return (
+      <EmptyState
+        title="Nenhum perfil disponível"
+        description="Não há perfis com permissões compatíveis com seu acesso. Solicite ao administrador um perfil adequado para atribuir a este usuário."
+      />
+    );
   return (
     <SchemaForm
       schema={z.object({
@@ -112,11 +135,7 @@ function AccessForm({
           : { email: emailSchema, ...(!customActor ? { sender_mailbox_id: z.uuid() } : {}) }),
       })}
       defaults={{
-        tenant_role: initial.access_profile_id
-          ? 'profile:' + initial.access_profile_id
-          : customActor
-            ? 'profile:' + actor.access_profile_id
-            : initial.tenant_role,
+        tenant_role: initialProfile ? 'profile:' + initialProfile.id : '',
         sender_mailbox_id:
           tenantSettings.data?.settings.default_invitation_mailbox_id ??
           boxes.data?.find((b) => b.status === 'active')?.id,
@@ -145,43 +164,25 @@ function AccessForm({
           label: 'Perfil de acesso',
           type: 'select',
           options: [
-            ...(!customActor
-              ? [
-                  { value: 'member', label: 'Membro (padrão)' },
-                  { value: 'supervisor', label: 'Supervisor (padrão)' },
-                ]
-              : []),
-            ...(profiles.data ?? [])
-              .filter(
-                (p) =>
-                  !customActor ||
-                  p.permissions.every((permission) =>
-                    actor?.access_permissions?.includes(permission),
-                  ),
-              )
-              .map((p) => ({ value: 'profile:' + p.id, label: p.name })),
-            ...(owner
-              ? [
-                  { value: 'admin', label: 'Administrador' },
-                  ...(userId ? [{ value: 'owner', label: 'Proprietário' }] : []),
-                ]
-              : initial.tenant_role === 'admin'
-                ? [{ value: 'admin', label: 'Administrador' }]
-                : []),
+            { value: '', label: 'Selecione um perfil' },
+            ...availableProfiles.map((profile) => ({
+              value: 'profile:' + profile.id,
+              label: profile.system_role ? ROLE_LABELS[profile.system_role] : profile.name,
+            })),
           ],
         },
       ]}
       submitLabel={userId ? 'Salvar permissões' : 'Enviar convite'}
       onSubmit={async (b) => {
-        const profileId = String(b.tenant_role).startsWith('profile:')
-          ? String(b.tenant_role).slice(8)
-          : null;
-        const tenantRole = profileId ? 'member' : b.tenant_role;
+        const profile = profileFor(b.tenant_role);
+        if (!profile) throw new Error('Selecione um perfil de acesso disponível.');
+        const profileId = profile.system_role ? null : profile.id;
+        const tenantRole = profile.system_role ?? 'member';
         const mailbox_roles = (boxes.data ?? []).map((box) => ({
           mailbox_id: box.id,
           role: roles.find((r) => r.mailbox_id === box.id)?.role ?? null,
           restrict_to_folders:
-            (!isTenantAdmin(String(b.tenant_role)) &&
+            (!isTenantAdmin(tenantRole) &&
               roles.find((r) => r.mailbox_id === box.id)?.restrict_to_folders) ||
             false,
           folder_ids: roles.find((r) => r.mailbox_id === box.id)?.folder_ids ?? [],
@@ -210,7 +211,7 @@ function AccessForm({
       }}
       renderPreview={(values) => (
         <div className="space-y-4">
-          {values.tenant_role === 'supervisor' && (
+          {profileFor(values.tenant_role)?.system_role === 'supervisor' && (
             <fieldset className="rounded-md border p-3 space-y-2">
               <legend>Permissões adicionais do supervisor</legend>
               {SUPERVISOR_CAPABILITIES.filter((cap) => cap !== 'dashboard').map((cap) => (
@@ -260,7 +261,7 @@ function AccessForm({
                   ))}
                 </RadioGroup>
                 {userId &&
-                  !isTenantAdmin(String(values.tenant_role)) &&
+                  !isTenantAdmin(profileFor(values.tenant_role)?.system_role) &&
                   (role === 'editor' || role === 'viewer') && (
                     <FolderAccessPicker
                       platformTenantId={platformTenantId}

@@ -50,8 +50,13 @@ export function organizationService(r: Resources) {
   const validateRule = async (c: ReturnType<typeof requireTenant>, b: MailRuleInput) => {
     await requireMailboxPerm(c, r.db, b.mailbox_id, b.scope === 'personal' ? 'read' : 'rules');
     for (const a of b.actions) {
-      if (b.scope === 'personal' && ['move_to_folder', 'mark_flagged'].includes(a.type))
-        await requireMailboxPerm(c, r.db, b.mailbox_id, 'organize');
+      if (['move_to_folder', 'mark_flagged'].includes(a.type))
+        await requireMailboxPerm(
+          c,
+          r.db,
+          b.mailbox_id,
+          a.type === 'move_to_folder' ? 'move' : 'flag',
+        );
       if (a.type === 'move_to_folder') {
         const f = await r.db
           .selectFrom('folders')

@@ -119,7 +119,7 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
         .execute(async (tx) => {
           const groups: GlobalSearchResponse['groups'] = [];
           for (const [category, query] of queries) {
-            if (c.accessProfileId) {
+            if (c.accessRestricted ?? !!c.accessProfileId) {
               const permission =
                 category === 'contact'
                   ? 'contacts'
@@ -210,7 +210,7 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
             items: settings
               .filter(
                 ([url]) =>
-                  !c.accessProfileId ||
+                  !(c.accessRestricted ?? !!c.accessProfileId) ||
                   !screenPermission(url!) ||
                   hasAccess(
                     { role: c.tenantRole, access_permissions: c.accessPermissions },

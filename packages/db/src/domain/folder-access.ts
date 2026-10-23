@@ -34,7 +34,8 @@ export async function userCanReadFolder(
       'mm.role as mailbox_role',
       'mm.restrict_to_folders',
       'tm.access_profile_id',
-      'ap.permissions',
+      'tm.custom_permissions',
+      sql<string[] | null>`coalesce(tm.custom_permissions,ap.permissions)`.as('permissions'),
     ])
     .where('tm.tenant_id', '=', tenantId)
     .where('tm.user_id', '=', userId)
@@ -44,7 +45,7 @@ export async function userCanReadFolder(
     .executeTakeFirst();
   if (!member) return false;
   if (
-    member.access_profile_id &&
+    (member.access_profile_id || member.custom_permissions !== null) &&
     !hasAccess({ role: member.role, access_permissions: member.permissions ?? [] }, 'mail')
   )
     return false;
@@ -83,7 +84,14 @@ export async function userCanReadThread(
         .onRef('ap.id', '=', 'tenant_members.access_profile_id')
         .onRef('ap.tenant_id', '=', 'tenant_members.tenant_id'),
     )
-    .select(['tenant_members.role', 'tenant_members.access_profile_id', 'ap.permissions'])
+    .select([
+      'tenant_members.role',
+      'tenant_members.access_profile_id',
+      'tenant_members.custom_permissions',
+      sql<string[] | null>`coalesce(tenant_members.custom_permissions,ap.permissions)`.as(
+        'permissions',
+      ),
+    ])
     .where('tenant_members.tenant_id', '=', tenantId)
     .where('user_id', '=', userId)
     .where('status', '=', 'active')
@@ -92,7 +100,7 @@ export async function userCanReadThread(
     .executeTakeFirst();
   if (!member) return false;
   if (
-    member.access_profile_id &&
+    (member.access_profile_id || member.custom_permissions !== null) &&
     !hasAccess({ role: member.role, access_permissions: member.permissions ?? [] }, 'mail')
   )
     return false;

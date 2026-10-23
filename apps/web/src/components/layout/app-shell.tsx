@@ -269,7 +269,7 @@ export function AppShell() {
   useEffect(() => {
     const tenant = me.data?.tenants.find((t) => t.id === me.data?.current_tenant_id);
     const permission = screenPermission(pathname);
-    if (tenant?.access_profile_id && permission && !hasAccess(tenant, permission))
+    if (tenant?.access_permissions != null && permission && !hasAccess(tenant, permission))
       void navigate({ to: '/' });
   }, [me.data, pathname, navigate]);
   if (!me.data)
@@ -407,23 +407,25 @@ export function AppShell() {
               ['/settings/signatures', 'Assinaturas'],
               ['/settings/labels', 'Etiquetas'],
               ['/settings/rules', 'Regras'],
-              ...(!admin && tenant?.access_profile_id && allowed('profiles.manage')
-                ? [['/settings/access-profiles', 'Perfis de acesso']]
-                : []),
               ...(!admin &&
               (canDelegate(tenant?.role ?? null, tenant?.capabilities, 'members') ||
-                (!!tenant?.access_profile_id && allowed('users.view')))
-                ? [['/settings/users', 'Equipe']]
+                (tenant?.access_permissions != null &&
+                  (allowed('users.view') || allowed('profiles.manage'))))
+                ? [
+                    [
+                      allowed('users.view') ? '/settings/users' : '/settings/access-profiles',
+                      'Equipe e acesso',
+                    ],
+                  ]
                 : []),
               ...(!admin &&
               (canDelegate(tenant?.role ?? null, tenant?.capabilities, 'audit') ||
-                (!!tenant?.access_profile_id && allowed('audit.view')))
+                (tenant?.access_permissions != null && allowed('audit.view')))
                 ? [['/settings/audit', 'Auditoria']]
                 : []),
               ...(admin
                 ? [
-                    ['/settings/users', 'Equipe e acessos'],
-                    ['/settings/access-profiles', 'Perfis de acesso'],
+                    ['/settings/users', 'Equipe e acesso'],
                     ['/settings/mailboxes', 'Caixas de e-mail'],
                     ['/settings/tenant', 'Empresa'],
                     ['/settings/audit', 'Auditoria'],
@@ -432,7 +434,7 @@ export function AppShell() {
             ]
               .filter(([to]) => {
                 const permission = screenPermission(to!);
-                return !tenant?.access_profile_id || !permission || allowed(permission);
+                return tenant?.access_permissions == null || !permission || allowed(permission);
               })
               .map(([to, label]) => {
                 const Icon = settingsIcons[to!] ?? Settings;

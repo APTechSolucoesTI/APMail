@@ -18,7 +18,9 @@ import {
   mailboxSchema,
   invitationSchema,
   memberAccessSchema,
+  cnpjSchema,
 } from '@apmail/shared';
+import { lookupCompany } from '../lib/company-lookup.js';
 import { saveMailboxAccess } from './tenants.js';
 import {
   ApiError,
@@ -45,6 +47,15 @@ const pageSchema = z.object({
   tenant_id: z.uuid().optional(),
 });
 export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
+  app.get(
+    '/api/superadmin/company-lookup/:cnpj',
+    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req) => {
+      requireSuperAdmin(req.ctx);
+      const { cnpj } = z.object({ cnpj: cnpjSchema }).parse(req.params);
+      return lookupCompany(cnpj);
+    },
+  );
   app.get('/api/superadmin/tenants/:id/access-profiles', async (req) => {
     requireSuperAdmin(req.ctx);
     return r.db
@@ -111,7 +122,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
     await r.db.transaction().execute(async (tx) => {
       const member = await tx
         .selectFrom('tenant_members')
-        .select('role')
+        .select(['role', 'access_profile_id'])
         .where('tenant_id', '=', b.tenant_id)
         .where('user_id', '=', id)
         .forUpdate()
@@ -128,6 +139,10 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
         .set({
           role: b.tenant_role,
           access_profile_id: b.access_profile_id ?? null,
+          ...(member.role !== b.tenant_role ||
+          member.access_profile_id !== (b.access_profile_id ?? null)
+            ? { custom_permissions: null }
+            : {}),
           capabilities: b.tenant_role === 'supervisor' ? b.capabilities : [],
         })
         .where('tenant_id', '=', b.tenant_id)
@@ -374,7 +389,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
     const result = await r.db.transaction().execute(async (tx) => {
       const tenant = await tx
         .insertInto('tenants')
-        .values({ name: b.name, slug: b.slug })
+        .values({ name: b.name, slug: b.slug, company_details: asJson(b.company_details ?? {}) })
         .returning(['id', 'name'])
         .executeTakeFirstOrThrow();
       const owner = await tx
@@ -453,6 +468,9 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
       .set({
         ...(b.name !== undefined ? { name: b.name } : {}),
         ...(b.slug !== undefined ? { slug: b.slug } : {}),
+        ...(b.company_details !== undefined
+          ? { company_details: sql`company_details || ${JSON.stringify(b.company_details)}::jsonb` }
+          : {}),
         ...(b.suspended !== undefined ? { suspended_at: b.suspended ? new Date() : null } : {}),
       })
       .where('id', '=', id)
@@ -469,7 +487,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
           ? 'platform.tenant_suspended'
           : 'platform.tenant_resumed',
       id,
-      { name: b.name, slug: b.slug },
+      { name: b.name, slug: b.slug, company_details: b.company_details },
     );
     return { ok: true };
   });

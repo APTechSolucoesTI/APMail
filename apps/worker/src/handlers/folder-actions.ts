@@ -9,6 +9,7 @@ import { syncFolders } from '../imap/sync-folders.js';
 import { withMailboxLock } from '../lib/mailbox-lock.js';
 import { isConnectionError } from '../lib/errors.js';
 import { markMailboxError } from './mailbox-connection.js';
+import { userCanMailbox } from '../lib/mailbox-permissions.js';
 export async function handleFolderAction(
   r: WorkerResources,
   initial: Selectable<DB['mail_actions']>,
@@ -54,6 +55,11 @@ export async function handleFolderAction(
             .executeTakeFirst())
         )
           throw new UnrecoverableError('O superadmin não pode alterar pastas.');
+        if (
+          !action.requested_by ||
+          !(await userCanMailbox(r, box, action.requested_by, 'organize'))
+        )
+          throw new UnrecoverableError('Você não tem mais permissão para organizar esta caixa.');
         await r.db
           .updateTable('mail_actions')
           .set({ status: 'processing', attempts: action.attempts + 1 })

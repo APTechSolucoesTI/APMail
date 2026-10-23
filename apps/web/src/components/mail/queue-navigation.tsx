@@ -24,7 +24,9 @@ export function QueueNavigation({
       queryFn: () => api<Record<string, number>>('/mailboxes/' + mailboxId + '/queue-counts'),
       refetchInterval: 60000,
     }),
-    search = useLocation().search as { view?: string; queue?: string };
+    location = useLocation(),
+    search = location.search as { view?: string; queue?: string };
+  const activeMailbox = location.pathname === '/mail/' + mailboxId;
   return (
     <div className="min-w-0 space-y-1">
       {queues.map(([queue, label, Icon]) => (
@@ -36,7 +38,8 @@ export function QueueNavigation({
           onClick={onNavigate}
           className={cn(
             'flex min-h-11 sm:min-h-8 min-w-0 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted',
-            search.view === 'queue' &&
+            activeMailbox &&
+              search.view === 'queue' &&
               search.queue === queue &&
               'bg-secondary text-secondary-foreground',
           )}

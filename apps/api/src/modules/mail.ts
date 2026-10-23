@@ -497,6 +497,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       .refine((b) => b.message_ids || b.thread_ids)
       .parse(req.body);
     if (b.type === 'move' && !b.target_folder_id) throw conflict('Escolha a pasta de destino.');
+    await requireMailboxPerm(c, r.db, id, b.type === 'set_flag' ? 'flag' : b.type);
     if (b.type === 'set_flag' && b.flagged === undefined)
       throw conflict('Informe o estado da sinalização.');
     const action = await r.db.transaction().execute(async (trx) => {

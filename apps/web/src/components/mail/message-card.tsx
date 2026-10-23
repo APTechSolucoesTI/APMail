@@ -1,5 +1,15 @@
-import { useState } from 'react';
-import { Download, Paperclip, Eye, Flag } from 'lucide-react';
+import { useId, useState } from 'react';
+import {
+  Download,
+  Paperclip,
+  Eye,
+  Flag,
+  Plus,
+  Minus,
+  Reply,
+  ReplyAll,
+  Forward,
+} from 'lucide-react';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -41,6 +51,7 @@ export function MessageCard({
 }) {
   const [open, setOpen] = useState(expanded),
     [preview, setPreview] = useState<Attachment | null>(null);
+  const bodyId = useId();
   const date = new Date(message.message_at).toLocaleString('pt-BR', { timeZone });
   const sender = resolveAddress(
     { name: message.from_name, address: message.from_address },
@@ -57,24 +68,27 @@ export function MessageCard({
         <div className="flex min-w-0 items-start gap-3">
           <UserAvatar name={sender.name} size={32} />
           <div className="min-w-0 flex-1">
-            <button
-              type="button"
-              onClick={() => setOpen((v) => !v)}
-              aria-expanded={open}
-              className="block w-full rounded-sm text-left hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <p className="break-words text-sm font-semibold">
-                {sender.name}{' '}
-                {message.is_flagged && <Flag className="inline size-3" aria-label="Sinalizada" />}
-              </p>
-              <p className="break-all text-xs text-muted-foreground">{message.from_address}</p>
-              {!open && (
-                <p className="mt-1 truncate text-xs text-muted-foreground" title={message.snippet}>
-                  {message.snippet}
-                </p>
+            <div className="flex flex-wrap items-center gap-1 text-sm font-semibold">
+              {sender.contact && !message.is_mdn ? (
+                <ContactSenderAction
+                  email={message.from_address}
+                  name={sender.name}
+                  identity={sender.contact}
+                  inlineName
+                  className="min-h-11 min-w-0 break-words rounded-sm text-left font-semibold text-primary underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring sm:min-h-6"
+                />
+              ) : (
+                <span className="break-words">{sender.name}</span>
               )}
-            </button>
-            {!message.is_mdn && (
+              {message.is_flagged && <Flag className="inline size-3" aria-label="Sinalizada" />}
+            </div>
+            <p className="break-all text-xs text-muted-foreground">{message.from_address}</p>
+            {!open && (
+              <p className="mt-1 truncate text-xs text-muted-foreground" title={message.snippet}>
+                {message.snippet}
+              </p>
+            )}
+            {!message.is_mdn && !contactIdentity.contact && (
               <ContactSenderAction
                 email={contactAddress.address}
                 name={contactAddress.name}
@@ -82,17 +96,95 @@ export function MessageCard({
                 className="mt-1 -ml-2 min-h-11 px-2 text-xs sm:h-8 sm:min-h-8"
               />
             )}
+            {!message.is_mdn && message.direction === 'outbound' && contactIdentity.contact && (
+              <div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                Para
+                <ContactSenderAction
+                  email={contactAddress.address}
+                  name={contactIdentity.name}
+                  identity={contactIdentity.contact}
+                  inlineName
+                  className="min-h-11 min-w-0 break-words rounded-sm text-left font-medium text-primary underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring sm:min-h-6"
+                />
+              </div>
+            )}
           </div>
         </div>
-        <time
-          dateTime={message.message_at}
-          className="pl-11 text-xs tabular-nums text-muted-foreground sm:pl-0 sm:text-right"
-        >
-          {date}
-        </time>
+        <div className="flex items-center justify-between gap-2 pl-11 sm:justify-end sm:pl-0">
+          <time
+            dateTime={message.message_at}
+            className="text-xs tabular-nums text-muted-foreground sm:text-right"
+          >
+            {date}
+          </time>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="size-11 shrink-0 sm:size-8"
+            onClick={() => setOpen((value) => !value)}
+            aria-label={(open ? 'Recolher' : 'Expandir') + ' mensagem de ' + sender.name}
+            aria-expanded={open}
+            aria-controls={bodyId}
+          >
+            {open ? <Minus aria-hidden /> : <Plus aria-hidden />}
+          </Button>
+        </div>
       </header>
       {open && (
-        <div className="space-y-3 border-t p-4">
+        <div id={bodyId} className="space-y-3 border-t p-4">
+          {(onCompose || organize || message.pending_action) && (
+            <div
+              role="group"
+              aria-label="Ações da mensagem"
+              className="flex min-w-0 flex-wrap items-center gap-2 border-b pb-3"
+            >
+              {onCompose && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onCompose('reply:' + message.id)}
+                  >
+                    <Reply aria-hidden />
+                    Responder
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onCompose('reply_all:' + message.id)}
+                  >
+                    <ReplyAll aria-hidden />
+                    Responder a todos
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onCompose('forward:' + message.id)}
+                  >
+                    <Forward aria-hidden />
+                    Encaminhar
+                  </Button>
+                </>
+              )}
+              {message.pending_action ? (
+                <p role="status" className="text-xs text-muted-foreground">
+                  Aplicando alteração no servidor…
+                </p>
+              ) : (
+                organize && (
+                  <div className="sm:ml-auto">
+                    <MessageActions
+                      mailboxId={mailboxId}
+                      folders={folders}
+                      messageIds={[message.id]}
+                      flagged={message.is_flagged}
+                    />
+                  </div>
+                )
+              )}
+            </div>
+          )}
           <ReadReceipt message={message} canSend={!!onCompose} timeZone={timeZone} />
           {message.calendar_invite && (
             <CalendarInvitation messageId={message.id} timeZone={timeZone} canSend={!!onCompose} />
@@ -179,41 +271,6 @@ export function MessageCard({
                   </li>
                 ))}
             </ul>
-          )}
-          {message.pending_action ? (
-            <p role="status" className="text-xs text-muted-foreground">
-              Aplicando alteração no servidor…
-            </p>
-          ) : (
-            organize && (
-              <MessageActions
-                mailboxId={mailboxId}
-                folders={folders}
-                messageIds={[message.id]}
-                flagged={message.is_flagged}
-              />
-            )
-          )}
-          {onCompose && (
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" onClick={() => onCompose('reply:' + message.id)}>
-                Responder
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onCompose('reply_all:' + message.id)}
-              >
-                Responder a todos
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onCompose('forward:' + message.id)}
-              >
-                Encaminhar
-              </Button>
-            </div>
           )}
         </div>
       )}
