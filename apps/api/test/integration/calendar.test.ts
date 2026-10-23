@@ -336,6 +336,43 @@ it('expande série, reagenda e cancela somente uma ocorrência', async () => {
     '2030-10-15T19:00:00.000Z',
   );
 });
+it('respeita a escolha de não enviar atualização de uma ocorrência', async () => {
+  const created = await call('POST', '/api/calendar/events', {
+    ...base,
+    calendar_id: calendarId,
+    mailbox_id: box,
+    attendees: [{ address: 'occurrence-guest@qa.example', name: 'Convidado' }],
+    rrule: 'FREQ=DAILY;COUNT=3',
+    send_invitations: false,
+  });
+  expect(created.statusCode, created.body).toBe(200);
+  const event = created.json();
+  const quiet = await call('POST', '/api/calendar/events/' + event.id + '/occurrence', {
+    original: base.starts_at,
+    start: '2030-10-15T19:00:00.000Z',
+    end: '2030-10-15T20:00:00.000Z',
+    version: 0,
+    send_invitations: false,
+  });
+  expect(quiet.statusCode, quiet.body).toBe(200);
+  expect(quiet.json().exceptions[0].start).toBe('2030-10-15T19:00:00.000Z');
+  const mails = () =>
+    db
+      .selectFrom('outbox')
+      .selectAll()
+      .where('tenant_id', '=', tenant)
+      .where(sql<string>`calendar_payload->>'uid'`, '=', event.uid)
+      .execute();
+  expect(await mails()).toHaveLength(0);
+  const announced = await call('POST', '/api/calendar/events/' + event.id + '/occurrence', {
+    original: '2030-10-16T17:00:00.000Z',
+    start: '2030-10-16T19:00:00.000Z',
+    end: '2030-10-16T20:00:00.000Z',
+    version: 1,
+  });
+  expect(announced.statusCode, announced.body).toBe(200);
+  expect(await mails()).toHaveLength(1);
+});
 it('salva reuniões e convites na mesma transação; recebe respostas e cancelamentos', async () => {
   const response = await call('POST', '/api/calendar/events', {
     ...base,

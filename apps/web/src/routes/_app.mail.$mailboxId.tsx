@@ -1,5 +1,6 @@
 import { Pagination } from '@/components/data/pagination';
 import { ThreadListItem } from '@/components/mail/thread-list-item';
+import { MailboxDrafts } from '@/components/mail/mailbox-drafts';
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
@@ -82,8 +83,13 @@ function MailPage() {
     queryFn: () => api<PersonalLabel[]>('/labels?mailbox_id=' + mailboxId),
     enabled: search.view === 'label',
   });
+  const folder = flattenFolders(folders.data ?? []).find((f) =>
+    search.folderId ? f.id === search.folderId : f.special_use === 'inbox',
+  );
+  const isDrafts =
+    search.view === 'drafts' || (search.view === 'folder' && folder?.special_use === 'drafts');
   const query = new URLSearchParams({
-    view: search.view,
+    view: search.view === 'drafts' ? 'folder' : search.view,
     assigned: search.assigned,
     sort: search.sort,
     page: String(search.page),
@@ -101,9 +107,10 @@ function MailPage() {
         '/mailboxes/' + mailboxId + '/threads?' + query,
       ),
     placeholderData: keepPreviousData,
+    enabled: !isDrafts,
   });
   useEffect(() => {
-    if (!threads.data || threads.isFetching || threads.isPlaceholderData) return;
+    if (isDrafts || !threads.data || threads.isFetching || threads.isPlaceholderData) return;
     const lastPage = Math.max(1, Math.ceil(threads.data.total / search.pageSize));
     if (search.page > lastPage)
       void navigate({ search: (previous) => ({ ...previous, page: lastPage }) });
@@ -114,6 +121,7 @@ function MailPage() {
     search.page,
     search.pageSize,
     navigate,
+    isDrafts,
   ]);
   useSocketRoom('mailbox', mailboxId);
   const context = tenantId + mailboxId + query.toString(),
@@ -142,16 +150,14 @@ function MailPage() {
     if (search.compose) setPendingCompose(mode);
     else if (!search.compose) change({ compose: mode });
   };
-  const items = threads.data?.items ?? [],
-    folder = flattenFolders(folders.data ?? []).find((f) =>
-      search.folderId ? f.id === search.folderId : f.special_use === 'inbox',
-    );
+  const items = isDrafts ? [] : (threads.data?.items ?? []);
   const selectedThreads = [
     ...new Set(
       items.filter((item) => selected.includes(item.message_id ?? item.id)).map((item) => item.id),
     ),
   ];
-  const individualMessages = search.view === 'folder' && folder?.special_use === 'sent';
+  const individualMessages =
+    isDrafts || (search.view === 'folder' && folder?.special_use === 'sent');
   const mark = async (action: 'read' | 'unread' | 'done' | 'reopen') => {
     setUpdating(true);
     try {
@@ -194,7 +200,7 @@ function MailPage() {
           tenantId,
           search.thread,
           search.message,
-          individualMessages ? folder?.id : undefined,
+          individualMessages && !isDrafts ? folder?.id : undefined,
         ),
       )
       ?.messages.at(-1);
@@ -238,7 +244,16 @@ function MailPage() {
     search.assigned !== 'any',
     search.sort !== 'recent',
   ].filter(Boolean).length;
-  const list = (
+  const list = isDrafts ? (
+    <MailboxDrafts
+      key={mailboxId}
+      mailboxId={mailboxId}
+      search={search}
+      onChange={change}
+      onOpenDraft={(id) => openComposer('draft:' + id)}
+      onOpenMessage={(thread, message) => change({ thread, message })}
+    />
+  ) : (
     <section aria-label="Lista de conversas" className="flex h-full min-w-0 flex-col bg-card">
       <div aria-label="Filtros da caixa" className="shrink-0 space-y-3 border-b p-3">
         <div className="flex min-w-0 items-center gap-2">
@@ -495,7 +510,7 @@ function MailPage() {
         key={search.message ?? search.thread}
         threadId={search.thread}
         messageId={individualMessages ? search.message : undefined}
-        folderId={individualMessages ? folder?.id : undefined}
+        folderId={individualMessages && !isDrafts ? folder?.id : undefined}
         mailboxId={mailboxId}
         folders={folders.data ?? []}
         onClose={close}
@@ -504,8 +519,12 @@ function MailPage() {
     ) : (
       <EmptyState
         icon={FolderOpen}
-        title="Selecione uma conversa"
-        description="Escolha um e-mail na lista para ver as mensagens e os anexos."
+        title={isDrafts ? 'Continue seu rascunho' : 'Selecione uma conversa'}
+        description={
+          isDrafts
+            ? 'Selecione um rascunho para continuar escrevendo ou abra um novo e-mail.'
+            : 'Escolha um e-mail na lista para ver as mensagens e os anexos.'
+        }
       />
     );
   return (
@@ -514,18 +533,20 @@ function MailPage() {
         <div className="min-w-0">
           <h1 className="text-xl font-bold">{box.data.name}</h1>
           <p className="mt-1 break-words text-xs text-muted-foreground">
-            {search.view === 'search'
-              ? 'Resultados da busca'
-              : search.view === 'label'
-                ? 'Etiqueta: ' +
-                  (labels.data?.find((l) => l.id === search.labelId)?.name ?? 'Carregando…')
-                : search.view === 'queue'
-                  ? search.queue === 'overdue'
-                    ? 'Fora do SLA'
-                    : QUEUE_LABELS[search.queue ?? 'to_reply']
-                  : folder
-                    ? folderLabel(folder)
-                    : 'Caixa de entrada'}{' '}
+            {isDrafts
+              ? 'Rascunhos'
+              : search.view === 'search'
+                ? 'Resultados da busca'
+                : search.view === 'label'
+                  ? 'Etiqueta: ' +
+                    (labels.data?.find((l) => l.id === search.labelId)?.name ?? 'Carregando…')
+                  : search.view === 'queue'
+                    ? search.queue === 'overdue'
+                      ? 'Fora do SLA'
+                      : QUEUE_LABELS[search.queue ?? 'to_reply']
+                    : folder
+                      ? folderLabel(folder)
+                      : 'Caixa de entrada'}{' '}
             · <span className="font-mono">{box.data.email_address}</span>
           </p>
         </div>

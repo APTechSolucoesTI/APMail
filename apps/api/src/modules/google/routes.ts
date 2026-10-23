@@ -247,7 +247,7 @@ export async function registerGoogleIntegrations(
     }
     return { ok: true };
   });
-  app.post('/api/integrations/google/meet', async (req) => {
+  app.post('/api/integrations/google/meet', async (req, reply) => {
     const c = requireTenant(req.ctx),
       body = z
         .object({ request_id: z.uuid(), config: meetConfigSchema.optional() })
@@ -272,9 +272,19 @@ export async function registerGoogleIntegrations(
         'Esta solicitação já foi processada ou está em andamento. Verifique o resultado antes de gerar outra sala.',
       );
     }
+    let rejected = false;
     try {
       const preferences = await getMeetPreferences(r.db, c.tenantId, c.userId);
-      const space = await google.meeting(token, body.config ?? defaultMeetConfig(preferences)),
+      const space = await google
+          .meeting(token, body.config ?? defaultMeetConfig(preferences))
+          .catch((error: unknown) => {
+            // Only an explicit rejection of this creation can safely use a new request ID.
+            // Network failures, timeouts and server errors may have created a room.
+            rejected =
+              error instanceof GoogleApiError &&
+              [400, 401, 403, 404, 422, 429].includes(error.providerStatus);
+            throw error;
+          }),
         url = googleMeetUrl(space.meetingUri);
       if (!url)
         throw new ApiError(502, 'google_error', 'O Google retornou um link de reunião inválido.');
@@ -291,14 +301,14 @@ export async function registerGoogleIntegrations(
       await r.db
         .updateTable('google_meeting_requests')
         .set({
-          status:
-            (error instanceof ApiError || error instanceof GoogleApiError) &&
-            error.code !== 'google_timeout'
-              ? 'failed'
-              : 'uncertain',
+          status: rejected ? 'failed' : 'uncertain',
         })
         .where('id', '=', body.request_id)
         .execute();
+      if (rejected && error instanceof GoogleApiError)
+        return reply.code(error.statusCode).send({
+          error: { code: 'google_meeting_rejected', message: error.message },
+        });
       throw error;
     }
   });

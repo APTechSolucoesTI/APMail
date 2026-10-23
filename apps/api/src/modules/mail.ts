@@ -12,6 +12,7 @@ import { replaceLabels, validateLabelIds, labelIdsSchema } from './organization/
 import { bulkQueue } from './thread-operations/service.js';
 import { registerReadReceipts } from './read-receipts.js';
 import { resolveContacts } from './contact-resolution.js';
+import { registerMailboxDrafts } from './mailbox-drafts.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 export const threadListSchema = z.object({
   columns: z.string().max(16000).optional(),
@@ -86,6 +87,7 @@ type FolderNode = {
   children: FolderNode[];
 };
 export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
+  await registerMailboxDrafts(app, r);
   await registerReadReceipts(app, r);
   app.get('/api/mailboxes/:id/folders', async (req) => {
     const id = idOf(req.params),

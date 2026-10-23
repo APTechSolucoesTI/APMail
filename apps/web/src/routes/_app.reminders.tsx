@@ -178,7 +178,10 @@ function RemindersPage() {
       ) : (
         <ul className="overflow-auto rounded-lg border bg-card divide-y">
           {reminders.data.items.map((r) => (
-            <li key={r.id} className="flex flex-wrap items-start gap-3 p-4">
+            <li
+              key={r.id}
+              className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 p-4 sm:flex sm:flex-wrap"
+            >
               <Bell
                 className={
                   'mt-1 size-4 shrink-0 ' +
@@ -214,7 +217,7 @@ function RemindersPage() {
                 )}
               </div>
               {['pending', 'notified'].includes(r.status) && (
-                <div className="flex flex-wrap gap-1">
+                <div className="col-span-2 flex flex-wrap gap-1 sm:shrink-0">
                   {!r.event_id && (
                     <Button
                       size="icon"

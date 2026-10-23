@@ -74,7 +74,7 @@ export async function cleanupUploads(r: WorkerResources) {
     .where('consumed_at', 'is', null)
     .where('created_at', '<', new Date(Date.now() - 86400000))
     .where(
-      sql<boolean>`not exists(select 1 from outbox o where o.status in ('draft','queued','scheduled','sending') and o.attachments @> jsonb_build_array(jsonb_build_object('source','upload','upload_id',uploads.id)))`,
+      sql<boolean>`not exists(select 1 from outbox o where o.status in ('draft','queued','scheduled','sending','failed') and o.attachments @> jsonb_build_array(jsonb_build_object('source','upload','upload_id',uploads.id)))`,
     )
     .execute();
   for (const file of files) {

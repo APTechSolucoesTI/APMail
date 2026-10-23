@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -30,6 +30,7 @@ type Props = {
   activeId?: string;
   onNavigate?: () => void;
   organize?: boolean;
+  draftsFallback?: ReactNode;
 };
 function activeAncestors(folders: Folder[], activeId?: string, parents: string[] = []): string[] {
   for (const folder of folders) {
@@ -62,6 +63,7 @@ function FolderBranches({
   activeId,
   onNavigate,
   organize = false,
+  draftsFallback,
   storageKey,
 }: Props & { storageKey: string }) {
   const [expanded, setExpanded] = useState(() => readExpanded(storageKey));
@@ -79,9 +81,10 @@ function FolderBranches({
       /* Keep navigation usable when storage is unavailable. */
     }
   };
+  const draftsIndex = folders.findIndex((f) => !['inbox', 'sent'].includes(f.special_use ?? ''));
   const branch = (nodes: Folder[], depth = 0, parents: string[] = []) => (
     <ul className="min-w-0" aria-label={depth === 0 ? 'Pastas da caixa' : undefined}>
-      {nodes.map((folder) => {
+      {nodes.map((folder, index) => {
         const label = folderLabel(folder),
           path = [...parents, label].join(' / ');
         const Icon = icons[folder.special_use as keyof typeof icons] ?? FolderIcon;
@@ -145,18 +148,22 @@ function FolderBranches({
           </div>
         );
         return (
-          <li key={folder.id}>
-            {organize ? (
-              <FolderControls mailboxId={mailboxId} folder={folder} compact>
-                {row}
-              </FolderControls>
-            ) : (
-              row
-            )}
-            {hasChildren && isOpen && branch(folder.children, depth + 1, [...parents, label])}
-          </li>
+          <Fragment key={folder.id}>
+            {depth === 0 && index === draftsIndex && draftsFallback && <li>{draftsFallback}</li>}
+            <li>
+              {organize ? (
+                <FolderControls mailboxId={mailboxId} folder={folder} compact>
+                  {row}
+                </FolderControls>
+              ) : (
+                row
+              )}
+              {hasChildren && isOpen && branch(folder.children, depth + 1, [...parents, label])}
+            </li>
+          </Fragment>
         );
       })}
+      {depth === 0 && draftsIndex < 0 && draftsFallback && <li>{draftsFallback}</li>}
     </ul>
   );
   return branch(folders);

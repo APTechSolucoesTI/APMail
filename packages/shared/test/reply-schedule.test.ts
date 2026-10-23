@@ -47,6 +47,26 @@ it('cita usando o fuso e escapa cabeçalho original', () => {
   expect(html).toContain('data-apmail-quote');
   expect(quoteHtml(message, 'forward', 'UTC')).toContain('Pedido &lt;42&gt;');
 });
+it('responde a uma mensagem enviada aos destinatários originais sem incluir a própria caixa', () => {
+  const sent: ReplyMessage = {
+    ...message,
+    from_address: 'COMERCIAL@example.com',
+    to_addresses: [
+      { name: 'Cliente', address: 'CLIENTE@example.com' },
+      { name: 'Equipe', address: 'comercial@example.com' },
+      { name: 'Duplicado', address: 'cliente@example.com' },
+    ],
+    cc_addresses: [{ name: 'Cópia', address: 'copia@example.com' }],
+  };
+  expect(replyRecipients(sent, 'reply', ['comercial@example.com'])).toEqual({
+    to_addresses: [{ name: 'Cliente', address: 'cliente@example.com' }],
+    cc_addresses: [],
+  });
+  expect(replyRecipients(sent, 'reply_all', ['comercial@example.com'])).toEqual({
+    to_addresses: [{ name: 'Cliente', address: 'cliente@example.com' }],
+    cc_addresses: [{ name: 'Cópia', address: 'copia@example.com' }],
+  });
+});
 it('persiste horários em UTC e respeita limite de cinco minutos e próxima segunda', () => {
   const now = new Date('2026-10-05T16:54:00Z');
   expect(schedulePresets('America/Sao_Paulo', now)[0]?.scheduled_at).toBe(

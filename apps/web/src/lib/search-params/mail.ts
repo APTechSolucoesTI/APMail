@@ -1,6 +1,6 @@
 import { z } from 'zod';
 export const mailSearchSchema = z.object({
-  view: z.enum(['folder', 'queue', 'label', 'search']).default('folder'),
+  view: z.enum(['folder', 'queue', 'label', 'search', 'drafts']).default('folder'),
   folderId: z.uuid().optional(),
   queue: z
     .enum(['to_reply', 'in_progress', 'awaiting_reply', 'scheduled', 'done', 'overdue'])

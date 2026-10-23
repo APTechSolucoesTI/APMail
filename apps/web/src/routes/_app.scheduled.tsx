@@ -22,7 +22,7 @@ function OutboxRoom({ id }: { id: string }) {
   return null;
 }
 const schema = listQuerySchema.extend({
-  tab: z.enum(['drafts', 'scheduled', 'queued', 'failed']).default('scheduled'),
+  tab: z.enum(['scheduled', 'queued', 'failed']).default('scheduled').catch('scheduled'),
   mailboxId: z.uuid().optional(),
 });
 export const Route = createFileRoute('/_app/scheduled')({
@@ -75,7 +75,7 @@ function Scheduled() {
       ))}
       <PageHeader
         title="Envios"
-        description="Acompanhe seus rascunhos e os envios das caixas compartilhadas."
+        description="Acompanhe os envios agendados, na fila e com falha das caixas compartilhadas."
       />
       <Tabs
         value={search.tab}
@@ -84,7 +84,6 @@ function Scheduled() {
         }
       >
         <TabsList className="mb-4 flex h-auto flex-wrap justify-start">
-          <TabsTrigger value="drafts">Rascunhos</TabsTrigger>
           <TabsTrigger value="scheduled">Agendados</TabsTrigger>
           <TabsTrigger value="queued">Na fila</TabsTrigger>
           <TabsTrigger value="failed">Com falha</TabsTrigger>

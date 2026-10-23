@@ -188,6 +188,7 @@ export function EventEditor({
             title: value.title,
             cancelled: false,
             version: event.sequence,
+            send_invitations: sendUpdates,
           },
         });
       else

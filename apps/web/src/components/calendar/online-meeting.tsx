@@ -8,7 +8,7 @@ import {
   type MeetIntegrationStatus,
   type MeetConfig,
 } from '@apmail/shared';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { useTenantId } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -59,6 +59,8 @@ export function OnlineMeeting({
       onChange(result.meeting_url);
       toast.success('Link do Google Meet criado. Salve o evento para compartilhar.');
     } catch (e) {
+      if (e instanceof ApiError && e.code === 'google_meeting_rejected')
+        setRequestId(crypto.randomUUID());
       setError((e as Error).message);
     } finally {
       setBusy(false);

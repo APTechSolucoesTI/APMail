@@ -5,12 +5,12 @@ import { can } from '@apmail/shared';
 import { PersonalLabelNavigation } from './personal-label-navigation';
 import { QueueNavigation } from './queue-navigation';
 import { FolderControls } from './folder-controls';
-import { Mail, ChevronRight } from 'lucide-react';
+import { Mail, ChevronRight, FilePenLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { useTenantId, useMailQueues, meQuery, type Mailbox } from '@/lib/auth';
 import { FolderTree } from './folder-tree';
-import type { Folder } from '@/lib/mail';
+import { flattenFolders, type Folder } from '@/lib/mail';
 import { useSocketRoom } from '@/hooks/use-socket-room';
 import { NavigationGroup } from '@/components/layout/navigation-group';
 import { cn } from '@/lib/utils';
@@ -150,9 +150,6 @@ function MailboxNavigation({
                 </button>
               </p>
             )}
-            {folders.isSuccess && !folders.data.length && (
-              <p className="px-2 py-2 text-xs text-muted-foreground">Nenhuma pasta nesta caixa.</p>
-            )}
             <FolderTree
               folders={folders.data ?? []}
               mailboxId={box.id}
@@ -163,6 +160,28 @@ function MailboxNavigation({
               }
               onNavigate={onNavigate}
               organize={can(box.role, 'organize')}
+              draftsFallback={
+                folders.isSuccess &&
+                !flattenFolders(folders.data).some((f) => f.special_use === 'drafts') ? (
+                  <Link
+                    to="/mail/$mailboxId"
+                    params={{ mailboxId: box.id }}
+                    search={{ view: 'drafts' }}
+                    onClick={onNavigate}
+                    aria-label="Rascunhos"
+                    aria-current={active && search.view === 'drafts' ? 'page' : undefined}
+                    className={cn(
+                      'flex min-h-11 items-center gap-2 rounded-md pl-12 pr-2 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:min-h-8 lg:pl-9',
+                      active &&
+                        search.view === 'drafts' &&
+                        'bg-secondary text-secondary-foreground',
+                    )}
+                  >
+                    <FilePenLine className="size-4 shrink-0" aria-hidden />
+                    <span>Rascunhos</span>
+                  </Link>
+                ) : undefined
+              }
             />
             {can(box.role, 'organize') && <FolderControls mailboxId={box.id} />}
           </NavigationGroup>

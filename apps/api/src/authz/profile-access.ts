@@ -49,6 +49,8 @@ export function routePermission(
   if (/^\/api\/(mail-archives|pst-exports|mail-archive-exports)(?:\/|$)/.test(path))
     return 'archives';
   if (/^\/api\/(recurring-schedules|schedules)(?:\/|$)/.test(path)) return 'schedules';
+  // Detail authorizes the actual persisted status: private drafts belong to Mail, not Envios.
+  if (/^\/api\/outbox\/[^/]+$/.test(path) && method === 'GET') return 'personal';
   if (/^\/api\/outbox(?:\/|$)/.test(path)) return method === 'GET' ? 'schedules' : 'mail.send';
   if (/^\/api\/(uploads|address-suggestions)(?:\/|$)/.test(path)) return 'mail.send';
   if (/^\/api\/mailboxes(?:\/|$)/.test(path)) {

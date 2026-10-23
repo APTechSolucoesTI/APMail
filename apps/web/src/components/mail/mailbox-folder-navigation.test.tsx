@@ -79,6 +79,13 @@ afterEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
 });
+it('oferece Rascunhos na própria caixa mesmo quando o provedor não tem a pasta', async () => {
+  state.search = { view: 'drafts' };
+  mount();
+  const drafts = await screen.findByRole('link', { name: 'Rascunhos' });
+  expect(drafts).toHaveAttribute('data-search', JSON.stringify({ view: 'drafts' }));
+  expect(drafts).toHaveAttribute('aria-current', 'page');
+});
 it('expande caixas independentemente e só busca pastas e ingressa em salas das abertas', async () => {
   mount();
   await screen.findByRole('link', { name: 'Caixa de entrada' });

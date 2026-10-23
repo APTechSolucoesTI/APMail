@@ -1,5 +1,5 @@
 import { columnFilters, columnOrder, localizedColumn } from './list-columns.js';
-import { isTenantAdmin } from '@apmail/shared';
+import { isTenantAdmin, hasAccess } from '@apmail/shared';
 import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import { z } from 'zod';
@@ -368,6 +368,15 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
   });
   app.get('/api/outbox/:id', async (req) => {
     const { c, row } = await owned(req.ctx, idOf(req.params));
+    if (
+      (c.accessRestricted ?? !!c.accessProfileId) &&
+      !hasAccess(
+        { role: c.tenantRole, access_permissions: c.accessPermissions },
+        row.status === 'draft' ? 'mail' : 'schedules',
+      )
+    )
+      throw forbidden();
+    await requireMailboxPerm(c, r.db, row.mailbox_id, 'read');
     if (row.created_by !== c.userId) {
       if (row.status === 'draft') throw notFound();
       await requireMailboxPerm(c, r.db, row.mailbox_id, 'read');

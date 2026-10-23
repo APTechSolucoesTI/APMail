@@ -456,7 +456,9 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
     if (row.external || !row.rrule) throw conflict('Esta ocorrência não pode ser alterada.');
     if (row.mailbox_id) await connected(c, row.mailbox_id);
     const body = exceptionSchema.parse(req.body),
-      version = z.object({ version: z.number().int() }).parse(req.body).version;
+      { version, send_invitations } = z
+        .object({ version: z.number().int(), send_invitations: z.boolean().default(true) })
+        .parse(req.body);
     const input = eventInput(row);
     if (
       !calendarOccurrences(
@@ -517,15 +519,16 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
         : null;
       return {
         row: updated,
-        mail: invite
-          ? await calendarEmail(
-              tx,
-              updated,
-              c.userId,
-              invite,
-              input.attendees.map((a) => a.address),
-            )
-          : null,
+        mail:
+          invite && send_invitations
+            ? await calendarEmail(
+                tx,
+                updated,
+                c.userId,
+                invite,
+                input.attendees.map((a) => a.address),
+              )
+            : null,
       };
     });
     await dispatch(result.mail);

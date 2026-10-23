@@ -19,6 +19,7 @@ const db = createDb(url),
   cookies = new Map<string, string>();
 let grantCalendar = false,
   failMeeting = false,
+  meetingFailureStatus = 403,
   meetCalls = 0,
   refreshCalls = 0;
 const requests: { url: string; body: string }[] = [];
@@ -44,8 +45,12 @@ const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input,
     });
   if (url === 'https://meet.googleapis.com/v2/spaces') {
     meetCalls++;
+    if (failMeeting && meetingFailureStatus === 0) throw new TypeError('network failure');
     return failMeeting
-      ? Response.json({ error: 'provider diagnostic must not leak' }, { status: 403 })
+      ? Response.json(
+          { error: 'provider diagnostic must not leak' },
+          { status: meetingFailureStatus },
+        )
       : Response.json({ name: 'spaces/local', meetingUri: 'https://meet.google.com/abc-defg-hij' });
   }
   if (url.startsWith('https://www.googleapis.com/calendar/v3/calendars/primary/events?'))
@@ -211,6 +216,56 @@ it('renova tokens no servidor e não expõe falhas do provedor', async () => {
   );
   failMeeting = false;
 });
+it.each([400, 403, 429])(
+  'identifica rejeição definitiva %s sem permitir duplicar a solicitação',
+  async (status) => {
+    const request_id = randomUUID();
+    failMeeting = true;
+    meetingFailureStatus = status;
+    const result = await call('POST', '/api/integrations/google/meet', { request_id });
+    expect(result.json().error.code).toBe('google_meeting_rejected');
+    expect(result.body).not.toContain('provider diagnostic');
+    const saved = await db
+      .selectFrom('google_meeting_requests')
+      .select('status')
+      .where('id', '=', request_id)
+      .executeTakeFirstOrThrow();
+    expect(saved.status).toBe('failed');
+    failMeeting = false;
+    const before = meetCalls;
+    expect((await call('POST', '/api/integrations/google/meet', { request_id })).statusCode).toBe(
+      409,
+    );
+    expect(meetCalls).toBe(before);
+    expect(
+      (await call('POST', '/api/integrations/google/meet', { request_id: randomUUID() }))
+        .statusCode,
+    ).toBe(200);
+  },
+);
+it.each([0, 408, 500, 503, 504])(
+  'preserva resultado incerto após falha %s na criação Meet',
+  async (status) => {
+    const request_id = randomUUID();
+    failMeeting = true;
+    meetingFailureStatus = status;
+    const result = await call('POST', '/api/integrations/google/meet', { request_id });
+    expect(result.statusCode).toBeGreaterThanOrEqual(500);
+    expect(result.json().error.code).not.toBe('google_meeting_rejected');
+    const saved = await db
+      .selectFrom('google_meeting_requests')
+      .select('status')
+      .where('id', '=', request_id)
+      .executeTakeFirstOrThrow();
+    expect(saved.status).toBe('uncertain');
+    failMeeting = false;
+    const before = meetCalls;
+    expect((await call('POST', '/api/integrations/google/meet', { request_id })).statusCode).toBe(
+      409,
+    );
+    expect(meetCalls).toBe(before);
+  },
+);
 it('Agenda exige consentimento opcional e consulta eventos sem prometer sincronização', async () => {
   expect((await call('GET', '/api/integrations/google/calendar/events')).statusCode).toBe(409);
   const flow = await connect(true);

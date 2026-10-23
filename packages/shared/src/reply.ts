@@ -34,9 +34,11 @@ export function replyRecipients(message: ReplyMessage, kind: ReplyKind, ourAddre
       })
       .map((a) => ({ ...a, address: a.address.toLowerCase() }));
   const to_addresses = unique(
-    message.reply_to.length
-      ? message.reply_to
-      : [{ name: message.from_name, address: message.from_address }],
+    seen.has(message.from_address.toLowerCase())
+      ? message.to_addresses
+      : message.reply_to.length
+        ? message.reply_to
+        : [{ name: message.from_name, address: message.from_address }],
   );
   if (kind === 'reply_all') to_addresses.push(...unique(message.to_addresses));
   return { to_addresses, cc_addresses: kind === 'reply_all' ? unique(message.cc_addresses) : [] };

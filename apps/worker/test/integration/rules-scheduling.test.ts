@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, it, expect, vi } from 'vitest';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { simpleParser } from 'mailparser';
@@ -23,7 +23,7 @@ import { envSchema as workerEnv } from '../../src/env.js';
 import { hashToken } from '../../../api/src/plugins/auth.js';
 import { applyPendingRules, handleRulesApply } from '../../src/handlers/rules-apply.js';
 import { handleOutboxSend } from '../../src/handlers/outbox-send.js';
-import { sweepOutbox } from '../../src/handlers/outbox-maintenance.js';
+import { cleanupUploads, sweepOutbox } from '../../src/handlers/outbox-maintenance.js';
 import { ingestMessage } from '../../src/imap/ingest-message.js';
 import * as providers from '../../src/imap/connect.js';
 import type { WorkerResources } from '../../src/resources.js';
@@ -529,6 +529,45 @@ it('aplica a regra a mensagens antigas quando o usuário escolhe todo o históri
         .executeTakeFirstOrThrow()
     ).is_flagged,
   ).toBe(true);
+});
+it('preserva anexos de envios com falha na limpeza para permitir uma nova tentativa', async () => {
+  const target = await mailbox('Retenção de anexos QA');
+  const uploadId = randomUUID(),
+    storagePath = `uploads/${tenant}/${target.id}/${owner}/${uploadId}`,
+    binary = Buffer.from('Documento preservado para nova tentativa');
+  await r.storage.writeFile(storagePath, binary);
+  await db
+    .insertInto('uploads')
+    .values({
+      id: uploadId,
+      tenant_id: tenant,
+      mailbox_id: target.id,
+      user_id: owner,
+      filename: 'documento.txt',
+      content_type: 'text/plain',
+      size_bytes: binary.length,
+      storage_path: storagePath,
+      created_at: new Date(Date.now() - 2 * 86400000),
+    })
+    .execute();
+  const draft = await call('POST', '/outbox', {
+    mailbox_id: target.id,
+    to_addresses: [{ name: 'Cliente', address: 'cliente@qa.example' }],
+    subject: 'Retenção QA',
+    body_html: '<p>Documento</p>',
+    attachments: [{ source: 'upload', upload_id: uploadId }],
+  });
+  expect(draft.statusCode, draft.body).toBe(201);
+  await db
+    .updateTable('outbox')
+    .set({ status: 'failed' })
+    .where('id', '=', draft.json().id)
+    .execute();
+  await cleanupUploads(r);
+  const retry = await call('POST', '/outbox/' + draft.json().id + '/retry', {});
+  expect(retry.statusCode, retry.body).toBe(200);
+  expect(retry.json().status).toBe('queued');
+  expect(await readFile(join(dir, storagePath))).toEqual(binary);
 });
 it('agenda, envia pelo transportador de QA, recupera uma única próxima ocorrência e encerra após a quantidade', async () => {
   const target = await mailbox('Recorrência QA');
