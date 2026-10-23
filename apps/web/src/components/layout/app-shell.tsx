@@ -301,8 +301,24 @@ export function AppShell() {
         <NavigationGroup
           id="productivity"
           label="Produtividade"
-          visible={allowed('calendar') || allowed('schedules') || allowed('reminders')}
+          visible={
+            allowed('reports') ||
+            allowed('calendar') ||
+            allowed('schedules') ||
+            allowed('reminders')
+          }
         >
+          {tenant && allowed('reports') && (
+            <Link
+              to="/dashboard"
+              onClick={() => setOpen(false)}
+              activeProps={{ className: 'bg-accent text-accent-foreground' }}
+              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+            >
+              <LayoutDashboard aria-hidden className="size-4" />
+              Dashboard
+            </Link>
+          )}
           {allowed('calendar') && (
             <Link
               to="/calendar"
@@ -379,17 +395,6 @@ export function AppShell() {
             >
               <BarChart3 aria-hidden className="size-4" />
               Relatórios
-            </Link>
-          )}
-          {tenant && allowed('reports') && (
-            <Link
-              to="/dashboard"
-              onClick={() => setOpen(false)}
-              activeProps={{ className: 'bg-accent text-accent-foreground' }}
-              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-            >
-              <LayoutDashboard aria-hidden className="size-4" />
-              Indicadores de e-mail
             </Link>
           )}
         </NavigationGroup>
