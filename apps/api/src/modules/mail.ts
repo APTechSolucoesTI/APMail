@@ -510,13 +510,11 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       query = b.message_ids
         ? query.where('id', 'in', b.message_ids)
         : query.where('thread_id', 'in', b.thread_ids!);
-      const messages = await query.orderBy('id').forUpdate().execute();
+      let messages = await query.orderBy('id').forUpdate().execute();
       if (!messages.length || (b.message_ids && messages.length !== b.message_ids.length))
         throw notFound();
       if (b.thread_ids && new Set(messages.map((m) => m.thread_id)).size !== b.thread_ids.length)
         throw notFound();
-      if (messages.some((m) => m.pending_action))
-        throw conflict('Aguarde a alteração anterior terminar.');
       const folders = await trx
         .selectFrom('folders')
         .select(['id', 'special_use'])
@@ -524,6 +522,24 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         .where('mailbox_id', '=', id)
         .where('deleted_at', 'is', null)
         .execute();
+      if (b.type === 'restore') {
+        const trashIds = new Set(
+          folders.filter((folder) => folder.special_use === 'trash').map((folder) => folder.id),
+        );
+        const trashed = messages.filter(
+          (message) => message.folder_id && trashIds.has(message.folder_id),
+        );
+        if (
+          !trashed.length ||
+          (b.message_ids && trashed.length !== messages.length) ||
+          (b.thread_ids &&
+            new Set(trashed.map((message) => message.thread_id)).size !== b.thread_ids.length)
+        )
+          throw conflict('Somente mensagens na Lixeira podem ser restauradas.');
+        messages = trashed;
+      }
+      if (messages.some((m) => m.pending_action))
+        throw conflict('Aguarde a alteração anterior terminar.');
       const destination =
         b.type === 'move'
           ? folders.find((f) => f.id === b.target_folder_id)

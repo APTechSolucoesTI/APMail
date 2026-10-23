@@ -29,6 +29,7 @@ export function MessageActions({
   flagged,
   onDone,
   compact = false,
+  inTrash = false,
 }: {
   mailboxId: string;
   folders: Folder[];
@@ -37,10 +38,11 @@ export function MessageActions({
   flagged?: boolean;
   onDone?: () => void;
   compact?: boolean;
+  inTrash?: boolean;
 }) {
   const mayMove = useAccess('mail.move'),
     mayDelete = useAccess('mail.delete'),
-    mayRestore = useAccess('mail.restore'),
+    mayRestore = useAccess('mail.restore') && inTrash,
     mayFlag = useAccess('mail.flag');
   const client = useQueryClient(),
     [move, setMove] = useState(false),

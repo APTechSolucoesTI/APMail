@@ -5,7 +5,7 @@ import { can } from '@apmail/shared';
 import { PersonalLabelNavigation } from './personal-label-navigation';
 import { QueueNavigation } from './queue-navigation';
 import { FolderControls } from './folder-controls';
-import { Mail, Plus, Minus } from 'lucide-react';
+import { Mail, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { useTenantId, useMailQueues, meQuery, type Mailbox } from '@/lib/auth';
@@ -82,7 +82,13 @@ function MailboxNavigation({
           aria-controls={controlsId}
           onClick={() => setOpen(!expanded)}
         >
-          {expanded ? <Minus aria-hidden /> : <Plus aria-hidden />}
+          <ChevronRight
+            aria-hidden
+            className={cn(
+              'size-4 transition-transform motion-reduce:transition-none',
+              expanded && 'rotate-90',
+            )}
+          />
         </Button>
         <Link
           to="/mail/$mailboxId"

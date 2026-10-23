@@ -340,6 +340,98 @@ it('authorizes a move without granting deletion, restoration or flags', async ()
   expect(box.permissions).not.toContain('delete');
 });
 
+it('restores only trash messages, including when a conversation has messages in other folders', async () => {
+  const inbox = randomUUID(),
+    trash = randomUUID(),
+    threadId = randomUUID(),
+    normal = randomUUID(),
+    trashed = randomUUID();
+  await db
+    .insertInto('folders')
+    .values([
+      {
+        id: inbox,
+        tenant_id: tenant,
+        mailbox_id: mailbox,
+        name: 'Inbox restore QA',
+        imap_path: 'INBOX',
+        special_use: 'inbox',
+      },
+      {
+        id: trash,
+        tenant_id: tenant,
+        mailbox_id: mailbox,
+        name: 'Trash restore QA',
+        imap_path: 'Trash',
+        special_use: 'trash',
+      },
+    ])
+    .execute();
+  await db
+    .insertInto('threads')
+    .values({
+      id: threadId,
+      tenant_id: tenant,
+      mailbox_id: mailbox,
+      subject: 'Restaurar sem alterar outras pastas',
+    })
+    .execute();
+  await db
+    .insertInto('messages')
+    .values([
+      {
+        id: normal,
+        tenant_id: tenant,
+        mailbox_id: mailbox,
+        thread_id: threadId,
+        folder_id: inbox,
+        subject: 'Mensagem da entrada',
+        direction: 'inbound',
+        from_address: 'restore@qa.example',
+        message_id_header: '<' + normal + '@qa.example>',
+        message_at: new Date(),
+      },
+      {
+        id: trashed,
+        tenant_id: tenant,
+        mailbox_id: mailbox,
+        thread_id: threadId,
+        folder_id: trash,
+        subject: 'Mensagem excluída',
+        direction: 'inbound',
+        from_address: 'restore@qa.example',
+        message_id_header: '<' + trashed + '@qa.example>',
+        message_at: new Date(),
+      },
+    ])
+    .execute();
+  expect(
+    (
+      await call('POST', '/mailboxes/' + mailbox + '/messages/actions', owner.cookie, {
+        type: 'restore',
+        message_ids: [normal],
+      })
+    ).statusCode,
+  ).toBe(409);
+  const result = await call('POST', '/mailboxes/' + mailbox + '/messages/actions', owner.cookie, {
+    type: 'restore',
+    thread_ids: [threadId],
+  });
+  expect(result.statusCode, result.body).toBe(202);
+  const job = await db
+    .selectFrom('mail_actions')
+    .select('payload')
+    .where('id', '=', result.json().action_id)
+    .executeTakeFirstOrThrow();
+  expect((job.payload as { message_ids: string[] }).message_ids).toEqual([trashed]);
+  expect(
+    await db
+      .selectFrom('messages')
+      .select(['folder_id', 'pending_action'])
+      .where('id', '=', normal)
+      .executeTakeFirstOrThrow(),
+  ).toEqual({ folder_id: inbox, pending_action: false });
+});
 it('administradores acessam auditoria; membros comuns não consultam nem exportam', async () => {
   expect((await call('GET', '/access-profiles', member.cookie)).statusCode).toBe(403);
   expect((await call('GET', '/audit-logs', admin.cookie)).statusCode).toBe(200);

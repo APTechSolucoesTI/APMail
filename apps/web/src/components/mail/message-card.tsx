@@ -26,6 +26,7 @@ import { ContactSenderAction } from '@/components/contacts/contact-editor';
 import { resolveAddress, type ContactResolution } from '@apmail/shared';
 import { ReadReceipt } from './read-receipt';
 import { CalendarInvitation } from './calendar-invite';
+import { flattenFolders } from '@/lib/mail';
 export function MessageCard({
   message,
   expanded,
@@ -63,7 +64,7 @@ export function MessageCard({
       : { name: message.from_name, address: message.from_address };
   const contactIdentity = resolveAddress(contactAddress, contacts);
   return (
-    <article className="rounded-lg border bg-card text-card-foreground">
+    <article className="@container/message rounded-lg border bg-card text-card-foreground">
       <header className="grid grid-cols-1 items-start gap-2 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <UserAvatar name={sender.name} size={32} />
@@ -137,12 +138,16 @@ export function MessageCard({
             <div
               role="group"
               aria-label="Ações da mensagem"
-              className="flex min-w-0 flex-wrap items-center gap-2 border-b pb-3"
+              className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 border-b pb-3"
             >
               {onCompose && (
-                <>
+                <div
+                  role="group"
+                  aria-label="Responder e encaminhar"
+                  className="flex flex-wrap items-center gap-1"
+                >
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={() => onCompose('reply:' + message.id)}
                   >
@@ -150,7 +155,7 @@ export function MessageCard({
                     Responder
                   </Button>
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={() => onCompose('reply_all:' + message.id)}
                   >
@@ -158,14 +163,14 @@ export function MessageCard({
                     Responder a todos
                   </Button>
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={() => onCompose('forward:' + message.id)}
                   >
                     <Forward aria-hidden />
                     Encaminhar
                   </Button>
-                </>
+                </div>
               )}
               {message.pending_action ? (
                 <p role="status" className="text-xs text-muted-foreground">
@@ -173,12 +178,20 @@ export function MessageCard({
                 </p>
               ) : (
                 organize && (
-                  <div className="sm:ml-auto">
+                  <div
+                    role="group"
+                    aria-label="Organizar mensagem"
+                    className="w-full @[700px]/message:ml-auto @[700px]/message:w-auto @[700px]/message:border-l @[700px]/message:pl-3"
+                  >
                     <MessageActions
                       mailboxId={mailboxId}
                       folders={folders}
                       messageIds={[message.id]}
                       flagged={message.is_flagged}
+                      inTrash={flattenFolders(folders).some(
+                        (folder) =>
+                          folder.id === message.folder_id && folder.special_use === 'trash',
+                      )}
                     />
                   </div>
                 )

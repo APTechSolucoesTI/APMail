@@ -406,6 +406,7 @@ function MailPage() {
             <MessageActions
               mailboxId={mailboxId}
               folders={folders.data ?? []}
+              inTrash={search.view === 'folder' && folder?.special_use === 'trash'}
               {...(individualMessages ? { messageIds: selected } : { threadIds: selectedThreads })}
               compact
               onDone={() => setSelection({ context, ids: [] })}

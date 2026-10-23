@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 const grants = vi.hoisted(() => new Set<string>());
 vi.mock('@/lib/auth', () => ({ useAccess: (key: string) => grants.has(key) }));
 vi.mock('@/lib/api', () => ({ api: vi.fn().mockResolvedValue({}) }));
-function setup(compact = false, flagged: boolean | null = false) {
+function setup(compact = false, flagged: boolean | null = false, inTrash = false) {
   return render(
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
@@ -18,6 +18,7 @@ function setup(compact = false, flagged: boolean | null = false) {
         messageIds={['message']}
         flagged={flagged ?? undefined}
         compact={compact}
+        inTrash={inTrash}
       />
     </QueryClientProvider>,
   );
@@ -27,6 +28,31 @@ beforeEach(() => {
   vi.mocked(api).mockClear();
 });
 describe('MessageActions', () => {
+  it('não oferece restaurar fora da Lixeira, mesmo com a permissão concedida', () => {
+    grants.add('mail.restore');
+    setup();
+    expect(screen.queryByRole('button', { name: 'Restaurar' })).not.toBeInTheDocument();
+  });
+  it('restaura uma mensagem da Lixeira quando o usuário tem permissão', async () => {
+    grants.add('mail.restore');
+    setup(false, false, true);
+    fireEvent.click(screen.getByRole('button', { name: 'Restaurar' }));
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith(
+        '/mailboxes/box/messages/actions',
+        expect.objectContaining({ body: expect.objectContaining({ type: 'restore' }) }),
+      ),
+    );
+  });
+  it('não oferece restaurar na Lixeira sem a permissão correspondente', () => {
+    setup(false, false, true);
+    expect(screen.queryByRole('button', { name: 'Restaurar' })).not.toBeInTheDocument();
+  });
+  it('oculta o menu em lote se restaurar for o único acesso fora da Lixeira', () => {
+    grants.add('mail.restore');
+    setup(true);
+    expect(screen.queryByRole('button', { name: 'Organizar' })).not.toBeInTheDocument();
+  });
   it('oferece mover sem conceder excluir, restaurar ou sinalizar', () => {
     grants.add('mail.move');
     setup();

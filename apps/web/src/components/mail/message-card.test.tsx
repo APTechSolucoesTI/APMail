@@ -5,7 +5,11 @@ import type { Message } from '@/lib/mail';
 vi.mock('@/lib/auth', () => ({ useAccess: () => true }));
 
 vi.mock('./email-body-frame', () => ({ EmailBodyFrame: () => <div>Conteúdo recebido</div> }));
-vi.mock('./message-actions', () => ({ MessageActions: () => <button>Mover</button> }));
+vi.mock('./message-actions', () => ({
+  MessageActions: ({ inTrash }: { inTrash?: boolean }) => (
+    <button>{inTrash ? 'Restaurar' : 'Mover'}</button>
+  ),
+}));
 vi.mock('./read-receipt', () => ({ ReadReceipt: () => null }));
 vi.mock('./calendar-invite', () => ({ CalendarInvitation: () => null }));
 vi.mock('@/components/contacts/contact-form', () => ({
@@ -111,4 +115,27 @@ it('preserva adição de remetentes desconhecidos junto à identidade', () => {
   );
   fireEvent.click(screen.getByRole('button', { name: 'Adicionar aos contatos' }));
   expect(screen.getByRole('dialog')).toHaveTextContent('Adicionar contato');
+});
+it('identifica a Lixeira pela pasta da mensagem, independentemente da conversa', () => {
+  render(
+    <MessageCard
+      message={{ ...message, folder_id: 'trash' }}
+      expanded
+      cidMap={{}}
+      loadRemoteImages={false}
+      organize
+      mailboxId="box"
+      folders={[
+        {
+          id: 'trash',
+          name: 'Deleted Items',
+          parent_id: null,
+          special_use: 'trash',
+          unread_count: 0,
+          children: [],
+        },
+      ]}
+    />,
+  );
+  expect(screen.getByRole('button', { name: 'Restaurar' })).toBeVisible();
 });

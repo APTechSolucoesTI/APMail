@@ -18,6 +18,12 @@ um cadastro existente. Os campos retornados permanecem editáveis e o usuário d
 salvar explicitamente. Alterações manuais feitas durante a consulta e respostas
 de um CNPJ anterior não são sobrescritas.
 
+Na área Empresa, as abas **Cadastro**, **E-mail e contatos** e **Armazenamento**
+separam os assuntos. Cadastro reúne nome, fuso, identificação fiscal, endereço e
+contato. Os padrões operacionais são salvos por bloco (contatos, envio e segurança,
+atendimento e recebimento), enviando apenas os campos daquele bloco. Alternar abas
+mantém as edições de cadastro e configurações ainda não salvas.
+
 ## Consulta pública
 
 O backend consulta a [BrasilAPI CNPJ v1](https://github.com/BrasilAPI/BrasilAPI/blob/main/pages/docs/doc/cnpj.json),

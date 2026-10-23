@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FormProvider, useForm, useFormContext, useWatch } from 'react-hook-form';
+import { Controller, FormProvider, useForm, useFormContext, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { BRAZIL_STATES, cnpjSchema, normalizeCnpj, type CompanyDetails } from '@apmail/shared';
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import type { FormField } from './schema-form';
+import { TimezoneSelect } from './timezone-select';
 
 const groups = [
   {
@@ -47,18 +48,28 @@ function CompanyInput({
   name,
   label,
   type = 'text',
+  className,
 }: {
   name: string;
   label: string;
   type?: string;
+  className?: string;
 }) {
   const form = useFormContext();
   const message = form.getFieldState(name, form.formState).error?.message;
   const id = 'company-' + name;
   return (
-    <div className="min-w-0 space-y-2">
+    <div className={'min-w-0 space-y-2 ' + (className ?? '')}>
       <Label htmlFor={id}>{label}</Label>
-      {name === 'company_details.state' ? (
+      {type === 'timezone' ? (
+        <Controller
+          name={name}
+          control={form.control}
+          render={({ field }) => (
+            <TimezoneSelect id={id} value={String(field.value ?? '')} onChange={field.onChange} />
+          )}
+        />
+      ) : name === 'company_details.state' ? (
         <select
           id={id}
           {...form.register(name)}
@@ -171,8 +182,8 @@ export function CompanyFields({ lookupPath }: { lookupPath: string }) {
     [],
   );
   return (
-    <div className="space-y-6">
-      <div className="space-y-3">
+    <div className="space-y-5">
+      <div className="space-y-2 rounded-md border bg-muted/30 p-3">
         <div className="grid items-start gap-3 sm:grid-cols-[1fr_auto]">
           <CompanyInput name="company_details.cnpj" label="CNPJ" />
           <Button
@@ -200,14 +211,27 @@ export function CompanyFields({ lookupPath }: { lookupPath: string }) {
         )}
       </div>
       {groups.map((group) => (
-        <fieldset key={group.title} className="space-y-4 border-t pt-4">
-          <legend className="px-1 text-sm font-semibold">{group.title}</legend>
-          <div className="grid gap-4 sm:grid-cols-2">
+        <section key={group.title} aria-label={group.title}>
+          <h3 className="mb-3 border-b pb-2 text-sm font-semibold">{group.title}</h3>
+          <div className="grid gap-4 sm:grid-cols-12">
             {group.fields.map(([key, label]) => (
               <CompanyInput
                 key={key}
                 name={'company_details.' + key}
                 label={label}
+                className={
+                  key === 'postal_code' || key === 'number' || key === 'state'
+                    ? 'sm:col-span-3'
+                    : key === 'street' || key === 'complement'
+                      ? 'sm:col-span-9'
+                      : key === 'district'
+                        ? 'sm:col-span-4'
+                        : key === 'city'
+                          ? 'sm:col-span-5'
+                          : key === 'country'
+                            ? 'sm:col-span-12'
+                            : 'sm:col-span-6'
+                }
                 type={
                   key === 'email'
                     ? 'email'
@@ -220,7 +244,7 @@ export function CompanyFields({ lookupPath }: { lookupPath: string }) {
               />
             ))}
           </div>
-        </fieldset>
+        </section>
       ))}
     </div>
   );
@@ -268,7 +292,9 @@ export function CompanyForm({
                 key={field.name}
                 name={field.name}
                 label={field.label}
-                type={field.type === 'email' ? 'email' : 'text'}
+                type={
+                  field.type === 'email' ? 'email' : field.type === 'timezone' ? 'timezone' : 'text'
+                }
               />
             ))}
           </div>
@@ -282,7 +308,7 @@ export function CompanyForm({
             {error}
           </p>
         )}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
           <Button disabled={form.formState.isSubmitting} type="submit">
             {form.formState.isSubmitting ? 'Salvando…' : 'Salvar cadastro'}
           </Button>
@@ -295,7 +321,7 @@ export function CompanyForm({
               setError('');
             }}
           >
-            Restaurar dados
+            Desfazer alterações
           </Button>
         </div>
       </form>

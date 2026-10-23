@@ -22,6 +22,7 @@ import { MessageActions } from './message-actions';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import type { ThreadDetail, Folder } from '@/lib/mail';
 import { threadDetailKey } from '@/lib/mail';
+import { flattenFolders } from '@/lib/mail';
 import { ThreadLabels } from './thread-labels';
 import { LabelBadge } from './label-badge';
 import { ThreadWorkflow } from './thread-workflow';
@@ -136,6 +137,14 @@ export function ThreadView({
             <MessageActions
               mailboxId={mailboxId}
               folders={folders}
+              inTrash={
+                data.messages.length > 0 &&
+                data.messages.every((message) =>
+                  flattenFolders(folders).some(
+                    (folder) => folder.id === message.folder_id && folder.special_use === 'trash',
+                  ),
+                )
+              }
               {...(messageId || folderId
                 ? { messageIds: data.messages.map((message) => message.id) }
                 : { threadIds: [threadId] })}
