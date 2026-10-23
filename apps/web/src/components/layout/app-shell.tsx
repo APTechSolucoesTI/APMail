@@ -313,7 +313,7 @@ export function AppShell() {
               to="/dashboard"
               onClick={() => setOpen(false)}
               activeProps={{ className: 'bg-accent text-accent-foreground' }}
-              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-accent hover:text-accent-foreground"
             >
               <LayoutDashboard aria-hidden className="size-4" />
               Dashboard
