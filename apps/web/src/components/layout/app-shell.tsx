@@ -411,7 +411,6 @@ export function AppShell() {
         <NavigationGroup
           id="security"
           label="Segurança"
-          icon={<ShieldCheck aria-hidden className="size-4" />}
           visible={admin}
           defaultOpen={pathname.startsWith('/security')}
         >
