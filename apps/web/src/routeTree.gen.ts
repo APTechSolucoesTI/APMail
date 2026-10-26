@@ -31,6 +31,7 @@ import { Route as AppChatIndexRouteImport } from './routes/_app.chat.index'
 import { Route as AppChatConversationIdRouteImport } from './routes/_app.chat.$conversationId'
 import { Route as AppMailMailboxIdRouteImport } from './routes/_app.mail.$mailboxId'
 import { Route as AppReportsMeetRouteImport } from './routes/_app.reports_.meet'
+import { Route as AppSecurityAntivirusRouteImport } from './routes/_app.security.antivirus'
 import { Route as AppSettingsAccessProfilesRouteImport } from './routes/_app.settings.access-profiles'
 import { Route as AppSettingsAuditRouteImport } from './routes/_app.settings.audit'
 import { Route as AppSettingsIntegrationsRouteImport } from './routes/_app.settings.integrations'
@@ -155,6 +156,11 @@ const AppReportsMeetRoute = AppReportsMeetRouteImport.update({
   path: '/reports/meet',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSecurityAntivirusRoute = AppSecurityAntivirusRouteImport.update({
+  id: '/security/antivirus',
+  path: '/security/antivirus',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsAccessProfilesRoute =
   AppSettingsAccessProfilesRouteImport.update({
     id: '/settings/access-profiles',
@@ -250,6 +256,7 @@ export interface FileRoutesByFullPath {
   '/chat/$conversationId': typeof AppChatConversationIdRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/reports/meet': typeof AppReportsMeetRoute
+  '/security/antivirus': typeof AppSecurityAntivirusRoute
   '/settings/access-profiles': typeof AppSettingsAccessProfilesRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
@@ -286,6 +293,7 @@ export interface FileRoutesByTo {
   '/chat/$conversationId': typeof AppChatConversationIdRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/reports/meet': typeof AppReportsMeetRoute
+  '/security/antivirus': typeof AppSecurityAntivirusRoute
   '/settings/access-profiles': typeof AppSettingsAccessProfilesRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
@@ -325,6 +333,7 @@ export interface FileRoutesById {
   '/_app/chat/$conversationId': typeof AppChatConversationIdRoute
   '/_app/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/_app/reports_/meet': typeof AppReportsMeetRoute
+  '/_app/security/antivirus': typeof AppSecurityAntivirusRoute
   '/_app/settings/access-profiles': typeof AppSettingsAccessProfilesRoute
   '/_app/settings/audit': typeof AppSettingsAuditRoute
   '/_app/settings/integrations': typeof AppSettingsIntegrationsRoute
@@ -364,6 +373,7 @@ export interface FileRouteTypes {
     | '/chat/$conversationId'
     | '/mail/$mailboxId'
     | '/reports/meet'
+    | '/security/antivirus'
     | '/settings/access-profiles'
     | '/settings/audit'
     | '/settings/integrations'
@@ -400,6 +410,7 @@ export interface FileRouteTypes {
     | '/chat/$conversationId'
     | '/mail/$mailboxId'
     | '/reports/meet'
+    | '/security/antivirus'
     | '/settings/access-profiles'
     | '/settings/audit'
     | '/settings/integrations'
@@ -438,6 +449,7 @@ export interface FileRouteTypes {
     | '/_app/chat/$conversationId'
     | '/_app/mail/$mailboxId'
     | '/_app/reports_/meet'
+    | '/_app/security/antivirus'
     | '/_app/settings/access-profiles'
     | '/_app/settings/audit'
     | '/_app/settings/integrations'
@@ -623,6 +635,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppReportsMeetRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/security/antivirus': {
+      id: '/_app/security/antivirus'
+      path: '/security/antivirus'
+      fullPath: '/security/antivirus'
+      preLoaderRoute: typeof AppSecurityAntivirusRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/access-profiles': {
       id: '/_app/settings/access-profiles'
       path: '/settings/access-profiles'
@@ -749,6 +768,7 @@ interface AppRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppMailMailboxIdRoute: typeof AppMailMailboxIdRoute
   AppReportsMeetRoute: typeof AppReportsMeetRoute
+  AppSecurityAntivirusRoute: typeof AppSecurityAntivirusRoute
   AppSettingsAccessProfilesRoute: typeof AppSettingsAccessProfilesRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
   AppSettingsIntegrationsRoute: typeof AppSettingsIntegrationsRoute
@@ -777,6 +797,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppMailMailboxIdRoute: AppMailMailboxIdRoute,
   AppReportsMeetRoute: AppReportsMeetRoute,
+  AppSecurityAntivirusRoute: AppSecurityAntivirusRoute,
   AppSettingsAccessProfilesRoute: AppSettingsAccessProfilesRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
   AppSettingsIntegrationsRoute: AppSettingsIntegrationsRoute,

@@ -19,6 +19,11 @@ import {
   type Database,
   lockStorageTenant,
   assertStorageCapacity,
+  registerSecurityFile,
+  securityForFiles,
+  securitySummary,
+  enqueueSecurityScan,
+  assertFilesClean,
 } from '@apmail/db';
 import {
   outboxSchema,
@@ -233,10 +238,10 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       path = mailbox_id
         ? `uploads/${c.tenantId}/${mailbox_id}/${c.userId}/${id}`
         : `uploads/${c.tenantId}/${c.userId}/${id}`;
-    await storage.writeFile(path, buffer);
     try {
-      return reply.code(201).send(
-        await r.db
+      const saved = await r.db.transaction().execute(async (tx) => {
+        await storage.withDatabase(tx).writeFile(path, buffer);
+        const upload = await tx
           .insertInto('uploads')
           .values({
             id,
@@ -249,8 +254,24 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
             storage_path: path,
           })
           .returning(['id', 'filename', 'content_type', 'size_bytes'])
-          .executeTakeFirstOrThrow(),
+          .executeTakeFirstOrThrow();
+        const security = await registerSecurityFile(tx, {
+          storage_key: path,
+          tenant_id: c.tenantId,
+          mailbox_id: mailbox_id ?? null,
+          user_id: c.userId,
+          resource_id: id,
+          filename,
+          content_type: detected?.mime ?? 'application/octet-stream',
+          size_bytes: buffer.length,
+          kind: 'upload',
+        });
+        return { upload, security };
+      });
+      await enqueueSecurityScan(r.queues['antivirus-scan'], saved.security).catch(() =>
+        app.log.warn('Anexo recebido; verificação aguarda recuperação da fila.'),
       );
+      return reply.code(201).send({ ...saved.upload, security: securitySummary(saved.security) });
     } catch (e) {
       await storage.removeFile(path);
       throw e;
@@ -295,11 +316,29 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     if (!file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.content_type))
       throw notFound();
     if (file.mailbox_id) await requireMailboxPerm(c, r.db, file.mailbox_id, 'send');
+    await assertFilesClean(r.db, [file.storage_path], storage);
     return reply
       .type(file.content_type)
       .header('Cache-Control', 'private, no-store')
       .header('X-Content-Type-Options', 'nosniff')
       .send(await storage.openReadStream(file.storage_path));
+  });
+  app.get('/api/uploads/:id/security', async (req, reply) => {
+    const c = requireTenant(req.ctx),
+      id = idOf(req.params);
+    const file = await r.db
+      .selectFrom('uploads')
+      .select(['storage_path', 'mailbox_id'])
+      .where('id', '=', id)
+      .where('tenant_id', '=', c.tenantId)
+      .where('user_id', '=', c.userId)
+      .where('consumed_at', 'is', null)
+      .executeTakeFirst();
+    if (!file) throw notFound();
+    if (file.mailbox_id) await requireMailboxPerm(c, r.db, file.mailbox_id, 'send');
+    const security = await securityForFiles(r.db, [file.storage_path]);
+    reply.header('Cache-Control', 'private, no-store');
+    return securitySummary(security.get(file.storage_path) ?? null);
   });
   app.post('/api/outbox', async (req, reply) => {
     const c = requireTenant(req.ctx),
@@ -388,12 +427,13 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     }
     const attachment_metadata = await resolveOutboxAttachments(r.db, row)
       .then((files) =>
-        files.map(({ id, filename, content_type, size_bytes, upload_id }) => ({
+        files.map(({ id, filename, content_type, size_bytes, upload_id, security }) => ({
           id,
           filename,
           content_type,
           size_bytes,
           source: upload_id ? 'upload' : 'message_attachment',
+          security,
         })),
       )
       .catch(() => []);
@@ -647,6 +687,16 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       );
       if (files.reduce((n, f) => n + f.size_bytes, 0) > max * 1024 * 1024)
         throw validation(`Os anexos excedem o limite de ${max} MB.`);
+      const signature = await prepareSignature(
+        r.db,
+        { ...row, body_html: parsed.body_html },
+        files.flatMap((file) => (file.content_id ? [file.content_id] : [])),
+      );
+      await assertFilesClean(
+        r.db,
+        [...files, ...signature.images].map((file) => file.storage_path),
+        storage,
+      );
       let scheduled: Date | null = null;
       let recurrence: Recurrence | undefined;
       if (action === 'submit') {
@@ -671,6 +721,30 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       const sendAfter = scheduled ?? new Date(Date.now() + (action === 'submit' ? 10000 : 0));
       const updated = await r.db.transaction().execute(async (tx) => {
         await lockStorageTenant(tx, c.tenantId);
+        const current = await tx
+          .selectFrom('outbox')
+          .selectAll()
+          .where('id', '=', row.id)
+          .where('tenant_id', '=', c.tenantId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (
+          !current ||
+          current.status !== expected ||
+          current.updated_at.getTime() !== row.updated_at.getTime()
+        )
+          throw conflict('Este envio mudou. Atualize a página antes de enviar.');
+        const currentFiles = await resolveOutboxAttachments(tx, current);
+        const currentSignature = await prepareSignature(
+          tx,
+          current,
+          currentFiles.flatMap((file) => (file.content_id ? [file.content_id] : [])),
+        );
+        await assertFilesClean(
+          tx,
+          [...currentFiles, ...currentSignature.images].map((file) => file.storage_path),
+          storage,
+        );
         if (row.recurrence_id) {
           const active = await tx
             .selectFrom('mail_schedule_series')

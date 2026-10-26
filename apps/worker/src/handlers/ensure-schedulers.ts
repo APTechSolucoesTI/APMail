@@ -1,6 +1,8 @@
 import { toBullJobId } from '@apmail/shared';
 import type { WorkerResources } from '../resources.js';
+import { ensureAntivirusScheduler } from './antivirus.js';
 export async function ensureSchedulers(r: WorkerResources) {
+  await ensureAntivirusScheduler(r);
   const exports = await r.db
     .selectFrom('mail_archive_exports')
     .select('id')

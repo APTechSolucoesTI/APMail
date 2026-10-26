@@ -13,6 +13,13 @@ x-server-env: &server-env
   ALLOW_PUBLIC_SIGNUP: ${ALLOW_PUBLIC_SIGNUP:-false}
   STORAGE_DIR: /data/storage
   MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
+  CLAMAV_HOST: ${CLAMAV_HOST:-apticket-antivirus}
+  CLAMAV_PORT: ${CLAMAV_PORT:-3310}
+  CLAMAV_MAX_SCAN_MB: ${CLAMAV_MAX_SCAN_MB:-25}
+  CLAMAV_SCAN_TIMEOUT_MS: ${CLAMAV_SCAN_TIMEOUT_MS:-30000}
+  CLAMAV_CONNECT_TIMEOUT_MS: ${CLAMAV_CONNECT_TIMEOUT_MS:-3000}
+  CLAMAV_DEFINITIONS_MAX_AGE_HOURS: ${CLAMAV_DEFINITIONS_MAX_AGE_HOURS:-168}
+  CLAMAV_CONCURRENCY: ${CLAMAV_CONCURRENCY:-1}
   SYSTEM_SMTP_HOST: ${SYSTEM_SMTP_HOST:-}
   SYSTEM_SMTP_PORT: ${SYSTEM_SMTP_PORT:-587}
   SYSTEM_SMTP_SECURE: ${SYSTEM_SMTP_SECURE:-false}
@@ -84,6 +91,7 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     volumes: [storage:/data/storage]
+    networks: [default, dokploy-network]
     expose: ['3001']
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -105,6 +113,7 @@ services:
     build: { context: ., dockerfile: apps/worker/Dockerfile }
     restart: unless-stopped
     init: true
+    networks: [default, dokploy-network]
     stop_grace_period: 45s
     environment:
       <<: *server-env
@@ -145,3 +154,6 @@ volumes:
   pgdata:
   redisdata:
   storage:
+networks:
+  dokploy-network:
+    external: true

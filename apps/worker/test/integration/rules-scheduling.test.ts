@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, it, expect, vi } from 'vitest';
-import { randomUUID, randomBytes } from 'node:crypto';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -16,6 +16,7 @@ import {
   asJson,
   ensureLocalFolders,
   advanceRecurringOutbox,
+  registerSecurityFile,
 } from '@apmail/db';
 import { buildApp } from '../../../api/src/app.js';
 import { envSchema as apiEnv } from '../../../api/src/env.js';
@@ -564,6 +565,27 @@ it('preserva anexos de envios com falha na limpeza para permitir uma nova tentat
     .where('id', '=', draft.json().id)
     .execute();
   await cleanupUploads(r);
+  // Retention and retry use a verified synthetic fixture; pending files stay blocked.
+  await registerSecurityFile(db, {
+    storage_key: storagePath,
+    tenant_id: tenant,
+    mailbox_id: target.id,
+    user_id: owner,
+    resource_id: uploadId,
+    filename: 'documento.txt',
+    content_type: 'text/plain',
+    size_bytes: binary.length,
+    kind: 'upload',
+  });
+  await db
+    .updateTable('file_security')
+    .set({
+      status: 'clean',
+      sha256: createHash('sha256').update(binary).digest('hex'),
+      scanned_at: new Date(),
+    })
+    .where('storage_key', '=', storagePath)
+    .execute();
   const retry = await call('POST', '/outbox/' + draft.json().id + '/retry', {});
   expect(retry.statusCode, retry.body).toBe(200);
   expect(retry.json().status).toBe('queued');
@@ -600,6 +622,16 @@ it('agenda, envia pelo transportador de QA, recupera uma única próxima ocorrê
       ]),
     });
     expect(uploaded.statusCode, uploaded.body).toBe(201);
+    // The scanner/SMTP security boundary is covered separately by antivirus-flow.
+    await db
+      .updateTable('file_security')
+      .set({
+        status: 'clean',
+        sha256: createHash('sha256').update(binary).digest('hex'),
+        scanned_at: new Date(),
+      })
+      .where('resource_id', '=', uploaded.json().id)
+      .execute();
     const draft = await call('POST', '/outbox', {
       mailbox_id: target.id,
       to_addresses: [{ name: 'Destino', address: 'destino@qa.example' }],

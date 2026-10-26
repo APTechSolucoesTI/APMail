@@ -1,7 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sql } from 'kysely';
-import { Storage, audit, assertStorageGrowth, lockStorageTenant } from '@apmail/db';
+import {
+  Storage,
+  audit,
+  assertStorageGrowth,
+  lockStorageTenant,
+  assertFilesClean,
+} from '@apmail/db';
 import { requireTenantAdmin, notFound, conflict, ApiError } from '../authz/context.js';
 import { requireMailboxPerm } from '../authz/guards.js';
 import type { Resources } from './resources.js';
@@ -247,6 +253,7 @@ export async function registerPstExports(app: FastifyInstance, r: Resources) {
       .executeTakeFirst();
     if (!file) throw notFound();
     const storage = new Storage(r.env.STORAGE_DIR, r.db);
+    await assertFilesClean(r.db, [file.storage_path], storage);
     if (!(await storage.inspect(file.storage_path)))
       throw new ApiError(
         404,

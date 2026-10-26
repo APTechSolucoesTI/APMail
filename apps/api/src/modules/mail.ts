@@ -1,7 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import { z } from 'zod';
-import { Storage, touchThreads, asJson, audit } from '@apmail/db';
+import {
+  Storage,
+  touchThreads,
+  asJson,
+  audit,
+  securityForFiles,
+  securitySummary,
+  assertFilesClean,
+} from '@apmail/db';
 import { toBullJobId, externalParticipants, type Address, type MailboxPerm } from '@apmail/shared';
 import { requireTenant, notFound, conflict, type RequestContext } from '../authz/context.js';
 import { requireMailboxPerm } from '../authz/guards.js';
@@ -192,7 +200,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       .$if(!!folderId && !messageId, (query) => query.limit(1))
       .execute();
     if ((messageId || folderId) && !messages.length) throw notFound();
-    const attachments = messages.length
+    const attachmentRows = messages.length
       ? await r.db
           .selectFrom('attachments')
           .select([
@@ -203,6 +211,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
             'size_bytes',
             'content_id',
             'is_inline',
+            'storage_path',
           ])
           .where('tenant_id', '=', c.tenantId)
           .where('mailbox_id', '=', thread.mailbox_id)
@@ -213,6 +222,14 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
           )
           .execute()
       : [];
+    const fileSecurity = await securityForFiles(
+      r.db,
+      attachmentRows.map((attachment) => attachment.storage_path),
+    );
+    const attachments = attachmentRows.map(({ storage_path, ...attachment }) => ({
+      ...attachment,
+      security: securitySummary(fileSecurity.get(storage_path) ?? null),
+    }));
     const state = await r.db
       .selectFrom('thread_user_state')
       .select(['is_pinned', 'last_read_at'])
@@ -343,7 +360,9 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         sent_by: m.sent_by_user_id ? { id: m.sent_by_user_id, full_name: m.sent_by_name } : null,
       })),
       cid_map: Object.fromEntries(
-        attachments.filter((a) => a.content_id).map((a) => [a.content_id, a.id]),
+        attachments
+          .filter((a) => a.content_id && a.security.status === 'clean')
+          .map((a) => [a.content_id, a.id]),
       ),
       labels: await r.db
         .selectFrom('thread_personal_labels as tl')
@@ -616,31 +635,41 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
     mailEvents(r, id, action.ids);
     return reply.code(202).send({ action_id: action.id });
   });
+  const readableAttachment = async (ctx: RequestContext | null, id: string) => {
+    const c = requireTenant(ctx);
+    const a = await r.db
+      .selectFrom('attachments as a')
+      .innerJoin('messages as m', 'm.id', 'a.message_id')
+      .selectAll('a')
+      .where('a.id', '=', id)
+      .where('a.tenant_id', '=', c.tenantId)
+      .where('m.deleted_at', 'is', null)
+      .executeTakeFirst();
+    if (!a) throw notFound();
+    await requireMailboxPerm(c, r.db, a.mailbox_id, 'read');
+    const message = await r.db
+      .selectFrom('messages')
+      .select('folder_id')
+      .where('id', '=', a.message_id)
+      .executeTakeFirstOrThrow();
+    await requireFolder(c, r.db, a.mailbox_id, message.folder_id);
+    return a;
+  };
+  app.get('/api/attachments/:id/security', async (req, reply) => {
+    const file = await readableAttachment(req.ctx, idOf(req.params));
+    const security = await securityForFiles(r.db, [file.storage_path]);
+    reply.header('Cache-Control', 'private, no-store');
+    return securitySummary(security.get(file.storage_path) ?? null);
+  });
   for (const kind of ['download', 'inline'] as const)
     app.get('/api/attachments/:id/' + kind, async (req, reply) => {
-      const c = requireTenant(req.ctx),
-        id = idOf(req.params);
-      const a = await r.db
-        .selectFrom('attachments as a')
-        .innerJoin('messages as m', 'm.id', 'a.message_id')
-        .selectAll('a')
-        .where('a.id', '=', id)
-        .where('a.tenant_id', '=', c.tenantId)
-        .where('m.deleted_at', 'is', null)
-        .executeTakeFirst();
-      if (!a) throw notFound();
-      await requireMailboxPerm(c, r.db, a.mailbox_id, 'read');
-      const message = await r.db
-        .selectFrom('messages')
-        .select('folder_id')
-        .where('id', '=', a.message_id)
-        .executeTakeFirstOrThrow();
-      await requireFolder(c, r.db, a.mailbox_id, message.folder_id);
+      const a = await readableAttachment(req.ctx, idOf(req.params));
       if (
         kind === 'inline' &&
         !/^(image\/(png|jpeg|gif|webp)|application\/pdf)$/.test(a.content_type)
       )
         throw notFound();
+      await assertFilesClean(r.db, [a.storage_path], new Storage(r.env.STORAGE_DIR, r.db));
       const filename = a.filename.replace(/[\r\n"\\]/g, '_'),
         ascii = filename.replace(/[^\x20-\x7e]/g, '_');
       reply
@@ -652,6 +681,6 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         .header('X-Content-Type-Options', 'nosniff')
         .header('Content-Security-Policy', "default-src 'none'; sandbox")
         .type(a.content_type);
-      return reply.send(await new Storage(r.env.STORAGE_DIR).openReadStream(a.storage_path));
+      return reply.send(await new Storage(r.env.STORAGE_DIR, r.db).openReadStream(a.storage_path));
     });
 }

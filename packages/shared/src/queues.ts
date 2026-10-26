@@ -10,9 +10,11 @@ export const QUEUE_NAMES = [
   'mail-archive',
   'calendar-reminders',
   'google-meet-sync',
+  'antivirus-scan',
 ] as const;
 export type QueueName = (typeof QUEUE_NAMES)[number];
 export type QueuePayloads = {
+  'antivirus-scan': { id?: string; sweep?: true };
   'google-meet-sync': import('./google-meet.js').MeetJob | { sweep: true };
   'calendar-reminders': Record<string, never>;
   'mailbox-sync': { mailbox_id: string };

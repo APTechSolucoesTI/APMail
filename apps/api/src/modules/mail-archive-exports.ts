@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { Readable } from 'node:stream';
 import { z } from 'zod';
 import { ZipFile } from 'yazl';
-import { Storage, audit, toMbox, backupMime } from '@apmail/db';
+import { Storage, audit, toMbox, backupMime, assertFilesClean } from '@apmail/db';
 import { requireTenantAdmin, notFound } from '../authz/context.js';
 import { requireMailboxPerm } from '../authz/guards.js';
 import type { Resources } from './resources.js';
@@ -81,6 +81,32 @@ export async function registerMailArchiveExports(app: FastifyInstance, r: Resour
           cursor = rows.at(-1)!.id;
         }
       }
+      // Validate the entire selection before emitting an archive header or any
+      // bytes. Page attachment lookups so a mailbox cannot exhaust API memory.
+      let pageIds: string[] = [];
+      let rawPaths: string[] = [];
+      const checkPage = async () => {
+        if (!pageIds.length) return;
+        const attachments = await r.db
+          .selectFrom('attachments')
+          .select('storage_path')
+          .where('tenant_id', '=', c.tenantId)
+          .where('message_id', 'in', pageIds)
+          .execute();
+        await assertFilesClean(
+          r.db,
+          [...rawPaths, ...attachments.map((file) => file.storage_path)],
+          storage,
+        );
+        pageIds = [];
+        rawPaths = [];
+      };
+      for await (const message of messages()) {
+        pageIds.push(message.id);
+        if (message.raw_storage_path) rawPaths.push(message.raw_storage_path);
+        if (pageIds.length === 50) await checkPage();
+      }
+      await checkPage();
       const safeName = box.email_address.replace(/[^a-z0-9@._-]/gi, '_');
       reply
         .header('Cache-Control', 'no-store')

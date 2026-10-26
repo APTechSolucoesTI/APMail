@@ -1,3 +1,4 @@
+import type { AttachmentSecurity } from './antivirus';
 import type { Address, MailboxRole, ContactResolution, MdnRequest } from '@apmail/shared';
 import type { PersonalLabel } from './organization';
 export const threadDetailKey = (
@@ -46,6 +47,7 @@ export type Thread = {
   read_receipt_status?: 'waiting' | 'confirmed' | null;
 };
 export type Attachment = {
+  security?: AttachmentSecurity | null;
   id: string;
   filename: string;
   content_type: string;

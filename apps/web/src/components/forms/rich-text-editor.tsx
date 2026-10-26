@@ -50,6 +50,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { secureEditorImage } from '@/lib/secure-editor-image';
 const EmailImage = Node.create({
   name: 'image',
   group: 'block',
@@ -83,18 +84,7 @@ const EmailImage = Node.create({
     return ['img', HTMLAttributes];
   },
   addNodeView() {
-    return ({ node }) => {
-      const dom = document.createElement('img');
-      dom.src = node.attrs.signatureImageId
-        ? `/api/signatures/images/${node.attrs.signatureImageId}`
-        : node.attrs.uploadId
-          ? `/api/uploads/${node.attrs.uploadId}/image`
-          : node.attrs.src;
-      dom.alt = node.attrs.alt ?? '';
-      if (node.attrs.width) dom.width = Number(node.attrs.width);
-      if (node.attrs.height) dom.height = Number(node.attrs.height);
-      return { dom };
-    };
+    return ({ node }) => secureEditorImage(node.attrs);
   },
 });
 const EmailSignature = Node.create({
@@ -209,7 +199,7 @@ export function RichTextEditor({
       editor.commands.setContent(value, { emitUpdate: false });
   }, [value, editor]);
   useEffect(() => {
-    if (editor) setCompositionFormat(editor,defaultFormat);
+    if (editor) setCompositionFormat(editor, defaultFormat);
   }, [editor, defaultFormat]);
   if (!editor)
     return (

@@ -1,3 +1,4 @@
+import type { AttachmentSecurity } from './antivirus';
 import type { OutboxInput } from '@apmail/shared';
 export type Signature = {
   id: string;
@@ -20,5 +21,11 @@ export type Outbox = OutboxInput & {
   can_edit: boolean;
   can_cancel: boolean;
   mailbox?: { id: string; name: string };
-  attachment_metadata?: { id: string; filename: string; size_bytes: number; source: string }[];
+  attachment_metadata?: {
+    id: string;
+    filename: string;
+    size_bytes: number;
+    source: string;
+    security?: AttachmentSecurity | null;
+  }[];
 };

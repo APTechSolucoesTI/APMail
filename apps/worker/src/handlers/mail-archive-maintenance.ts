@@ -53,6 +53,11 @@ export async function cleanupMailArchiveFiles(r: WorkerResources) {
           .forUpdate()
           .executeTakeFirst();
         if (!current) return;
+        if (current.state === 'completed' && current.storage_path) {
+          const verdict = await sql<{ status: string }>`select status from file_security
+            where storage_key=${current.storage_path} for update`.execute(tx);
+          if (verdict.rows[0]?.status !== 'clean') return;
+        }
         if (current.storage_path) await r.storage.withDatabase(tx).removeFile(current.storage_path);
         await tx
           .updateTable('mail_archive_imports')

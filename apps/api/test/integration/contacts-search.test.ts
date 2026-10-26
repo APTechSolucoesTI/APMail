@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, it, expect } from 'vitest';
-import { randomUUID, randomBytes } from 'node:crypto';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { sql } from 'kysely';
@@ -346,6 +346,15 @@ it('troca de remetente preserva anexos, CID, medição e rascunho em falha de co
   });
   expect(uploadResponse.statusCode, uploadResponse.body).toBe(201);
   const uploadId = uploadResponse.json().id;
+  await db
+    .updateTable('file_security')
+    .set({
+      status: 'clean',
+      sha256: createHash('sha256').update(binary).digest('hex'),
+      scanned_at: new Date(),
+    })
+    .where('resource_id', '=', uploadId)
+    .execute();
   const draft = await call('POST', '/api/outbox', owner, {
     mailbox_id: box,
     kind: 'new',
@@ -360,6 +369,15 @@ it('troca de remetente preserva anexos, CID, medição e rascunho em falha de co
   expect(switched.statusCode, switched.body).toBe(200);
   const read = (await call('GET', '/api/outbox/' + id, owner)).json();
   expect(read.mailbox_id).toBe(privateBox);
+  expect(
+    (
+      await db
+        .selectFrom('file_security')
+        .select('mailbox_id')
+        .where('resource_id', '=', uploadId)
+        .executeTakeFirstOrThrow()
+    ).mailbox_id,
+  ).toBe(privateBox);
   expect(read.subject).toBe('Rascunho QA');
   expect(read.body_html).toContain('cid:' + uploadId + '@apmail.local');
   expect(read.attachments[0].inline).toBe(true);

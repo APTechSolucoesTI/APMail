@@ -2,6 +2,13 @@ import { loadRootEnv, resolveWorkspacePath, normalizeSmtpHelloName } from '@apma
 import { z } from 'zod';
 loadRootEnv();
 export const envSchema = z.object({
+  CLAMAV_HOST: z.string().trim().max(253).default('apticket-antivirus'),
+  CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
+  CLAMAV_MAX_SCAN_MB: z.coerce.number().int().min(1).max(25).default(25),
+  CLAMAV_SCAN_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(30000),
+  CLAMAV_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(100).max(10000).default(3000),
+  CLAMAV_DEFINITIONS_MAX_AGE_HOURS: z.coerce.number().int().min(24).max(168).default(168),
+  CLAMAV_CONCURRENCY: z.coerce.number().int().min(1).max(2).default(1),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   DATABASE_URL: z.url(),
   REDIS_URL: z.url(),

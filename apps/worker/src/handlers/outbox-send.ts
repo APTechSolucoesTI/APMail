@@ -15,6 +15,9 @@ import {
   lockStorageTenant,
   advanceRecurringOutbox,
   sendJobOptions,
+  registerSecurityFile,
+  inheritFileSecurity,
+  FileSecurityError,
 } from '@apmail/db';
 import { can, type Address } from '@apmail/shared';
 import { UnrecoverableError, type Job } from 'bullmq';
@@ -242,6 +245,19 @@ export async function handleOutboxSend(
                   is_inline: file.is_inline,
                 })
                 .execute();
+              await registerSecurityFile(tx, {
+                storage_key: path,
+                tenant_id: box.tenant_id,
+                mailbox_id: box.id,
+                message_id: messageId,
+                resource_id: attachmentId,
+                filename: file.filename,
+                content_type: file.content_type,
+                size_bytes: file.size_bytes,
+                kind: 'attachment',
+              });
+              // Storage.copyFile preserves bytes: retain the source scan evidence.
+              await inheritFileSecurity(tx, file.storage_path, path);
               if (file.upload_id)
                 await tx
                   .updateTable('uploads')
@@ -367,6 +383,7 @@ export async function handleOutboxSend(
       auth ||
       !!row.mdn_original_message_id ||
       delivered ||
+      (error instanceof FileSecurityError && error.code === 'file_infected') ||
       isStorageQuotaError(error) ||
       job.attemptsMade + 1 >= (job.opts.attempts ?? 1) ||
       [
@@ -376,21 +393,24 @@ export async function handleOutboxSend(
         'auto_forward_disabled',
         'rule_unavailable',
       ].includes((error as Error).message);
-    const message = isStorageQuotaError(error)
-      ? quotaErrors[(error as Error).message]!
-      : delivered
-        ? 'O SMTP aceitou o envio, mas a confirmação local falhou. Verifique Enviados antes de tentar novamente.'
-        : (error as Error).message === 'tenant_unavailable'
-          ? 'A empresa está suspensa ou indisponível. Retome o acesso antes de tentar novamente.'
-          : (error as Error).message === 'mailbox_unavailable'
-            ? 'A caixa está indisponível.'
-            : (error as Error).message === 'send_permission_revoked'
-              ? 'O acesso de envio foi removido.'
-              : ['auto_forward_disabled', 'rule_unavailable'].includes((error as Error).message)
-                ? row.is_auto_reply
-                  ? 'A resposta automática foi interrompida porque a regra foi desativada ou está fora do período de ativação.'
-                  : 'O encaminhamento automático foi interrompido porque a regra ou a permissão da empresa foi desativada.'
-                : connectionError(error, 'SMTP', 0);
+    const message =
+      error instanceof FileSecurityError
+        ? error.message
+        : isStorageQuotaError(error)
+          ? quotaErrors[(error as Error).message]!
+          : delivered
+            ? 'O SMTP aceitou o envio, mas a confirmação local falhou. Verifique Enviados antes de tentar novamente.'
+            : (error as Error).message === 'tenant_unavailable'
+              ? 'A empresa está suspensa ou indisponível. Retome o acesso antes de tentar novamente.'
+              : (error as Error).message === 'mailbox_unavailable'
+                ? 'A caixa está indisponível.'
+                : (error as Error).message === 'send_permission_revoked'
+                  ? 'O acesso de envio foi removido.'
+                  : ['auto_forward_disabled', 'rule_unavailable'].includes((error as Error).message)
+                    ? row.is_auto_reply
+                      ? 'A resposta automática foi interrompida porque a regra foi desativada ou está fora do período de ativação.'
+                      : 'O encaminhamento automático foi interrompido porque a regra ou a permissão da empresa foi desativada.'
+                    : connectionError(error, 'SMTP', 0);
     await r.db.transaction().execute(async (tx) => {
       if (last)
         await audit(tx, {

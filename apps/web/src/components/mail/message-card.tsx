@@ -1,15 +1,6 @@
+import { ReceivedAttachment, SecuredEmailBody } from './attachment-safety';
 import { useId, useState } from 'react';
-import {
-  Download,
-  Paperclip,
-  Eye,
-  Flag,
-  Plus,
-  Minus,
-  Reply,
-  ReplyAll,
-  Forward,
-} from 'lucide-react';
+import { Flag, Plus, Minus, Reply, ReplyAll, Forward } from 'lucide-react';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -238,50 +229,30 @@ export function MessageCard({
               Enviado por {message.sent_by.full_name} via APMail
             </p>
           )}
-          <EmailBodyFrame
-            html={
-              message.body_html ?? message.body_text.replace(/</g, '&lt;').replace(/\n/g, '<br>')
-            }
-            cidMap={cidMap}
-            loadRemoteImages={loadRemoteImages}
-          />
+          {message.attachments.some((attachment) => attachment.is_inline) ? (
+            <SecuredEmailBody
+              attachments={message.attachments.filter((attachment) => attachment.is_inline)}
+              html={
+                message.body_html ?? message.body_text.replace(/</g, '&lt;').replace(/\n/g, '<br>')
+              }
+              cidMap={cidMap}
+              loadRemoteImages={loadRemoteImages}
+            />
+          ) : (
+            <EmailBodyFrame
+              html={
+                message.body_html ?? message.body_text.replace(/</g, '&lt;').replace(/\n/g, '<br>')
+              }
+              cidMap={cidMap}
+              loadRemoteImages={loadRemoteImages}
+            />
+          )}
           {!!message.attachments.filter((a) => !a.is_inline).length && (
             <ul className="flex flex-wrap gap-2">
               {message.attachments
                 .filter((a) => !a.is_inline)
                 .map((a) => (
-                  <li
-                    key={a.id}
-                    className="flex min-w-0 max-w-full items-center gap-2 rounded-md border bg-muted/50 p-2"
-                  >
-                    <Paperclip className="size-4 shrink-0" aria-hidden />
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-medium" title={a.filename}>
-                        {a.filename}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {Math.ceil(a.size_bytes / 1024)} KB
-                      </p>
-                    </div>
-                    {/^(image\/(png|jpeg|gif|webp)|application\/pdf)$/.test(a.content_type) && (
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        aria-label={'Visualizar ' + a.filename}
-                        onClick={() => setPreview(a)}
-                      >
-                        <Eye />
-                      </Button>
-                    )}
-                    <Button variant="ghost" size="icon-sm" asChild>
-                      <a
-                        href={'/api/attachments/' + a.id + '/download'}
-                        aria-label={'Baixar ' + a.filename}
-                      >
-                        <Download />
-                      </a>
-                    </Button>
-                  </li>
+                  <ReceivedAttachment key={a.id} attachment={a} onPreview={setPreview} />
                 ))}
             </ul>
           )}

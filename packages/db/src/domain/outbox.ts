@@ -2,6 +2,7 @@ import type { Selectable } from 'kysely';
 import { outboxAttachmentSchema, type OutboxAttachment } from '@apmail/shared';
 import type { Database } from './threads.js';
 import type { Outbox } from '../types.js';
+import { securityForFiles, securitySummary } from '../security/files.js';
 export type OutboxRow = Selectable<Outbox>;
 export async function resolveOutboxAttachments(
   db: Database,
@@ -34,7 +35,8 @@ export async function resolveOutboxAttachments(
         .where('user_id', '=', row.created_by)
         .where('consumed_at', 'is', null)
         .executeTakeFirst();
-      if (!file || (file.mailbox_id && file.mailbox_id !== row.mailbox_id)) throw new Error('Um dos anexos não está disponível nesta caixa.');
+      if (!file || (file.mailbox_id && file.mailbox_id !== row.mailbox_id))
+        throw new Error('Um dos anexos não está disponível nesta caixa.');
       if (
         ref.inline &&
         (!['image/png', 'image/jpeg', 'image/webp'].includes(file.content_type) ||
@@ -61,7 +63,14 @@ export async function resolveOutboxAttachments(
       files.push({ ...file, upload_id: null });
     }
   }
-  return files;
+  const security = await securityForFiles(
+    db,
+    files.map((file) => file.storage_path),
+  );
+  return files.map((file) => ({
+    ...file,
+    security: securitySummary(security.get(file.storage_path) ?? null),
+  }));
 }
 // BullMQ não aceita dois-pontos no jobId. A identidade conserva os três componentes.
 export const outboxJobId = (id: string, count: number) => `outbox~${id}~${count}`;

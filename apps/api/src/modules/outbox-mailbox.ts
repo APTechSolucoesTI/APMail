@@ -66,6 +66,12 @@ export async function moveDraftUploads(
       .where('tenant_id', '=', row.tenant_id)
       .execute();
     await db
+      .updateTable('file_security')
+      .set({ mailbox_id: body.mailbox_id, updated_at: new Date() })
+      .where('tenant_id', '=', row.tenant_id)
+      .where('storage_key', '=', upload.storage_path)
+      .execute();
+    await db
       .updateTable('storage_asset_refs')
       .set({ mailbox_id: body.mailbox_id })
       .where('source_kind', '=', 'uploads')

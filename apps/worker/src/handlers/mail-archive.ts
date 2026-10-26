@@ -236,13 +236,18 @@ export async function handleMailArchive(r: WorkerResources, importId: string, jo
           .executeTakeFirst();
         if (!completed) return;
         try {
-          await r.storage.removeFile(task.storage_path!);
-          await r.db
-            .updateTable('mail_archive_imports')
-            .set({ storage_path: null, updated_at: new Date() })
-            .where('id', '=', task.id)
-            .where('state', '=', 'completed')
-            .execute();
+          await r.db.transaction().execute(async (tx) => {
+            const verdict = await sql<{ status: string }>`select status from file_security
+              where storage_key=${task.storage_path!} for update`.execute(tx);
+            if (verdict.rows[0]?.status !== 'clean') return;
+            await r.storage.withDatabase(tx).removeFile(task.storage_path!);
+            await tx
+              .updateTable('mail_archive_imports')
+              .set({ storage_path: null, updated_at: new Date() })
+              .where('id', '=', task.id)
+              .where('state', '=', 'completed')
+              .execute();
+          });
         } catch {
           r.log.warn(
             { import_id: task.id },

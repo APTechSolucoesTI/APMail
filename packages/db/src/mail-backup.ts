@@ -3,6 +3,7 @@ import { Storage } from './storage.js';
 import type { DB } from './types.js';
 import type { Selectable, Kysely } from 'kysely';
 import type { Address } from '@apmail/shared';
+import { assertFilesClean } from './security/files.js';
 type Message = Selectable<DB['messages']>;
 export function toMbox(raw: Buffer, date: Date, sender: string) {
   // mboxrd: quote every From separator, including already quoted body lines.
@@ -22,14 +23,22 @@ export async function backupMime(
   m: Message,
   options: { preferRaw?: boolean } = {},
 ) {
-  if (m.raw_storage_path && options.preferRaw !== false)
-    return storage.openReadStream(m.raw_storage_path);
   const attachments = await db
     .selectFrom('attachments')
     .selectAll()
     .where('message_id', '=', m.id)
     .where('tenant_id', '=', m.tenant_id)
     .execute();
+  await assertFilesClean(
+    db,
+    [
+      ...attachments.map((attachment) => attachment.storage_path),
+      ...(m.raw_storage_path && options.preferRaw !== false ? [m.raw_storage_path] : []),
+    ],
+    storage,
+  );
+  if (m.raw_storage_path && options.preferRaw !== false)
+    return storage.openReadStream(m.raw_storage_path);
   const files = [];
   for (const a of attachments)
     files.push({

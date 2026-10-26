@@ -13,6 +13,8 @@ import {
   assertStorageCapacity,
   lockStorageTenant,
   applyCalendarMessage,
+  registerSecurityFile,
+  enqueueSecurityScan,
 } from '@apmail/db';
 import { isAutomated, type Address } from '@apmail/shared';
 import { sql, type Selectable, type Kysely } from 'kysely';
@@ -173,6 +175,7 @@ export async function ingestMessage(
   };
   const id = randomUUID(),
     written: string[] = [];
+  const scans: Awaited<ReturnType<typeof registerSecurityFile>>[] = [];
   let result: string;
   let calendarChanged = false;
   try {
@@ -255,6 +258,20 @@ export async function ingestMessage(
           is_flagged: msg.flags?.has('\\Flagged') ?? false,
         })
         .execute();
+      if (rawPath && msg.source)
+        scans.push(
+          await registerSecurityFile(trx, {
+            storage_key: rawPath,
+            tenant_id: box.tenant_id,
+            mailbox_id: box.id,
+            message_id: id,
+            resource_id: id,
+            filename: 'message.eml',
+            content_type: 'message/rfc822',
+            size_bytes: msg.source.length,
+            kind: 'mail_raw',
+          }),
+        );
       for (const a of parsed?.attachments ?? []) {
         const attachmentId = randomUUID(),
           path = `attachments/${box.tenant_id}/${box.id}/${id}/${attachmentId}`;
@@ -275,6 +292,19 @@ export async function ingestMessage(
             storage_path: path,
           })
           .execute();
+        scans.push(
+          await registerSecurityFile(trx, {
+            storage_key: path,
+            tenant_id: box.tenant_id,
+            mailbox_id: box.id,
+            message_id: id,
+            resource_id: attachmentId,
+            filename: mailText(a.filename ?? 'anexo'),
+            content_type: mailText(a.contentType),
+            size_bytes: a.size,
+            kind: 'attachment',
+          }),
+        );
       }
       await touchThreads(
         trx,
@@ -310,6 +340,10 @@ export async function ingestMessage(
     );
     throw error;
   }
+  for (const file of scans)
+    await enqueueSecurityScan(r.queues['antivirus-scan'], file).catch(() =>
+      r.log.warn({ mailbox_id: box.id }, 'Verificação de anexo aguardando recuperação da fila.'),
+    );
   if (calendarChanged) r.io.to('mailbox:' + box.id).emit('calendar:changed', {});
   return result;
 }

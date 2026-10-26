@@ -30,6 +30,7 @@ import {
   BellRing,
   Plug,
   BarChart3,
+  ShieldCheck,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
@@ -225,6 +226,15 @@ export function AppShell() {
         }),
     );
     socket.on('folders:changed', () => invalidate('folders'));
+    socket.on('attachments:changed', () =>
+      invalidate(
+        'attachment-security',
+        'thread',
+        'antivirus-files',
+        'antivirus-overview',
+        'antivirus-history',
+      ),
+    );
     socket.on('calendar:changed', () => invalidate('calendar', 'meet-reports'));
     socket.on('google-meet:changed', () => invalidate('meet-reports', 'google-integration'));
     socket.on('labels:changed', () => invalidate('labels', 'threads', 'thread', 'global-search'));
@@ -397,6 +407,23 @@ export function AppShell() {
               Relatórios
             </Link>
           )}
+        </NavigationGroup>
+        <NavigationGroup
+          id="security"
+          label="Segurança"
+          icon={<ShieldCheck aria-hidden className="size-4" />}
+          visible={admin}
+          defaultOpen={pathname.startsWith('/security')}
+        >
+          <Link
+            to="/security/antivirus"
+            onClick={() => setOpen(false)}
+            activeProps={{ className: 'bg-accent text-accent-foreground' }}
+            className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted sm:min-h-8"
+          >
+            <ShieldCheck aria-hidden className="size-4" />
+            Antivírus
+          </Link>
         </NavigationGroup>
         <div className="mt-auto border-t pt-4">
           <NavigationGroup

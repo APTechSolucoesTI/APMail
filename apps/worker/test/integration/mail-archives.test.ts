@@ -90,6 +90,28 @@ const mime = (id: string, body = 'Olá') =>
   Buffer.from(
     `From: Sender <sender@example.com>\r\nTo: qa@example.com\r\nDate: Wed, 07 Oct 2026 12:00:00 +0000\r\nMessage-ID: <${id}@qa.example>\r\nSubject: Backup ${id}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}\r\n`,
   );
+// Archive regression fixtures are synthetic. Antivirus/quarantine has its own integration suite.
+async function verifyFixtureFiles(target: string) {
+  const rows = await db
+    .selectFrom('file_security')
+    .selectAll()
+    .where('tenant_id', '=', tenant)
+    .where('mailbox_id', '=', target)
+    .where('status', '=', 'pending')
+    .execute();
+  for (const row of rows) {
+    const content = await readFile(join(dir, row.storage_key));
+    await db
+      .updateTable('file_security')
+      .set({
+        status: 'clean',
+        sha256: createHash('sha256').update(content).digest('hex'),
+        scanned_at: new Date(),
+      })
+      .where('id', '=', row.id)
+      .execute();
+  }
+}
 async function upload(raw: Buffer, filename = 'qa.eml', target = box) {
   const created = await call('POST', '/mailboxes/' + target + '/archive-imports', {
     filename,
@@ -99,6 +121,7 @@ async function upload(raw: Buffer, filename = 'qa.eml', target = box) {
   const task = created.json();
   const result = await call('POST', `/mailboxes/${target}/archive-imports/${task.id}/upload`, raw);
   expect(result.statusCode, result.body).toBe(200);
+  await verifyFixtureFiles(target);
   return task.id as string;
 }
 async function state(id: string) {
@@ -482,6 +505,7 @@ it('imports MIME with exact raw backup, charges ownership and skips repeated ema
   await handleMailArchive(r, second, 'qa-' + second);
   expect(await state(second)).toMatchObject({ imported: 0, skipped: 1, state: 'completed' });
   expect((await state(second)).added_storage_bytes).toBe('0');
+  await verifyFixtureFiles(box);
   const mbox = await call('GET', `/mailboxes/${box}/archive-export?format=mbox`);
   expect(mbox.statusCode, mbox.body).toBe(200);
   expect(mbox.body).toContain('Message-ID: <one@qa.example>');
@@ -665,7 +689,7 @@ it('retains the checkpoint and original file across repeated failures and resume
 it('keeps completion durable when source cleanup fails and retries cleanup separately', async () => {
   const id = await upload(mime('cleanup-retry'));
   const removal = vi
-    .spyOn(r.storage, 'removeFile')
+    .spyOn(Storage.prototype, 'removeFile')
     .mockRejectedValueOnce(new Error('Arquivo ocupado'));
   try {
     await handleMailArchive(r, id, 'cleanup-retry');
@@ -1212,6 +1236,7 @@ it('measures expanded ZIP content before quota pause and keeps the same analysis
   const raw = mime('zip-expansion', 'X'.repeat(100000));
   const original = await upload(raw, 'large.eml', source);
   await handleMailArchive(r, original, 'zip-source');
+  await verifyFixtureFiles(source);
   const backup = await call('GET', `/mailboxes/${source}/archive-export?format=eml`);
   expect(backup.statusCode).toBe(200);
   expect(backup.rawPayload.length).toBeLessThan(raw.length / 10);
@@ -1300,6 +1325,7 @@ it('exports retained deleted mail, permanently purges only the confirmed box and
     .execute();
   const normal = await call('GET', `/mailboxes/${target}/archive-export?format=mbox`);
   expect(normal.body).not.toContain('purge-target@qa.example');
+  await verifyFixtureFiles(target);
   const full = await call(
     'GET',
     `/mailboxes/${target}/archive-export?format=mbox&include_deleted=true`,

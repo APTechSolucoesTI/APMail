@@ -76,6 +76,18 @@ export interface AccessProfiles {
   updated_at: Generated<Timestamp>;
 }
 
+export interface AntivirusHealth {
+  alert_key: string | null;
+  checked_at: Generated<Timestamp>;
+  definitions_at: Timestamp | null;
+  engine_version: string | null;
+  error_code: string | null;
+  id: number;
+  last_alert_at: Timestamp | null;
+  signature_version: string | null;
+  status: string;
+}
+
 export interface Attachments {
   content_id: string | null;
   content_type: Generated<string>;
@@ -266,6 +278,59 @@ export interface ContactUserNicknames {
   nickname: string;
   tenant_id: string;
   user_id: string;
+}
+
+export interface FileScanHistory {
+  attempt: number;
+  content_type: string;
+  definitions_at: Timestamp | null;
+  duration_ms: Generated<number>;
+  engine_version: string | null;
+  error_code: string | null;
+  file_id: string | null;
+  filename: string;
+  generation: number;
+  id: Generated<string>;
+  kind: string;
+  mailbox_id: string | null;
+  message_id: string | null;
+  scanned_at: Generated<Timestamp>;
+  sha256: string | null;
+  signature_version: string | null;
+  size_bytes: Int8;
+  status: string;
+  tenant_id: string | null;
+  threat_name: string | null;
+  user_id: string | null;
+}
+
+export interface FileSecurity {
+  attempts: Generated<number>;
+  content_type: Generated<string>;
+  created_at: Generated<Timestamp>;
+  definitions_at: Timestamp | null;
+  engine_version: string | null;
+  error_code: string | null;
+  filename: string;
+  generation: Generated<number>;
+  id: Generated<string>;
+  kind: string;
+  lease_expires_at: Timestamp | null;
+  lease_token: string | null;
+  mailbox_id: string | null;
+  message_id: string | null;
+  next_attempt_at: Generated<Timestamp>;
+  resource_id: string | null;
+  scanned_at: Timestamp | null;
+  sha256: string | null;
+  signature_version: string | null;
+  size_bytes: Int8;
+  status: Generated<string>;
+  storage_key: string;
+  tenant_id: string | null;
+  threat_name: string | null;
+  updated_at: Generated<Timestamp>;
+  user_id: string | null;
 }
 
 export interface FolderPermissions {
@@ -1196,6 +1261,7 @@ export interface UserTwoFactor {
 
 export interface DB {
   access_profiles: AccessProfiles;
+  antivirus_health: AntivirusHealth;
   attachments: Attachments;
   audit_logs: AuditLogs;
   auth_two_factor_challenges: AuthTwoFactorChallenges;
@@ -1209,6 +1275,8 @@ export interface DB {
   contact_imports: ContactImports;
   contact_user_nicknames: ContactUserNicknames;
   contacts: Contacts;
+  file_scan_history: FileScanHistory;
+  file_security: FileSecurity;
   folder_permissions: FolderPermissions;
   folders: Folders;
   google_connections: GoogleConnections;

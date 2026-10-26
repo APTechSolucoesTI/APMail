@@ -3,7 +3,15 @@ import multipart from '@fastify/multipart';
 import sharp from 'sharp';
 import { fileTypeFromBuffer } from 'file-type';
 import { randomUUID } from 'node:crypto';
-import { Storage, isStorageQuotaError } from '@apmail/db';
+import {
+  Storage,
+  isStorageQuotaError,
+  registerSecurityFile,
+  enqueueSecurityScan,
+  securitySummary,
+  securityForFiles,
+  assertFilesClean,
+} from '@apmail/db';
 import { z } from 'zod';
 import { requireAuth, requireTenant, notFound, ApiError } from '../authz/context.js';
 import { avatarUrl } from './auth.js';
@@ -40,27 +48,44 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
         .toBuffer({ resolveWithObject: true });
       const id = randomUUID(),
         path = `signatures/${c.tenantId}/${c.userId}/${id}.png`;
-      await storage.writeFile(path, normalized.data);
       storedPath = path;
-      await r.db
-        .insertInto('signature_images')
-        .values({
-          id,
+      const security = await r.db.transaction().execute(async (tx) => {
+        await storage.withDatabase(tx).writeFile(path, normalized.data);
+        await tx
+          .insertInto('signature_images')
+          .values({
+            id,
+            tenant_id: c.tenantId,
+            user_id: c.userId,
+            storage_path: path,
+            content_type: 'image/png',
+            width: normalized.info.width,
+            height: normalized.info.height,
+            size_bytes: normalized.data.length,
+            legacy_public: false,
+          })
+          .execute();
+        return registerSecurityFile(tx, {
+          storage_key: path,
           tenant_id: c.tenantId,
+          mailbox_id: null,
           user_id: c.userId,
-          storage_path: path,
+          resource_id: id,
+          filename: 'assinatura.png',
           content_type: 'image/png',
-          width: normalized.info.width,
-          height: normalized.info.height,
           size_bytes: normalized.data.length,
-          legacy_public: false,
-        })
-        .execute();
+          kind: 'signature_image',
+        });
+      });
+      await enqueueSecurityScan(r.queues['antivirus-scan'], security).catch(() =>
+        app.log.warn('Imagem recebida; verificação aguarda recuperação da fila.'),
+      );
       return {
         id,
         url: `${r.env.APP_URL}/api/signatures/images/${id}`,
         width: normalized.info.width,
         height: normalized.info.height,
+        security: securitySummary(security),
       };
     } catch (error) {
       if (storedPath)
@@ -70,6 +95,20 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
       if (isStorageQuotaError(error)) throw error;
       throw new ApiError(400, 'validation_error', 'Não foi possível processar esta imagem.');
     }
+  });
+  app.get('/api/signatures/images/:id/security', async (req, reply) => {
+    const c = requireTenant(req.ctx),
+      { id } = z.object({ id: z.uuid() }).parse(req.params);
+    const row = await r.db
+      .selectFrom('signature_images')
+      .select('storage_path')
+      .where('id', '=', id)
+      .where('tenant_id', '=', c.tenantId)
+      .where('user_id', '=', c.userId)
+      .executeTakeFirst();
+    if (!row) throw notFound();
+    const map = await securityForFiles(r.db, [row.storage_path]);
+    return reply.header('Cache-Control', 'private, no-store').send(map.get(row.storage_path));
   });
   app.get('/api/signatures/images/:id', async (req, reply) => {
     const c = requireTenant(req.ctx);
@@ -82,6 +121,7 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
       .where('user_id', '=', c.userId)
       .executeTakeFirst();
     if (!row) throw notFound();
+    await assertFilesClean(r.db, [row.storage_path], storage);
     return reply
       .type(row.content_type)
       .header('Cache-Control', 'private, no-store')
@@ -97,9 +137,10 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
       .where('legacy_public', '=', true)
       .executeTakeFirst();
     if (!row) throw notFound();
+    await assertFilesClean(r.db, [row.storage_path], storage);
     return reply
       .type(row.content_type)
-      .header('Cache-Control', 'public, max-age=31536000, immutable')
+      .header('Cache-Control', 'no-store')
       .header('X-Content-Type-Options', 'nosniff')
       .header('Cross-Origin-Resource-Policy', 'cross-origin')
       .send(await storage.openReadStream(row.storage_path));
@@ -126,26 +167,43 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
       .select('avatar_path')
       .where('id', '=', c.userId)
       .executeTakeFirstOrThrow();
-    await storage.writeFile(path, output);
-    let user;
+    let saved;
     try {
-      user = await r.db
-        .updateTable('users')
-        .set({ avatar_path: path })
-        .where('id', '=', c.userId)
-        .returning(['id', 'avatar_path', 'updated_at'])
-        .executeTakeFirstOrThrow();
+      saved = await r.db.transaction().execute(async (tx) => {
+        await storage.withDatabase(tx).writeFile(path, output);
+        const user = await tx
+          .updateTable('users')
+          .set({ avatar_path: path })
+          .where('id', '=', c.userId)
+          .returning(['id', 'avatar_path', 'updated_at'])
+          .executeTakeFirstOrThrow();
+        const security = await registerSecurityFile(tx, {
+          storage_key: path,
+          tenant_id: null,
+          mailbox_id: null,
+          user_id: c.userId,
+          resource_id: c.userId,
+          filename: 'avatar.webp',
+          content_type: 'image/webp',
+          size_bytes: output.length,
+          kind: 'avatar',
+        });
+        return { user, security };
+      });
     } catch (error) {
       await storage
         .removeFile(path)
         .catch(() => app.log.warn('Limpeza de avatar pendente de reconciliação.'));
       throw error;
     }
+    await enqueueSecurityScan(r.queues['antivirus-scan'], saved.security).catch(() =>
+      app.log.warn('Avatar recebido; verificação aguarda recuperação da fila.'),
+    );
     if (old.avatar_path)
       await storage
         .removeFile(old.avatar_path)
         .catch(() => app.log.warn('Limpeza de avatar anterior pendente de reconciliação.'));
-    return { avatar_url: avatarUrl(user) };
+    return { avatar_url: avatarUrl(saved.user), security: securitySummary(saved.security) };
   });
   app.delete('/api/me/avatar', async (req) => {
     const c = requireAuth(req.ctx);
@@ -170,9 +228,10 @@ export async function registerAvatarRoutes(app: FastifyInstance, r: Resources) {
       .where('tenant_members.status', '=', 'active')
       .executeTakeFirst();
     if (!user?.avatar_path) throw notFound();
+    await assertFilesClean(r.db, [user.avatar_path], storage);
     return reply
       .type('image/webp')
-      .header('Cache-Control', 'private, max-age=300')
+      .header('Cache-Control', 'private, no-store')
       .header('X-Content-Type-Options', 'nosniff')
       .send(await storage.openReadStream(user.avatar_path));
   });

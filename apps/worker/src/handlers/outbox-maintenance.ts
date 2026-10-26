@@ -74,15 +74,25 @@ export async function cleanupUploads(r: WorkerResources) {
     .where('consumed_at', 'is', null)
     .where('created_at', '<', new Date(Date.now() - 86400000))
     .where(
+      sql<boolean>`exists(select 1 from file_security f where f.storage_key=uploads.storage_path and f.status='clean')`,
+    )
+    .where(
       sql<boolean>`not exists(select 1 from outbox o where o.status in ('draft','queued','scheduled','sending','failed') and o.attachments @> jsonb_build_array(jsonb_build_object('source','upload','upload_id',uploads.id)))`,
     )
     .execute();
   for (const file of files) {
-    await r.storage.removeFile(file.storage_path);
-    await r.db
-      .deleteFrom('uploads')
-      .where('id', '=', file.id)
-      .where('consumed_at', 'is', null)
-      .execute();
+    await r.db.transaction().execute(async (tx) => {
+      // A concurrent reanalysis must not turn automatic retention into deletion
+      // of a newly quarantined file. Hold the verdict while removing clean bytes.
+      const clean = await sql<{ id: string }>`select id from file_security
+        where storage_key=${file.storage_path} and status='clean' for update`.execute(tx);
+      if (!clean.rows.length) return;
+      await r.storage.withDatabase(tx).removeFile(file.storage_path);
+      await tx
+        .deleteFrom('uploads')
+        .where('id', '=', file.id)
+        .where('consumed_at', 'is', null)
+        .execute();
+    });
   }
 }

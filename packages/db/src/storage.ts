@@ -4,7 +4,7 @@ import { dirname, isAbsolute, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import type { Kysely } from 'kysely';
+import { sql, type Kysely } from 'kysely';
 import type { DB } from './types.js';
 import { assertStorageGrowth, lockStorageTenant } from './quotas.js';
 import {
@@ -24,6 +24,15 @@ export class Storage {
   /** Files and payload admission share the caller's tenant lock and transaction. */
   withDatabase(db: Kysely<DB>) {
     return new Storage(this.root, db);
+  }
+  /** A verdict certifies bytes, never a reusable path. Preserve scan history but
+   * revoke an existing verdict and any in-flight lease before changing content. */
+  private async invalidateSecurity(relativePath: string) {
+    if (!this.db) return;
+    await sql`update file_security set status='pending',generation=generation+1,attempts=0,
+      sha256=null,threat_name=null,error_code=null,engine_version=null,signature_version=null,
+      definitions_at=null,scanned_at=null,lease_token=null,lease_expires_at=null,
+      next_attempt_at=now(),updated_at=now() where storage_key=${relativePath}`.execute(this.db);
   }
   private async admission(relativePath: string) {
     if (!this.db) return async () => {};
@@ -111,6 +120,7 @@ export class Storage {
         Buffer.isBuffer(source) ? Readable.from(source) : Readable.from(checkedStream()),
         createWriteStream(temporary, { flags: 'wx', mode: 0o600 }),
       );
+      await this.invalidateSecurity(relativePath);
       await rename(temporary, destination);
       published = true;
       if (this.db)
@@ -156,6 +166,8 @@ export class Storage {
     let failed = false;
     try {
       if ((await handle.stat()).size < offset) throw new Error('Arquivo de upload incompleto.');
+      if ((await handle.stat()).size !== offset || source.length > 0)
+        await this.invalidateSecurity(relativePath);
       await handle.truncate(offset);
       operation = this.db ? await beginStorageOperation(this.db, relativePath, 'write') : undefined;
       appended = true;
@@ -213,6 +225,7 @@ export class Storage {
     const handle = await open(await this.path(relativePath, false), 'r+');
     try {
       if ((await handle.stat()).size < bytes) throw new Error('Arquivo de upload incompleto.');
+      if ((await handle.stat()).size !== bytes) await this.invalidateSecurity(relativePath);
       await handle.truncate(bytes);
       await handle.sync();
       if (this.db)
@@ -252,6 +265,7 @@ export class Storage {
     let published = false;
     try {
       await copyFile(source, temporary);
+      await this.invalidateSecurity(to);
       await rename(temporary, destination);
       published = true;
       if (this.db)

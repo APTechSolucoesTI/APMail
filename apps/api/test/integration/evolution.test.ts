@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, it, expect, vi } from 'vitest';
-import { randomUUID, randomBytes } from 'node:crypto';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
@@ -970,8 +970,24 @@ it('upload de assinatura normaliza PNG privado, impedindo acesso público e entr
     payload,
   });
   expect(upload.statusCode, upload.body).toBe(200);
-  const path = new URL(upload.json().url).pathname,
-    read = await call('GET', path, owner);
+  const path = new URL(upload.json().url).pathname;
+  expect((await call('GET', path, owner)).statusCode).toBe(409);
+  // This test covers normalized PNG ownership; scanner behavior has separate real TCP tests.
+  const normalized = await sharp(input)
+    .rotate()
+    .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+    .png()
+    .toBuffer();
+  await db
+    .updateTable('file_security')
+    .set({
+      status: 'clean',
+      sha256: createHash('sha256').update(normalized).digest('hex'),
+      scanned_at: new Date(),
+    })
+    .where('resource_id', '=', upload.json().id)
+    .execute();
+  const read = await call('GET', path, owner);
   expect((await app.inject({ url: path })).statusCode).toBe(401);
   expect((await call('GET', path, member)).statusCode).toBe(404);
   expect((await call('GET', path, global)).statusCode).toBe(403);

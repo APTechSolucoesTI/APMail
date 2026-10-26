@@ -3,6 +3,7 @@ import { resolve, relative, sep, basename } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { z } from 'zod';
+import { sql } from 'kysely';
 import {
   backupMime,
   toMbox,
@@ -11,6 +12,8 @@ import {
   assertStorageCapacity,
   isStorageQuotaError,
   audit,
+  registerSecurityFile,
+  enqueueSecurityScan,
 } from '@apmail/db';
 import { MAIL_MESSAGE_MAX_BYTES } from '@apmail/shared';
 import { withMailboxLock } from '../lib/mailbox-lock.js';
@@ -63,9 +66,28 @@ async function live(r: WorkerResources, task: ExportIdentity) {
     .where('b.deleted_at', 'is', null)
     .executeTakeFirst());
 }
-async function cleanFiles(r: WorkerResources, task: ExportIdentity, keep: Set<string>) {
+async function cleanFiles(
+  r: WorkerResources,
+  task: ExportIdentity,
+  keep: Set<string>,
+  automatic = false,
+) {
   for (const path of await jobFiles(r, task)) {
     if (keep.has(path)) continue;
+    if (automatic && path.toLowerCase().endsWith('.pst')) {
+      await r.db.transaction().execute(async (tx) => {
+        const verdict = await sql<{ status: string }>`select status from file_security
+          where storage_key=${path} for update`.execute(tx);
+        if (verdict.rows[0]?.status !== 'clean') return;
+        await r.storage.withDatabase(tx).removeFile(path);
+        await tx
+          .deleteFrom('mail_archive_export_files')
+          .where('export_id', '=', task.id)
+          .where('storage_path', '=', path)
+          .execute();
+      });
+      continue;
+    }
     await r.storage.removeFile(path);
     await r.db
       .deleteFrom('mail_archive_export_files')
@@ -414,18 +436,37 @@ export async function handlePstExport(r: WorkerResources, exportId: string, jobI
             outputs.length === 1
               ? task.filename
               : task.filename.replace(/\.pst$/i, `-parte-${index + 1}.pst`);
-          await r.db
-            .insertInto('mail_archive_export_files')
-            .values({
-              export_id: task.id,
+          const file = await r.db.transaction().execute(async (tx) => {
+            await tx
+              .insertInto('mail_archive_export_files')
+              .values({
+                export_id: task.id,
+                tenant_id: task.tenant_id,
+                mailbox_id: task.mailbox_id,
+                kind: 'pst',
+                filename,
+                storage_path: path,
+                size_bytes: stats.size.toString(),
+              })
+              .execute();
+            return registerSecurityFile(tx, {
+              storage_key: path,
               tenant_id: task.tenant_id,
               mailbox_id: task.mailbox_id,
-              kind: 'pst',
+              user_id: task.created_by,
+              resource_id: task.id,
+              kind: 'mail_export',
               filename,
-              storage_path: path,
-              size_bytes: stats.size.toString(),
-            })
-            .execute();
+              content_type: 'application/vnd.ms-outlook',
+              size_bytes: Number(stats.size),
+            });
+          });
+          await enqueueSecurityScan(r.queues['antivirus-scan'], file).catch(() =>
+            r.log.warn(
+              { export_id: task.id },
+              'Verificação do PST aguardando recuperação da fila.',
+            ),
+          );
         }
         const complete = await r.db
           .updateTable('mail_archive_exports')
@@ -553,7 +594,7 @@ export async function cleanupPstExports(r: WorkerResources) {
           .executeTakeFirst();
         if (!current || activeStates.includes(current.state)) return;
         try {
-          await cleanFiles(r, task, keep);
+          await cleanFiles(r, task, keep, task.state !== 'cancelled');
           if (!keep.size)
             await r.db
               .updateTable('mail_archive_exports')

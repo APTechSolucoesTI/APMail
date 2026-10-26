@@ -12,7 +12,14 @@ import {
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod';
 import { Redis } from 'ioredis';
-import { createDb, createQueues, asJson, quotaErrors, GoogleApiError } from '@apmail/db';
+import {
+  createDb,
+  createQueues,
+  asJson,
+  quotaErrors,
+  GoogleApiError,
+  isFileSecurityError,
+} from '@apmail/db';
 import {
   healthSchema,
   healthQueuesSchema,
@@ -39,6 +46,7 @@ import { registerInvitationRoutes } from './modules/invitations.js';
 import { registerAvatarRoutes } from './modules/avatars.js';
 import { registerMailRoutes } from './modules/mail.js';
 import { registerOutboxRoutes } from './modules/outbox.js';
+import { registerAntivirus } from './modules/antivirus.js';
 import { registerOrganizationRoutes } from './modules/organization/routes.js';
 import { registerThreadOperations } from './modules/thread-operations/routes.js';
 import { registerDashboard } from './modules/dashboard/routes.js';
@@ -165,7 +173,10 @@ export async function buildApp(config: ApiEnv = readEnv()) {
       )[status] ?? 'internal';
     reply.code(status).send({
       error: {
-        code: error instanceof ApiError || error instanceof GoogleApiError ? error.code : code,
+        code:
+          error instanceof ApiError || error instanceof GoogleApiError || isFileSecurityError(error)
+            ? error.code
+            : code,
         message:
           error instanceof GoogleApiError
             ? error.message
@@ -273,6 +284,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await registerAvatarRoutes(app, resources);
   await registerMailRoutes(app, resources);
   await registerOutboxRoutes(app, resources);
+  await registerAntivirus(app, resources);
   await registerOrganizationRoutes(app, resources);
   registerThreadOperations(app, resources);
   registerDashboard(app, resources);

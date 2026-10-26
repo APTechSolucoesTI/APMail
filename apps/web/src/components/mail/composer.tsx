@@ -1,5 +1,12 @@
+import { AttachmentSafetyBadge } from './attachment-safety';
+import {
+  attachmentCanOpen,
+  attachmentSecurityQuery,
+  resolvedAttachmentSecurity,
+  type AttachmentSecurity,
+} from '@/lib/antivirus';
 import { useEffect, useRef, useState, useImperativeHandle, type Ref } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useQueries } from '@tanstack/react-query';
 import DOMPurify from 'dompurify';
 import { toast } from 'sonner';
 import {
@@ -68,7 +75,12 @@ import {
   AlertDialogAction,
 } from '@/components/ui/alert-dialog';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
-type Attached = { ref: OutboxAttachment; filename: string; size_bytes: number };
+type Attached = {
+  ref: OutboxAttachment;
+  filename: string;
+  size_bytes: number;
+  security?: AttachmentSecurity | null;
+};
 export type ComposerHandle = { saveDraft: () => Promise<void> };
 const blank = (id: string): OutboxInput => ({
   priority: 'normal',
@@ -151,6 +163,20 @@ export function Composer({
     [schedule, setSchedule] = useState(false),
     [confirm, setConfirm] = useState<'discard' | 'subject' | null>(null),
     [uploads, setUploads] = useState<{ id: string; name: string; progress: number }[]>([]);
+  const securityQueries = useQueries({
+    queries: files.map((file) =>
+      attachmentSecurityQuery(
+        tenant,
+        file.ref.source === 'upload' ? 'upload' : 'attachment',
+        file.ref.source === 'upload' ? file.ref.upload_id : file.ref.attachment_id,
+        file.security,
+      ),
+    ),
+  });
+  const fileSecurity = files.map((file, index) =>
+    resolvedAttachmentSecurity(file.security, securityQueries[index]?.data),
+  );
+  const unsafeAttachments = fileSecurity.some((security) => !attachmentCanOpen(security));
   const [ribbonContainer, setRibbonContainer] = useState<HTMLDivElement | null>(null);
   const idRef = useRef<string | null>(draftId),
     initialized = useRef(false),
@@ -216,6 +242,7 @@ export function Composer({
               ref,
               filename: meta?.filename ?? 'Anexo indisponível',
               size_bytes: meta?.size_bytes ?? 0,
+              security: meta?.security,
             };
           }),
         );
@@ -261,6 +288,7 @@ export function Composer({
                 ref: { source: 'message_attachment', attachment_id: a.id },
                 filename: a.filename,
                 size_bytes: a.size_bytes,
+                security: a.security,
               })),
           );
         }
@@ -362,6 +390,12 @@ export function Composer({
   const submit = async (schedule?: SendSchedule, subjectConfirmed = false) => {
     const scheduled_at = schedule?.scheduled_at;
     if (!ready || busy || uploads.length) return;
+    if (unsafeAttachments) {
+      setError(
+        'Aguarde a verificação dos anexos ou remova os arquivos bloqueados para enviar. Seu rascunho pode ser salvo.',
+      );
+      return;
+    }
     try {
       const value = outboxSchema.parse(current.current);
       if (![...value.to_addresses, ...value.cc_addresses, ...value.bcc_addresses].length)
@@ -418,45 +452,49 @@ export function Composer({
     const id = crypto.randomUUID();
     setUploads((u) => [...u, { id, name: file.name, progress: 0 }]);
     try {
-      const response = await new Promise<{ id: string; filename: string; size_bytes: number }>(
-        (resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open(
-            'POST',
-            '/api/uploads?mailbox_id=' + encodeURIComponent(current.current.mailbox_id),
-          );
-          xhr.withCredentials = true;
-          xhr.upload.onprogress = (e) => {
-            if (e.lengthComputable)
-              setUploads((u) =>
-                u.map((x) =>
-                  x.id === id ? { ...x, progress: Math.round((e.loaded / e.total) * 100) } : x,
-                ),
-              );
-          };
-          xhr.onerror = () => reject(Error('Não foi possível enviar o anexo.'));
-          xhr.onload = () => {
-            let j;
-            try {
-              j = JSON.parse(xhr.responseText);
-            } catch {
-              reject(Error('Resposta inválida ao enviar anexo.'));
-              return;
-            }
-            if (xhr.status >= 200 && xhr.status < 300) resolve(j);
-            else reject(Error(j.error?.message ?? 'Não foi possível enviar o anexo.'));
-          };
-          const form = new FormData();
-          form.append('file', file);
-          xhr.send(form);
-        },
-      );
+      const response = await new Promise<{
+        id: string;
+        filename: string;
+        size_bytes: number;
+        security?: AttachmentSecurity | null;
+      }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open(
+          'POST',
+          '/api/uploads?mailbox_id=' + encodeURIComponent(current.current.mailbox_id),
+        );
+        xhr.withCredentials = true;
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable)
+            setUploads((u) =>
+              u.map((x) =>
+                x.id === id ? { ...x, progress: Math.round((e.loaded / e.total) * 100) } : x,
+              ),
+            );
+        };
+        xhr.onerror = () => reject(Error('Não foi possível enviar o anexo.'));
+        xhr.onload = () => {
+          let j;
+          try {
+            j = JSON.parse(xhr.responseText);
+          } catch {
+            reject(Error('Resposta inválida ao enviar anexo.'));
+            return;
+          }
+          if (xhr.status >= 200 && xhr.status < 300) resolve(j);
+          else reject(Error(j.error?.message ?? 'Não foi possível enviar o anexo.'));
+        };
+        const form = new FormData();
+        form.append('file', file);
+        xhr.send(form);
+      });
       setFiles((prev) => [
         ...prev,
         {
           ref: { source: 'upload', upload_id: response.id, ...(inline ? { inline: true } : {}) },
           filename: response.filename,
           size_bytes: response.size_bytes,
+          security: response.security,
         },
       ]);
       return response.id;
@@ -563,7 +601,9 @@ export function Composer({
                 <div className="mr-2 flex">
                   <Button
                     className="rounded-r-none"
-                    disabled={busy || !!uploads.length || total > max * 1024 * 1024}
+                    disabled={
+                      busy || !!uploads.length || unsafeAttachments || total > max * 1024 * 1024
+                    }
                     onClick={() => void submit()}
                   >
                     <Send />
@@ -904,6 +944,9 @@ export function Composer({
                   >
                     <span className="min-w-0 flex-1 break-all">
                       {f.filename} ({Math.ceil(f.size_bytes / 1024)} KB)
+                      <span className="mt-1 block">
+                        <AttachmentSafetyBadge security={fileSecurity[i]} />
+                      </span>
                     </span>
                     <Button
                       size="icon"
@@ -940,6 +983,12 @@ export function Composer({
                   </li>
                 ))}
               </ul>
+              {unsafeAttachments && (
+                <p role="status" className="text-xs text-warning-fg">
+                  Aguarde a verificação dos anexos ou remova os arquivos bloqueados para enviar.
+                  Você pode continuar editando e salvar o rascunho.
+                </p>
+              )}
               {total > max * 1024 * 1024 && (
                 <p role="alert" className="text-sm text-destructive">
                   Os anexos excedem o limite de {max} MB.

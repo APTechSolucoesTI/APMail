@@ -13,6 +13,7 @@ import {
   prepareSignature,
   signatureCid,
   htmlToText,
+  assertFilesClean,
   type OutboxRow,
 } from '@apmail/db';
 import type { Mailbox } from '../imap/connect.js';
@@ -76,20 +77,27 @@ export async function buildMime(r: WorkerResources, row: OutboxRow, box: Mailbox
   const references = inReplyTo
     ? [...(original?.references_headers ?? []), inReplyTo].slice(-20)
     : [];
-  const files = await resolveOutboxAttachments(r.db, row);
+  const resolvedFiles = await resolveOutboxAttachments(r.db, row);
   const signature = await prepareSignature(
     r.db,
     row,
-    files.flatMap((file) => (file.content_id ? [file.content_id] : [])),
+    resolvedFiles.flatMap((file) => (file.content_id ? [file.content_id] : [])),
   );
-  for (const image of signature.images)
-    files.push({
+  const files = [
+    ...resolvedFiles,
+    ...signature.images.map((image) => ({
       ...image,
       filename: 'assinatura.png',
       is_inline: true,
       content_id: signatureCid(image.id),
       upload_id: null,
-    });
+    })),
+  ];
+  await assertFilesClean(
+    r.db,
+    files.map((file) => file.storage_path),
+    r.storage,
+  );
   const bodyHtml = signature.bodyHtml;
   const bodyText = htmlToText(bodyHtml);
   const calendarPayload = row.calendar_payload

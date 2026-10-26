@@ -3,7 +3,15 @@ import { Readable } from 'node:stream';
 import { randomUUID, createHash } from 'node:crypto';
 import { sql } from 'kysely';
 import { z } from 'zod';
-import { Storage, audit, lockStorageTenant, assertStorageGrowth } from '@apmail/db';
+import {
+  Storage,
+  audit,
+  lockStorageTenant,
+  assertStorageGrowth,
+  registerSecurityFile,
+  enqueueSecurityScan,
+  securitySummary,
+} from '@apmail/db';
 import {
   archivePreflightSchema,
   archiveQuotaCheck,
@@ -246,6 +254,7 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
         if (!bytes)
           throw new ApiError(422, 'archive_empty_chunk', 'O bloco de arquivo está vazio.');
         const body = Buffer.concat(chunks, bytes);
+        let security: Awaited<ReturnType<typeof registerSecurityFile>> | null = null;
         const task = await r.db.transaction().execute(async (tx) => {
           await lockStorageTenant(tx, c.tenantId);
           const row = await tx
@@ -311,6 +320,18 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
                 ? () => validateFingerprint(storage, key, size, row.upload_fingerprint)
                 : undefined,
             );
+          if (complete)
+            security = await registerSecurityFile(tx, {
+              storage_key: key,
+              tenant_id: c.tenantId,
+              mailbox_id: id,
+              user_id: c.userId,
+              resource_id: row.id,
+              filename: row.filename,
+              content_type: 'application/octet-stream',
+              size_bytes: size,
+              kind: 'mail_import',
+            });
           return tx
             .updateTable('mail_archive_imports')
             .set({
@@ -324,8 +345,12 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
             .returning(taskColumns)
             .executeTakeFirstOrThrow();
         });
+        if (security)
+          await enqueueSecurityScan(r.queues['antivirus-scan'], security).catch(() =>
+            app.log.warn('Backup recebido; verificação aguarda recuperação da fila.'),
+          );
         if (task.state === 'queued') await enqueue(task.id);
-        return task;
+        return { ...task, ...(security ? { security: securitySummary(security) } : {}) };
       },
     );
     scope.post(
@@ -334,6 +359,7 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
       async (req) => {
         const { c, id, taskId } = await authorize(req.ctx, req.params);
         let key: string | null = null;
+        let security: Awaited<ReturnType<typeof registerSecurityFile>> | null = null;
         try {
           const task = await r.db.transaction().execute(async (tx) => {
             await lockStorageTenant(tx, c.tenantId);
@@ -385,6 +411,17 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
             }
             await storage.withDatabase(tx).writeFile(key, Readable.from(bounded()));
             await validateFingerprint(storage, key, size, row.upload_fingerprint);
+            security = await registerSecurityFile(tx, {
+              storage_key: key,
+              tenant_id: c.tenantId,
+              mailbox_id: id,
+              user_id: c.userId,
+              resource_id: row.id,
+              filename: row.filename,
+              content_type: 'application/octet-stream',
+              size_bytes: size,
+              kind: 'mail_import',
+            });
             return tx
               .updateTable('mail_archive_imports')
               .set({
@@ -397,8 +434,12 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
               .returning(taskColumns)
               .executeTakeFirstOrThrow();
           });
+          if (security)
+            await enqueueSecurityScan(r.queues['antivirus-scan'], security).catch(() =>
+              app.log.warn('Backup recebido; verificação aguarda recuperação da fila.'),
+            );
           await enqueue(task.id);
-          return task;
+          return { ...task, ...(security ? { security: securitySummary(security) } : {}) };
         } catch (error) {
           if (key) await storage.removeFile(key).catch(() => undefined);
           if (key)

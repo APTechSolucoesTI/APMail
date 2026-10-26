@@ -7,6 +7,8 @@ export function routePermission(
   path: string,
   method: string,
 ): AccessPermission | 'personal' | null {
+  // This private namespace enforces strict owner/admin roles in every handler.
+  if (/^\/api\/security\/antivirus(?:\/|$)/.test(path)) return 'personal';
   if (
     /^\/api\/(auth(?:\/|$)|preferences(?:\/|$)|avatars(?:\/|$)|notifications(?:\/|$)|presence(?:\/|$)|health$)/.test(
       path,
