@@ -259,15 +259,13 @@ export function ThreadView({
             )}
         </div>
       ))}
-      {data.messages.map((m, i) => (
+      {[...data.messages].reverse().map((m, i) => (
         <MessageCard
           key={m.id}
           message={m}
           contacts={data.contacts}
           timeZone={me.data?.preferences.timezone}
-          expanded={
-            i === data.messages.length - 1 || !data.last_read_at || m.message_at > data.last_read_at
-          }
+          expanded={i === 0 || !data.last_read_at || m.message_at > data.last_read_at}
           cidMap={data.cid_map}
           loadRemoteImages={me.data?.preferences.load_remote_images ?? false}
           organize={organize}

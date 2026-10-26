@@ -1,5 +1,10 @@
 # Navegação e rolagem dos e-mails
 
+O histórico da conversa exibe os e-mails do mais recente para o mais antigo, com a
+mensagem mais recente expandida. Mensagens não lidas continuam expandidas. Essa
+ordem é aplicada na leitura, preservando a sequência cronológica dos dados usada
+para responder e encaminhar.
+
 A árvore de pastas usa setas para expandir e recolher, mantendo a hierarquia importada. As subpastas começam recolhidas; o caminho da pasta selecionada é revelado automaticamente. A escolha de expansão é uma preferência local por usuário, empresa e caixa. Nomes longos mostram o caminho completo ao passar o mouse, e contadores de não lidas têm espaço próprio. Recuos são limitados para pastas profundas; nomes e caminhos no banco não são alterados.
 
 No desktop, arraste a divisória ao lado do menu para ajustar de 240 a 480 px (inicial: 300 px). A divisória também aceita setas do teclado e salva a largura por usuário neste navegador. Usa os componentes shadcn de redimensionamento e a biblioteca já instalada. No celular/tablet, o menu abre em um painel lateral, com alvos de toque maiores e fechamento após escolher a pasta.
