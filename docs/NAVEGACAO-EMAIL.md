@@ -1,5 +1,9 @@
 # Navegação e rolagem dos e-mails
 
+Os cabeçalhos das caixas têm fundo azul-marinho e texto/ícones brancos nos dois
+temas, separando as contas de suas filas, etiquetas e pastas. Um contorno indica
+a caixa selecionada; expansão e seleção continuam independentes.
+
 O histórico da conversa exibe os e-mails do mais recente para o mais antigo, com a
 mensagem mais recente expandida. Mensagens não lidas continuam expandidas. Essa
 ordem é aplicada na leitura, preservando a sequência cronológica dos dados usada

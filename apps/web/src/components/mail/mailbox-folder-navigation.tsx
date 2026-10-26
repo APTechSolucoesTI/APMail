@@ -68,15 +68,15 @@ function MailboxNavigation({
     <div className="min-w-0">
       <div
         className={cn(
-          'flex min-w-0 items-center rounded-md',
-          active && 'bg-secondary text-secondary-foreground',
+          'flex min-w-0 items-center rounded-md bg-mailbox-header text-mailbox-header-foreground',
+          active && 'ring-1 ring-inset ring-ring',
         )}
       >
         <Button
           type="button"
           variant="ghost"
           size="icon-sm"
-          className="size-11 shrink-0 sm:size-8"
+          className="size-11 shrink-0 text-mailbox-header-foreground hover:bg-mailbox-header-foreground/10 hover:text-mailbox-header-foreground focus-visible:ring-inset sm:size-8"
           aria-label={(expanded ? 'Recolher ' : 'Expandir ') + box.name}
           aria-expanded={expanded}
           aria-controls={controlsId}
@@ -108,7 +108,7 @@ function MailboxNavigation({
             }
           }}
           className={cn(
-            'flex min-h-11 sm:min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'flex min-h-11 sm:min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-sm font-medium hover:bg-mailbox-header-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
           )}
         >
           <Mail className="size-4 shrink-0" aria-hidden />

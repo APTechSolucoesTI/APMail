@@ -29,6 +29,8 @@
   --destructive-foreground: #ffffff;
   --sidebar: #ffffff;
   --sidebar-foreground: #344054;
+  --mailbox-header: var(--brand-dark);
+  --mailbox-header-foreground: #ffffff;
 
   --success: #22c55e;
   --success-bg: #dcfce7;
@@ -157,6 +159,8 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-mailbox-header: var(--mailbox-header);
+  --color-mailbox-header-foreground: var(--mailbox-header-foreground);
   --color-brand-dark: var(--brand-dark);
   --color-brand-medium: var(--brand-medium);
   --color-brand-accent: var(--brand-accent);
