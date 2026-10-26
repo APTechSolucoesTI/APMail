@@ -1311,3 +1311,51 @@ it('configuração de caixa exige empresa correta, oculta segredos e preserva ca
   ).toBe(1);
   expect((await call('GET', '/api/mailboxes', global)).statusCode).toBe(403);
 });
+
+it('expõe a recuperação sem vazar detalhes e permite antecipar ou desativar somente com permissão', async () => {
+  await db
+    .updateTable('mailboxes')
+    .set({
+      status: 'error',
+      last_error: 'Falha em host interno',
+      connection_error_kind: 'transient',
+      connection_failures: 3,
+      connection_failed_at: new Date(),
+      next_connection_attempt_at: new Date(Date.now() + 300000),
+    })
+    .where('id', '=', box)
+    .execute();
+  const before = await db
+    .selectFrom('mailboxes')
+    .select('connection_revision')
+    .where('id', '=', box)
+    .executeTakeFirstOrThrow();
+  expect((await call('GET', '/api/mailboxes/' + box, owner)).json()).toMatchObject({
+    status: 'error',
+    connection_error_kind: 'transient',
+    connection_failures: 3,
+  });
+  expect((await call('GET', '/api/mailboxes/' + box, member)).json().last_error).toBeNull();
+  expect((await call('GET', '/api/mailboxes/' + box, foreign)).statusCode).toBe(404);
+  expect((await call('POST', '/api/mailboxes/' + box + '/reconnect', member)).statusCode).toBe(403);
+  expect((await call('POST', '/api/mailboxes/' + box + '/reconnect', owner)).statusCode).toBe(200);
+  expect(
+    await db
+      .selectFrom('mailboxes')
+      .select([
+        'status',
+        'connection_failures',
+        'connection_revision',
+        'next_connection_attempt_at',
+      ])
+      .where('id', '=', box)
+      .executeTakeFirstOrThrow(),
+  ).toEqual({
+    status: 'pending',
+    connection_failures: 0,
+    connection_revision: before.connection_revision + 1,
+    next_connection_attempt_at: null,
+  });
+  expect((await call('POST', '/api/mailboxes/' + box + '/disable', owner)).statusCode).toBe(200);
+  expect((await call('GET', '/api/mailboxes/' + box, owner)).json().status).toBe('disabled');
+});

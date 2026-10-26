@@ -51,6 +51,10 @@ export type Mailbox = {
   status: 'pending' | 'active' | 'error' | 'disabled';
   last_error: string | null;
   last_synced_at: string | null;
+  connection_error_kind?: 'transient' | 'authentication' | 'security' | null;
+  connection_failures?: number;
+  connection_failed_at?: string | null;
+  next_connection_attempt_at?: string | null;
   role: MailboxRole;
   permissions?: MailboxPerm[];
   imap_host?: string;

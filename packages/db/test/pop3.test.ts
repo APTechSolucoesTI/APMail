@@ -58,3 +58,39 @@ it('rejects command injection before opening a connection', async () => {
   });
   await expect(client.connect()).rejects.toThrow('Credenciais');
 });
+it('identifies rejected credentials without exposing the server response or password', async () => {
+  const server = createServer((socket) => {
+    socket.write('+OK ready\r\n');
+    let input = '';
+    socket.on('data', (chunk) => {
+      input += chunk.toString();
+      let end: number;
+      while ((end = input.indexOf('\r\n')) >= 0) {
+        const line = input.slice(0, end);
+        input = input.slice(end + 2);
+        socket.write(line.startsWith('PASS ') ? '-ERR rejected\r\n' : '+OK\r\n');
+      }
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw Error('QA port');
+  const client = new Pop3Client({
+    host: '127.0.0.1',
+    port: address.port,
+    secure: false,
+    username: 'qa',
+    password: 'test-only',
+    allowInsecure: true,
+  });
+  try {
+    await expect(client.connect()).rejects.toMatchObject({
+      code: 'EAUTH',
+      authenticationFailed: true,
+      message: 'Falha na autenticação POP3.',
+    });
+  } finally {
+    client.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

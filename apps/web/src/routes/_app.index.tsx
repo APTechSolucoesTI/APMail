@@ -5,6 +5,7 @@ import { type Mailbox } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { PageHeader } from '@/components/layout/page-header';
 import { MailboxStatusBadge } from '@/components/common/status-badge';
+import { mailboxRecovering } from '@/lib/mailbox-health';
 import { EmptyState, LoadingState, ErrorState } from '@/components/data/data-state';
 export const Route = createFileRoute('/_app/')({ component: Home });
 function Home() {
@@ -49,7 +50,7 @@ function Home() {
             >
               <h2 className="text-xl font-semibold">{b.name}</h2>
               <p className="break-all text-sm text-muted-foreground">{b.email_address}</p>
-              <MailboxStatusBadge status={b.status} />
+              <MailboxStatusBadge status={b.status} recovering={mailboxRecovering(b)} />
             </Link>
           ))}
         </div>

@@ -5,7 +5,7 @@ import type { WorkerResources } from '../resources.js';
 import { transports } from '../imap/connect.js';
 import { withMailboxLock } from '../lib/mailbox-lock.js';
 import { emitThreads } from '../lib/events.js';
-import { markMailboxError } from './mailbox-connection.js';
+import { markMailboxError } from './mailbox-health.js';
 import { isConnectionError } from '../lib/errors.js';
 import { handleFolderAction } from './folder-actions.js';
 import { userCanMailbox } from '../lib/mailbox-permissions.js';

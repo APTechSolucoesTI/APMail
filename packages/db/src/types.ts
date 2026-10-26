@@ -617,6 +617,11 @@ export interface MailboxCredentials {
 export interface Mailboxes {
   aliases: Generated<string[]>;
   append_sent_copy: Generated<boolean>;
+  connection_alerted_at: Timestamp | null;
+  connection_error_kind: string | null;
+  connection_failed_at: Timestamp | null;
+  connection_failures: Generated<number>;
+  connection_revision: Generated<number>;
   created_at: Generated<Timestamp>;
   created_by: string | null;
   deleted_at: Timestamp | null;
@@ -632,6 +637,7 @@ export interface Mailboxes {
   last_reconciled_at: Timestamp | null;
   last_synced_at: Timestamp | null;
   name: string;
+  next_connection_attempt_at: Timestamp | null;
   receiving_protocol: Generated<'imap' | 'pop3' | 'local'>;
   smtp_host: string;
   smtp_port: Generated<number>;

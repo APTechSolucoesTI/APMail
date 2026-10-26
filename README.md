@@ -2,6 +2,10 @@
 
 Gestão de e-mails compartilhados do Grupo AP. Aplicação própria com React, Fastify, PostgreSQL, Redis/BullMQ e integração IMAP/POP3/SMTP.
 
+[Recuperação automática das caixas](docs/RECUPERACAO-DE-CAIXAS.md): reconexão persistente,
+espera progressiva, retomada da sincronização e distinção entre queda temporária,
+senha inválida e falha TLS. Migration aditiva `0057`; publicar API/worker/web juntos.
+
 [Proteção de anexos e ClamAV](docs/ANTIVIRUS-CLAMAV.md): análise assíncrona, quarentena,
 bloqueios de download/prévia/envio e central administrativa. Migration aditiva `0056`;
 API/worker precisam alcançar o ClamD privado na `dokploy-network`. Arquivos antigos

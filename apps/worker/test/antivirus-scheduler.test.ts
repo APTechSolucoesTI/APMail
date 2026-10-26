@@ -8,6 +8,7 @@ it('recria o agendamento da verificação após perda das filas e solicita recup
   const scheduled: string[] = [],
     added: unknown[] = [];
   const q = {
+    innerJoin: () => q,
     select: () => q,
     where: () => q,
     execute: async () => [],

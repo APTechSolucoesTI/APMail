@@ -67,7 +67,15 @@ export function QueueStatusBadge({ status }: { status: QueueStatus }) {
 export function OverdueBadge() {
   return <StatusBadge label="Fora do SLA" icon={AlarmClock} variant="danger" />;
 }
-export function MailboxStatusBadge({ status }: { status: keyof typeof MAILBOX_LABELS }) {
+export function MailboxStatusBadge({
+  status,
+  recovering = false,
+}: {
+  status: keyof typeof MAILBOX_LABELS;
+  recovering?: boolean;
+}) {
+  if (status === 'error' && recovering)
+    return <StatusBadge label="Reconectando" icon={Loader2} variant="warning" />;
   const icons = {
     active: CircleCheck,
     pending: Loader2,

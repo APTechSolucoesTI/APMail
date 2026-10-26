@@ -7,6 +7,7 @@ import { MailboxStorageCell } from '@/components/storage/storage-quotas';
 import { PageHeader } from '@/components/layout/page-header';
 import { ConfigurableTable } from '@/components/data/configurable-table';
 import { MailboxStatusBadge } from '@/components/common/status-badge';
+import { mailboxRecovering } from '@/lib/mailbox-health';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import {
   Dialog,
@@ -134,7 +135,7 @@ function Mailboxes() {
             header: 'Status',
             cell: (b) => (
               <span title={b.last_error ?? undefined}>
-                <MailboxStatusBadge status={b.status} />
+                <MailboxStatusBadge status={b.status} recovering={mailboxRecovering(b)} />
               </span>
             ),
           },

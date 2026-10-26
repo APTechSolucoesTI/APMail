@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { SchemaForm } from '@/components/forms/schema-form';
 import { connectionFields } from '@/components/forms/mailbox-wizard';
 import { MailboxStatusBadge } from '@/components/common/status-badge';
+import { mailboxRecovering } from '@/lib/mailbox-health';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
 import { MailboxMembersPanel } from '@/components/settings/mailbox-members-panel';
 import { toast } from 'sonner';
@@ -33,13 +34,15 @@ function MailboxSettings() {
   const q = useQuery({
     queryKey: ['mailbox', useTenantId(), mailboxId],
     queryFn: () => api<Mailbox>('/mailboxes/' + mailboxId),
+    refetchInterval: (query) =>
+      ['pending', 'error'].includes(query.state.data?.status ?? '') ? 15000 : false,
   });
   if (q.isLoading) return <LoadingState />;
   if (!q.data) return <ErrorState onRetry={() => void q.refetch()} />;
   return (
     <>
       <PageHeader title={q.data.name} description={q.data.email_address} />
-      <MailboxStatusBadge status={q.data.status} />
+      <MailboxStatusBadge status={q.data.status} recovering={mailboxRecovering(q.data)} />
       <Tabs
         value={search.tab ?? 'connection'}
         onValueChange={(tab) => {

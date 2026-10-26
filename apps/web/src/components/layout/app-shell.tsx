@@ -98,6 +98,7 @@ export function AppShell() {
     socket.connect();
     socket.on('connect', () => {
       void client.invalidateQueries({ queryKey: ['mailboxes'] });
+      void client.invalidateQueries({ queryKey: ['mailbox'] });
       // A reconnect may happen while a route is checking the session. Keep its
       // in-flight check alive so navigation cannot unmount an active transfer.
       void client.invalidateQueries({ queryKey: ['me'] }, { cancelRefetch: false });

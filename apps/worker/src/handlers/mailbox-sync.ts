@@ -8,7 +8,7 @@ import { syncFolders } from '../imap/sync-folders.js';
 import { ingestMessage } from '../imap/ingest-message.js';
 import { withMailboxLock } from '../lib/mailbox-lock.js';
 import { isConnectionError } from '../lib/errors.js';
-import { markMailboxError } from './mailbox-connection.js';
+import { markMailboxError } from './mailbox-health.js';
 import { emitThreads } from '../lib/events.js';
 import { applyPendingRules } from './rules-apply.js';
 import { handlePop3Sync } from './pop3-sync.js';
@@ -147,6 +147,7 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
                   );
                   return;
                 }
+                if (isConnectionError(error)) throw error;
                 consecutive = false;
                 r.log.warn(
                   { mailbox_id: box.id, folder_id: folder.id, uid: meta.uid },

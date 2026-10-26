@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { MailboxStatusBadge } from '@/components/common/status-badge';
+import { mailboxRecovering } from '@/lib/mailbox-health';
 import { MailArchivesPanel } from '@/components/settings/mail-archives-panel';
 export const connectionFields: FormField[] = [
   { name: 'username', label: 'Usuário' },
@@ -64,17 +65,22 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
   if (boxId && step === 4)
     return (
       <div className="space-y-4">
-        <MailboxStatusBadge status={box.data?.status ?? 'pending'} />
+        <MailboxStatusBadge
+          status={box.data?.status ?? 'pending'}
+          recovering={!!box.data && mailboxRecovering(box.data)}
+        />
         <p role="status" className="text-sm">
           {box.data?.status === 'active'
             ? draft.receiving_protocol === 'local'
               ? 'Caixa local criada. Escolha um backup abaixo para importar seus e-mails.'
               : 'Caixa conectada! O recebimento de e-mails está habilitado.'
             : box.data?.status === 'error'
-              ? (box.data.last_error ?? 'Não foi possível conectar. Confira os dados.')
+              ? mailboxRecovering(box.data)
+                ? 'O provedor está temporariamente indisponível. O APMail tentará reconectar automaticamente.'
+                : (box.data.last_error ?? 'Não foi possível conectar. Confira os dados.')
               : 'Verificando conexão…'}
         </p>
-        {box.data?.status === 'error' && (
+        {box.data?.status === 'error' && !mailboxRecovering(box.data) && (
           <Button variant="outline" onClick={() => setStep(1)}>
             Voltar e corrigir
           </Button>

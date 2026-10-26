@@ -685,14 +685,33 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
         'Caixas de arquivo não possuem credenciais de provedor.',
       );
     await assertMailboxConnection(r.env, { ...box, password: b.password });
-    await writeMailboxCredential(
-      r.db,
-      box.tenant_id,
-      id,
-      b.password,
-      r.env.CREDENTIALS_ENCRYPTION_KEY,
-    );
-    await r.queues['mailbox-connection'].add('connect', { mailbox_id: id });
+    await r.db.transaction().execute(async (tx) => {
+      await writeMailboxCredential(
+        tx,
+        box.tenant_id,
+        id,
+        b.password,
+        r.env.CREDENTIALS_ENCRYPTION_KEY,
+      );
+      await tx
+        .updateTable('mailboxes')
+        .set({
+          status: sql`case when status='disabled' then 'disabled'::mailbox_status else 'pending'::mailbox_status end`,
+          connection_revision: sql`connection_revision+1`,
+          connection_failures: 0,
+          connection_error_kind: null,
+          connection_failed_at: null,
+          connection_alerted_at: null,
+          next_connection_attempt_at: null,
+          last_error: null,
+        })
+        .where('id', '=', id)
+        .where('tenant_id', '=', box.tenant_id)
+        .execute();
+    });
+    if (box.status !== 'disabled')
+      await r.queues['mailbox-connection'].add('connect', { mailbox_id: id });
+    r.io.to('tenant:' + box.tenant_id).emit('mailboxes:changed', {});
     await record(c, 'platform.mailbox_credentials_replaced', box.tenant_id, { mailbox_id: id });
     return { ok: true };
   });

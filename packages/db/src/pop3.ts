@@ -80,14 +80,26 @@ export class Pop3Client {
         this.socket!.once('error', reject);
       });
     }
-    await this.command('USER ' + o.username);
-    await this.command('PASS ' + o.password);
+    try {
+      await this.command('USER ' + o.username);
+      await this.command('PASS ' + o.password);
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'POP3_REJECTED')
+        throw Object.assign(new Error('Falha na autenticação POP3.'), {
+          code: 'EAUTH',
+          authenticationFailed: true,
+        });
+      throw error;
+    }
   }
   private async command(command: string) {
     if (!this.socket || this.failure) throw this.failure ?? new Error('POP3 desconectado.');
     this.socket.write(command + '\r\n');
     const response = (await this.line()).toString('ascii');
-    if (!response.startsWith('+OK')) throw new Error('Servidor POP3 recusou a operação.');
+    if (!response.startsWith('+OK'))
+      throw Object.assign(new Error('Servidor POP3 recusou a operação.'), {
+        code: 'POP3_REJECTED',
+      });
     return response;
   }
   private async multiline(command: string, maximum = MAIL_MESSAGE_MAX_BYTES) {

@@ -23,6 +23,36 @@ export function isConnectionError(error: unknown): boolean {
   return (
     !!e.authenticationFailed ||
     /EAUTH|ENOTFOUND|ECONN|ETIMEDOUT|ETIMEOUT|ESOCKET|TLS|SSL|CERT|EAI_AGAIN/i.test(e.code ?? '') ||
-    /authentication|connection|socket|closed|timeout/i.test(e.message ?? '')
+    /authentication|connection|socket|closed|timeout|conex[aã]o|desconectad|tempo limite/i.test(
+      e.message ?? '',
+    )
   );
+}
+
+export function connectionErrorKind(error: unknown): 'transient' | 'authentication' | 'security' {
+  const e = error as {
+    code?: string;
+    authenticationFailed?: boolean;
+    responseCode?: number;
+    message?: string;
+  };
+  if (
+    e.authenticationFailed ||
+    e.code === 'EAUTH' ||
+    e.responseCode === 535 ||
+    /authentication|invalid credentials|login failed|credencial|credenciais/i.test(e.message ?? '')
+  )
+    return 'authentication';
+  if (/CERT|TLS|SSL/i.test(e.code ?? '') || /certificate|TLS|SSL/i.test(e.message ?? ''))
+    return 'security';
+  return 'transient';
+}
+
+export function connectionRetryDelay(
+  attempt: number,
+  kind: ReturnType<typeof connectionErrorKind>,
+) {
+  if (kind === 'authentication') return 30 * 60000;
+  if (kind === 'security') return 15 * 60000;
+  return [15000, 30000, 60000, 120000, 300000][Math.min(4, Math.max(0, attempt - 1))]!;
 }

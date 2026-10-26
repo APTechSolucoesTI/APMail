@@ -12,7 +12,8 @@ import { allowInsecure, type Mailbox } from '../imap/connect.js';
 import { ingestMessage } from '../imap/ingest-message.js';
 import { emitThreads } from '../lib/events.js';
 import { applyPendingRules } from './rules-apply.js';
-import { markMailboxError } from './mailbox-connection.js';
+import { markMailboxError } from './mailbox-health.js';
+import { isConnectionError } from '../lib/errors.js';
 export async function pop3Client(r: WorkerResources, box: Mailbox) {
   return new Pop3Client({
     host: box.imap_host,
@@ -100,7 +101,8 @@ export async function handlePop3Sync(r: WorkerResources, box: Mailbox) {
   } catch (error) {
     // Do not log credentials or remote payloads.
     r.log.warn({ mailbox_id: box.id }, 'Sincronização POP3 interrompida.');
-    await markMailboxError(r, box, error);
+    if (isConnectionError(error)) await markMailboxError(r, box, error);
+    else throw error;
   } finally {
     await pop.quit().catch(() => pop.close());
     emitThreads(r, box.id, [...affected]);

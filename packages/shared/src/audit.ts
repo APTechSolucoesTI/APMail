@@ -71,6 +71,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   'mailbox.disabled': 'Caixa desativada',
   'mailbox.enabled': 'Caixa ativada',
   'mailbox.connection_error': 'Falha de conexão da caixa',
+  'mailbox.connection_restored': 'Conexão da caixa restabelecida automaticamente',
   'mailbox_member.updated': 'Acesso à caixa atualizado',
   'folder.created': 'Pasta criada',
   'folder.renamed': 'Pasta renomeada',

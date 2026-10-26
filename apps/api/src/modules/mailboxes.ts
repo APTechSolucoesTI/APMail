@@ -39,6 +39,10 @@ const publicColumns = [
   'status',
   'last_error',
   'last_synced_at',
+  'connection_error_kind',
+  'connection_failures',
+  'connection_failed_at',
+  'next_connection_attempt_at',
   'created_at',
   'updated_at',
 ] as const;
@@ -326,7 +330,17 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
           ...data,
           ...(sync_days ? { sync_since: new Date(Date.now() - sync_days * 86400000) } : {}),
           ...(changed && previous.receiving_protocol !== 'local'
-            ? { status: 'pending' as const, last_error: null }
+            ? {
+                status:
+                  previous.status === 'disabled' ? ('disabled' as const) : ('pending' as const),
+                last_error: null,
+                connection_failures: 0,
+                connection_revision: sql`connection_revision+1`,
+                connection_error_kind: null,
+                connection_failed_at: null,
+                connection_alerted_at: null,
+                next_connection_attempt_at: null,
+              }
             : {}),
         })
         .where('tenant_id', '=', c.tenantId)
@@ -359,7 +373,7 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
           ip: c.ip,
         });
     });
-    if (changed && previous.receiving_protocol !== 'local')
+    if (changed && previous.receiving_protocol !== 'local' && previous.status !== 'disabled')
       await r.queues['mailbox-connection'].add('connect', { mailbox_id: id });
     r.io.to('tenant:' + c.tenantId).emit('mailboxes:changed', {});
     return details(c, r, id);
@@ -385,6 +399,12 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
                 ? 'active'
                 : 'pending',
           last_error: null,
+          connection_failures: 0,
+          connection_revision: sql`connection_revision+1`,
+          connection_error_kind: null,
+          connection_failed_at: null,
+          connection_alerted_at: null,
+          next_connection_attempt_at: null,
         })
         .where('tenant_id', '=', c.tenantId)
         .where('id', '=', id)

@@ -23,6 +23,8 @@ import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useSocketRoom } from '@/hooks/use-socket-room';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { MailboxStatusBadge } from '@/components/common/status-badge';
+import { MailboxConnectionNotice } from '@/components/mail/mailbox-connection-notice';
+import { mailboxRecovering } from '@/lib/mailbox-health';
 import { LoadingState, ErrorState, EmptyState } from '@/components/data/data-state';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -64,6 +66,8 @@ function MailPage() {
     box = useQuery({
       queryKey: ['mailbox', tenantId, mailboxId],
       queryFn: () => api<Mailbox>('/mailboxes/' + mailboxId),
+      refetchInterval: (query) =>
+        ['pending', 'error'].includes(query.state.data?.status ?? '') ? 15000 : 60000,
     });
   useEffect(() => {
     if (
@@ -551,7 +555,7 @@ function MailPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <MailboxStatusBadge status={box.data.status} />
+          <MailboxStatusBadge status={box.data.status} recovering={mailboxRecovering(box.data)} />
           {canMailbox(box.data, 'send') && (
             <Button disabled={box.data.status !== 'active'} onClick={() => openComposer('new')}>
               Novo e-mail
@@ -560,36 +564,22 @@ function MailPage() {
         </div>
       </header>
       <MailboxStorageAlerts key={mailboxId} mailboxId={mailboxId} />
-      {box.data.status === 'error' && (
-        <div
-          role="alert"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-danger/30 bg-danger-bg p-3 text-sm text-danger-fg"
-        >
-          <p>
-            Não foi possível sincronizar esta caixa:{' '}
-            {box.data.last_error ?? 'Peça ao administrador para verificar a conexão.'}
-          </p>
-          {admin && (
-            <Button
-              variant="outline"
-              disabled={updating}
-              onClick={async () => {
-                setUpdating(true);
-                try {
-                  await api('/mailboxes/' + mailboxId + '/reconnect', { method: 'POST' });
-                  await box.refetch();
-                } catch (e) {
-                  toast.error(e instanceof Error ? e.message : 'Falha ao reconectar.');
-                } finally {
-                  setUpdating(false);
-                }
-              }}
-            >
-              Reconectar
-            </Button>
-          )}
-        </div>
-      )}
+      <MailboxConnectionNotice
+        box={box.data}
+        admin={admin}
+        busy={updating}
+        onReconnect={async () => {
+          setUpdating(true);
+          try {
+            await api('/mailboxes/' + mailboxId + '/reconnect', { method: 'POST' });
+            await box.refetch();
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : 'Falha ao reconectar.');
+          } finally {
+            setUpdating(false);
+          }
+        }}
+      />
       {box.data.status === 'pending' && (
         <p role="status" className="text-sm text-muted-foreground">
           Verificando conexão… A importação começará após a confirmação.
