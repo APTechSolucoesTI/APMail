@@ -470,6 +470,7 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
               <div className="flex">
                 {mode !== 'history' && eligible(row) && (
                   <MailActionButton
+                    iconOnly
                     label={
                       (attachmentCanOpen(row) ? 'Revogar liberação de ' : 'Liberar ') + row.filename
                     }
@@ -482,6 +483,7 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
                 )}
                 {row.mailbox && row.message?.thread_id && (
                   <MailActionButton
+                    iconOnly
                     label={'Abrir e-mail de ' + row.filename}
                     onClick={() =>
                       void navigate({

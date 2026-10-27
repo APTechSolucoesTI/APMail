@@ -266,6 +266,7 @@ export function MailSelectionActions({
         {queues && allowed('assign_others') && (
           <MailActionButton
             label="Atribuir responsável"
+            text="Atribuir"
             disabled={busy}
             onClick={() => setDialog('assign')}
           >

@@ -77,6 +77,7 @@ export function ConversationPdf({ threadId, subject }: { threadId: string; subje
     <>
       <MailActionButton
         label="Imprimir conversa"
+        text="Imprimir"
         onClick={() => {
           setAttempt((value) => value + 1);
           setOpen(true);

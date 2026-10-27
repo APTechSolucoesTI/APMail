@@ -116,6 +116,7 @@ export function ThreadAssignee({
             {iconOnly ? (
               <MailActionButton
                 label="Atribuir responsável"
+                text="Atribuir"
                 role="combobox"
                 aria-expanded={open}
                 disabled={busy}

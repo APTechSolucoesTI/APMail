@@ -141,6 +141,7 @@ export function ReceivedAttachment({
       </div>
       {admin && security.id && ['infected', 'error'].includes(security.status) && (
         <MailActionButton
+          iconOnly
           label={
             clean ? 'Revogar liberação de ' + attachment.filename : 'Liberar ' + attachment.filename
           }

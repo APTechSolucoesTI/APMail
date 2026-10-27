@@ -46,7 +46,7 @@ export function ShareToChatDialog({
     >
       <DialogTrigger asChild>
         {iconOnly ? (
-          <MailActionButton label="Compartilhar no chat">
+          <MailActionButton label="Compartilhar no chat" text="Compartilhar">
             <MessageSquare />
           </MailActionButton>
         ) : (

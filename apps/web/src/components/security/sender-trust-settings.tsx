@@ -172,16 +172,22 @@ export function SenderTrustSettings({
         ]}
         rowActions={(rule) => (
           <div className="flex">
-            <MailActionButton label={'Editar ' + rule.sender} onClick={() => setEditing(rule)}>
+            <MailActionButton
+              iconOnly
+              label={'Editar ' + rule.sender}
+              onClick={() => setEditing(rule)}
+            >
               <Pencil />
             </MailActionButton>
             <MailActionButton
+              iconOnly
               label={(rule.enabled ? 'Desativar ' : 'Ativar ') + rule.sender}
               onClick={() => setAction({ rule, kind: 'toggle' })}
             >
               {rule.enabled ? <ShieldOff /> : <ShieldCheck />}
             </MailActionButton>
             <MailActionButton
+              iconOnly
               label={'Aplicar regra aos anexos existentes de ' + rule.sender}
               disabled={
                 !rule.enabled ||
