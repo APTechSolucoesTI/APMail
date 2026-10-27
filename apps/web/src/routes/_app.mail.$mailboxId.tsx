@@ -27,6 +27,7 @@ import { MailboxConnectionNotice } from '@/components/mail/mailbox-connection-no
 import { mailboxRecovering } from '@/lib/mailbox-health';
 import { LoadingState, ErrorState, EmptyState } from '@/components/data/data-state';
 import { Button } from '@/components/ui/button';
+import { MailActionButton } from '@/components/mail/mail-action-button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { SearchInput } from '@/components/data/search-input';
 import { ThreadLabels } from '@/components/mail/thread-labels';
@@ -378,24 +379,20 @@ function MailPage() {
             />
             {queuesEnabled && can(box.data.role, 'queue') && (
               <>
-                <Button
-                  size="sm"
-                  variant="outline"
+                <MailActionButton
+                  label="Concluir"
                   disabled={updating}
                   onClick={() => void mark('done')}
                 >
                   <CheckCircle2 />
-                  Concluir
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
+                </MailActionButton>
+                <MailActionButton
+                  label="Reabrir"
                   disabled={updating}
                   onClick={() => void mark('reopen')}
                 >
                   <RotateCcw />
-                  Reabrir
-                </Button>
+                </MailActionButton>
                 <ThreadAssignee
                   mailboxId={mailboxId}
                   threadIds={selectedThreads}
@@ -404,24 +401,20 @@ function MailPage() {
                 />
               </>
             )}
-            <Button
-              size="sm"
-              variant="outline"
+            <MailActionButton
+              label="Marcar lida"
               disabled={updating}
               onClick={() => void mark('read')}
             >
               <MailOpen />
-              Marcar lida
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
+            </MailActionButton>
+            <MailActionButton
+              label="Não lida"
               disabled={updating}
               onClick={() => void mark('unread')}
             >
               <Mail />
-              Não lida
-            </Button>
+            </MailActionButton>
           </div>
           {can(box.data.role, 'organize') && (
             <MessageActions

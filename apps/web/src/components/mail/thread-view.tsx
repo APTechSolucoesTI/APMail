@@ -31,6 +31,7 @@ import { ShareToChatDialog } from '@/components/chat/share-to-chat-dialog';
 import { SpamConfirmation } from './spam-confirmation';
 import { ConversationPdf } from './conversation-pdf';
 import { ThreadTasks } from './thread-tasks';
+import { MailActionButton } from './mail-action-button';
 export function ThreadView({
   threadId,
   messageId,
@@ -159,8 +160,7 @@ export function ThreadView({
           )}
         </div>
         <ThreadWorkflow thread={data.thread} mailboxId={mailboxId} role={data.my_role}>
-          <ConversationPdf threadId={threadId} subject={data.thread.subject} />
-          <ShareToChatDialog threadId={threadId} />
+          <ShareToChatDialog threadId={threadId} iconOnly />
           {organize && (
             <MessageActions
               mailboxId={mailboxId}
@@ -177,14 +177,14 @@ export function ThreadView({
                 ? { messageIds: data.messages.map((message) => message.id) }
                 : { threadIds: [threadId] })}
               compact
+              iconOnly
             />
           )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button ref={moreTrigger} size="sm" variant="outline" disabled={acting}>
+              <MailActionButton ref={moreTrigger} label="Mais ações" disabled={acting}>
                 <Ellipsis />
-                Mais ações
-              </Button>
+              </MailActionButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
               <DropdownMenuItem onSelect={() => setLabelsOpen(true)}>
@@ -221,6 +221,7 @@ export function ThreadView({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          <ConversationPdf threadId={threadId} subject={data.thread.subject} />
         </ThreadWorkflow>
         {spam && (
           <SpamConfirmation

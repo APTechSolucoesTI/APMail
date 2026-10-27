@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Download, ExternalLink, LoaderCircle, Printer } from 'lucide-react';
 import { toast } from 'sonner';
+import { MailActionButton } from './mail-action-button';
 import { Button, buttonVariants } from '@/components/ui/button';
 import {
   Dialog,
@@ -13,14 +14,18 @@ import {
 export function ConversationPdf({ threadId, subject }: { threadId: string; subject?: string }) {
   const [open, setOpen] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<{ key: string; url: string | null; error: boolean } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{
+    key: string;
+    url: string | null;
+    error: boolean;
+    ready?: boolean;
+  } | null>(null);
   const requestKey = `${threadId}:${attempt}`;
   const current = result?.key === requestKey ? result : null;
   const url = current?.url ?? null;
   const error = current?.error ?? false;
-  const frame = useRef<HTMLIFrameElement>(null);
+  const preview = useRef<HTMLDivElement>(null);
+  const [printing, setPrinting] = useState(false);
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
@@ -37,6 +42,11 @@ export function ConversationPdf({ threadId, subject }: { threadId: string; subje
         if (controller.signal.aborted) return;
         objectUrl = URL.createObjectURL(blob);
         setResult({ key: requestKey, url: objectUrl, error: false });
+        const { renderPdfPreview } = await import('@/lib/pdf-preview');
+        if (controller.signal.aborted || !preview.current) return;
+        await renderPdfPreview(await blob.arrayBuffer(), preview.current, controller.signal);
+        if (!controller.signal.aborted)
+          setResult({ key: requestKey, url: objectUrl, error: false, ready: true });
       } catch {
         if (!controller.signal.aborted) setResult({ key: requestKey, url: null, error: true });
       }
@@ -47,30 +57,33 @@ export function ConversationPdf({ threadId, subject }: { threadId: string; subje
     };
   }, [open, threadId, requestKey]);
 
-  const print = () => {
+  const print = async () => {
+    if (!preview.current || printing) return;
+    setPrinting(true);
     try {
-      if (!frame.current?.contentWindow) throw new Error('preview_unavailable');
-      frame.current.contentWindow.focus();
-      frame.current.contentWindow.print();
-    } catch {
-      toast.error('Abra o PDF em uma nova aba para usar a impressão do navegador.');
+      const { printPdfPages } = await import('@/lib/pdf-preview');
+      await printPdfPages(preview.current, subject ?? 'Conversa APMail');
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível abrir a impressão. Tente novamente.',
+      );
+    } finally {
+      setPrinting(false);
     }
   };
   return (
     <>
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label="Imprimir conversa"
-        title="Imprimir conversa"
+      <MailActionButton
+        label="Imprimir conversa"
         onClick={() => {
           setAttempt((value) => value + 1);
           setOpen(true);
         }}
       >
         <Printer />
-        <span className="hidden sm:inline">Imprimir</span>
-      </Button>
+      </MailActionButton>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="flex h-[90dvh] max-h-[960px] flex-col sm:max-w-5xl">
           <DialogHeader className="pr-7">
@@ -80,10 +93,10 @@ export function ConversationPdf({ threadId, subject }: { threadId: string; subje
               identificadores dos anexos.
             </DialogDescription>
           </DialogHeader>
-          {!url && !error && (
+          {!current?.ready && !error && (
             <div
               role="status"
-              className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground"
+              className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground"
             >
               <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />
               Preparando PDF da conversa…
@@ -100,12 +113,16 @@ export function ConversationPdf({ threadId, subject }: { threadId: string; subje
               </Button>
             </div>
           )}
-          {url && (
+          {url && !error && (
             <>
               <div className="flex flex-wrap items-center gap-2">
-                <Button size="sm" onClick={print}>
+                <Button
+                  size="sm"
+                  disabled={!current?.ready || printing}
+                  onClick={() => void print()}
+                >
                   <Printer />
-                  Imprimir PDF
+                  {printing ? 'Abrindo impressão…' : 'Imprimir PDF'}
                 </Button>
                 <a
                   className={buttonVariants({ size: 'sm', variant: 'outline' })}
@@ -125,17 +142,15 @@ export function ConversationPdf({ threadId, subject }: { threadId: string; subje
                   Abrir PDF
                 </a>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Se a prévia não aparecer neste dispositivo, use Abrir PDF ou Baixar PDF.
-              </p>
-              <iframe
-                ref={frame}
-                src={url}
-                title={subject ? `PDF da conversa: ${subject}` : 'PDF da conversa'}
-                className="min-h-0 w-full flex-1 rounded-md border bg-muted"
-              />
             </>
           )}
+          <div
+            ref={preview}
+            role="region"
+            aria-label="Prévia do PDF da conversa"
+            aria-busy={!current?.ready && !error}
+            className="min-h-0 flex-1 overflow-auto rounded-md border bg-muted p-3"
+          />
         </DialogContent>
       </Dialog>
     </>

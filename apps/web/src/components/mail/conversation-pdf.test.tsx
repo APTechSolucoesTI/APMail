@@ -1,6 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { ConversationPdf } from './conversation-pdf';
+import { renderPdfPreview, printPdfPages } from '@/lib/pdf-preview';
+vi.mock('@/lib/pdf-preview', () => ({
+  renderPdfPreview: vi.fn(async (_data, container) => {
+    container.append(document.createElement('canvas'));
+    return 1;
+  }),
+  printPdfPages: vi.fn().mockResolvedValue(undefined),
+}));
 
 it('previews the whole thread PDF and offers download and printing', async () => {
   const fetch = vi.fn().mockResolvedValue(
@@ -17,8 +25,10 @@ it('previews the whole thread PDF and offers download and printing', async () =>
   Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
   const { unmount } = render(<ConversationPdf threadId="thread-id" subject="Proposta" />);
   fireEvent.click(screen.getByRole('button', { name: 'Imprimir conversa' }));
-  const frame = await screen.findByTitle('PDF da conversa: Proposta');
-  await waitFor(() => expect(frame).toHaveAttribute('src', 'blob:conversation'));
+  const preview = await screen.findByRole('region', { name: 'Prévia do PDF da conversa' });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Imprimir PDF' })).toBeEnabled());
+  expect(preview.querySelector('canvas')).toBeInTheDocument();
+  expect(renderPdfPreview).toHaveBeenCalled();
   expect(fetch).toHaveBeenCalledWith(
     '/api/threads/thread-id/pdf',
     expect.objectContaining({ credentials: 'same-origin' }),
@@ -27,11 +37,8 @@ it('previews the whole thread PDF and offers download and printing', async () =>
     'download',
     'apmail-conversa-thread-id.pdf',
   );
-  const print = vi.fn(),
-    focus = vi.fn();
-  Object.defineProperty(frame, 'contentWindow', { configurable: true, value: { print, focus } });
   fireEvent.click(screen.getByRole('button', { name: 'Imprimir PDF' }));
-  expect(print).toHaveBeenCalledOnce();
+  await waitFor(() => expect(printPdfPages).toHaveBeenCalledWith(preview, 'Proposta'));
   unmount();
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:conversation');
   vi.unstubAllGlobals();
@@ -51,7 +58,7 @@ it('keeps a readable error and retries PDF generation', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Imprimir conversa' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível preparar');
   fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }));
-  expect(await screen.findByTitle('PDF da conversa')).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Imprimir PDF' })).toBeEnabled());
   expect(fetch).toHaveBeenCalledTimes(2);
   vi.unstubAllGlobals();
 });

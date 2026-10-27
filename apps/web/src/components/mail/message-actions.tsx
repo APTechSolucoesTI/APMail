@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { useAccess } from '@/lib/auth';
 import { flattenFolders, folderLabel, type Folder } from '@/lib/mail';
 import { Button } from '@/components/ui/button';
+import { MailActionButton } from './mail-action-button';
 import {
   Dialog,
   DialogContent,
@@ -30,6 +31,7 @@ export function MessageActions({
   onDone,
   compact = false,
   inTrash = false,
+  iconOnly = true,
 }: {
   mailboxId: string;
   folders: Folder[];
@@ -39,6 +41,7 @@ export function MessageActions({
   onDone?: () => void;
   compact?: boolean;
   inTrash?: boolean;
+  iconOnly?: boolean;
 }) {
   const mayMove = useAccess('mail.move'),
     mayDelete = useAccess('mail.delete'),
@@ -71,19 +74,32 @@ export function MessageActions({
       {compact ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={mutation.isPending}
-              ref={(node) => {
-                moveTrigger.current = node;
-                removeTrigger.current = node;
-              }}
-            >
-              <FolderInput />
-              Organizar
-              <ChevronDown />
-            </Button>
+            {iconOnly ? (
+              <MailActionButton
+                label="Organizar"
+                disabled={mutation.isPending}
+                ref={(node) => {
+                  moveTrigger.current = node;
+                  removeTrigger.current = node;
+                }}
+              >
+                <FolderInput />
+              </MailActionButton>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={mutation.isPending}
+                ref={(node) => {
+                  moveTrigger.current = node;
+                  removeTrigger.current = node;
+                }}
+              >
+                <FolderInput />
+                Organizar
+                <ChevronDown />
+              </Button>
+            )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
             {mayMove && (
@@ -118,50 +134,42 @@ export function MessageActions({
       ) : (
         <>
           {mayMove && (
-            <Button
+            <MailActionButton
+              label="Mover"
               ref={moveTrigger}
-              size="sm"
-              variant="ghost"
               disabled={mutation.isPending}
               onClick={() => setMove(true)}
             >
               <FolderInput />
-              Mover
-            </Button>
+            </MailActionButton>
           )}
           {mayDelete && (
-            <Button
+            <MailActionButton
+              label="Excluir"
               ref={removeTrigger}
-              size="sm"
-              variant="ghost"
               disabled={mutation.isPending}
               onClick={() => setRemove(true)}
             >
               <Trash2 />
-              Excluir
-            </Button>
+            </MailActionButton>
           )}
           {mayRestore && (
-            <Button
-              size="sm"
-              variant="ghost"
+            <MailActionButton
+              label="Restaurar"
               disabled={mutation.isPending}
               onClick={() => mutation.mutate({ type: 'restore' })}
             >
               <Undo2 />
-              Restaurar
-            </Button>
+            </MailActionButton>
           )}
           {mayFlag && flagged !== undefined && (
-            <Button
-              size="sm"
-              variant="ghost"
+            <MailActionButton
+              label={flagged ? 'Remover sinalização' : 'Sinalizar'}
               disabled={mutation.isPending}
               onClick={() => mutation.mutate({ type: 'set_flag', flagged: !flagged })}
             >
               <Flag />
-              {flagged ? 'Remover sinalização' : 'Sinalizar'}
-            </Button>
+            </MailActionButton>
           )}
         </>
       )}

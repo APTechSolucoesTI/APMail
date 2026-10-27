@@ -1,11 +1,11 @@
 import { useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { can, type MailboxRole } from '@apmail/shared';
-import { ChevronDown, CheckCircle2, RotateCcw, Inbox, CircleSlash } from 'lucide-react';
+import { CheckCircle2, RotateCcw, Inbox, CircleSlash, ListChecks } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { Thread } from '@/lib/mail';
-import { Button } from '@/components/ui/button';
+import { MailActionButton } from './mail-action-button';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -72,15 +72,15 @@ export function ThreadWorkflow({
             role={role}
             assigned={thread.assigned_to}
             showAssigned={false}
+            iconOnly
           />
         )}
         {queuesEnabled && can(role, 'queue') && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline" disabled={busy}>
-                {busy ? 'Atualizando…' : 'Status'}
-                <ChevronDown />
-              </Button>
+              <MailActionButton label={busy ? 'Atualizando…' : 'Status'} disabled={busy}>
+                <ListChecks />
+              </MailActionButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
               <DropdownMenuItem

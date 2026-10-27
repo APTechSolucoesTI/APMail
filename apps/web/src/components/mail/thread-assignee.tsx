@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronsUpDown, Check, UserCheck } from 'lucide-react';
+import { ChevronsUpDown, Check, UserCheck, UserRoundPlus } from 'lucide-react';
+import { MailActionButton } from './mail-action-button';
 import { can, canDelegate, type MailboxRole } from '@apmail/shared';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -23,6 +24,7 @@ export function ThreadAssignee({
   assigned,
   showAssigned = true,
   onComplete,
+  iconOnly = true,
 }: {
   mailboxId: string;
   threadIds: string[];
@@ -30,6 +32,7 @@ export function ThreadAssignee({
   assigned?: User | null;
   showAssigned?: boolean;
   onComplete?: () => void;
+  iconOnly?: boolean;
 }) {
   const tenant = useTenantId(),
     client = useQueryClient(),
@@ -81,17 +84,27 @@ export function ThreadAssignee({
           </span>
         </span>
       )}
-      {can(role, 'assign_self') && assigned?.id !== me.data?.user.id && (
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          onClick={() => void assign(me.data!.user.id)}
-        >
-          <UserCheck />
-          {busy ? 'Atribuindo…' : 'Assumir'}
-        </Button>
-      )}
+      {can(role, 'assign_self') &&
+        assigned?.id !== me.data?.user.id &&
+        (iconOnly ? (
+          <MailActionButton
+            label="Assumir"
+            disabled={busy}
+            onClick={() => void assign(me.data!.user.id)}
+          >
+            <UserCheck />
+          </MailActionButton>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => void assign(me.data!.user.id)}
+          >
+            <UserCheck />
+            {busy ? 'Atribuindo…' : 'Assumir'}
+          </Button>
+        ))}
       {(can(role, 'assign_others') ||
         canDelegate(
           me.data?.tenants.find((t) => t.id === tenant)?.role ?? null,
@@ -100,17 +113,28 @@ export function ThreadAssignee({
         )) && (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <Button
-              size="sm"
-              variant="outline"
-              role="combobox"
-              aria-label="Atribuir responsável"
-              aria-expanded={open}
-              disabled={busy}
-            >
-              Atribuir
-              <ChevronsUpDown />
-            </Button>
+            {iconOnly ? (
+              <MailActionButton
+                label="Atribuir responsável"
+                role="combobox"
+                aria-expanded={open}
+                disabled={busy}
+              >
+                <UserRoundPlus />
+              </MailActionButton>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                role="combobox"
+                aria-label="Atribuir responsável"
+                aria-expanded={open}
+                disabled={busy}
+              >
+                Atribuir
+                <ChevronsUpDown />
+              </Button>
+            )}
           </PopoverTrigger>
           <PopoverContent className="w-72 p-0">
             <Command>

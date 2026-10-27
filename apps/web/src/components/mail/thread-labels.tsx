@@ -7,6 +7,7 @@ import { useTenantId, meQuery } from '@/lib/auth';
 import type { PersonalLabel } from '@/lib/organization';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
+import { MailActionButton } from './mail-action-button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
 import { LabelBadge } from './label-badge';
@@ -157,10 +158,9 @@ export function ThreadLabels({
       }}
     >
       <PopoverTrigger asChild>
-        <Button size="sm" variant="outline">
+        <MailActionButton label="Etiquetas">
           <Tags />
-          Etiquetas
-        </Button>
+        </MailActionButton>
       </PopoverTrigger>
       <PopoverContent className="max-h-96 space-y-3 overflow-y-auto" align="start">
         {content}

@@ -11,6 +11,7 @@ import { meQuery } from '@/lib/auth';
 import { chatName } from '@/lib/chat';
 import { useChatConversations } from '@/hooks/use-chat';
 import { Button } from '@/components/ui/button';
+import { MailActionButton } from '@/components/mail/mail-action-button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -25,7 +26,15 @@ import {
 import { SearchInput } from '@/components/data/search-input';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
 import { PeoplePicker, useChatPeople, PeopleQueryState } from './people-picker';
-export function ShareToChatDialog({ threadId }: { threadId: string }) {
+export function ShareToChatDialog({
+  threadId,
+  threadIds,
+  iconOnly = false,
+}: {
+  threadId: string;
+  threadIds?: string[];
+  iconOnly?: boolean;
+}) {
   const [open, setOpen] = useState(false),
     [busy, setBusy] = useState(false);
   return (
@@ -36,29 +45,46 @@ export function ShareToChatDialog({ threadId }: { threadId: string }) {
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" aria-label="Compartilhar no chat">
-          <MessageSquare className="size-4" aria-hidden />
-          Compartilhar
-        </Button>
+        {iconOnly ? (
+          <MailActionButton label="Compartilhar no chat">
+            <MessageSquare />
+          </MailActionButton>
+        ) : (
+          <Button variant="outline" size="sm" aria-label="Compartilhar no chat">
+            <MessageSquare className="size-4" aria-hidden />
+            Compartilhar
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="max-h-[90dvh] overflow-y-auto" showCloseButton={!busy}>
         <DialogHeader>
           <DialogTitle>Compartilhar no chat</DialogTitle>
           <DialogDescription>
-            Envie o resumo deste e-mail para conversas ou pessoas da empresa.
+            {threadIds && threadIds.length > 1
+              ? `Envie os ${threadIds.length} e-mails selecionados para conversas ou pessoas da empresa.`
+              : 'Envie o resumo deste e-mail para conversas ou pessoas da empresa.'}
           </DialogDescription>
         </DialogHeader>
-        {open && <ShareForm threadId={threadId} onClose={() => setOpen(false)} onBusy={setBusy} />}
+        {open && (
+          <ShareForm
+            threadId={threadId}
+            threadIds={threadIds}
+            onClose={() => setOpen(false)}
+            onBusy={setBusy}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );
 }
 function ShareForm({
   threadId,
+  threadIds,
   onClose,
   onBusy,
 }: {
   threadId: string;
+  threadIds?: string[];
   onClose: () => void;
   onBusy: (value: boolean) => void;
 }) {
@@ -69,6 +95,9 @@ function ShareForm({
     [search, setSearch] = useState(''),
     [error, setError] = useState('');
   const [clientId] = useState(() => crypto.randomUUID());
+  const [shareIds] = useState(
+    () => new Map((threadIds ?? [threadId]).map((id) => [id, crypto.randomUUID()])),
+  );
   const form = useForm<
       z.input<typeof shareThreadSchema>,
       unknown,
@@ -104,9 +133,16 @@ function ShareForm({
         setError('');
         onBusy(true);
         try {
-          await api('/chat/share-thread', { method: 'POST', body });
+          for (const id of threadIds ?? [threadId]) {
+            await api('/chat/share-thread', {
+              method: 'POST',
+              body: { ...body, thread_id: id, client_id: shareIds.get(id) ?? clientId },
+            });
+          }
           await client.invalidateQueries({ queryKey: ['chat-conversations'] });
-          toast.success('E-mail compartilhado');
+          toast.success(
+            threadIds && threadIds.length > 1 ? 'E-mails compartilhados' : 'E-mail compartilhado',
+          );
           onClose();
         } catch (e) {
           setError((e as Error).message);
@@ -201,7 +237,11 @@ function ShareForm({
           Cancelar
         </Button>
         <Button disabled={form.formState.isSubmitting || !conversations.data || !people.data}>
-          {form.formState.isSubmitting ? 'Compartilhando…' : 'Compartilhar e-mail'}
+          {form.formState.isSubmitting
+            ? 'Compartilhando…'
+            : threadIds && threadIds.length > 1
+              ? 'Compartilhar e-mails'
+              : 'Compartilhar e-mail'}
         </Button>
       </div>
     </form>

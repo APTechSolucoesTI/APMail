@@ -15,6 +15,8 @@ const buttonVariants = cva(
           'border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50 dark:hover:text-foreground',
         secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
+        'mail-action':
+          'text-foreground hover:bg-primary/10 hover:text-primary hover:shadow-md hover:shadow-primary/20 focus-visible:bg-primary/10 focus-visible:text-primary data-[state=open]:bg-primary/10 data-[state=open]:text-primary',
         link: 'text-primary underline-offset-4 hover:underline',
       },
       size: {

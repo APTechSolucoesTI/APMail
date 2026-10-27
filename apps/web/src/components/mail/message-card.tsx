@@ -3,6 +3,7 @@ import { useId, useState } from 'react';
 import { Flag, Plus, Minus, Reply, ReplyAll, Forward } from 'lucide-react';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { Button } from '@/components/ui/button';
+import { MailActionButton } from './mail-action-button';
 import {
   Dialog,
   DialogContent,
@@ -170,30 +171,24 @@ export function MessageCard({
                   aria-label="Responder e encaminhar"
                   className="flex flex-wrap items-center gap-1"
                 >
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  <MailActionButton
+                    label="Responder"
                     onClick={() => onCompose('reply:' + message.id)}
                   >
                     <Reply aria-hidden />
-                    Responder
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  </MailActionButton>
+                  <MailActionButton
+                    label="Responder a todos"
                     onClick={() => onCompose('reply_all:' + message.id)}
                   >
                     <ReplyAll aria-hidden />
-                    Responder a todos
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  </MailActionButton>
+                  <MailActionButton
+                    label="Encaminhar"
                     onClick={() => onCompose('forward:' + message.id)}
                   >
                     <Forward aria-hidden />
-                    Encaminhar
-                  </Button>
+                  </MailActionButton>
                 </div>
               )}
               {message.pending_action ? (
@@ -205,7 +200,7 @@ export function MessageCard({
                   <div
                     role="group"
                     aria-label="Organizar mensagem"
-                    className="flex w-full flex-wrap items-center gap-1 @[700px]/message:ml-auto @[700px]/message:w-auto @[700px]/message:border-l @[700px]/message:pl-3"
+                    className="flex flex-wrap items-center gap-1 border-l pl-3"
                   >
                     <MessageActions
                       mailboxId={mailboxId}

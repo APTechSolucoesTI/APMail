@@ -3,7 +3,6 @@ import { createFileRoute, Navigate } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Layers, RefreshCw } from 'lucide-react';
 import { QUEUE_LABELS, type ContactResolution } from '@apmail/shared';
-import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { meQuery, useMailQueues, useTenantId } from '@/lib/auth';
 import { mailSearchSchema } from '@/lib/search-params/mail';
@@ -13,6 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { SearchInput } from '@/components/data/search-input';
 import { Pagination } from '@/components/data/pagination';
 import { LoadingState, ErrorState, EmptyState } from '@/components/data/data-state';
+import { MailSelectionActions } from '@/components/mail/mail-selection-actions';
 import { ThreadListItem } from '@/components/mail/thread-list-item';
 
 export const Route = createFileRoute('/_app/mail-summary')({
@@ -48,10 +48,9 @@ function SummaryPage() {
     enabled: !!me.data?.preferences.mail_summary_enabled,
   });
   const [selected, setSelected] = useState<{ context: string; ids: string[] }>({
-      context: '',
-      ids: [],
-    }),
-    [busy, setBusy] = useState(false);
+    context: '',
+    ids: [],
+  });
   const context = tenant + query.toString();
   const ids = selected.context === context ? selected.ids : [];
   const items = useMemo(() => result.data?.items ?? [], [result.data]);
@@ -64,28 +63,6 @@ function SummaryPage() {
   }, [result.data, result.isFetching, result.isPlaceholderData, pageSize, search, navigate]);
   if (me.data && !me.data.preferences.mail_summary_enabled)
     return <Navigate to="/settings/preferences" />;
-  const mark = async (action: 'read' | 'unread' | 'done') => {
-    setBusy(true);
-    try {
-      const groups = new Map<string, string[]>();
-      for (const item of items.filter((t) => ids.includes(t.id)))
-        if (item.mailbox_id)
-          groups.set(item.mailbox_id, [...(groups.get(item.mailbox_id) ?? []), item.id]);
-      for (const [box, thread_ids] of groups)
-        await api('/mailboxes/' + box + '/threads/bulk', {
-          method: 'POST',
-          body: { thread_ids, action },
-        });
-      setSelected({ context, ids: [] });
-      await result.refetch();
-      toast.success('Conversas atualizadas.');
-    } catch (e) {
-      toast.error((e as Error).message);
-      await result.refetch();
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <header>
@@ -171,22 +148,15 @@ function SummaryPage() {
           )}
         </div>
         {!!ids.length && (
-          <div className="flex flex-wrap items-center gap-2 border-b bg-muted p-3">
-            <span className="text-xs">{ids.length} selecionada(s) nesta página</span>
-            {(
-              ['read', 'unread', ...(queues ? ['done'] : [])] as ('read' | 'unread' | 'done')[]
-            ).map((action) => (
-              <Button
-                key={action}
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void mark(action)}
-              >
-                {action === 'read' ? 'Marcar lida' : action === 'unread' ? 'Não lida' : 'Concluir'}
-              </Button>
-            ))}
-          </div>
+          <MailSelectionActions
+            threads={items.filter((thread) => ids.includes(thread.id))}
+            onProcessed={(done) =>
+              setSelected((previous) => ({
+                ...previous,
+                ids: previous.ids.filter((id) => !done.includes(id)),
+              }))
+            }
+          />
         )}
         <Pagination
           page={search.page}

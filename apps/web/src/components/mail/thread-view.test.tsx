@@ -108,6 +108,10 @@ it('oferece spam somente em Mais ações superior, ao lado de Organizar', async 
     expect(within(card).queryByRole('button', { name: /Mais ações/ })).not.toBeInTheDocument();
   const more = screen.getByRole('button', { name: /^Mais ações$/ });
   expect(more.parentElement).toContainElement(screen.getByRole('button', { name: /Organizar/ }));
+  const toolbar = screen.getByRole('group', { name: 'Ações da conversa' });
+  const buttons = within(toolbar).getAllByRole('button');
+  expect(buttons.at(-1)).toHaveAccessibleName('Imprimir conversa');
+  expect(more).not.toHaveTextContent('Mais ações');
   fireEvent.keyDown(more, { key: 'Enter' });
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Marcar como spam' }));
   expect(await screen.findByRole('alertdialog')).toHaveTextContent('recente@example.com');
