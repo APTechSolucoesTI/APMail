@@ -21,9 +21,9 @@ function open(threat = 'Heuristics.Encrypted.PDF') {
             id: '00000000-0000-4000-8000-000000000001',
             status: 'infected',
             threat_name: threat,
-            filename: 'fatura.pdf',
+            filename: 'documento.pdf',
             kind: 'attachment',
-            sender: 'faturas@qa.example',
+            sender: 'contato@qa.example',
             mailbox_id: '00000000-0000-4000-8000-000000000002',
           },
         ]}
@@ -35,7 +35,7 @@ function open(threat = 'Heuristics.Encrypted.PDF') {
 it('requires consent and preserves the original verdict when marking a possible false positive', async () => {
   open();
   fireEvent.change(screen.getByLabelText('Motivo da liberação'), {
-    target: { value: 'Fatura conhecida e origem conferida.' },
+    target: { value: 'Documento conhecido e origem conferida.' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Liberar anexo' }));
   await screen.findByText('Confirme a decisão de liberação.');
@@ -52,7 +52,7 @@ it('requires consent and preserves the original verdict when marking a possible 
 });
 it('requires additional acknowledgement for malware and never offers automatic trust for it', async () => {
   open('Trojan.Encrypted.PDF');
-  expect(screen.queryByText(/Confiar nas próximas faturas/)).toBeNull();
+  expect(screen.queryByText('Adicionar aos remetentes confiáveis')).toBeNull();
   fireEvent.change(screen.getByLabelText('Motivo da liberação'), {
     target: { value: 'Arquivo analisado de forma independente.' },
   });

@@ -208,7 +208,7 @@ export function FileReleaseDialog({
                     {...register('trust')}
                   />
                   <span className="min-w-0">
-                    Confiar nas próximas faturas deste remetente
+                    Adicionar aos remetentes confiáveis
                     <span className="mt-1 block break-all text-xs text-muted-foreground">
                       {sender} · somente nesta caixa. Ameaças continuam bloqueadas. Configure a
                       regra em Remetentes confiáveis.

@@ -72,8 +72,8 @@ export function SenderTrustSettings({
             Confiança com controle
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Receba faturas protegidas por senha sem liberar o mesmo remetente todo mês. Cada regra
-            usa um endereço exato e pode valer para uma caixa ou para toda a empresa.
+            Gerencie quais remetentes podem ter anexos liberados automaticamente. Cada regra usa um
+            endereço exato e pode valer para uma caixa ou para toda a empresa.
           </p>
           <p className="mt-2 text-xs text-muted-foreground">
             O ClamAV continua analisando os arquivos. A regra libera apenas bloqueios preventivos
@@ -328,7 +328,7 @@ function SenderTrustEditor({
               type="email"
               maxLength={254}
               autoComplete="off"
-              placeholder="faturas@fornecedor.com.br"
+              placeholder="remetente@empresa.com.br"
               {...register('sender', { required: 'Informe o e-mail exato do remetente.' })}
             />
             {errors.sender && (
@@ -373,7 +373,7 @@ function SenderTrustEditor({
               <span>
                 Somente arquivos protegidos por senha
                 <span className="mt-1 block text-xs text-muted-foreground">
-                  Recomendado para faturas e documentos criptografados.
+                  Libera anexos criptografados enviados por esta origem.
                 </span>
               </span>
             </label>
