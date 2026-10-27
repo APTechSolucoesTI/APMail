@@ -13,6 +13,7 @@ import {
 import { toBullJobId, externalParticipants, type Address, type MailboxPerm } from '@apmail/shared';
 import { requireTenant, notFound, conflict, type RequestContext } from '../authz/context.js';
 import { requireMailboxPerm } from '../authz/guards.js';
+import { summaryMailboxIds } from './mail-summary.js';
 import { readableFolders, folderPredicate, requireFolder } from '../authz/folders.js';
 import type { Resources } from './resources.js';
 import { listThreads, queueCounts } from './mail-visibility-queries.js';
@@ -43,7 +44,7 @@ export const threadListSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   page_size: z.coerce
     .number()
-    .refine((v) => [10, 20, 30, 50, 100].includes(v))
+    .refine((v) => [10, 20, 25, 30, 50, 100].includes(v))
     .default(10),
 });
 export async function requireThread(
@@ -96,6 +97,16 @@ type FolderNode = {
   children: FolderNode[];
 };
 export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
+  app.get('/api/mail-summary/threads', async (req) => {
+    const c = requireTenant(req.ctx),
+      q = threadListSchema.parse(req.query);
+    if (q.folder_id || q.label_id || q.view === 'label') throw notFound();
+    return listThreads(r, c, await summaryMailboxIds(r, c), q);
+  });
+  app.get('/api/mail-summary/queue-counts', async (req) => {
+    const c = requireTenant(req.ctx);
+    return queueCounts(r, c, await summaryMailboxIds(r, c));
+  });
   await registerMailboxDrafts(app, r);
   await registerReadReceipts(app, r);
   app.get('/api/mailboxes/:id/folders', async (req) => {
@@ -300,6 +311,17 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       .select(['email_address', 'aliases'])
       .where('id', '=', thread.mailbox_id)
       .executeTakeFirstOrThrow();
+    const taskCounts = await r.db
+      .selectFrom('reminders')
+      .select([
+        sql<number>`count(*) filter(where status in ('pending','notified'))::int`.as(
+          'pending_task_count',
+        ),
+        sql<number>`count(*) filter(where status='completed')::int`.as('completed_task_count'),
+      ])
+      .where('tenant_id', '=', c.tenantId)
+      .where('thread_id', '=', thread.id)
+      .executeTakeFirstOrThrow();
     const latest = messages.at(-1),
       inbound = messages.filter((m) => m.direction === 'inbound' && !m.is_automated),
       outbound = messages.filter((m) => m.direction === 'outbound' && !m.is_mdn);
@@ -347,6 +369,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       ),
       thread: {
         ...visibleThread,
+        ...taskCounts,
         assigned_to: assignee ?? null,
         is_overdue:
           ['to_reply', 'in_progress'].includes(thread.queue_status) &&

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BellRing, Clock, Video, CalendarDays, ChevronDown } from 'lucide-react';
+import { BellRing, Clock, Video, CalendarDays, ChevronDown, Mail, Check } from 'lucide-react';
 import type { CalendarAttendee } from '@apmail/shared';
 import { api } from '@/lib/api';
 import { useTenantId } from '@/lib/auth';
@@ -15,6 +15,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 type Alert = {
+  thread_id: string | null;
+  mailbox_id: string | null;
   id: string;
   title: string;
   notes: string;
@@ -76,7 +78,7 @@ export function ReminderCenter() {
     signature = items.map((a) => a.id).join(','),
     active = items.find((a) => a.id === selected) ?? items[0],
     minimized = signature === minimizedFor;
-  const act = async (action: 'snooze' | 'dismiss', all = false) => {
+  const act = async (action: 'snooze' | 'dismiss' | 'complete', all = false) => {
     setBusy(true);
     setError('');
     try {
@@ -90,6 +92,8 @@ export function ReminderCenter() {
       );
       await client.invalidateQueries({ queryKey: ['calendar'] });
       await client.invalidateQueries({ queryKey: ['notifications'] });
+      await client.invalidateQueries({ queryKey: ['thread'] });
+      await client.invalidateQueries({ queryKey: ['threads'] });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -199,6 +203,19 @@ export function ReminderCenter() {
               </p>
             )}
             <div className="flex flex-wrap gap-2">
+              {active.thread_id && active.mailbox_id && (
+                <Button asChild variant="outline" size="sm">
+                  <Link
+                    to="/mail/$mailboxId"
+                    params={{ mailboxId: active.mailbox_id }}
+                    search={{ thread: active.thread_id }}
+                    onClick={() => setMinimizedFor(signature)}
+                  >
+                    <Mail />
+                    Abrir e-mail
+                  </Link>
+                </Button>
+              )}
               {active.event_id && (
                 <Button asChild variant="outline" size="sm">
                   <Link
@@ -251,6 +268,12 @@ export function ReminderCenter() {
               )}
             </label>
             <div className="flex flex-wrap justify-end gap-2">
+              {active.thread_id && (
+                <Button variant="outline" disabled={busy} onClick={() => void act('complete')}>
+                  <Check />
+                  Concluir tarefa
+                </Button>
+              )}
               {items.length > 1 && (
                 <Button
                   variant="ghost"

@@ -9,6 +9,7 @@ import { io } from 'socket.io-client';
 import { toast } from 'sonner';
 import { SocketContext } from '@/hooks/use-socket-room';
 import { MailboxFolderNavigation } from '@/components/mail/mailbox-folder-navigation';
+import { SummaryNavigation } from '@/components/mail/summary-navigation';
 import { ChatNavigation } from '@/components/chat/chat-navigation';
 import { useChatRealtime } from '@/hooks/use-chat';
 import {
@@ -236,7 +237,9 @@ export function AppShell() {
         'antivirus-history',
       ),
     );
-    socket.on('calendar:changed', () => invalidate('calendar', 'meet-reports'));
+    socket.on('calendar:changed', () =>
+      invalidate('calendar', 'meet-reports', 'threads', 'thread'),
+    );
     socket.on('google-meet:changed', () => invalidate('meet-reports', 'google-integration'));
     socket.on('labels:changed', () => invalidate('labels', 'threads', 'thread', 'global-search'));
     socket.on('directory:changed', () =>
@@ -376,6 +379,9 @@ export function AppShell() {
             label="Caixas de e-mail"
             icon={<Mail className="size-4" />}
           >
+            {me.data?.preferences.mail_summary_enabled && (
+              <SummaryNavigation onNavigate={() => setOpen(false)} />
+            )}
             {boxes.data?.map((b) => (
               <MailboxFolderNavigation key={b.id} box={b} onNavigate={() => setOpen(false)} />
             ))}

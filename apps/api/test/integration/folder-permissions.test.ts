@@ -1,5 +1,6 @@
 import { beforeAll, afterAll, it, expect, vi } from 'vitest';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { inflateSync } from 'node:zlib';
 import { io, type Socket } from 'socket.io-client';
 import { createDb, migrate, touchThreads } from '@apmail/db';
 import { buildApp } from '../../src/app.js';
@@ -210,6 +211,260 @@ afterAll(async () => {
   for (const s of sockets) s.disconnect();
   await app.close();
   await db.destroy();
+});
+it('Resumo agrega somente caixas e pastas autorizadas, com total, origem e paginação SQL', async () => {
+  const secondBox = randomUUID(),
+    inaccessibleBox = randomUUID(),
+    foreignBox = randomUUID();
+  const secondFolder = randomUUID(),
+    inaccessibleFolder = randomUUID(),
+    foreignFolder = randomUUID();
+  const secondThreads = Array.from({ length: 10 }, () => randomUUID());
+  const inaccessibleThread = randomUUID(),
+    foreignThread = randomUUID();
+  await db
+    .insertInto('mailboxes')
+    .values([
+      {
+        id: secondBox,
+        tenant_id: tenant,
+        name: 'Segunda caixa',
+        email_address: 'second@folders.test',
+        imap_host: 'localhost',
+        smtp_host: 'localhost',
+        username: 'second',
+        status: 'disabled',
+      },
+      {
+        id: inaccessibleBox,
+        tenant_id: tenant,
+        name: 'Caixa restrita',
+        email_address: 'restricted@folders.test',
+        imap_host: 'localhost',
+        smtp_host: 'localhost',
+        username: 'restricted',
+        status: 'disabled',
+      },
+      {
+        id: foreignBox,
+        tenant_id: foreignTenant,
+        name: 'Caixa externa',
+        email_address: 'foreign@folders.test',
+        imap_host: 'localhost',
+        smtp_host: 'localhost',
+        username: 'foreign',
+        status: 'disabled',
+      },
+    ])
+    .execute();
+  await db
+    .insertInto('mailbox_members')
+    .values({ tenant_id: tenant, mailbox_id: secondBox, user_id: editor, role: 'viewer' })
+    .execute();
+  await db
+    .insertInto('folders')
+    .values([
+      {
+        id: secondFolder,
+        tenant_id: tenant,
+        mailbox_id: secondBox,
+        name: 'Entrada',
+        imap_path: 'INBOX',
+        special_use: 'inbox',
+      },
+      {
+        id: inaccessibleFolder,
+        tenant_id: tenant,
+        mailbox_id: inaccessibleBox,
+        name: 'Entrada',
+        imap_path: 'INBOX',
+        special_use: 'inbox',
+      },
+      {
+        id: foreignFolder,
+        tenant_id: foreignTenant,
+        mailbox_id: foreignBox,
+        name: 'Entrada',
+        imap_path: 'INBOX',
+        special_use: 'inbox',
+      },
+    ])
+    .execute();
+  const samples = [
+    ...secondThreads.map((id, index) => ({
+      id,
+      tid: tenant,
+      boxId: secondBox,
+      folder: secondFolder,
+      subject: 'Segunda caixa ' + index,
+    })),
+    {
+      id: inaccessibleThread,
+      tid: tenant,
+      boxId: inaccessibleBox,
+      folder: inaccessibleFolder,
+      subject: 'Caixa sem acesso',
+    },
+    {
+      id: foreignThread,
+      tid: foreignTenant,
+      boxId: foreignBox,
+      folder: foreignFolder,
+      subject: 'Mensagem de outra empresa',
+    },
+  ];
+  await db
+    .insertInto('threads')
+    .values(
+      samples.map((sample) => ({
+        id: sample.id,
+        tenant_id: sample.tid,
+        mailbox_id: sample.boxId,
+        subject: sample.subject,
+      })),
+    )
+    .execute();
+  const timestamp = Date.now();
+  await db
+    .insertInto('messages')
+    .values(
+      samples.map((sample, index) => ({
+        id: randomUUID(),
+        tenant_id: sample.tid,
+        mailbox_id: sample.boxId,
+        thread_id: sample.id,
+        folder_id: sample.folder,
+        message_id_header: '<' + sample.id + '@summary.test>',
+        subject: sample.subject,
+        body_text: sample.subject,
+        snippet: sample.subject,
+        from_address: 'summary@folders.test',
+        direction: 'inbound' as const,
+        message_at: new Date(timestamp + (index + 1) * 1000),
+      })),
+    )
+    .execute();
+  await touchThreads(
+    db,
+    samples.map((sample) => sample.id),
+    'sync',
+    null,
+  );
+  const response = await call('GET', '/mail-summary/threads?view=search&page_size=20&sort=recent');
+  expect(response.statusCode, response.body).toBe(200);
+  expect(response.json().total).toBe(12);
+  expect(response.json().items).toHaveLength(12);
+  expect(response.json().page_size).toBe(20);
+  expect(
+    response
+      .json()
+      .items.slice(0, 10)
+      .map((item: { id: string }) => item.id),
+  ).toEqual([...secondThreads].reverse());
+  expect(response.json().items[0]).toMatchObject({
+    mailbox_id: secondBox,
+    mailbox_name: 'Segunda caixa',
+    mailbox_email: 'second@folders.test',
+  });
+  expect(response.json().items[10]).toMatchObject({
+    id: visible,
+    mailbox_id: box,
+    mailbox_name: 'Pasta QA',
+  });
+  expect(response.json().items[11].id).toBe(mixed);
+  expect(JSON.stringify(response.json())).not.toContain('Segredo interno');
+  expect(response.body).not.toContain('Caixa sem acesso');
+  expect(response.body).not.toContain('Mensagem de outra empresa');
+  const page = await call(
+    'GET',
+    '/mail-summary/threads?view=search&page_size=10&page=2&sort=recent',
+  );
+  expect(page.statusCode, page.body).toBe(200);
+  expect(page.json()).toMatchObject({ total: 12, page: 2, page_size: 10 });
+  expect(page.json().items.map((item: { id: string }) => item.id)).toEqual([visible, mixed]);
+  const oldest = await call('GET', '/mail-summary/threads?view=search&page_size=10&sort=oldest');
+  expect(
+    oldest
+      .json()
+      .items.slice(0, 3)
+      .map((item: { id: string }) => item.id),
+  ).toEqual([mixed, visible, secondThreads[0]]);
+  const counts = await call('GET', '/mail-summary/queue-counts');
+  expect(counts.statusCode, counts.body).toBe(200);
+  expect(counts.json()).toMatchObject({ to_reply: 12, unread_inbox: 10 });
+  const foreignResult = await call('GET', '/mail-summary/threads?view=search', foreign);
+  expect(foreignResult.json().items.map((item: { id: string }) => item.id)).toEqual([
+    foreignThread,
+  ]);
+  expect(foreignResult.body).not.toContain('Atendimento permitido');
+  const individual = await call('GET', '/mailboxes/' + box + '/threads?view=search');
+  expect(individual.json().total).toBe(2);
+  try {
+    await db
+      .updateTable('tenant_members')
+      .set({ custom_permissions: ['mail'] })
+      .where('tenant_id', '=', tenant)
+      .where('user_id', '=', editor)
+      .execute();
+    const custom = await call('GET', '/mail-summary/threads?view=search');
+    expect(custom.statusCode, custom.body).toBe(200);
+    expect(custom.json().total).toBe(12);
+    expect((await call('GET', '/mail-summary/queue-counts')).statusCode).toBe(200);
+    await db
+      .updateTable('tenant_members')
+      .set({ custom_permissions: [] })
+      .where('tenant_id', '=', tenant)
+      .where('user_id', '=', editor)
+      .execute();
+    expect((await call('GET', '/mail-summary/threads?view=search')).statusCode).toBe(403);
+  } finally {
+    await db
+      .updateTable('tenant_members')
+      .set({ custom_permissions: null })
+      .where('tenant_id', '=', tenant)
+      .where('user_id', '=', editor)
+      .execute();
+  }
+});
+it('PDF inclui a conversa legível completa sem revelar assunto ou anexos de pasta restrita', async () => {
+  const pdfText = (buffer: Buffer) =>
+    [...buffer.toString('latin1').matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)]
+      .map((match) => {
+        try {
+          return [
+            ...inflateSync(Buffer.from(match[1]!, 'latin1'))
+              .toString('latin1')
+              .matchAll(/<([0-9a-f]+)>/gi),
+          ]
+            .map((hex) => Buffer.from(hex[1]!, 'hex').toString('latin1'))
+            .join('');
+        } catch {
+          return '';
+        }
+      })
+      .join('\n');
+  const restricted = await call(
+    'GET',
+    '/threads/' + mixed + '/pdf?message_id=' + secretMessage + '&folder_id=' + secret,
+  );
+  expect(restricted.statusCode, restricted.body).toBe(200);
+  expect(restricted.headers['content-type']).toContain('application/pdf');
+  expect(restricted.rawPayload.subarray(0, 5).toString()).toBe('%PDF-');
+  expect(restricted.rawPayload.toString('latin1')).not.toContain('Segredo interno');
+  expect(pdfText(restricted.rawPayload)).toContain('Atendimento permitido');
+  expect(pdfText(restricted.rawPayload)).not.toContain('confidencial@folders.test');
+  expect(pdfText(restricted.rawPayload)).not.toContain('segredo.pdf');
+  expect((await call('GET', '/threads/' + hidden + '/pdf')).statusCode).toBe(404);
+  expect((await call('GET', '/threads/' + mixed + '/pdf', foreign)).statusCode).toBe(404);
+  const complete = await call(
+    'GET',
+    '/threads/' + mixed + '/pdf?message_id=' + allowedMessage,
+    owner,
+  );
+  expect(complete.statusCode).toBe(200);
+  expect(pdfText(complete.rawPayload)).toContain('Segredo interno');
+  expect(pdfText(complete.rawPayload)).toContain('segredo.pdf');
+  expect(complete.rawPayload.length).toBeGreaterThan(restricted.rawPayload.length);
 });
 it('árvore herdada, listagem e busca calculam somente mensagens legíveis', async () => {
   const folders = (await call('GET', '/mailboxes/' + box + '/folders')).json();

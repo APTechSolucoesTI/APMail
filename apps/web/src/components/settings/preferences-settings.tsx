@@ -40,10 +40,16 @@ const groups: { id: string; title: string; description: string; fields: FormFiel
     description: 'Defina como organizar suas mensagens e trabalhar com confirmações de leitura.',
     fields: [
       {
-        name: 'mail_queues_enabled',
-        label: 'Usar filas de atendimento no e-mail',
+        name: 'mail_summary_enabled',
+        label: 'Deseja utilizar o Resumo das caixas de entrada?',
         type: 'checkbox',
-        help: 'Exibir filas como A responder e Em atendimento, status e controles de responsável. Ao desativar, seus e-mails continuam nas pastas e etiquetas, sem alterar os atendimentos da equipe.',
+        help: 'Reunir mensagens e filas das caixas às quais você tem acesso em uma visão unificada.',
+      },
+      {
+        name: 'mail_page_size',
+        label: 'E-mails por página',
+        type: 'select',
+        options: [10, 25, 50, 100].map((size) => ({ value: String(size), label: String(size) })),
       },
       {
         name: 'request_read_receipt',
@@ -132,7 +138,8 @@ export function PreferencesSettings() {
                 defaults={Object.fromEntries(
                   group.fields.map((field) => [
                     field.name,
-                    q.data.preferences[field.name as keyof typeof q.data.preferences],
+                    q.data.preferences[field.name as keyof typeof q.data.preferences] ??
+                      (field.name === 'mail_page_size' ? 10 : false),
                   ]),
                 )}
                 fields={group.fields}

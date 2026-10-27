@@ -10,6 +10,8 @@ const original = {
   density: 'compact',
   timezone: 'America/Sao_Paulo',
   mail_queues_enabled: true,
+  mail_summary_enabled: false,
+  mail_page_size: 10,
   request_read_receipt: false,
   load_remote_images: false,
   notify_chat: true,
@@ -50,14 +52,17 @@ it('prioriza tema e fuso; salvar uma aba não sobrescreve preferências das dema
   expect(screen.getByRole('combobox', { name: 'Fuso horário' })).toBeVisible();
   expect(screen.queryByRole('checkbox', { name: /Usar filas/ })).not.toBeInTheDocument();
   await user.click(screen.getByRole('tab', { name: 'E-mail' }));
-  await user.click(screen.getByRole('checkbox', { name: /Usar filas/ }));
+  expect(screen.queryByRole('checkbox', { name: /Usar filas/ })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('checkbox', { name: /Deseja utilizar o Resumo/ }));
+  await user.selectOptions(screen.getByLabelText('E-mails por página'), '25');
   await user.click(screen.getByRole('checkbox', { name: /Solicitar confirmação/ }));
   await user.click(screen.getByRole('button', { name: 'Salvar' }));
   await waitFor(() =>
     expect(api).toHaveBeenCalledWith('/preferences', {
       method: 'PUT',
       body: {
-        mail_queues_enabled: false,
+        mail_summary_enabled: true,
+        mail_page_size: 25,
         request_read_receipt: true,
         load_remote_images: false,
         density: 'compact',
@@ -71,7 +76,9 @@ it('prioriza tema e fuso; salvar uma aba não sobrescreve preferências das dema
   expect(preferences).toMatchObject({
     theme: 'light',
     timezone: 'America/Sao_Paulo',
-    mail_queues_enabled: false,
+    mail_queues_enabled: true,
+    mail_summary_enabled: true,
+    mail_page_size: 25,
     request_read_receipt: true,
   });
 });

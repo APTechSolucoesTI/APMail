@@ -84,7 +84,7 @@ export function ThreadWorkflow({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
               <DropdownMenuItem
-                disabled={thread.queue_status === 'done'}
+                disabled={thread.queue_status === 'done' || (thread.pending_task_count ?? 0) > 0}
                 onSelect={() => void change('done')}
               >
                 <CheckCircle2 />
@@ -104,6 +104,13 @@ export function ThreadWorkflow({
         )}
         {children}
       </div>
+      {(thread.pending_task_count ?? 0) > 0 && (
+        <p className="text-xs text-muted-foreground" role="status">
+          {thread.pending_task_count === 1
+            ? 'Conclua ou dispense a tarefa pendente antes de concluir a conversa.'
+            : `Conclua ou dispense as ${thread.pending_task_count} tarefas pendentes antes de concluir a conversa.`}
+        </p>
+      )}
       {queuesEnabled && thread.queue_excluded && (
         <p className="rounded-md border bg-muted p-3 text-sm">
           Esta conversa está fora das filas operacionais.

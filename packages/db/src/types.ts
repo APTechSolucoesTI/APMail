@@ -839,6 +839,7 @@ export interface Outbox {
   mdn_original_message_id: string | null;
   message_id_header: string | null;
   priority: Generated<string>;
+  recipient_inputs: Generated<Json>;
   recurrence_id: string | null;
   recurrence_sequence: number | null;
   reply_to_message_id: string | null;
@@ -905,6 +906,7 @@ export interface Reminders {
   alert_lease_until: Timestamp | null;
   alert_owner: string | null;
   created_at: Generated<Timestamp>;
+  created_by: string | null;
   due_at: Timestamp;
   event_end_at: Timestamp | null;
   event_id: string | null;
@@ -919,6 +921,7 @@ export interface Reminders {
   series_id: Generated<string>;
   status: Generated<string>;
   tenant_id: string;
+  thread_id: string | null;
   title: string;
   updated_at: Generated<Timestamp>;
   user_id: string;
@@ -1226,10 +1229,12 @@ export interface UserPreferences {
   density: Generated<string>;
   desktop_notifications: Generated<boolean>;
   load_remote_images: Generated<boolean>;
+  mail_page_size: Generated<number>;
   /**
    * Personal visibility of mail service queues and workflow controls; does not change shared threads or permissions.
    */
   mail_queues_enabled: Generated<boolean>;
+  mail_summary_enabled: Generated<boolean>;
   notify_assignments: Generated<boolean>;
   notify_chat: Generated<boolean>;
   notify_mentions: Generated<boolean>;

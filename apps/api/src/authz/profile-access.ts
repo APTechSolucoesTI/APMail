@@ -69,7 +69,7 @@ export function routePermission(
       return 'mailboxes.manage';
     return 'mail';
   }
-  if (/^\/api\/(threads|messages|attachments|search|global-search)(?:\/|$)/.test(path))
+  if (/^\/api\/(threads|messages|attachments|search|global-search|mail-summary)(?:\/|$)/.test(path))
     return 'mail';
   if (/^\/api\/me(?:\/|$)/.test(path)) return 'personal';
   if (/^\/api\/public\//.test(path)) return 'personal';

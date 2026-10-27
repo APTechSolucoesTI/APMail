@@ -72,6 +72,7 @@ function open(lastRead = '2026-10-26T12:00:00Z', admin = false) {
     },
   });
   client.setQueryData(threadDetailKey('tenant', 'thread'), data);
+  client.setQueryData(['calendar', 'tenant', 'thread-tasks', 'thread'], []);
   render(
     <QueryClientProvider client={client}>
       <TenantContext.Provider value="tenant">

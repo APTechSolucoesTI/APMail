@@ -43,6 +43,39 @@ const message: Message = {
   attachments: [],
   sent_by: null,
 };
+it.each(['inbound', 'outbound'] as const)(
+  'mantém todos os destinatários de mensagem %s visíveis mesmo com o corpo recolhido',
+  (direction) => {
+    render(
+      <MessageCard
+        message={{
+          ...message,
+          direction,
+          cc_addresses: [{ name: 'Financeiro', address: 'financeiro@example.com' }],
+          bcc_addresses: [{ name: 'Auditoria', address: 'auditoria@example.com' }],
+        }}
+        expanded={false}
+        cidMap={{}}
+        loadRemoteImages={false}
+        organize={false}
+        mailboxId="box"
+        folders={[]}
+      />,
+    );
+    for (const label of ['De', 'Para', 'Cc', 'Cco']) {
+      expect(screen.getByText(label, { exact: true })).toBeVisible();
+    }
+    for (const address of [
+      'ana@example.com',
+      'equipe@example.com',
+      'financeiro@example.com',
+      'auditoria@example.com',
+    ]) {
+      expect(screen.getByText(new RegExp(address))).toBeVisible();
+    }
+    expect(screen.queryByText('Conteúdo recebido')).not.toBeInTheDocument();
+  },
+);
 it('oferece controles explícitos e acessíveis para recolher e expandir o corpo', () => {
   render(
     <MessageCard

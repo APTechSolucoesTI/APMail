@@ -48,3 +48,15 @@ it('desativar filas remove controles sem afetar ações de organização nem mud
   fireEvent.click(screen.getByRole('button', { name: 'Organizar' }));
   expect(api).not.toHaveBeenCalled();
 });
+it('explica que tarefas pendentes impedem concluir o e-mail', () => {
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
+  client.setQueryData(['me'], { user: { id: 'user' }, preferences: {} });
+  render(
+    <QueryClientProvider client={client}>
+      <ThreadWorkflow thread={{ ...thread, pending_task_count: 2 }} mailboxId="box" role="editor" />
+    </QueryClientProvider>,
+  );
+  expect(
+    screen.getByText('Conclua ou dispense as 2 tarefas pendentes antes de concluir a conversa.'),
+  ).toBeVisible();
+});

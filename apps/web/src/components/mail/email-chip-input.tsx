@@ -6,6 +6,7 @@ import type { Address } from '@apmail/shared';
 import { resolveAddress } from '@apmail/shared';
 import { useContactResolution } from '@/lib/contact-resolution';
 import { api } from '@/lib/api';
+import { recipientInputValue } from '@/lib/recipient-input';
 import { useTenantId, useUserId } from '@/lib/auth';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -13,18 +14,22 @@ export function EmailChipInput({
   label,
   value,
   onChange,
+  onPendingChange,
+  initialInput = '',
   mailboxId,
   compact = false,
 }: {
   label: string;
   value: Address[];
   onChange: (addresses: Address[]) => void;
+  onPendingChange?: (input: string) => void;
+  initialInput?: string;
   mailboxId: string;
   compact?: boolean;
 }) {
   const id = useId(),
     tenant = useTenantId(),
-    [input, setInput] = useState('');
+    [input, setInput] = useState(initialInput);
   const [debounced, setDebounced] = useState('');
   const [open, setOpen] = useState(false),
     [active, setActive] = useState(0);
@@ -54,32 +59,15 @@ export function EmailChipInput({
     if (!value.some((v) => v.address.toLowerCase() === address.address.toLowerCase()))
       onChange([...value, address]);
     setInput('');
+    onPendingChange?.('');
     setOpen(false);
     setActive(0);
     field.current?.focus();
   };
   const add = (text: string) => {
-    const parsed = text
-      .split(/[,;\n]+/)
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .map((t) => {
-        const match = t.match(/^(.*?)\s*<([^>]+)>$/);
-        return {
-          name: match?.[1]?.replace(/^"|"$/g, '') ?? '',
-          address: (match?.[2] ?? t).toLowerCase(),
-        };
-      });
-    const seen = new Set(value.map((address) => address.address.toLowerCase()));
-    onChange([
-      ...value,
-      ...parsed.filter((address) => {
-        if (seen.has(address.address)) return false;
-        seen.add(address.address);
-        return true;
-      }),
-    ]);
+    onChange(recipientInputValue(value, text));
     setInput('');
+    onPendingChange?.('');
     setOpen(false);
     setActive(0);
   };
@@ -148,6 +136,7 @@ export function EmailChipInput({
             if (/[,;]/.test(e.target.value)) add(e.target.value);
             else {
               setInput(e.target.value);
+              onPendingChange?.(e.target.value);
               setOpen(true);
               setActive(0);
             }

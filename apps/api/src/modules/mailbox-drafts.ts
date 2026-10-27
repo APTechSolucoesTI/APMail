@@ -29,7 +29,7 @@ export async function registerMailboxDrafts(app: FastifyInstance, r: Resources) 
         page: z.coerce.number().int().min(1).default(1),
         page_size: z.coerce
           .number()
-          .refine((n) => [10, 20, 30, 50, 100].includes(n))
+          .refine((n) => [10, 20, 25, 30, 50, 100].includes(n))
           .default(10),
       })
       .parse(req.query);

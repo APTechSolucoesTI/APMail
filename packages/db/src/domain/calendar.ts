@@ -69,6 +69,8 @@ export async function continueReminder(db: Database, reminder: Selectable<Remind
       .values({
         tenant_id: reminder.tenant_id,
         user_id: reminder.user_id,
+        thread_id: reminder.thread_id,
+        created_by: reminder.created_by,
         title: reminder.title,
         notes: reminder.notes,
         due_at: next,
@@ -448,14 +450,28 @@ export async function sweepCalendarReminders(db: Database, now = new Date()) {
       .skipLocked()
       .execute();
     for (const reminder of due) {
+      const thread = reminder.thread_id
+        ? await tx
+            .selectFrom('threads')
+            .select('mailbox_id')
+            .where('id', '=', reminder.thread_id)
+            .where('tenant_id', '=', reminder.tenant_id)
+            .executeTakeFirst()
+        : null;
       const notification = await createNotification(tx, {
         tenantId: reminder.tenant_id,
         userId: reminder.user_id,
         type: 'reminder',
         title: reminder.title,
         body: reminder.notes,
-        link: '/reminders',
-        payload: { reminder_id: reminder.id, event_id: reminder.event_id },
+        link: thread
+          ? '/mail/' + thread.mailbox_id + '?thread=' + reminder.thread_id
+          : '/reminders',
+        payload: {
+          reminder_id: reminder.id,
+          event_id: reminder.event_id,
+          thread_id: reminder.thread_id,
+        },
       });
       await tx
         .updateTable('reminders')

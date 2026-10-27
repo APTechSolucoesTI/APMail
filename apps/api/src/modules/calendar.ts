@@ -38,9 +38,17 @@ import {
 import { requireMailboxPerm } from '../authz/guards.js';
 import { requireFolder } from '../authz/folders.js';
 import type { Resources } from './resources.js';
+import { registerEmailTasks, validateTaskAssignment } from './email-tasks.js';
+import { isTenantAdmin } from '@apmail/shared';
+import { requireThread } from './mail.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 export async function registerCalendar(app: FastifyInstance, r: Resources) {
+  await registerEmailTasks(app, r);
   const changed = (user: string) => r.io.to('user:' + user).emit('calendar:changed', {});
+  const reminderChanged = (user: string) => {
+    changed(user);
+    r.io.to('user:' + user).emit('notifications:changed', {});
+  };
   const owned = async (ctx: RequestContext | null, id: string) => {
     const c = requireTenant(ctx);
     const row = await r.db
@@ -797,7 +805,11 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
       .selectFrom('reminders')
       .selectAll()
       .where('tenant_id', '=', c.tenantId)
-      .where('user_id', '=', c.userId);
+      .where((eb) =>
+        isTenantAdmin(c.tenantRole)
+          ? eb.or([eb('user_id', '=', c.userId), eb('created_by', '=', c.userId)])
+          : eb('user_id', '=', c.userId),
+      );
     if (q.status === 'active') query = query.where('status', 'in', ['pending', 'notified']);
     else if (q.status === 'completed')
       query = query.where('status', 'in', ['completed', 'dismissed']);
@@ -807,46 +819,91 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
       .executeTakeFirstOrThrow();
     const total = Number(count.total),
       page = Math.min(q.page, Math.max(1, Math.ceil(total / q.pageSize)));
-    const items = await query
+    const rows = await query
       .orderBy('due_at')
       .orderBy('id')
       .limit(q.pageSize)
       .offset((page - 1) * q.pageSize)
       .execute();
+    const ids = rows.flatMap((row) => (row.thread_id ? [row.thread_id] : []));
+    const threads = ids.length
+      ? await r.db
+          .selectFrom('threads')
+          .select(['id', 'mailbox_id'])
+          .where('tenant_id', '=', c.tenantId)
+          .where('id', 'in', ids)
+          .where('deleted_at', 'is', null)
+          .execute()
+      : [];
+    const users = rows.length
+      ? await r.db
+          .selectFrom('users')
+          .select(['id', 'full_name'])
+          .where(
+            'id',
+            'in',
+            rows.map((row) => row.user_id),
+          )
+          .execute()
+      : [];
+    const items = rows.map((row) => ({
+      ...row,
+      assignee_name: users.find((user) => user.id === row.user_id)?.full_name ?? '',
+      mailbox_id: threads.find((thread) => thread.id === row.thread_id)?.mailbox_id ?? null,
+    }));
     return { items, total, page, pageSize: q.pageSize };
   });
   app.post('/api/reminders', async (req) => {
     const c = requireTenant(req.ctx),
       body = reminderSchema.parse(req.body);
+    const { user_id: assignedTo, ...values } = body;
+    const userId = assignedTo ?? c.userId;
+    await validateTaskAssignment(r, c, body.thread_id ?? null, userId);
     const row = await r.db
       .insertInto('reminders')
       .values({
-        ...body,
+        ...values,
         due_at: new Date(body.due_at),
         recurrence: body.recurrence ? asJson(body.recurrence) : null,
         recurrence_start: body.recurrence ? new Date(body.due_at) : null,
         tenant_id: c.tenantId,
-        user_id: c.userId,
+        user_id: userId,
+        created_by: c.userId,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
-    changed(c.userId);
+    reminderChanged(userId);
+    if (body.thread_id)
+      r.io
+        .to('thread:' + body.thread_id)
+        .emit('thread:messages-changed', { thread_id: body.thread_id });
     return row;
   });
   app.patch('/api/reminders/:id', async (req) => {
     const c = requireTenant(req.ctx),
       id = idOf(req.params),
       body = reminderSchema.parse(req.body);
+    let previousAssignee = c.userId;
     const row = await r.db.transaction().execute(async (tx) => {
       const old = await tx
         .selectFrom('reminders')
         .selectAll()
         .where('tenant_id', '=', c.tenantId)
-        .where('user_id', '=', c.userId)
         .where('id', '=', id)
         .forUpdate()
         .executeTakeFirst();
       if (!old) throw notFound();
+      previousAssignee = old.user_id;
+      if (
+        old.user_id !== c.userId &&
+        (!isTenantAdmin(c.tenantRole) || (!old.thread_id && old.created_by !== c.userId))
+      )
+        throw notFound();
+      const userId = body.user_id ?? old.user_id;
+      if (body.thread_id !== undefined && body.thread_id !== old.thread_id)
+        throw conflict('O vínculo da tarefa com o e-mail não pode ser alterado.');
+      await validateTaskAssignment(r, c, old.thread_id, userId);
+      const values = reminderSchema.omit({ user_id: true, thread_id: true }).parse(body);
       if (old.event_id) throw conflict('Edite o lembrete pelo compromisso.');
       if (!['pending', 'notified'].includes(old.status))
         throw conflict('Este lembrete já foi concluído.');
@@ -855,7 +912,7 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
           .updateTable('notifications')
           .set({ read_at: new Date() })
           .where('id', '=', old.notification_id)
-          .where('user_id', '=', c.userId)
+          .where('user_id', '=', old.user_id)
           .execute();
       // Editing a recurring task replaces future pending repetitions atomically.
       await tx
@@ -864,13 +921,14 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
         .where('series_id', '=', old.series_id)
         .where('id', '!=', old.id)
         .where('tenant_id', '=', c.tenantId)
-        .where('user_id', '=', c.userId)
+        .where('user_id', '=', old.user_id)
         .where('status', '=', 'pending')
         .execute();
       return tx
         .updateTable('reminders')
         .set({
-          ...body,
+          ...values,
+          user_id: userId,
           due_at: new Date(body.due_at),
           recurrence: body.recurrence ? asJson(body.recurrence) : null,
           recurrence_start: body.recurrence ? new Date(body.due_at) : null,
@@ -878,13 +936,20 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
           recurrence_index: 0,
           status: 'pending',
           notification_id: null,
+          alert_owner: null,
+          alert_lease_until: null,
           updated_at: new Date(),
         })
         .where('id', '=', id)
         .returningAll()
         .executeTakeFirstOrThrow();
     });
-    changed(c.userId);
+    for (const userId of new Set([c.userId, row.user_id, previousAssignee]))
+      reminderChanged(userId);
+    if (row.thread_id)
+      r.io
+        .to('thread:' + row.thread_id)
+        .emit('thread:messages-changed', { thread_id: row.thread_id });
     return row;
   });
   app.post('/api/reminders/:id/action', async (req) => {
@@ -901,18 +966,48 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
         .selectFrom('reminders')
         .selectAll()
         .where('tenant_id', '=', c.tenantId)
-        .where('user_id', '=', c.userId)
         .where('id', '=', id)
         .forUpdate()
         .executeTakeFirst();
       if (!old) throw notFound();
+      if (
+        old.user_id !== c.userId &&
+        (!isTenantAdmin(c.tenantRole) || (!old.thread_id && old.created_by !== c.userId))
+      )
+        throw notFound();
+      if (old.thread_id) await requireThread(c, r, old.thread_id);
       if (body.action === 'stop') {
+        const notifications = await tx
+          .selectFrom('reminders')
+          .select('notification_id')
+          .where('tenant_id', '=', c.tenantId)
+          .where('user_id', '=', old.user_id)
+          .where('series_id', '=', old.series_id)
+          .where('status', 'in', ['pending', 'notified'])
+          .execute();
+        const ids = notifications.flatMap((row) =>
+          row.notification_id ? [row.notification_id] : [],
+        );
+        if (ids.length)
+          await tx
+            .updateTable('notifications')
+            .set({ read_at: new Date() })
+            .where('id', 'in', ids)
+            .where('tenant_id', '=', c.tenantId)
+            .where('user_id', '=', old.user_id)
+            .execute();
         await tx
           .updateTable('reminders')
-          .set({ status: 'dismissed', recurrence: null, updated_at: new Date() })
+          .set({
+            status: 'dismissed',
+            recurrence: null,
+            alert_owner: null,
+            alert_lease_until: null,
+            updated_at: new Date(),
+          })
           .where('series_id', '=', old.series_id)
           .where('tenant_id', '=', c.tenantId)
-          .where('user_id', '=', c.userId)
+          .where('user_id', '=', old.user_id)
           .where('status', 'in', ['pending', 'notified'])
           .execute();
         return old;
@@ -925,7 +1020,7 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
           .updateTable('notifications')
           .set({ read_at: new Date() })
           .where('id', '=', old.notification_id)
-          .where('user_id', '=', c.userId)
+          .where('user_id', '=', old.user_id)
           .execute();
       return tx
         .updateTable('reminders')
@@ -944,12 +1039,19 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
               }
             : {}),
           updated_at: new Date(),
+          alert_owner: null,
+          alert_lease_until: null,
         })
         .where('id', '=', id)
         .returningAll()
         .executeTakeFirstOrThrow();
     });
-    changed(c.userId);
+    reminderChanged(c.userId);
+    if (row.user_id !== c.userId) reminderChanged(row.user_id);
+    if (row.thread_id)
+      r.io
+        .to('thread:' + row.thread_id)
+        .emit('thread:messages-changed', { thread_id: row.thread_id });
     return row;
   });
 }

@@ -18,6 +18,7 @@ import {
   Quote,
   RemoveFormatting,
   Image,
+  Paperclip,
   Strikethrough,
   AlignLeft,
   AlignCenter,
@@ -468,7 +469,7 @@ export function RichTextEditor({
               setDialog('image');
             }}
           >
-            <Image />
+            {images ? <Paperclip aria-hidden /> : <Image aria-hidden />}
           </Button>
         )}
         {(!compact || expanded) && (!ribbon || tab === 'Formatar texto') && (

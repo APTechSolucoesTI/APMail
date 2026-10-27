@@ -23,6 +23,11 @@ export type Folder = {
   children: Folder[];
 };
 export type Thread = {
+  mailbox_id?: string;
+  mailbox_name?: string;
+  mailbox_email?: string;
+  pending_task_count?: number;
+  completed_task_count?: number;
   id: string;
   message_id?: string | null;
   subject: string;
@@ -75,6 +80,7 @@ export type Message = {
   from_name: string;
   to_addresses: Address[];
   cc_addresses: Address[];
+  bcc_addresses?: Address[];
   reply_to_addresses: Address[];
   message_at: string;
   snippet: string;

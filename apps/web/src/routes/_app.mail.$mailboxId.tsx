@@ -2,7 +2,7 @@ import { Pagination } from '@/components/data/pagination';
 import { ThreadListItem } from '@/components/mail/thread-list-item';
 import { MailboxDrafts } from '@/components/mail/mailbox-drafts';
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { RefreshCw, MailOpen, Mail, FolderOpen, CheckCircle2, RotateCcw } from 'lucide-react';
 import { can, QUEUE_LABELS, type ContactResolution } from '@apmail/shared';
@@ -45,18 +45,20 @@ function MailPage() {
   const { mailboxId } = Route.useParams(),
     rawSearch = Route.useSearch(),
     queuesEnabled = useMailQueues(),
+    preferredPageSize = useQuery(meQuery).data?.preferences.mail_page_size ?? 10,
     search = useMemo(
       () =>
         queuesEnabled
-          ? rawSearch
+          ? { ...rawSearch, pageSize: rawSearch.pageSize ?? preferredPageSize }
           : {
               ...rawSearch,
+              pageSize: rawSearch.pageSize ?? preferredPageSize,
               view: rawSearch.view === 'queue' ? ('folder' as const) : rawSearch.view,
               queue: undefined,
               assigned: 'any' as const,
               sort: rawSearch.sort === 'waiting_longest' ? ('recent' as const) : rawSearch.sort,
             },
-      [queuesEnabled, rawSearch],
+      [queuesEnabled, rawSearch, preferredPageSize],
     ),
     navigate = Route.useNavigate(),
     tenantId = useTenantId(),
@@ -535,6 +537,11 @@ function MailPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <header className="flex shrink-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
+          {search.fromSummary && (
+            <Link to="/mail-summary" className="mb-2 block text-sm text-primary hover:underline">
+              ← Voltar ao Resumo
+            </Link>
+          )}
           <h1 className="text-xl font-bold">{box.data.name}</h1>
           <p className="mt-1 break-words text-xs text-muted-foreground">
             {isDrafts

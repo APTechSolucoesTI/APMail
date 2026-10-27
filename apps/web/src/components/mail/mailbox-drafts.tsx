@@ -41,10 +41,11 @@ export function MailboxDrafts({
     client = useQueryClient(),
     me = useQuery(meQuery);
   const pageSizeId = useId();
+  const pageSize = search.pageSize ?? me.data?.preferences.mail_page_size ?? 10;
   const [removing, setRemoving] = useState<Draft | null>(null);
   const params = new URLSearchParams({
     page: String(search.page),
-    page_size: String(search.pageSize),
+    page_size: String(pageSize),
   });
   if (search.q) params.set('q', search.q);
   const drafts = useQuery({
@@ -55,20 +56,13 @@ export function MailboxDrafts({
   });
   useEffect(() => {
     if (!drafts.data || drafts.isFetching || drafts.isPlaceholderData) return;
-    const last = Math.max(1, Math.ceil(drafts.data.total / search.pageSize));
+    const last = Math.max(1, Math.ceil(drafts.data.total / pageSize));
     if (search.page > last) onChange({ page: last });
-  }, [
-    drafts.data,
-    drafts.isFetching,
-    drafts.isPlaceholderData,
-    search.page,
-    search.pageSize,
-    onChange,
-  ]);
+  }, [drafts.data, drafts.isFetching, drafts.isPlaceholderData, search.page, pageSize, onChange]);
   const pagination = (
     <Pagination
       page={search.page}
-      pageSize={search.pageSize}
+      pageSize={pageSize}
       total={drafts.data?.total ?? 0}
       onPageChange={(page) => onChange({ page })}
     />
@@ -101,13 +95,13 @@ export function MailboxDrafts({
         <select
           id={pageSizeId}
           aria-label="Rascunhos por página"
-          value={search.pageSize}
+          value={pageSize}
           className="h-11 rounded-md border border-input bg-card px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8"
           onChange={(e) =>
             onChange({ pageSize: Number(e.target.value) as Search['pageSize'], page: 1 })
           }
         >
-          {[10, 20, 30, 50, 100].map((size) => (
+          {[10, 20, 25, 30, 50, 100].map((size) => (
             <option key={size} value={size}>
               {size}
             </option>

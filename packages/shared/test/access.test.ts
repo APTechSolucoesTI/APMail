@@ -32,6 +32,7 @@ it('valida permissões conhecidas, remove repetições e exige a tela relacionad
 it('protege links diretos e combina o perfil com as permissões de caixa', () => {
   expect(screenPermission('/settings/access-profiles')).toBe('profiles.manage');
   expect(screenPermission('/settings/audit')).toBe('audit.view');
+  expect(screenPermission('/mail-summary')).toBe('mail');
   expect(screenPermission('/settings/preferences')).toBeNull();
   expect(profileAllowsMailbox({ role: 'member', access_permissions: ['mail'] }, 'send')).toBe(
     false,

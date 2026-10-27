@@ -70,7 +70,11 @@ Os envios SMTP e os testes de conexão anunciam o hostname público de `APP_URL`
 
 O superadmin pode definir quantidade de caixas e capacidade por empresa; proprietários e administradores distribuem a cota entre caixas. A interface apresenta consumo do APMail e do provedor. Importações bloqueadas pela cota preservam um checkpoint e retomam quando houver capacidade. Consulte [cotas de armazenamento](docs/COTAS-ARMAZENAMENTO.md).
 
-Filas de atendimento são opcionais por usuário em **Configurações → Preferências → E-mail → Usar filas de atendimento no e-mail**. A opção vem ativada. Ao desativá-la, o usuário navega por pastas e etiquetas, sem status, responsáveis ou ações de atendimento na interface de e-mail. Os atendimentos compartilhados e seus históricos são preservados; a preferência não altera permissões nem o processamento da equipe. Persistência em `user_preferences.mail_queues_enabled`, migration `0046`.
+O controle individual de filas foi retirado das Preferências; o valor anteriormente salvo é preservado, sem alterar estados ou regras compartilhadas. Em **Preferências → E-mail**, cada usuário escolhe 10, 25, 50 ou 100 e-mails por página (padrão 10) e habilita o **Resumo**, que agrega somente caixas e pastas autorizadas com paginação no servidor. Abrir uma conversa pelo Resumo mantém a caixa de origem para respostas e outras ações.
+
+Tarefas reutilizam a central de lembretes e podem ser vinculadas às conversas. Administradores atribuem tarefas a membros ativos da mesma empresa; o responsável precisa ter acesso ao e-mail vinculado. Tarefas pendentes ou notificadas impedem concluir o atendimento, inclusive no banco e em ações em lote. Concluídas ou dispensadas são terminais, seguindo os estados dos lembretes existentes. As migrations aditivas `0058`–`0060` incluem preferências, vínculo das tarefas e texto incompleto de destinatários em rascunhos.
+
+A ação **Imprimir** gera PDF da conversa inteira visível ao usuário, com prévia, download, logo e metadados. Preserva a formatação básica e tabelas; imagens são identificadas por descrição, sem buscar imagens externas. A imagem Docker da API instala fontes Unicode para o PDF; execução local usa fontes do Windows ou Noto em `/usr/share/fonts/noto`. `APMAIL_PDF_FONT_DIR` permite indicar outra pasta com as famílias Noto.
 
 As regras permitem respostas automáticas de férias, condições para todas as mensagens, exceções e período de ativação. Consulte [Regras e respostas automáticas](docs/REGRAS-RESPOSTAS-AUTOMATICAS.md) para configuração, permissões e limites do protocolo.
 

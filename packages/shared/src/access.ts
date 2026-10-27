@@ -284,6 +284,7 @@ export function screenPermission(path: string): AccessPermission | null {
     ['/chat', 'chat'],
     ['/reports', 'reports'],
     ['/dashboard', 'reports'],
+    ['/mail-summary', 'mail'],
     ['/mail/', 'mail'],
   ];
   return prefixes.find(([prefix]) => path.startsWith(prefix))?.[1] ?? null;

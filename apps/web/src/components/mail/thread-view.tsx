@@ -29,6 +29,8 @@ import { ThreadWorkflow } from './thread-workflow';
 import { ThreadNotes } from './thread-notes';
 import { ShareToChatDialog } from '@/components/chat/share-to-chat-dialog';
 import { SpamConfirmation } from './spam-confirmation';
+import { ConversationPdf } from './conversation-pdf';
+import { ThreadTasks } from './thread-tasks';
 export function ThreadView({
   threadId,
   messageId,
@@ -157,6 +159,7 @@ export function ThreadView({
           )}
         </div>
         <ThreadWorkflow thread={data.thread} mailboxId={mailboxId} role={data.my_role}>
+          <ConversationPdf threadId={threadId} subject={data.thread.subject} />
           <ShareToChatDialog threadId={threadId} />
           {organize && (
             <MessageActions
@@ -246,6 +249,7 @@ export function ThreadView({
           </div>
         )}
       </div>
+      <ThreadTasks threadId={threadId} mailboxId={mailboxId} subject={data.thread.subject} />
       {data.pending_outbox?.map((o) => (
         <div key={o.id} className="rounded-md border bg-secondary p-3 text-sm">
           <p>

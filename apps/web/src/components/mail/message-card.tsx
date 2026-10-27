@@ -74,7 +74,52 @@ export function MessageCard({
               )}
               {message.is_flagged && <Flag className="inline size-3" aria-label="Sinalizada" />}
             </div>
-            <p className="break-all text-xs text-muted-foreground">{message.from_address}</p>
+            <dl className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
+              <dt className="text-muted-foreground">De</dt>
+              <dd className="min-w-0 break-all">{message.from_address}</dd>
+              {(
+                [
+                  ['Para', message.to_addresses],
+                  ['Cc', message.cc_addresses],
+                  ['Cco', message.bcc_addresses ?? []],
+                ] as const
+              ).map(
+                ([label, addresses]) =>
+                  (label === 'Para' || addresses.length > 0) && (
+                    <div key={label} className="contents">
+                      <dt className="text-muted-foreground">{label}</dt>
+                      <dd className="min-w-0 break-words">
+                        {addresses.length
+                          ? addresses.map((address, index) => {
+                              const identity = resolveAddress(address, contacts);
+                              return (
+                                <span key={address.address + index} className="break-all">
+                                  {index > 0 && '; '}
+                                  {identity.contact && !message.is_mdn ? (
+                                    <ContactSenderAction
+                                      email={address.address}
+                                      name={identity.name}
+                                      identity={identity.contact}
+                                      inlineName
+                                      className="min-h-11 rounded-sm text-left font-medium text-primary underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring sm:min-h-6"
+                                    />
+                                  ) : identity.name !== address.address ? (
+                                    identity.name
+                                  ) : null}
+                                  {identity.name !== address.address ||
+                                  (identity.contact && !message.is_mdn)
+                                    ? ' — '
+                                    : ''}
+                                  {address.address}
+                                </span>
+                              );
+                            })
+                          : 'Destinatários não informados'}
+                      </dd>
+                    </div>
+                  ),
+              )}
+            </dl>
             {!open && (
               <p className="mt-1 truncate text-xs text-muted-foreground" title={message.snippet}>
                 {message.snippet}
@@ -87,18 +132,6 @@ export function MessageCard({
                 identity={contactIdentity.contact}
                 className="mt-1 -ml-2 min-h-11 px-2 text-xs sm:h-8 sm:min-h-8"
               />
-            )}
-            {!message.is_mdn && message.direction === 'outbound' && contactIdentity.contact && (
-              <div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-                Para
-                <ContactSenderAction
-                  email={contactAddress.address}
-                  name={contactIdentity.name}
-                  identity={contactIdentity.contact}
-                  inlineName
-                  className="min-h-11 min-w-0 break-words rounded-sm text-left font-medium text-primary underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring sm:min-h-6"
-                />
-              </div>
             )}
           </div>
         </div>
@@ -193,37 +226,6 @@ export function MessageCard({
           {message.calendar_invite && (
             <CalendarInvitation messageId={message.id} timeZone={timeZone} canSend={!!onCompose} />
           )}
-          <details className="text-xs text-muted-foreground">
-            <summary className="cursor-pointer">
-              Para{' '}
-              {message.to_addresses.map((a) => resolveAddress(a, contacts).name).join(', ') ||
-                'destinatários não informados'}
-            </summary>
-            <p className="mt-2 break-all">
-              Para:{' '}
-              {message.to_addresses
-                .map((a) => {
-                  const resolved = resolveAddress(a, contacts);
-                  return resolved.name === a.address
-                    ? a.address
-                    : resolved.name + ' — ' + a.address;
-                })
-                .join(', ')}
-            </p>
-            {!!message.cc_addresses.length && (
-              <p className="break-all">
-                Cc:{' '}
-                {message.cc_addresses
-                  .map((a) => {
-                    const resolved = resolveAddress(a, contacts);
-                    return resolved.name === a.address
-                      ? a.address
-                      : resolved.name + ' — ' + a.address;
-                  })
-                  .join(', ')}
-              </p>
-            )}
-          </details>
           {message.sent_by && (
             <p className="text-xs text-muted-foreground">
               Enviado por {message.sent_by.full_name} via APMail

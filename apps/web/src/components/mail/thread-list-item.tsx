@@ -1,4 +1,4 @@
-import { Paperclip, Pin } from 'lucide-react';
+import { Paperclip, Pin, ListTodo, CheckCheck, Mail } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { QueueStatusBadge, OverdueBadge } from '@/components/common/status-badge';
 import { UserAvatar } from '@/components/common/user-avatar';
@@ -17,6 +17,7 @@ export function ThreadListItem({
   onOpen,
   query,
   contacts = {},
+  showMailbox = false,
 }: {
   thread: Thread;
   selected: boolean;
@@ -25,6 +26,7 @@ export function ThreadListItem({
   onOpen: () => void;
   query?: string;
   contacts?: ContactResolution;
+  showMailbox?: boolean;
 }) {
   const date = thread.last_message_at ? new Date(thread.last_message_at) : null;
   const identity =
@@ -124,6 +126,33 @@ export function ThreadListItem({
           <SearchHighlight text={thread.snippet} query={query} />
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
+          {showMailbox && thread.mailbox_name && thread.mailbox_email && (
+            <span
+              className="inline-flex max-w-full items-center gap-1 truncate rounded border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+              title={thread.mailbox_name + ' · ' + thread.mailbox_email}
+            >
+              <Mail className="size-3 shrink-0" />
+              <span className="truncate">{thread.mailbox_email}</span>
+            </span>
+          )}
+          {!!thread.pending_task_count && (
+            <span
+              className="inline-flex items-center gap-1 text-xs text-primary"
+              title="Tarefas pendentes"
+            >
+              <ListTodo className="size-3" />
+              {thread.pending_task_count} pendente(s)
+            </span>
+          )}
+          {!!thread.completed_task_count && (
+            <span
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+              title="Tarefas concluídas"
+            >
+              <CheckCheck className="size-3" />
+              {thread.completed_task_count} concluída(s)
+            </span>
+          )}
           {queuesEnabled && <QueueStatusBadge status={thread.queue_status} />}
           {queuesEnabled && thread.is_overdue && <OverdueBadge />}
           {queuesEnabled && thread.assigned_to && (

@@ -121,6 +121,221 @@ afterAll(async () => {
   await app.close();
   await db.destroy();
 });
+it('vincula tarefas ao e-mail, restringe atribuição e impede conclusão com pendência', async () => {
+  const folder = await db
+    .insertInto('folders')
+    .values({
+      tenant_id: tenant,
+      mailbox_id: box,
+      name: 'Tarefas',
+      imap_path: 'Tasks-QA',
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  const thread = await db
+    .insertInto('threads')
+    .values({
+      tenant_id: tenant,
+      mailbox_id: box,
+      subject: 'Proposta',
+      subject_normalized: 'proposta',
+      queue_status: 'in_progress',
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  await db
+    .insertInto('messages')
+    .values({
+      tenant_id: tenant,
+      mailbox_id: box,
+      thread_id: thread.id,
+      folder_id: folder.id,
+      subject: 'Proposta',
+      from_address: 'client@example.com',
+      message_at: new Date(),
+      direction: 'inbound',
+      body_text: 'Revisar proposta',
+      message_id_header: '<' + randomUUID() + '@tasks.qa.example>',
+    })
+    .execute();
+  await db
+    .insertInto('mailbox_members')
+    .values({ tenant_id: tenant, mailbox_id: box, user_id: member, role: 'viewer' })
+    .execute();
+  const task = {
+    title: 'Revisar proposta',
+    notes: 'Conferir valores',
+    due_at: '2030-01-01T15:00:00Z',
+    thread_id: thread.id,
+  };
+  expect(
+    (await call('POST', '/api/reminders', { ...task, user_id: owner }, member)).statusCode,
+  ).toBe(403);
+  expect((await call('POST', '/api/reminders', { ...task, user_id: foreign })).statusCode).toBe(
+    404,
+  );
+  const created = await call('POST', '/api/reminders', { ...task, user_id: member });
+  expect(created.statusCode).toBe(200);
+  expect(created.json()).toMatchObject({
+    thread_id: thread.id,
+    user_id: member,
+    created_by: owner,
+  });
+  const tasks = await call('GET', '/api/threads/' + thread.id + '/tasks', undefined, member);
+  expect(tasks.statusCode).toBe(200);
+  expect(tasks.json()).toHaveLength(1);
+  expect(
+    (await call('GET', '/api/threads/' + thread.id + '/tasks', undefined, foreign)).statusCode,
+  ).toBe(404);
+  const done = await call('POST', '/api/threads/' + thread.id + '/done');
+  expect(done.statusCode).toBe(409);
+  expect(done.json().error.code).toBe('pending_email_tasks');
+  await db
+    .updateTable('reminders')
+    .set({ due_at: new Date(Date.now() - 1000) })
+    .where('id', '=', created.json().id)
+    .execute();
+  await Promise.all([sweepCalendarReminders(db), sweepCalendarReminders(db)]);
+  const notifications = await db
+    .selectFrom('notifications')
+    .selectAll()
+    .where('tenant_id', '=', tenant)
+    .where('user_id', '=', member)
+    .where('type', '=', 'reminder')
+    .execute();
+  const linked = notifications.filter(
+    (notification) =>
+      (notification.payload as { reminder_id?: string }).reminder_id === created.json().id,
+  );
+  expect(linked).toHaveLength(1);
+  expect(linked[0]!.link).toBe('/mail/' + box + '?thread=' + thread.id);
+  expect((await call('POST', '/api/threads/' + thread.id + '/done')).statusCode).toBe(409);
+  const client_id = randomUUID();
+  const popup = await call('POST', '/api/reminders/alerts/claim', { client_id }, member);
+  expect(popup.json()).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: created.json().id, thread_id: thread.id, mailbox_id: box }),
+    ]),
+  );
+  expect(
+    (
+      await call(
+        'POST',
+        '/api/reminders/' + created.json().id + '/action',
+        { action: 'complete' },
+        member,
+      )
+    ).statusCode,
+  ).toBe(200);
+  expect((await call('POST', '/api/reminders/alerts/claim', { client_id }, member)).json()).toEqual(
+    [],
+  );
+  expect(
+    (
+      await db
+        .selectFrom('notifications')
+        .select('read_at')
+        .where('id', '=', linked[0]!.id)
+        .executeTakeFirstOrThrow()
+    ).read_at,
+  ).not.toBeNull();
+  expect((await call('POST', '/api/threads/' + thread.id + '/done')).statusCode).toBe(200);
+  expect((await call('POST', '/api/reminders', task)).statusCode).toBe(409);
+  await call('POST', '/api/threads/' + thread.id + '/reopen');
+  await db
+    .updateTable('mailbox_members')
+    .set({ restrict_to_folders: true })
+    .where('tenant_id', '=', tenant)
+    .where('user_id', '=', member)
+    .where('mailbox_id', '=', box)
+    .execute();
+  expect((await call('POST', '/api/reminders', { ...task, user_id: member })).statusCode).toBe(404);
+  await db
+    .updateTable('mailbox_members')
+    .set({ restrict_to_folders: false })
+    .where('tenant_id', '=', tenant)
+    .where('user_id', '=', member)
+    .where('mailbox_id', '=', box)
+    .execute();
+  await db
+    .updateTable('tenant_members')
+    .set({ status: 'disabled' })
+    .where('tenant_id', '=', tenant)
+    .where('user_id', '=', member)
+    .execute();
+  expect((await call('POST', '/api/reminders', { ...task, user_id: member })).statusCode).toBe(404);
+  await db
+    .updateTable('tenant_members')
+    .set({ status: 'active' })
+    .where('tenant_id', '=', tenant)
+    .where('user_id', '=', member)
+    .execute();
+});
+it('serializa criação de tarefa e conclusão concorrentes também no banco', async () => {
+  const thread = await db
+    .insertInto('threads')
+    .values({
+      tenant_id: tenant,
+      mailbox_id: box,
+      subject_normalized: 'concorrencia',
+      queue_status: 'in_progress',
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  const outcomes = await Promise.allSettled([
+    db.updateTable('threads').set({ queue_status: 'done' }).where('id', '=', thread.id).execute(),
+    db
+      .insertInto('reminders')
+      .values({
+        tenant_id: tenant,
+        user_id: owner,
+        thread_id: thread.id,
+        title: 'Concorrência',
+        due_at: new Date(Date.now() + 86400000),
+      })
+      .execute(),
+  ]);
+  expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(1);
+  const broken =
+    await sql`select t.id from threads t join reminders r on r.thread_id=t.id and r.tenant_id=t.tenant_id where t.id=${thread.id} and t.queue_status='done' and r.status in ('pending','notified')`.execute(
+      db,
+    );
+  expect(broken.rows).toHaveLength(0);
+});
+it('administrador atribui tarefa avulsa e acompanha resultado sem expor lembretes pessoais', async () => {
+  const body = {
+    title: 'Conferir faturamento',
+    notes: 'Revisão atribuída',
+    due_at: '2030-01-01T15:00:00Z',
+    user_id: member,
+  };
+  expect(
+    (await call('POST', '/api/reminders', { ...body, user_id: owner }, member)).statusCode,
+  ).toBe(403);
+  const created = await call('POST', '/api/reminders', body);
+  expect(created.statusCode).toBe(200);
+  const task = created.json();
+  const assignedByMe = await call('GET', '/api/reminders?status=all');
+  expect(assignedByMe.json().items).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: task.id, assignee_name: 'Calendário QA' }),
+    ]),
+  );
+  expect((await call('GET', '/api/reminders?status=all', undefined, member)).json().items).toEqual(
+    expect.arrayContaining([expect.objectContaining({ id: task.id })]),
+  );
+  expect(
+    (await call('POST', '/api/reminders/' + task.id + '/action', { action: 'complete' }, member))
+      .statusCode,
+  ).toBe(200);
+  expect((await call('GET', '/api/reminders?status=completed')).json().items).toEqual(
+    expect.arrayContaining([expect.objectContaining({ id: task.id, status: 'completed' })]),
+  );
+  expect((await call('GET', '/api/reminders/assignees', undefined, member)).statusCode).toBe(403);
+  expect((await call('GET', '/api/reminders/assignees')).json()).toEqual(
+    expect.arrayContaining([expect.objectContaining({ id: member })]),
+  );
+});
 it('exige autenticação e cria calendários pessoais isolados', async () => {
   expect((await app.inject({ url: '/api/calendars' })).statusCode).toBe(401);
   const own = await call('GET', '/api/calendars');

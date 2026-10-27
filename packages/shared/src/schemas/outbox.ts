@@ -20,6 +20,13 @@ export const outboxSchema = z.object({
   to_addresses: z.array(addressSchema).max(100).default([]),
   cc_addresses: z.array(addressSchema).max(100).default([]),
   bcc_addresses: z.array(addressSchema).max(100).default([]),
+  recipient_inputs: z
+    .object({
+      to: z.string().max(32000).default(''),
+      cc: z.string().max(32000).default(''),
+      bcc: z.string().max(32000).default(''),
+    })
+    .optional(),
   subject: z
     .string()
     .max(998)

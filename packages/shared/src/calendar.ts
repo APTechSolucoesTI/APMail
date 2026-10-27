@@ -126,6 +126,8 @@ export type CalendarEventInput = z.infer<typeof calendarEventSchema>;
 export type CalendarException = z.infer<typeof exceptionSchema>;
 export type CalendarAttendee = z.infer<typeof attendeeSchema>;
 export const reminderSchema = z.object({
+  thread_id: z.uuid().nullable().optional(),
+  user_id: z.uuid().optional(),
   title: z.string().trim().min(1).max(300),
   notes: z.string().max(10000).default(''),
   due_at: z.iso.datetime(),

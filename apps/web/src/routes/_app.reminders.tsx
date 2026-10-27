@@ -1,11 +1,12 @@
-import { useState } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { useEffect, useState } from 'react';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, Plus, Check, Clock, X, Repeat2, Pencil } from 'lucide-react';
 import {
   calendarInstant,
   calendarLocalInput,
   recurrenceLabel,
+  isTenantAdmin,
   type Recurrence,
   type ListResult,
 } from '@apmail/shared';
@@ -32,6 +33,10 @@ import { toast } from 'sonner';
 import { Pagination } from '@/components/data/pagination';
 import { DateTimeField } from '@/components/calendar/date-time-field';
 type Reminder = {
+  user_id: string;
+  assignee_name: string;
+  thread_id: string | null;
+  mailbox_id: string | null;
   id: string;
   event_id: string | null;
   title: string;
@@ -60,6 +65,40 @@ function RemindersPage() {
     [interval, setInterval] = useState(1),
     [error, setError] = useState(''),
     [busy, setBusy] = useState<string | null>(null);
+  const admin = isTenantAdmin(me.data?.tenants.find((member) => member.id === tenant)?.role);
+  const [assignedTo, setAssignedTo] = useState(''),
+    [linkedThread, setLinkedThread] = useState(''),
+    [linkedMailbox, setLinkedMailbox] = useState(''),
+    [mailSearch, setMailSearch] = useState(''),
+    [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(mailSearch), 350);
+    return () => clearTimeout(timer);
+  }, [mailSearch]);
+  const assignees = useQuery({
+    queryKey: ['task-assignees', tenant, linkedThread || 'all'],
+    queryFn: () =>
+      api<{ id: string; full_name: string }[]>(
+        linkedThread ? '/threads/' + linkedThread + '/task-assignees' : '/reminders/assignees',
+      ),
+    enabled: open && admin,
+  });
+  const boxes = useQuery({
+    queryKey: ['task-mailboxes', tenant],
+    queryFn: () => api<{ id: string; name: string; email_address: string }[]>('/mailboxes'),
+    enabled: open && !editing,
+  });
+  const emails = useQuery({
+    queryKey: ['task-email-options', tenant, linkedMailbox, debouncedSearch],
+    queryFn: () =>
+      api<{ items: { id: string; subject: string }[] }>(
+        '/mailboxes/' +
+          linkedMailbox +
+          '/threads?view=search&page_size=30&q=' +
+          encodeURIComponent(debouncedSearch),
+      ),
+    enabled: open && !editing && !!linkedMailbox,
+  });
   const reminders = useQuery({
     queryKey: ['calendar', tenant, 'reminders', filter, page, pageSize],
     queryFn: () =>
@@ -74,6 +113,8 @@ function RemindersPage() {
       await api('/reminders/' + id + '/action', { method: 'POST', body: { action, minutes } });
       await client.invalidateQueries({ queryKey: ['calendar'] });
       await client.invalidateQueries({ queryKey: ['notifications'] });
+      await client.invalidateQueries({ queryKey: ['thread'] });
+      await client.invalidateQueries({ queryKey: ['threads'] });
       toast.success(
         action === 'snooze'
           ? 'Lembrete adiado.'
@@ -99,6 +140,10 @@ function RemindersPage() {
         <Button
           onClick={() => {
             setEditing(null);
+            setAssignedTo(me.data?.user.id ?? '');
+            setLinkedThread('');
+            setLinkedMailbox('');
+            setMailSearch('');
             setTitle('');
             setNotes('');
             setUnit('');
@@ -190,6 +235,16 @@ function RemindersPage() {
               />
               <div className="min-w-0 flex-1">
                 <h2 className="break-words text-sm font-semibold">{r.title}</h2>
+                {r.thread_id && r.mailbox_id && (
+                  <Link
+                    className="text-xs text-primary underline underline-offset-2"
+                    to="/mail/$mailboxId"
+                    params={{ mailboxId: r.mailbox_id }}
+                    search={{ thread: r.thread_id }}
+                  >
+                    Abrir e-mail vinculado
+                  </Link>
+                )}
                 <p className="mt-1 text-xs text-muted-foreground">
                   {new Date(r.due_at).toLocaleString('pt-BR', { timeZone: timezone })} ·{' '}
                   {
@@ -203,6 +258,9 @@ function RemindersPage() {
                     )[r.status]
                   }
                   {r.event_id ? ' · Compromisso' : ''}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Responsável: {r.assignee_name || me.data?.user.full_name}
                 </p>
                 {r.notes && (
                   <p className="mt-2 whitespace-pre-wrap break-words text-sm text-muted-foreground">
@@ -226,6 +284,9 @@ function RemindersPage() {
                       aria-label={'Editar ' + r.title}
                       onClick={() => {
                         setEditing(r.id);
+                        setAssignedTo(r.user_id);
+                        setLinkedThread(r.thread_id ?? '');
+                        setLinkedMailbox(r.mailbox_id ?? '');
                         setTitle(r.title);
                         setNotes(r.notes);
                         setDue(calendarLocalInput(r.due_at, timezone));
@@ -323,9 +384,13 @@ function RemindersPage() {
                       notes,
                       due_at: calendarInstant(due, timezone),
                       recurrence: unit ? { unit, interval, timezone } : null,
+                      user_id: assignedTo || me.data?.user.id,
+                      thread_id: linkedThread || null,
                     },
                   });
                   await client.invalidateQueries({ queryKey: ['calendar'] });
+                  await client.invalidateQueries({ queryKey: ['thread'] });
+                  await client.invalidateQueries({ queryKey: ['threads'] });
                   setOpen(false);
                   setTitle('');
                   setNotes('');
@@ -349,6 +414,110 @@ function RemindersPage() {
               />
             </label>
             <DateTimeField label="Quando" value={due} onChange={setDue} />
+            {admin && (
+              <label htmlFor="reminder-owner" className="block space-y-1 text-sm">
+                Responsável
+                <select
+                  id="reminder-owner"
+                  value={assignedTo}
+                  onChange={(event) => setAssignedTo(event.target.value)}
+                  className="h-10 w-full rounded-md border bg-card px-3"
+                >
+                  <option value={me.data?.user.id}>{me.data?.user.full_name} (você)</option>
+                  {editing &&
+                    assignedTo !== me.data?.user.id &&
+                    !assignees.data?.some((user) => user.id === assignedTo) && (
+                      <option value={assignedTo}>
+                        {reminders.data?.items.find((task) => task.id === editing)?.assignee_name ??
+                          'Responsável atual'}
+                      </option>
+                    )}
+                  {assignees.data
+                    ?.filter((user) => user.id !== me.data?.user.id)
+                    .map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.full_name}
+                      </option>
+                    ))}
+                </select>
+                {assignees.isError && (
+                  <span role="alert" className="text-destructive">
+                    Não foi possível carregar os responsáveis.
+                  </span>
+                )}
+              </label>
+            )}
+            {!editing && (
+              <details className="rounded-md border p-3">
+                <summary className="cursor-pointer text-sm font-medium">
+                  Vincular a um e-mail (opcional)
+                </summary>
+                <div className="mt-3 space-y-3">
+                  <label htmlFor="reminder-mailbox" className="block space-y-1 text-sm">
+                    Caixa de e-mail
+                    <select
+                      id="reminder-mailbox"
+                      className="h-10 w-full rounded-md border bg-card px-3"
+                      value={linkedMailbox}
+                      onChange={(event) => {
+                        setLinkedMailbox(event.target.value);
+                        setLinkedThread('');
+                        setMailSearch('');
+                        setAssignedTo(me.data?.user.id ?? '');
+                      }}
+                    >
+                      <option value="">Sem vínculo</option>
+                      {boxes.data?.map((box) => (
+                        <option key={box.id} value={box.id}>
+                          {box.name} · {box.email_address}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {linkedMailbox && (
+                    <>
+                      <label className="block space-y-1 text-sm">
+                        Buscar assunto
+                        <Input
+                          value={mailSearch}
+                          onChange={(event) => setMailSearch(event.target.value)}
+                        />
+                      </label>
+                      <label className="block space-y-1 text-sm">
+                        E-mail
+                        <select
+                          className="h-10 w-full rounded-md border bg-card px-3"
+                          value={linkedThread}
+                          onChange={(event) => {
+                            setLinkedThread(event.target.value);
+                            setAssignedTo(me.data?.user.id ?? '');
+                          }}
+                        >
+                          <option value="">Selecione uma conversa</option>
+                          {emails.data?.items.map((thread) => (
+                            <option key={thread.id} value={thread.id}>
+                              {thread.subject || '(Sem assunto)'}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <p role="status" className="text-xs text-muted-foreground">
+                        {emails.isPending
+                          ? 'Carregando conversas…'
+                          : emails.isError
+                            ? 'Não foi possível carregar as conversas.'
+                            : 'Até 30 conversas recentes. Use a busca para localizar outras.'}
+                      </p>
+                    </>
+                  )}
+                  {boxes.isError && (
+                    <p role="alert" className="text-sm text-destructive">
+                      Não foi possível carregar as caixas.
+                    </p>
+                  )}
+                </div>
+              </details>
+            )}
             <label className="block space-y-1 text-sm">
               Notas
               <Textarea

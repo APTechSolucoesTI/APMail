@@ -45,6 +45,7 @@ import { registerMailboxRoutes } from './modules/mailboxes.js';
 import { registerInvitationRoutes } from './modules/invitations.js';
 import { registerAvatarRoutes } from './modules/avatars.js';
 import { registerMailRoutes } from './modules/mail.js';
+import { registerThreadPdf } from './modules/thread-pdf.js';
 import { registerOutboxRoutes } from './modules/outbox.js';
 import { registerAntivirus } from './modules/antivirus.js';
 import { registerOrganizationRoutes } from './modules/organization/routes.js';
@@ -128,6 +129,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
       statusCode?: number;
       message?: string;
       code?: string;
+      constraint?: string;
     };
     if (error instanceof ZodError) {
       reply.code(400).send({
@@ -147,6 +149,10 @@ export async function buildApp(config: ApiEnv = readEnv()) {
       reply.code(409).send({
         error: { code: 'conflict', message: 'Este e-mail ou identificador já está em uso.' },
       });
+      return;
+    }
+    if (e.constraint === 'email_tasks_thread_pending') {
+      reply.code(409).send({ error: { code: 'pending_email_tasks', message: e.message } });
       return;
     }
     if (e.message === 'last_owner') {
@@ -283,6 +289,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await registerInvitationRoutes(app, resources);
   await registerAvatarRoutes(app, resources);
   await registerMailRoutes(app, resources);
+  await registerThreadPdf(app, resources);
   await registerOutboxRoutes(app, resources);
   await registerAntivirus(app, resources);
   await registerOrganizationRoutes(app, resources);

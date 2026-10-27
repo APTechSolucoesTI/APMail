@@ -63,7 +63,10 @@ export const preferencesSchema = z
     desktop_notifications: z.boolean(),
     load_remote_images: z.boolean(),
     request_read_receipt: z.boolean(),
-    mail_queues_enabled: z.boolean(),
+    mail_page_size: z.coerce
+      .number()
+      .pipe(z.union([z.literal(10), z.literal(25), z.literal(50), z.literal(100)])),
+    mail_summary_enabled: z.boolean(),
   })
   .partial();
 export const tableConfigSchema = z.object({

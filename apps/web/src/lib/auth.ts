@@ -24,6 +24,8 @@ export type Preferences = {
   load_remote_images: boolean;
   request_read_receipt?: boolean;
   mail_queues_enabled?: boolean;
+  mail_page_size?: 10 | 25 | 50 | 100;
+  mail_summary_enabled?: boolean;
 };
 export type Me = {
   user: { id: string; email: string; full_name: string; avatar_url: string | null };

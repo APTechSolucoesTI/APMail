@@ -188,6 +188,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     to_addresses: asJson(body.to_addresses),
     cc_addresses: asJson(body.cc_addresses),
     bcc_addresses: asJson(body.bcc_addresses),
+    recipient_inputs: asJson(body.recipient_inputs ?? { to: '', cc: '', bcc: '' }),
     attachments: asJson(body.attachments),
   });
   const clearUploads = async (row: OutboxRow) => {
@@ -666,6 +667,13 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         action === 'submit' ? 'draft' : action === 'send-now' ? 'scheduled' : 'failed';
       if (row.status !== expected) throw conflict('Este envio não está disponível para esta ação.');
       const parsed = outboxSchema.parse(row);
+      if (
+        parsed.recipient_inputs &&
+        Object.values(parsed.recipient_inputs).some((input) => input.trim())
+      )
+        throw validation(
+          'Revise os endereços incompletos ou inválidos em Para, Cc e Cco antes de enviar.',
+        );
       await validateRefs(c, parsed);
       const box = await r.db
         .selectFrom('mailboxes')

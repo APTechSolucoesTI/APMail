@@ -12,11 +12,19 @@ export const mailSearchSchema = z.object({
   sort: z.enum(['recent', 'oldest', 'waiting_longest']).default('recent'),
   page: z.number().int().min(1).default(1),
   pageSize: z
-    .union([z.literal(10), z.literal(20), z.literal(30), z.literal(50), z.literal(100)])
-    .default(10),
+    .union([
+      z.literal(10),
+      z.literal(20),
+      z.literal(25),
+      z.literal(30),
+      z.literal(50),
+      z.literal(100),
+    ])
+    .optional(),
   thread: z.uuid().optional(),
   message: z.uuid().optional(),
   compose: z.string().optional(),
+  fromSummary: z.boolean().optional(),
   toEmail: z.email().max(254).optional(),
   toName: z.string().max(120).optional(),
 });

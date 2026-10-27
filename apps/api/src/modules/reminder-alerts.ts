@@ -52,12 +52,15 @@ export async function registerReminderAlerts(app: FastifyInstance, r: Resources)
       return tx
         .selectFrom('reminders as m')
         .leftJoin('calendar_events as e', 'e.id', 'm.event_id')
+        .leftJoin('threads as t', 't.id', 'm.thread_id')
         .select([
           'm.id',
           'm.title',
           'm.notes',
           'm.due_at',
           'm.event_id',
+          'm.thread_id',
+          't.mailbox_id',
           'e.description',
           'e.starts_at',
           'e.ends_at',

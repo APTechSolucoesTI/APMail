@@ -47,6 +47,7 @@ import { useComposingPresence } from '@/hooks/use-thread-presence';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { replaceComposerSignature } from '@/lib/composer-content';
+import { draftRecipientValue } from '@/lib/recipient-input';
 import { meQuery, useTenantId, canMailbox, type Mailbox } from '@/lib/auth';
 import type { Outbox, Signature } from '@/lib/outbox';
 import type { ThreadDetail } from '@/lib/mail';
@@ -90,6 +91,7 @@ const blank = (id: string): OutboxInput => ({
   to_addresses: [],
   cc_addresses: [],
   bcc_addresses: [],
+  recipient_inputs: { to: '', cc: '', bcc: '' },
   subject: '',
   body_html: '',
   signature_id: null,
@@ -163,6 +165,7 @@ export function Composer({
     [schedule, setSchedule] = useState(false),
     [confirm, setConfirm] = useState<'discard' | 'subject' | null>(null),
     [uploads, setUploads] = useState<{ id: string; name: string; progress: number }[]>([]);
+  const [pendingRecipients, setPendingRecipients] = useState({ to: '', cc: '', bcc: '' });
   const securityQueries = useQueries({
     queries: files.map((file) =>
       attachmentSecurityQuery(
@@ -190,8 +193,15 @@ export function Composer({
       ['reply', 'reply_all'].includes(data.kind) &&
       can(boxes.data?.find((b) => b.id === data.mailbox_id)?.role ?? null, 'send'),
   );
+  const toDraft = draftRecipientValue(data.to_addresses, pendingRecipients.to),
+    ccDraft = draftRecipientValue(data.cc_addresses, pendingRecipients.cc),
+    bccDraft = draftRecipientValue(data.bcc_addresses, pendingRecipients.bcc);
   const combined = {
     ...data,
+    to_addresses: toDraft.addresses,
+    cc_addresses: ccDraft.addresses,
+    bcc_addresses: bccDraft.addresses,
+    recipient_inputs: { to: toDraft.input, cc: ccDraft.input, bcc: bccDraft.input },
     body_html: DOMPurify.sanitize(body + quote),
     attachments: files.map((f) => f.ref),
   };
@@ -222,6 +232,7 @@ export function Composer({
         content = '';
       if (draft.data) {
         value = outboxSchema.parse(draft.data);
+        setPendingRecipients(value.recipient_inputs ?? { to: '', cc: '', bcc: '' });
         const doc = new DOMParser().parseFromString(value.body_html, 'text/html');
         const sig = doc.querySelector('[data-apmail-signature]'),
           q = doc.querySelector('blockquote[data-apmail-quote]');
@@ -295,8 +306,8 @@ export function Composer({
       }
       setData(value);
       setBody(content);
-      setCc(value.cc_addresses.length > 0);
-      setBcc(value.bcc_addresses.length > 0);
+      setCc(value.cc_addresses.length > 0 || !!value.recipient_inputs?.cc);
+      setBcc(value.bcc_addresses.length > 0 || !!value.recipient_inputs?.bcc);
       setReady(true);
     });
     return () => {
@@ -336,6 +347,16 @@ export function Composer({
       const row = await promise;
       idRef.current = row.id;
       savedJson.current = json;
+      client.setQueryData<Outbox>(['outbox-detail', tenant, row.id], {
+        ...row,
+        attachment_metadata: files.map((file) => ({
+          id: file.ref.source === 'upload' ? file.ref.upload_id : file.ref.attachment_id,
+          filename: file.filename,
+          size_bytes: file.size_bytes,
+          source: file.ref.source,
+          security: file.security,
+        })),
+      });
       if (firstSave) onReopen(row.id);
       setSavedAt(
         new Intl.DateTimeFormat('pt-BR', {
@@ -398,6 +419,13 @@ export function Composer({
     }
     try {
       const value = outboxSchema.parse(current.current);
+      if (
+        value.recipient_inputs &&
+        Object.values(value.recipient_inputs).some((input) => input.trim())
+      )
+        throw Error(
+          'Revise os endereços incompletos ou inválidos em Para, Cc e Cco antes de enviar.',
+        );
       if (![...value.to_addresses, ...value.cc_addresses, ...value.bcc_addresses].length)
         throw Error('Informe ao menos um destinatário.');
       if (!value.subject.trim() && !subjectConfirmed) {
@@ -798,8 +826,13 @@ export function Composer({
                   <EmailChipInput
                     compact
                     label="Para"
+                    initialInput={pendingRecipients.to}
                     value={data.to_addresses}
                     mailboxId={data.mailbox_id}
+                    onPendingChange={(to) => {
+                      setEdited(true);
+                      setPendingRecipients((value) => ({ ...value, to }));
+                    }}
                     onChange={(v) => {
                       setEdited(true);
                       setData((d) => ({ ...d, to_addresses: v }));
@@ -835,8 +868,13 @@ export function Composer({
                 <EmailChipInput
                   compact
                   label="Cc"
+                  initialInput={pendingRecipients.cc}
                   value={data.cc_addresses}
                   mailboxId={data.mailbox_id}
+                  onPendingChange={(cc) => {
+                    setEdited(true);
+                    setPendingRecipients((value) => ({ ...value, cc }));
+                  }}
                   onChange={(v) => {
                     setEdited(true);
                     setData((d) => ({ ...d, cc_addresses: v }));
@@ -847,8 +885,13 @@ export function Composer({
                 <EmailChipInput
                   compact
                   label="Cco"
+                  initialInput={pendingRecipients.bcc}
                   value={data.bcc_addresses}
                   mailboxId={data.mailbox_id}
+                  onPendingChange={(bcc) => {
+                    setEdited(true);
+                    setPendingRecipients((value) => ({ ...value, bcc }));
+                  }}
                   onChange={(v) => {
                     setEdited(true);
                     setData((d) => ({ ...d, bcc_addresses: v }));

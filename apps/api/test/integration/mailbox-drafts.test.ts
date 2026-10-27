@@ -161,7 +161,9 @@ it('includes provider drafts only in readable folders and paginates/searches bot
       .items.map((r: { id: string }) => r.id)
       .sort(),
   ).toEqual([draft, imported].sort());
-  const filtered = await call(`/api/mailboxes/${box}/drafts?q=Imported&page=1&page_size=10`);
+  const filtered = await call(`/api/mailboxes/${box}/drafts?q=Imported&page=1&page_size=25`);
+  expect(filtered.statusCode, filtered.body).toBe(200);
+  expect(filtered.json().pageSize).toBe(25);
   expect(filtered.json().items).toHaveLength(1);
   expect(filtered.json().items[0]).toMatchObject({
     source: 'message',
