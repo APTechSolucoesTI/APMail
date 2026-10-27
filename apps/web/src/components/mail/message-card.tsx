@@ -13,6 +13,7 @@ import {
 import type { Message, Folder, Attachment } from '@/lib/mail';
 import { EmailBodyFrame } from './email-body-frame';
 import { MessageActions } from './message-actions';
+import { MessageSpamAction } from './message-spam-action';
 import { ContactSenderAction } from '@/components/contacts/contact-editor';
 import { resolveAddress, type ContactResolution } from '@apmail/shared';
 import { ReadReceipt } from './read-receipt';
@@ -172,7 +173,7 @@ export function MessageCard({
                   <div
                     role="group"
                     aria-label="Organizar mensagem"
-                    className="w-full @[700px]/message:ml-auto @[700px]/message:w-auto @[700px]/message:border-l @[700px]/message:pl-3"
+                    className="flex w-full flex-wrap items-center gap-1 @[700px]/message:ml-auto @[700px]/message:w-auto @[700px]/message:border-l @[700px]/message:pl-3"
                   >
                     <MessageActions
                       mailboxId={mailboxId}
@@ -184,6 +185,19 @@ export function MessageCard({
                           folder.id === message.folder_id && folder.special_use === 'trash',
                       )}
                     />
+                    {message.direction === 'inbound' &&
+                      !message.is_mdn &&
+                      !flattenFolders(folders).some(
+                        (folder) =>
+                          folder.id === message.folder_id &&
+                          ['junk', 'trash'].includes(folder.special_use ?? ''),
+                      ) && (
+                        <MessageSpamAction
+                          mailboxId={mailboxId}
+                          messageId={message.id}
+                          sender={message.from_address}
+                        />
+                      )}
                   </div>
                 )
               )}

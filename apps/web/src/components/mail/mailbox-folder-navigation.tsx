@@ -69,7 +69,7 @@ function MailboxNavigation({
       <div
         className={cn(
           'flex min-w-0 items-center rounded-md bg-mailbox-header text-mailbox-header-foreground',
-          active && 'ring-1 ring-inset ring-ring',
+          active && 'ring-1 ring-inset ring-mailbox-header-foreground/40',
         )}
       >
         <Button

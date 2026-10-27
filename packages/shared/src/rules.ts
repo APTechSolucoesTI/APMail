@@ -36,7 +36,7 @@ export const ruleConditionSchema = z
       'is_true',
       'is_false',
     ]),
-    value: z.string().trim().max(200).optional(),
+    value: z.string().trim().max(254).optional(),
   })
   .refine(
     (c) =>

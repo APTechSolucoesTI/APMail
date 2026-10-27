@@ -21,6 +21,7 @@ import { bulkQueue } from './thread-operations/service.js';
 import { registerReadReceipts } from './read-receipts.js';
 import { resolveContacts } from './contact-resolution.js';
 import { registerMailboxDrafts } from './mailbox-drafts.js';
+import { rememberSpamSenders } from './spam-rules.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 export const threadListSchema = z.object({
   columns: z.string().max(16000).optional(),
@@ -509,7 +510,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
     await requireMailboxPerm(c, r.db, id, 'organize');
     const b = z
       .object({
-        type: z.enum(['move', 'delete', 'restore', 'set_flag']),
+        type: z.enum(['move', 'delete', 'restore', 'set_flag', 'spam']),
         message_ids: z.array(z.uuid()).min(1).max(1000).optional(),
         thread_ids: z.array(z.uuid()).min(1).max(100).optional(),
         target_folder_id: z.uuid().optional(),
@@ -518,10 +519,20 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       .refine((b) => b.message_ids || b.thread_ids)
       .parse(req.body);
     if (b.type === 'move' && !b.target_folder_id) throw conflict('Escolha a pasta de destino.');
-    await requireMailboxPerm(c, r.db, id, b.type === 'set_flag' ? 'flag' : b.type);
+    await requireMailboxPerm(
+      c,
+      r.db,
+      id,
+      b.type === 'set_flag' ? 'flag' : b.type === 'spam' ? 'move' : b.type,
+    );
+    if (b.type === 'spam') await requireMailboxPerm(c, r.db, id, 'rules');
     if (b.type === 'set_flag' && b.flagged === undefined)
       throw conflict('Informe o estado da sinalização.');
     const action = await r.db.transaction().execute(async (trx) => {
+      if (b.type === 'spam')
+        await sql`select pg_advisory_xact_lock(hashtextextended(${`spam:${c.tenantId}:${id}`},0))`.execute(
+          trx,
+        );
       let query = trx
         .selectFrom('messages')
         .selectAll()
@@ -561,12 +572,42 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       }
       if (messages.some((m) => m.pending_action))
         throw conflict('Aguarde a alteração anterior terminar.');
+      if (b.type === 'spam') {
+        if (
+          messages.some(
+            (m) =>
+              m.direction !== 'inbound' ||
+              m.is_mdn ||
+              !z.email().safeParse(m.from_address.trim()).success,
+          )
+        )
+          throw conflict(
+            'Selecione e-mails recebidos com um remetente válido para marcar como spam.',
+          );
+        const scope = await readableFolders(c, trx, id);
+        if (scope !== null && messages.some((m) => !m.folder_id || !scope.includes(m.folder_id)))
+          throw notFound();
+      }
       const destination =
         b.type === 'move'
           ? folders.find((f) => f.id === b.target_folder_id)
-          : folders.find((f) => f.special_use === (b.type === 'restore' ? 'inbox' : 'trash'));
+          : folders.find(
+              (f) =>
+                f.special_use ===
+                (b.type === 'spam' ? 'junk' : b.type === 'restore' ? 'inbox' : 'trash'),
+            );
       if (b.type !== 'set_flag' && !destination)
         throw conflict('A pasta de destino ainda não está disponível nesta caixa.');
+      if (b.type === 'spam') {
+        await requireFolder(c, trx, id, destination!.id);
+        await rememberSpamSenders(
+          trx,
+          c,
+          id,
+          destination!.id,
+          messages.map((m) => m.from_address),
+        );
+      }
       const payload = {
         message_ids: messages.map((m) => m.id),
         target_folder_id: destination?.id,
@@ -581,7 +622,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
           tenant_id: c.tenantId,
           mailbox_id: id,
           requested_by: c.userId,
-          type: b.type,
+          type: b.type === 'spam' ? 'move' : b.type,
           payload: asJson(payload),
         })
         .returning('id')

@@ -29,7 +29,7 @@
   --destructive-foreground: #ffffff;
   --sidebar: #ffffff;
   --sidebar-foreground: #344054;
-  --mailbox-header: var(--brand-dark);
+  --mailbox-header: var(--primary);
   --mailbox-header-foreground: #ffffff;
 
   --success: #22c55e;
@@ -72,6 +72,7 @@
 
 .dark {
   color-scheme: dark;
+  --mailbox-header: #155e75;
   --brand-medium: #168db8;
   --brand-accent: #47c4dd;
   --background: #060608;

@@ -23,6 +23,7 @@ import { envSchema as apiEnv } from '../../../api/src/env.js';
 import { envSchema as workerEnv } from '../../src/env.js';
 import { hashToken } from '../../../api/src/plugins/auth.js';
 import { applyPendingRules, handleRulesApply } from '../../src/handlers/rules-apply.js';
+import { handleMailAction } from '../../src/handlers/mail-actions.js';
 import { handleOutboxSend } from '../../src/handlers/outbox-send.js';
 import { cleanupUploads, sweepOutbox } from '../../src/handlers/outbox-maintenance.js';
 import { ingestMessage } from '../../src/imap/ingest-message.js';
@@ -153,6 +154,174 @@ const rule = (mailboxId: string, actions: object[], scope = 'mailbox') => ({
   conditions: [{ field: 'subject', operator: 'contains', value: 'orçamento' }],
   actions,
   stop_processing: false,
+});
+it('marca spam, persiste uma única regra por remetente e filtra novas mensagens somente na caixa escolhida', async () => {
+  const target = await mailbox('Spam QA');
+  const first = await message(target);
+  const endpoint = '/mailboxes/' + target.id + '/messages/actions';
+  const response = await call('POST', endpoint, { type: 'spam', message_ids: [first.id] });
+  expect(response.statusCode, response.body).toBe(202);
+  const junk = await db
+    .selectFrom('folders')
+    .select('id')
+    .where('mailbox_id', '=', target.id)
+    .where('special_use', '=', 'junk')
+    .executeTakeFirstOrThrow();
+  const saved = await db
+    .selectFrom('messages')
+    .selectAll()
+    .where('id', '=', first.id)
+    .executeTakeFirstOrThrow();
+  expect(saved.folder_id).toBe(junk.id);
+  expect(saved.pending_action).toBe(true);
+  const transport = vi.spyOn(providers, 'transports').mockResolvedValue({
+    imap: {},
+    smtp: {},
+    close: vi.fn().mockResolvedValue(undefined),
+  } as unknown as Awaited<ReturnType<typeof providers.transports>>);
+  try {
+    await handleMailAction(r, response.json().action_id, randomUUID(), true);
+  } finally {
+    transport.mockRestore();
+  }
+  expect(
+    (
+      await db
+        .selectFrom('messages')
+        .select('pending_action')
+        .where('id', '=', first.id)
+        .executeTakeFirstOrThrow()
+    ).pending_action,
+  ).toBe(false);
+  const second = await message(target);
+  expect(
+    (await call('POST', endpoint, { type: 'spam', message_ids: [second.id] })).statusCode,
+  ).toBe(202);
+  const rules = await db
+    .selectFrom('mail_rules')
+    .selectAll()
+    .where('mailbox_id', '=', target.id)
+    .execute();
+  expect(rules).toHaveLength(1);
+  expect(rules[0]!.scope).toBe('mailbox');
+  const future = await message(target);
+  const distinct = await message(target);
+  await db
+    .updateTable('messages')
+    .set({ from_address: 'henrique.rufino+outro@qa.example' })
+    .where('id', '=', distinct.id)
+    .execute();
+  const other = await mailbox('Outra caixa');
+  const otherMessage = await message(other);
+  await applyPendingRules(r, target, null);
+  const folderOf = async (id: string) =>
+    (
+      await db
+        .selectFrom('messages')
+        .select('folder_id')
+        .where('id', '=', id)
+        .executeTakeFirstOrThrow()
+    ).folder_id;
+  expect(await folderOf(future.id)).toBe(junk.id);
+  expect(await folderOf(distinct.id)).toBe(distinct.folder_id);
+  await applyPendingRules(r, other, null);
+  expect(await folderOf(otherMessage.id)).toBe(otherMessage.folder_id);
+  expect((await call('GET', '/rules?scope=mailbox&mailbox_id=' + target.id)).json()).toHaveLength(
+    1,
+  );
+  await call('PATCH', '/rules/' + rules[0]!.id, { is_active: false });
+  const unblocked = await message(target);
+  await applyPendingRules(r, target, null);
+  expect(await folderOf(unblocked.id)).toBe(unblocked.folder_id);
+}, 30000);
+it('spam exige permissão, não aceita mensagens enviadas e não altera dados em conflitos', async () => {
+  const target = await mailbox('Spam restrições');
+  const msg = await message(target);
+  const path = '/mailboxes/' + target.id + '/messages/actions';
+  await db
+    .insertInto('mailbox_members')
+    .values({ tenant_id: tenant, mailbox_id: target.id, user_id: viewer, role: 'viewer' })
+    .execute();
+  expect(
+    (await call('POST', path, { type: 'spam', message_ids: [msg.id] }, viewer)).statusCode,
+  ).toBe(403);
+  expect(
+    (await call('POST', path, { type: 'spam', message_ids: [msg.id] }, foreign)).statusCode,
+  ).toBe(404);
+  await db
+    .updateTable('messages')
+    .set({ direction: 'outbound' })
+    .where('id', '=', msg.id)
+    .execute();
+  expect((await call('POST', path, { type: 'spam', message_ids: [msg.id] })).statusCode).toBe(409);
+  await db
+    .updateTable('messages')
+    .set({ direction: 'inbound', pending_action: true })
+    .where('id', '=', msg.id)
+    .execute();
+  expect((await call('POST', path, { type: 'spam', message_ids: [msg.id] })).statusCode).toBe(409);
+  expect(
+    await db.selectFrom('mail_rules').select('id').where('mailbox_id', '=', target.id).execute(),
+  ).toHaveLength(0);
+  expect(
+    (
+      await db
+        .selectFrom('messages')
+        .select('folder_id')
+        .where('id', '=', msg.id)
+        .executeTakeFirstOrThrow()
+    ).folder_id,
+  ).toBe(msg.folder_id);
+});
+it('spam deduplica confirmações concorrentes e falha com segurança sem pasta de destino', async () => {
+  const target = await mailbox('Spam concorrência');
+  const first = await message(target),
+    second = await message(target);
+  await db
+    .updateTable('messages')
+    .set({ from_address: first.from_address.toUpperCase() })
+    .where('id', '=', second.id)
+    .execute();
+  const path = '/mailboxes/' + target.id + '/messages/actions';
+  const responses = await Promise.all(
+    [first, second].map((msg) => call('POST', path, { type: 'spam', message_ids: [msg.id] })),
+  );
+  expect(responses.map((res) => res.statusCode)).toEqual([202, 202]);
+  expect(
+    await db.selectFrom('mail_rules').select('id').where('mailbox_id', '=', target.id).execute(),
+  ).toHaveLength(1);
+  const unavailable = await mailbox('Sem Spam');
+  const msg = await message(unavailable);
+  await db
+    .updateTable('folders')
+    .set({ special_use: null })
+    .where('mailbox_id', '=', unavailable.id)
+    .where('special_use', '=', 'junk')
+    .execute();
+  expect(
+    (
+      await call('POST', '/mailboxes/' + unavailable.id + '/messages/actions', {
+        type: 'spam',
+        message_ids: [msg.id],
+      })
+    ).statusCode,
+  ).toBe(409);
+  expect(
+    await db
+      .selectFrom('mail_rules')
+      .select('id')
+      .where('mailbox_id', '=', unavailable.id)
+      .execute(),
+  ).toHaveLength(0);
+  expect(
+    (
+      await db
+        .selectFrom('messages')
+        .select('folder_id')
+        .where('id', '=', msg.id)
+        .executeTakeFirstOrThrow()
+    ).folder_id,
+  ).toBe(msg.folder_id);
 });
 beforeAll(async () => {
   await migrate(url);

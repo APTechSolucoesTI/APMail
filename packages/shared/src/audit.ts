@@ -8,6 +8,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   'message.forwarded': 'E-mail encaminhado',
   'message.auto_replied': 'Resposta automática enviada',
   'message.move_requested': 'Movimentação de mensagem solicitada',
+  'message.spam_requested': 'Mensagem marcada como spam e regra de remetente criada',
   'message.delete_requested': 'Exclusão de mensagem solicitada',
   'message.restore_requested': 'Restauração de mensagem solicitada',
   'message.set_flag_requested': 'Sinalização de mensagem solicitada',

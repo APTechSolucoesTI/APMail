@@ -17,6 +17,17 @@ const msg: RuleMessage = {
   has_attachments: true,
 };
 describe('regras de e-mail', () => {
+  it('aceita endereço longo válido como condição sem alterar sua identidade', () => {
+    const address = 'a'.repeat(64) + '@' + 'b'.repeat(63) + '.' + 'c'.repeat(63) + '.example.test';
+    const condition = { field: 'from', operator: 'equals', value: address } as const;
+    expect(ruleConditionSchema.safeParse(condition).success).toBe(true);
+    expect(
+      evaluateConditions(
+        { match_mode: 'all', conditions: [condition] },
+        { ...msg, from_address: address },
+      ),
+    ).toBe(true);
+  });
   it('igualdade compara cada endereço, sem nome de exibição ou junção de destinatários', () => {
     for (const field of ['from', 'to', 'cc', 'any_recipient'] as const) {
       const value =

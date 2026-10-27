@@ -1,8 +1,15 @@
 # Navegação e rolagem dos e-mails
 
-Os cabeçalhos das caixas têm fundo azul-marinho e texto/ícones brancos nos dois
+Os cabeçalhos das caixas têm fundo azul-petróleo e texto/ícones brancos nos dois
 temas, separando as contas de suas filas, etiquetas e pastas. Um contorno indica
 a caixa selecionada; expansão e seleção continuam independentes.
+
+Em cada mensagem recebida, **Mais ações > Marcar como spam** move somente aquele
+e-mail para a pasta Spam e cria (ou reativa) uma regra da caixa para o endereço
+exato do remetente. Requer permissões de movimentação e de regras; a confirmação
+explica que os próximos e-mails desse endereço também serão filtrados. O filtro
+pode ser desativado em Configurações > Regras. Não altera outras caixas, não
+bloqueia o domínio e não equivale ao treinamento do antispam do provedor.
 
 O histórico da conversa exibe os e-mails do mais recente para o mais antigo, com a
 mensagem mais recente expandida. Mensagens não lidas continuam expandidas. Essa
