@@ -18,7 +18,6 @@ vi.mock('./message-actions', () => ({
 }));
 vi.mock('./read-receipt', () => ({ ReadReceipt: () => null }));
 vi.mock('./calendar-invite', () => ({ CalendarInvitation: () => null }));
-vi.mock('./message-spam-action', () => ({ MessageSpamAction: () => null }));
 vi.mock('@/components/contacts/contact-form', () => ({
   ContactEditorDialog: ({ id }: { id: string }) => <div role="dialog">Contato {id}</div>,
 }));

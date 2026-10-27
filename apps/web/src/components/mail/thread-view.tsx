@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Ellipsis, MailOpen, Pin, Tags } from 'lucide-react';
+import { ArrowLeft, Ellipsis, MailOpen, Pin, Tags, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
-import { can } from '@apmail/shared';
+import { can, normalizeRuleEmail } from '@apmail/shared';
 import { api, ApiError } from '@/lib/api';
-import { useTenantId, meQuery, useMailQueues } from '@/lib/auth';
+import { useTenantId, meQuery, useMailQueues, useAccess } from '@/lib/auth';
 import { useSocketRoom } from '@/hooks/use-socket-room';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -28,6 +28,7 @@ import { LabelBadge } from './label-badge';
 import { ThreadWorkflow } from './thread-workflow';
 import { ThreadNotes } from './thread-notes';
 import { ShareToChatDialog } from '@/components/chat/share-to-chat-dialog';
+import { SpamConfirmation } from './spam-confirmation';
 export function ThreadView({
   threadId,
   messageId,
@@ -65,6 +66,10 @@ export function ThreadView({
   useSocketRoom('thread', threadId);
   const [acting, setActing] = useState(false);
   const [labelsOpen, setLabelsOpen] = useState(false);
+  const [spam, setSpam] = useState<{ sender: string; messageIds: string[] } | null>(null);
+  const moreTrigger = useRef<HTMLButtonElement>(null);
+  const mayMove = useAccess('mail.move'),
+    mayRule = useAccess('rules');
   const lastMessage = q.data?.messages.at(-1)?.message_at;
   useEffect(() => {
     if (!lastMessage || messageId || folderId) return;
@@ -105,6 +110,26 @@ export function ThreadView({
   if (!q.data) return <ErrorState onRetry={() => void q.refetch()} />;
   const data = q.data,
     organize = can(data.my_role, 'organize');
+  const sender = [...data.messages]
+    .reverse()
+    .find((m) => m.direction === 'inbound' && !m.is_mdn)?.from_address;
+  const excludedFolders = new Set(
+    flattenFolders(folders)
+      .filter((f) => ['junk', 'trash'].includes(f.special_use ?? ''))
+      .map((f) => f.id),
+  );
+  const spamMessageIds = sender
+    ? data.messages
+        .filter(
+          (m) =>
+            m.direction === 'inbound' &&
+            !m.is_mdn &&
+            !m.pending_action &&
+            !excludedFolders.has(m.folder_id ?? '') &&
+            normalizeRuleEmail(m.from_address) === normalizeRuleEmail(sender),
+        )
+        .map((m) => m.id)
+    : [];
   return (
     <section aria-label="Conversa" className="h-full min-w-0 space-y-4 overflow-y-auto p-3 sm:p-4">
       <div className="space-y-3 border-b pb-4">
@@ -153,7 +178,7 @@ export function ThreadView({
           )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline" disabled={acting}>
+              <Button ref={moreTrigger} size="sm" variant="outline" disabled={acting}>
                 <Ellipsis />
                 Mais ações
               </Button>
@@ -164,6 +189,19 @@ export function ThreadView({
                 Etiquetas
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              {organize &&
+                can(data.my_role, 'rules') &&
+                mayMove &&
+                mayRule &&
+                sender &&
+                spamMessageIds.length > 0 && (
+                  <DropdownMenuItem
+                    onSelect={() => setSpam({ sender, messageIds: spamMessageIds })}
+                  >
+                    <ShieldAlert />
+                    Marcar como spam
+                  </DropdownMenuItem>
+                )}
               <DropdownMenuItem onSelect={() => void action('unread')}>
                 <MailOpen />
                 Marcar como não lida
@@ -181,6 +219,15 @@ export function ThreadView({
             </DropdownMenuContent>
           </DropdownMenu>
         </ThreadWorkflow>
+        {spam && (
+          <SpamConfirmation
+            mailboxId={mailboxId}
+            messageIds={spam.messageIds}
+            sender={spam.sender}
+            onClose={() => setSpam(null)}
+            returnFocusRef={moreTrigger}
+          />
+        )}
         {labelsOpen && (
           <ThreadLabels
             key={threadId}

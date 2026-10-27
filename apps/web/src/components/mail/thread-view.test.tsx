@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TenantContext } from '@/lib/auth';
 import { threadDetailKey, type Message, type ThreadDetail } from '@/lib/mail';
@@ -11,7 +11,7 @@ vi.mock('@/lib/api', async (original) => ({
   api: vi.fn(async () => ({})),
 }));
 
-function open(lastRead = '2026-10-26T12:00:00Z') {
+function open(lastRead = '2026-10-26T12:00:00Z', admin = false) {
   const messages: Message[] = ['Antigo', 'Intermediário', 'Recente'].map((name, index) => ({
     id: name,
     folder_id: 'inbox',
@@ -38,7 +38,7 @@ function open(lastRead = '2026-10-26T12:00:00Z') {
     pending_outbox: [],
     is_pinned: false,
     last_read_at: lastRead,
-    my_role: 'viewer',
+    my_role: admin ? 'mailbox_admin' : 'viewer',
     thread: {
       id: 'thread',
       subject: 'Conversa',
@@ -64,7 +64,7 @@ function open(lastRead = '2026-10-26T12:00:00Z') {
   client.setQueryData(['me'], {
     user: { id: 'viewer' },
     current_tenant_id: 'tenant',
-    tenants: [{ id: 'tenant', role: 'member' }],
+    tenants: [{ id: 'tenant', role: admin ? 'owner' : 'member' }],
     preferences: {
       mail_queues_enabled: false,
       timezone: 'America/Sao_Paulo',
@@ -98,6 +98,18 @@ it('mostra o mais recente primeiro e aberto, sem alterar o histórico usado pela
     messages,
   );
   expect(messages[0]!.id).toBe('Antigo');
+});
+
+it('oferece spam somente em Mais ações superior, ao lado de Organizar', async () => {
+  open(undefined, true);
+  const cards = screen.getAllByRole('article');
+  for (const card of cards)
+    expect(within(card).queryByRole('button', { name: /Mais ações/ })).not.toBeInTheDocument();
+  const more = screen.getByRole('button', { name: /^Mais ações$/ });
+  expect(more.parentElement).toContainElement(screen.getByRole('button', { name: /Organizar/ }));
+  fireEvent.keyDown(more, { key: 'Enter' });
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Marcar como spam' }));
+  expect(await screen.findByRole('alertdialog')).toHaveTextContent('recente@example.com');
 });
 
 it('preserva a abertura das mensagens não lidas mesmo abaixo da mais recente', () => {
