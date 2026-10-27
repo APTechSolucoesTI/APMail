@@ -11,11 +11,14 @@ import {
   listUnverifiedFiles,
   unverifiedQuery,
   audit,
+  securitySummary,
+  releaseRuleValidSql,
   type FileSecurityRow,
   type SecurityFileInput,
 } from '@apmail/db';
 import { requireTenantAdmin, conflict, notFound } from '../authz/context.js';
 import type { Resources } from './resources.js';
+import { registerAntivirusTrust } from './antivirus-trust.js';
 
 const schema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -24,7 +27,9 @@ const schema = z.object({
     .refine((n) => [10, 20, 30, 50, 100].includes(n))
     .default(10),
   search: z.string().max(200).optional(),
-  status: z.enum(['all', 'pending', 'clean', 'infected', 'error']).default('all'),
+  status: z
+    .enum(['all', 'pending', 'clean', 'infected', 'error', 'released', 'blocked'])
+    .default('all'),
 });
 const scope = (
   tenant: string,
@@ -39,6 +44,7 @@ const message = (code: string | null) =>
       ? 'A verificação não foi concluída. O arquivo permanece bloqueado.'
       : null;
 export async function registerAntivirus(app: FastifyInstance, r: Resources) {
+  await registerAntivirusTrust(app, r);
   const publish = async (row: FileSecurityRow) =>
     enqueueSecurityScan(r.queues['antivirus-scan'], row).catch(() =>
       app.log.warn({ file_id: row.id }, 'Análise persistida; publicação na fila será recuperada.'),
@@ -69,11 +75,33 @@ export async function registerAntivirus(app: FastifyInstance, r: Resources) {
       counts[key] += Number(row.n);
       counts.total += Number(row.n);
     }
+    const released = await r.db
+      .selectFrom('file_security')
+      .select(['status', sql<string>`count(*)`.as('n')])
+      .where('tenant_id', '=', c.tenantId)
+      .where('status', 'in', ['infected', 'error'])
+      .where('released_at', 'is not', null)
+      .whereRef('release_generation', '=', 'generation')
+      .where((eb) =>
+        eb.or([
+          eb('release_kind', '=', 'manual'),
+          eb.and([eb('release_kind', '=', 'sender'), releaseRuleValidSql]),
+        ]),
+      )
+      .groupBy('status')
+      .execute();
     const age = health.definitions_at
       ? (Date.now() - health.definitions_at.getTime()) / 3600000
       : null;
     const stale = Date.now() - health.checked_at.getTime() > 120000 || (age !== null && age > 48);
-    return { health: { ...health, stale, age_hours: age }, counts };
+    return {
+      health: { ...health, stale, age_hours: age },
+      counts: {
+        ...counts,
+        released: released.reduce((sum, row) => sum + Number(row.n), 0),
+        blocked: counts.infected - Number(released.find((f) => f.status === 'infected')?.n ?? 0),
+      },
+    };
   });
   for (const history of [false, true])
     app.get(prefix + (history ? '/history' : '/files'), async (req) => {
@@ -92,7 +120,10 @@ export async function registerAntivirus(app: FastifyInstance, r: Resources) {
         : sql`${registered} union all select u.resource_id as id,null::uuid as file_id,u.tenant_id,u.mailbox_id,u.message_id,u.filename,u.kind,u.content_type,
       u.size_bytes,'pending'::text,null::text,null::timestamptz,null::text,null::text,null::text,null::timestamptz,
       null::timestamptz,null::timestamptz from (${unverifiedQuery(c.tenantId)}) u`;
-      const filter = sql`where ${q.status === 'all' ? sql`true` : sql`f.status=${q.status}`}
+      const approved = sql`exists(select 1 from file_security where file_security.id=f.file_id and file_security.released_at is not null
+        and file_security.status in ('infected','error') and file_security.release_generation=file_security.generation
+        and (file_security.release_kind='manual' or (file_security.release_kind='sender' and ${releaseRuleValidSql})))`;
+      const filter = sql`where ${q.status === 'all' ? sql`true` : q.status === 'released' ? approved : q.status === 'blocked' ? sql`f.status='infected' and not ${approved}` : sql`f.status=${q.status}`}
       ${q.search ? sql`and (f.filename ilike ${'%' + q.search + '%'} or f.threat_name ilike ${'%' + q.search + '%'} or m.subject ilike ${'%' + q.search + '%'} or b.name ilike ${'%' + q.search + '%'})` : sql``}`;
       const base = sql`from (${source}) f left join messages m on m.id=f.message_id and m.tenant_id=${c.tenantId}
       left join mailboxes b on b.id=f.mailbox_id and b.tenant_id=${c.tenantId} ${filter}`;
@@ -101,10 +132,26 @@ export async function registerAntivirus(app: FastifyInstance, r: Resources) {
       );
       const rows = await sql<
         Record<string, unknown>
-      >`select f.*,b.name as mailbox_name,b.email_address as mailbox_email,m.thread_id,m.subject as message_subject
+      >`select f.*,b.name as mailbox_name,b.email_address as mailbox_email,m.thread_id,m.subject as message_subject,m.from_address,m.direction
       ${base} order by f.updated_at desc nulls last,f.id limit ${q.page_size} offset ${(q.page - 1) * q.page_size}`.execute(
         r.db,
       );
+      const fileIds = rows.rows.flatMap((row) =>
+        typeof row.file_id === 'string' ? [row.file_id] : [],
+      );
+      const evidence =
+        !history && fileIds.length
+          ? await r.db
+              .selectFrom('file_security')
+              .leftJoin('users', 'users.id', 'file_security.released_by')
+              .selectAll('file_security')
+              .select('users.full_name as released_by_name')
+              .select(releaseRuleValidSql.as('release_rule_valid'))
+              .where('file_security.tenant_id', '=', c.tenantId)
+              .where('file_security.id', 'in', fileIds)
+              .execute()
+          : [];
+      const securities = new Map(evidence.map((row) => [row.id, securitySummary(row)]));
       return {
         items: rows.rows.map((row) => ({
           id: row.id,
@@ -121,6 +168,9 @@ export async function registerAntivirus(app: FastifyInstance, r: Resources) {
           engine_version: row.engine_version,
           signature_version: row.signature_version,
           definitions_at: row.definitions_at,
+          ...securities.get(String(row.file_id)),
+          updated_at: row.updated_at,
+          sender: row.direction === 'inbound' ? row.from_address : null,
           created_at: row.created_at,
           mailbox: row.mailbox_id
             ? { id: row.mailbox_id, name: row.mailbox_name, email_address: row.mailbox_email }

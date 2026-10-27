@@ -52,7 +52,9 @@ beforeEach(() => {
 });
 it('loads health and history without automatically scheduling scans', async () => {
   open();
-  expect(await screen.findByText('ClamAV 1.5')).toBeVisible();
+  expect(await screen.findByText('Motor ClamAV')).toBeVisible();
+  fireEvent.click(screen.getByText('Detalhes do motor · ClamAV 1.5'));
+  expect(screen.getByText('ClamAV 1.5')).toBeVisible();
   expect(
     vi.mocked(api).mock.calls.every(([, options]) => !options?.method || options.method === 'GET'),
   ).toBe(true);
@@ -70,7 +72,7 @@ it('denies nonadmins and does not load tenant security data', () => {
 });
 it('asks for confirmation before bounded backfill', async () => {
   open();
-  await screen.findByText('ClamAV 1.5');
+  await screen.findByText('Motor ClamAV');
   fireEvent.click(screen.getByRole('button', { name: 'Verificar pendentes' }));
   expect(await screen.findByRole('alertdialog')).toBeVisible();
   expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);

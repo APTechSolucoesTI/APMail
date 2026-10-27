@@ -8,6 +8,8 @@ import { audit } from '../domain/audit.js';
 import { createNotification } from '../domain/notifications.js';
 import { probeClamAv, scanClamAv, type ClamAvOptions, type ClamAvScanResult } from './clamav.js';
 import type { FileSecurityRow } from './files.js';
+import { securityForFiles } from './files.js';
+import { applySenderTrust, clearedRelease } from './releases.js';
 
 export const antivirusOptions = (env: {
   CLAMAV_HOST: string;
@@ -123,6 +125,11 @@ export async function scanSecurityFile(
       .updateTable('file_security')
       .set({
         status: result.status,
+        ...(result.status === 'clean' ||
+        (result.status === 'infected' &&
+          (row.status !== 'infected' || row.threat_name !== result.threat_name))
+          ? clearedRelease
+          : {}),
         sha256: result.sha256,
         size_bytes: String(result.size_bytes),
         threat_name: result.threat_name?.slice(0, 200) ?? null,
@@ -168,7 +175,11 @@ export async function scanSecurityFile(
       })
       .onConflict((oc) => oc.columns(['file_id', 'generation', 'attempt']).doNothing())
       .execute();
-    if (row.tenant_id && result.status === 'infected') {
+    const effective = await applySenderTrust(tx, updated);
+    const allowed = (await securityForFiles(tx, [effective.storage_key])).get(
+      effective.storage_key,
+    )?.access_allowed;
+    if (row.tenant_id && result.status === 'infected' && !allowed) {
       await audit(tx, {
         tenantId: row.tenant_id,
         actorId: null,
@@ -196,7 +207,7 @@ export async function scanSecurityFile(
           payload: { file_id: id },
         });
     }
-    return updated;
+    return effective;
   });
 }
 export async function refreshAntivirusHealth(db: Kysely<DB>, options: ClamAvOptions) {

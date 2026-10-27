@@ -385,7 +385,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       })),
       cid_map: Object.fromEntries(
         attachments
-          .filter((a) => a.content_id && a.security.status === 'clean')
+          .filter((a) => a.content_id && a.security.access_allowed)
           .map((a) => [a.content_id, a.id]),
       ),
       labels: await r.db

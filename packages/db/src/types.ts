@@ -88,6 +88,21 @@ export interface AntivirusHealth {
   status: string;
 }
 
+export interface AntivirusSenderRules {
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  enabled: Generated<boolean>;
+  expires_at: Timestamp | null;
+  id: Generated<string>;
+  mailbox_id: string | null;
+  notes: Generated<string>;
+  policy: Generated<string>;
+  sender: string;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+  updated_by: string | null;
+}
+
 export interface Attachments {
   content_id: string | null;
   content_type: Generated<string>;
@@ -311,6 +326,7 @@ export interface FileSecurity {
   definitions_at: Timestamp | null;
   engine_version: string | null;
   error_code: string | null;
+  false_positive: Generated<boolean>;
   filename: string;
   generation: Generated<number>;
   id: Generated<string>;
@@ -320,6 +336,13 @@ export interface FileSecurity {
   mailbox_id: string | null;
   message_id: string | null;
   next_attempt_at: Generated<Timestamp>;
+  release_generation: number | null;
+  release_kind: string | null;
+  release_reason: string | null;
+  release_rule_id: string | null;
+  release_sha256: string | null;
+  released_at: Timestamp | null;
+  released_by: string | null;
   resource_id: string | null;
   scanned_at: Timestamp | null;
   sha256: string | null;
@@ -331,6 +354,22 @@ export interface FileSecurity {
   threat_name: string | null;
   updated_at: Generated<Timestamp>;
   user_id: string | null;
+}
+
+export interface FileSecurityDecisions {
+  action: string;
+  actor_id: string | null;
+  created_at: Generated<Timestamp>;
+  false_positive: Generated<boolean>;
+  file_id: string;
+  generation: number;
+  id: Generated<string>;
+  reason: string;
+  rule_id: string | null;
+  scan_status: string;
+  sha256: string;
+  tenant_id: string;
+  threat_name: string | null;
 }
 
 export interface FolderPermissions {
@@ -1273,6 +1312,7 @@ export interface UserTwoFactor {
 export interface DB {
   access_profiles: AccessProfiles;
   antivirus_health: AntivirusHealth;
+  antivirus_sender_rules: AntivirusSenderRules;
   attachments: Attachments;
   audit_logs: AuditLogs;
   auth_two_factor_challenges: AuthTwoFactorChallenges;
@@ -1288,6 +1328,7 @@ export interface DB {
   contacts: Contacts;
   file_scan_history: FileScanHistory;
   file_security: FileSecurity;
+  file_security_decisions: FileSecurityDecisions;
   folder_permissions: FolderPermissions;
   folders: Folders;
   google_connections: GoogleConnections;

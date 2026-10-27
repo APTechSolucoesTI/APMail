@@ -15,6 +15,7 @@ export * from './config.js';
 export * from './security/clamav.js';
 export * from './security/files.js';
 export * from './security/processor.js';
+export * from './security/releases.js';
 export * from './security/discovery.js';
 export * from './smtp-identity.js';
 export * from './google/client.js';

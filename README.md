@@ -7,7 +7,8 @@ espera progressiva, retomada da sincronização e distinção entre queda tempor
 senha inválida e falha TLS. Migration aditiva `0057`; publicar API/worker/web juntos.
 
 [Proteção de anexos e ClamAV](docs/ANTIVIRUS-CLAMAV.md): análise assíncrona, quarentena,
-bloqueios de download/prévia/envio e central administrativa. Migration aditiva `0056`;
+bloqueios de download/prévia/envio e central administrativa. Migrations aditivas `0056`
+e `0061` (liberação auditada, possíveis falsos positivos e regras de remetentes confiáveis).
 API/worker precisam alcançar o ClamD privado na `dokploy-network`. Arquivos antigos
 exigem backfill controlado; limite atual do scanner compartilhado: 25 MiB.
 

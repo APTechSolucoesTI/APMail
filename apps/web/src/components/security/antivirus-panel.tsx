@@ -2,11 +2,29 @@ import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isTenantAdmin, type ListQuery } from '@apmail/shared';
-import { RefreshCw, ShieldCheck, ShieldAlert, ScanLine } from 'lucide-react';
+import {
+  RefreshCw,
+  ShieldCheck,
+  ShieldAlert,
+  ScanLine,
+  FileCheck2,
+  ShieldOff,
+  ExternalLink,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { meQuery, useTenantId } from '@/lib/auth';
-import { type AntivirusFile, type AntivirusOverview, antivirusExplanation } from '@/lib/antivirus';
+import {
+  type AntivirusFile,
+  type AntivirusOverview,
+  type ReleaseTarget,
+  antivirusExplanation,
+  attachmentCanOpen,
+} from '@/lib/antivirus';
+import { FileReleaseDialog } from './file-release-dialog';
+import { SenderTrustSettings } from './sender-trust-settings';
+import { AntivirusDecisions } from './antivirus-decisions';
+import { MailActionButton } from '@/components/mail/mail-action-button';
 import { AttachmentSafetyBadge } from '@/components/mail/attachment-safety';
 import { PageHeader } from '@/components/layout/page-header';
 import { ConfigurableTable } from '@/components/data/configurable-table';
@@ -21,7 +39,7 @@ import { StatusBadge } from '@/components/common/status-badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 
-type Mode = 'files' | 'threats' | 'history';
+type Mode = 'files' | 'threats' | 'history' | 'trust' | 'decisions';
 const healthLabels = {
   online: 'Online',
   offline: 'Offline',
@@ -34,6 +52,8 @@ const statusLabels = {
   clean: 'Verificados',
   infected: 'Bloqueados',
   error: 'Falhas de verificação',
+  released: 'Liberados por confiança',
+  blocked: 'Bloqueados atualmente',
 };
 export function AntivirusPanel({ query }: { query: ListQuery }) {
   const tenant = useTenantId();
@@ -43,9 +63,22 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
   const client = useQueryClient();
   const timezone = me?.preferences.timezone ?? 'America/Sao_Paulo';
   const [mode, setMode] = useState<Mode>('files');
+  const [selection, setSelection] = useState<string[]>([]);
+  const [release, setRelease] = useState<{ targets: ReleaseTarget[]; revoke: boolean } | null>(
+    null,
+  );
+  const target = (row: AntivirusFile): ReleaseTarget => ({
+    ...row,
+    id: row.file_id ?? row.id,
+    mailbox_id: row.mailbox?.id,
+  });
+  const eligible = (row: AntivirusFile) =>
+    !!row.file_id &&
+    ['attachment', 'upload'].includes(row.kind) &&
+    ['infected', 'error'].includes(row.status);
   const [backfill, setBackfill] = useState<'unverified' | 'failed' | null>(null);
   const [limit, setLimit] = useState<10 | 50 | 100 | 500>(50);
-  const status = mode === 'threats' ? 'infected' : (query.filters.status?.[0] ?? 'all');
+  const status = mode === 'threats' ? 'blocked' : (query.filters.status?.[0] ?? 'all');
   const parameters = new URLSearchParams({
     page: String(query.page),
     page_size: String(query.pageSize),
@@ -65,7 +98,7 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
         '/security/antivirus/' + (mode === 'history' ? 'history' : 'files') + '?' + parameters,
         { signal },
       ),
-    enabled: admin,
+    enabled: admin && ['files', 'threats', 'history'].includes(mode),
     placeholderData: keepPreviousData,
     refetchInterval: 15000,
   });
@@ -135,33 +168,38 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
                 icon={health.status === 'online' ? ShieldCheck : ShieldAlert}
               />
             </div>
-            <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <dt className="text-xs text-muted-foreground">Versão do motor</dt>
-                <dd className="mt-1 text-sm font-medium">
-                  {health.engine_version ?? 'Não disponível'}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Versão das assinaturas</dt>
-                <dd className="mt-1 break-all font-mono text-xs">
-                  {health.signature_version ?? 'Não disponível'}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Atualização das assinaturas</dt>
-                <dd className="mt-1 text-sm">{date(health.definitions_at)}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Idade das assinaturas</dt>
-                <dd className="mt-1 text-sm">
-                  {health.age_hours == null
-                    ? 'Não disponível'
-                    : `${Math.round(health.age_hours)} horas`}
-                  {health.stale && <span className="ml-2 text-warning-fg">Desatualizadas</span>}
-                </dd>
-              </div>
-            </dl>
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                Detalhes do motor · {health.engine_version ?? 'versão indisponível'}
+              </summary>
+              <dl className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <dt className="text-xs text-muted-foreground">Versão do motor</dt>
+                  <dd className="mt-1 text-sm font-medium">
+                    {health.engine_version ?? 'Não disponível'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Versão das assinaturas</dt>
+                  <dd className="mt-1 break-all font-mono text-xs">
+                    {health.signature_version ?? 'Não disponível'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Atualização das assinaturas</dt>
+                  <dd className="mt-1 text-sm">{date(health.definitions_at)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Idade das assinaturas</dt>
+                  <dd className="mt-1 text-sm">
+                    {health.age_hours == null
+                      ? 'Não disponível'
+                      : `${Math.round(health.age_hours)} horas`}
+                    {health.stale && <span className="ml-2 text-warning-fg">Desatualizadas</span>}
+                  </dd>
+                </div>
+              </dl>
+            </details>
             {(health.status !== 'online' || health.stale) && (
               <p
                 role="status"
@@ -172,20 +210,24 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
                   : 'As assinaturas precisam de atualização. Confira a atualização do serviço antes de iniciar novas verificações.'}
               </p>
             )}
-            <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t pt-4 sm:grid-cols-5">
+            <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t pt-4 sm:grid-cols-3 lg:grid-cols-6">
               {(
                 [
                   ['total', 'Arquivos'],
                   ['pending', 'Pendentes'],
                   ['clean', 'Verificados'],
-                  ['infected', 'Bloqueados'],
+                  ['blocked', 'Bloqueados'],
                   ['error', 'Falhas'],
+                  ['released', 'Liberados por confiança'],
                 ] as const
               ).map(([key, label]) => (
                 <div key={key}>
                   <dt className="text-xs text-muted-foreground">{label}</dt>
                   <dd className="mt-1 text-lg font-semibold tabular-nums">
-                    {overview.data.counts[key].toLocaleString('pt-BR')}
+                    {(
+                      overview.data.counts[key] ??
+                      (key === 'blocked' ? overview.data.counts.infected : 0)
+                    ).toLocaleString('pt-BR')}
                   </dd>
                 </div>
               ))}
@@ -200,6 +242,8 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
               ['files', 'Arquivos'],
               ['threats', 'Ameaças e bloqueios'],
               ['history', 'Histórico'],
+              ['trust', 'Remetentes confiáveis'],
+              ['decisions', 'Liberações e decisões'],
             ] as const
           ).map(([value, label]) => (
             <Button
@@ -208,6 +252,7 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
               aria-pressed={mode === value}
               onClick={() => {
                 setMode(value);
+                setSelection([]);
                 change({ ...query, page: 1 });
               }}
             >
@@ -239,153 +284,250 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
               </select>
             </>
           )}
-          <Button variant="outline" onClick={() => setBackfill('failed')}>
-            Repetir falhas
-          </Button>
+          {['files', 'threats', 'history'].includes(mode) && (
+            <Button variant="outline" onClick={() => setBackfill('failed')}>
+              Repetir falhas
+            </Button>
+          )}
         </div>
       </div>
-      <p className="mb-3 text-xs text-muted-foreground">
-        {mode === 'history'
-          ? 'Cada linha preserva o resultado de uma análise. Uma nova verificação não apaga resultados anteriores.'
-          : 'Somente arquivos verificados são liberados para abrir e enviar. Bloqueios por criptografia ou limites são preventivos e não confirmam malware.'}{' '}
-        Horários em {timezone}.
-      </p>
-      <ConfigurableTable<AntivirusFile>
-        listKey={'antivirus-' + mode + '-v1'}
-        mode="server"
-        query={query}
-        onQueryChange={change}
-        data={files.data?.items ?? []}
-        total={files.data?.total ?? 0}
-        isLoading={files.isLoading}
-        isFetching={files.isFetching}
-        error={files.error}
-        onRetry={() => void files.refetch()}
-        searchPlaceholder="Buscar nome do arquivo ou ameaça…"
-        emptyState={
-          <EmptyState
-            icon={ShieldCheck}
-            title={
-              mode === 'history'
-                ? 'Nenhuma verificação registrada'
-                : mode === 'threats'
-                  ? 'Nenhuma ameaça ou bloqueio'
-                  : 'Nenhum arquivo encontrado'
+      {['files', 'threats', 'history'].includes(mode) && (
+        <>
+          <p className="mb-3 text-xs text-muted-foreground">
+            {mode === 'history'
+              ? 'Cada linha preserva o resultado de uma análise. Uma nova verificação não apaga resultados anteriores.'
+              : 'Bloqueios por senha e limites são preventivos. Selecione anexos para liberar, registrar um possível falso positivo ou revogar uma liberação. O resultado original permanece no histórico.'}{' '}
+            Horários em {timezone}.
+          </p>
+          <ConfigurableTable<AntivirusFile>
+            listKey={'antivirus-' + mode + '-v1'}
+            mode="server"
+            query={query}
+            onQueryChange={change}
+            selectable={mode !== 'history'}
+            selectedIds={selection}
+            onSelectionChange={setSelection}
+            bulkActions={(ids) => {
+              const selected = (files.data?.items ?? []).filter(
+                (row) => ids.includes(row.id) && eligible(row),
+              );
+              const blocked = selected.filter((row) => !attachmentCanOpen(row));
+              const approved = selected.filter(attachmentCanOpen);
+              return (
+                <>
+                  <Button
+                    size="sm"
+                    disabled={!blocked.length}
+                    onClick={() => setRelease({ targets: blocked.map(target), revoke: false })}
+                  >
+                    <FileCheck2 className="size-4" />
+                    Liberar {blocked.length} anexo(s)
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!approved.length}
+                    onClick={() => setRelease({ targets: approved.map(target), revoke: true })}
+                  >
+                    <ShieldOff className="size-4" />
+                    Revogar {approved.length}
+                  </Button>
+                  {selected.length < ids.length && (
+                    <span className="text-xs text-muted-foreground">
+                      {ids.length - selected.length} arquivo(s) sem bloqueio elegível.
+                    </span>
+                  )}
+                </>
+              );
+            }}
+            data={files.data?.items ?? []}
+            total={files.data?.total ?? 0}
+            isLoading={files.isLoading}
+            isFetching={files.isFetching}
+            error={files.error}
+            onRetry={() => void files.refetch()}
+            searchPlaceholder="Buscar nome do arquivo ou ameaça…"
+            emptyState={
+              <EmptyState
+                icon={ShieldCheck}
+                title={
+                  mode === 'history'
+                    ? 'Nenhuma verificação registrada'
+                    : mode === 'threats'
+                      ? 'Nenhuma ameaça ou bloqueio'
+                      : 'Nenhum arquivo encontrado'
+                }
+                description={
+                  mode === 'history'
+                    ? 'Os resultados aparecerão após o processamento dos anexos.'
+                    : 'Os anexos recebidos e enviados serão acompanhados nesta área.'
+                }
+              />
             }
-            description={
-              mode === 'history'
-                ? 'Os resultados aparecerão após o processamento dos anexos.'
-                : 'Os anexos recebidos e enviados serão acompanhados nesta área.'
-            }
+            columns={[
+              {
+                id: 'filename',
+                header: 'Arquivo',
+                sortable: false,
+                cell: (row) => (
+                  <div className="max-w-80">
+                    <p className="truncate font-medium" title={row.filename}>
+                      {row.filename}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {(
+                        {
+                          upload: 'Anexo de composição',
+                          attachment: 'Anexo de mensagem',
+                          signature_image: 'Imagem de assinatura',
+                          avatar: 'Foto de perfil',
+                          mail_import: 'Arquivo de importação',
+                          mail_export: 'Backup exportado',
+                          mail_raw: 'Mensagem original',
+                        } as Record<string, string>
+                      )[row.kind] ?? 'Arquivo'}{' '}
+                      · {Math.ceil(row.size_bytes / 1024).toLocaleString('pt-BR')} KB
+                    </p>
+                  </div>
+                ),
+              },
+              {
+                id: 'status',
+                header: 'Resultado',
+                sortable: false,
+                cell: (row) => (
+                  <div className="max-w-80 space-y-1">
+                    <AttachmentSafetyBadge security={row} />
+                    {row.status !== 'clean' && (
+                      <p
+                        className="line-clamp-2 max-w-72 whitespace-normal break-words text-xs text-muted-foreground"
+                        title={antivirusExplanation(row)}
+                      >
+                        {row.access_allowed
+                          ? 'Acesso autorizado. Resultado original preservado.'
+                          : antivirusExplanation(row)}
+                      </p>
+                    )}
+                    {row.threat_name && (
+                      <p
+                        className="line-clamp-2 max-w-72 whitespace-normal break-all font-mono text-xs"
+                        title={row.threat_name}
+                      >
+                        {row.threat_name}
+                      </p>
+                    )}
+                    {row.false_positive && (
+                      <p className="text-xs text-primary">Possível falso positivo</p>
+                    )}
+                  </div>
+                ),
+              },
+              {
+                id: 'mailbox',
+                header: 'Caixa de e-mail',
+                sortable: false,
+                cell: (row) => (
+                  <span title={row.mailbox?.email_address}>
+                    {row.mailbox?.name ?? 'Sem caixa vinculada'}
+                  </span>
+                ),
+              },
+              {
+                id: 'subject',
+                header: 'Mensagem',
+                sortable: false,
+                defaultVisible: false,
+                cell: (row) => (
+                  <span title={row.message?.subject}>
+                    {row.message?.subject || 'Sem mensagem vinculada'}
+                  </span>
+                ),
+              },
+              {
+                id: 'scanned_at',
+                header: 'Última análise',
+                sortable: false,
+                cell: (row) => (
+                  <span className="whitespace-nowrap tabular-nums">{date(row.scanned_at)}</span>
+                ),
+              },
+              {
+                id: 'engine_version',
+                header: 'Motor',
+                sortable: false,
+                defaultVisible: false,
+                cell: (row) => row.engine_version ?? 'Não disponível',
+              },
+              {
+                id: 'definitions_at',
+                header: 'Assinaturas utilizadas',
+                sortable: false,
+                defaultVisible: false,
+                cell: (row) => date(row.definitions_at),
+              },
+            ]}
+            rowActions={(row) => (
+              <div className="flex">
+                {mode !== 'history' && eligible(row) && (
+                  <MailActionButton
+                    label={
+                      (attachmentCanOpen(row) ? 'Revogar liberação de ' : 'Liberar ') + row.filename
+                    }
+                    onClick={() =>
+                      setRelease({ targets: [target(row)], revoke: attachmentCanOpen(row) })
+                    }
+                  >
+                    {attachmentCanOpen(row) ? <ShieldOff /> : <FileCheck2 />}
+                  </MailActionButton>
+                )}
+                {row.mailbox && row.message?.thread_id && (
+                  <MailActionButton
+                    label={'Abrir e-mail de ' + row.filename}
+                    onClick={() =>
+                      void navigate({
+                        to: '/mail/$mailboxId',
+                        params: { mailboxId: row.mailbox!.id },
+                        search: { thread: row.message!.thread_id },
+                      })
+                    }
+                  >
+                    <ExternalLink />
+                  </MailActionButton>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={'Reanalisar ' + row.filename}
+                  disabled={rescan.isPending || (mode === 'history' && !row.file_id)}
+                  onClick={() => rescan.mutate(mode === 'history' ? row.file_id! : row.id)}
+                >
+                  <RefreshCw
+                    aria-hidden
+                    className={
+                      'size-4 ' +
+                      (rescan.isPending && rescan.variables === (row.file_id ?? row.id)
+                        ? 'animate-spin motion-reduce:animate-none'
+                        : '')
+                    }
+                  />
+                </Button>
+              </div>
+            )}
           />
-        }
-        columns={[
-          {
-            id: 'filename',
-            header: 'Arquivo',
-            sortable: false,
-            cell: (row) => (
-              <div className="max-w-80">
-                <p className="truncate font-medium" title={row.filename}>
-                  {row.filename}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {(
-                    {
-                      upload: 'Anexo de composição',
-                      attachment: 'Anexo de mensagem',
-                      signature_image: 'Imagem de assinatura',
-                      avatar: 'Foto de perfil',
-                      mail_import: 'Arquivo de importação',
-                      mail_export: 'Backup exportado',
-                      mail_raw: 'Mensagem original',
-                    } as Record<string, string>
-                  )[row.kind] ?? 'Arquivo'}{' '}
-                  · {Math.ceil(row.size_bytes / 1024).toLocaleString('pt-BR')} KB
-                </p>
-              </div>
-            ),
-          },
-          {
-            id: 'status',
-            header: 'Resultado',
-            sortable: false,
-            cell: (row) => (
-              <div className="max-w-80 space-y-1">
-                <AttachmentSafetyBadge security={row} />
-                {row.status !== 'clean' && (
-                  <p className="text-xs text-muted-foreground">{antivirusExplanation(row)}</p>
-                )}
-                {row.threat_name && (
-                  <p className="break-all font-mono text-xs">{row.threat_name}</p>
-                )}
-              </div>
-            ),
-          },
-          {
-            id: 'mailbox',
-            header: 'Caixa de e-mail',
-            sortable: false,
-            cell: (row) => (
-              <span title={row.mailbox?.email_address}>
-                {row.mailbox?.name ?? 'Sem caixa vinculada'}
-              </span>
-            ),
-          },
-          {
-            id: 'subject',
-            header: 'Mensagem',
-            sortable: false,
-            defaultVisible: false,
-            cell: (row) => (
-              <span title={row.message?.subject}>
-                {row.message?.subject || 'Sem mensagem vinculada'}
-              </span>
-            ),
-          },
-          {
-            id: 'scanned_at',
-            header: 'Última análise',
-            sortable: false,
-            cell: (row) => (
-              <span className="whitespace-nowrap tabular-nums">{date(row.scanned_at)}</span>
-            ),
-          },
-          {
-            id: 'engine_version',
-            header: 'Motor',
-            sortable: false,
-            defaultVisible: false,
-            cell: (row) => row.engine_version ?? 'Não disponível',
-          },
-          {
-            id: 'definitions_at',
-            header: 'Assinaturas utilizadas',
-            sortable: false,
-            defaultVisible: false,
-            cell: (row) => date(row.definitions_at),
-          },
-        ]}
-        rowActions={(row) => (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={'Reanalisar ' + row.filename}
-            disabled={rescan.isPending || (mode === 'history' && !row.file_id)}
-            onClick={() => rescan.mutate(mode === 'history' ? row.file_id! : row.id)}
-          >
-            <RefreshCw
-              aria-hidden
-              className={
-                'size-4 ' +
-                (rescan.isPending && rescan.variables === (row.file_id ?? row.id)
-                  ? 'animate-spin motion-reduce:animate-none'
-                  : '')
-              }
-            />
-          </Button>
-        )}
-      />
+        </>
+      )}
+      {mode === 'trust' && <SenderTrustSettings query={query} onQueryChange={change} />}
+      {mode === 'decisions' && <AntivirusDecisions query={query} onQueryChange={change} />}
+      {release && (
+        <FileReleaseDialog
+          targets={release.targets}
+          revoke={release.revoke}
+          onClose={() => {
+            setRelease(null);
+            setSelection([]);
+          }}
+        />
+      )}
       <ConfirmDialog
         open={backfill !== null}
         onOpenChange={(open) => {

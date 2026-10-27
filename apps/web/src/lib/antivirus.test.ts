@@ -21,4 +21,24 @@ describe('attachment safety policy', () => {
       'Bloqueado por política',
     );
   });
+  it('allows approved access while keeping trust distinct from a clean scan', () => {
+    const approved = {
+      status: 'infected' as const,
+      threat_name: 'Heuristics.Encrypted.PDF',
+      access_allowed: true,
+      release_kind: 'manual',
+    };
+    expect(attachmentCanOpen(approved)).toBe(true);
+    expect(antivirusStatusLabel(approved)).toBe('Liberado manualmente');
+    expect(antivirusStatusLabel({ ...approved, release_kind: 'sender' })).toBe(
+      'Remetente confiável',
+    );
+    expect(
+      antivirusStatusLabel({
+        ...approved,
+        access_allowed: false,
+        threat_name: 'Trojan.Encrypted.PDF',
+      }),
+    ).toBe('Ameaça detectada');
+  });
 });

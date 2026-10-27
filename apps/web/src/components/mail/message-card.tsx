@@ -1,4 +1,5 @@
 import { ReceivedAttachment, SecuredEmailBody } from './attachment-safety';
+import { AttachmentPdfPreview } from './attachment-pdf-preview';
 import { useId, useState } from 'react';
 import { Flag, Plus, Minus, Reply, ReplyAll, Forward } from 'lucide-react';
 import { UserAvatar } from '@/components/common/user-avatar';
@@ -55,6 +56,10 @@ export function MessageCard({
       ? message.to_addresses[0]!
       : { name: message.from_name, address: message.from_address };
   const contactIdentity = resolveAddress(contactAddress, contacts);
+  // Blocked inline files also need visible release controls, including inline PDFs without a CID.
+  const visibleAttachments = message.attachments.filter(
+    (a) => !a.is_inline || !a.content_id || a.security?.status !== 'clean',
+  );
   return (
     <article className="@container/message rounded-lg border bg-card text-card-foreground">
       <header className="grid grid-cols-1 items-start gap-2 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-3">
@@ -244,13 +249,11 @@ export function MessageCard({
               loadRemoteImages={loadRemoteImages}
             />
           )}
-          {!!message.attachments.filter((a) => !a.is_inline).length && (
+          {!!visibleAttachments.length && (
             <ul className="flex flex-wrap gap-2">
-              {message.attachments
-                .filter((a) => !a.is_inline)
-                .map((a) => (
-                  <ReceivedAttachment key={a.id} attachment={a} onPreview={setPreview} />
-                ))}
+              {visibleAttachments.map((a) => (
+                <ReceivedAttachment key={a.id} attachment={a} onPreview={setPreview} />
+              ))}
             </ul>
           )}
         </div>
@@ -261,7 +264,7 @@ export function MessageCard({
           if (!v) setPreview(null);
         }}
       >
-        <DialogContent className="sm:max-w-3xl">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{preview?.filename}</DialogTitle>
             <DialogDescription>Pré-visualização do anexo recebido.</DialogDescription>
@@ -274,12 +277,7 @@ export function MessageCard({
             />
           ) : (
             preview && (
-              <iframe
-                src={'/api/attachments/' + preview.id + '/inline'}
-                title={preview.filename}
-                sandbox=""
-                className="h-[65dvh] w-full rounded-md border"
-              />
+              <AttachmentPdfPreview attachmentId={preview.id} filename={preview.filename} />
             )
           )}
         </DialogContent>

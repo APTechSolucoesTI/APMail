@@ -49,7 +49,36 @@ type SecurityEvidence = {
   error_code: string | null;
   engine_version: string | null;
   definitions_at: Date | string | null;
+  updated_at?: Date | string | null;
+  generation?: number;
+  sha256?: string | null;
+  released_at?: Date | string | null;
+  released_by?: string | null;
+  release_reason?: string | null;
+  release_kind?: string | null;
+  release_rule_id?: string | null;
+  release_generation?: number | null;
+  release_sha256?: string | null;
+  false_positive?: boolean;
+  access_allowed?: boolean;
+  release_rule_valid?: boolean;
+  released_by_name?: string | null;
 };
+export const isFileReleased = (row: SecurityEvidence | null | undefined) =>
+  !!row &&
+  ['infected', 'error'].includes(row.status) &&
+  !!row.released_at &&
+  !!row.release_sha256 &&
+  (row.release_kind !== 'sender' || row.release_rule_valid === true) &&
+  row.release_generation === row.generation &&
+  (!row.sha256 || row.sha256 === row.release_sha256);
+export const releaseRuleValidSql = sql<boolean>`exists(select 1 from antivirus_sender_rules r
+ join messages m on m.id=file_security.message_id and m.tenant_id=r.tenant_id
+ where r.id=file_security.release_rule_id and r.tenant_id=file_security.tenant_id and r.enabled
+ and (r.expires_at is null or r.expires_at>now()) and m.direction='inbound' and m.deleted_at is null
+ and lower(trim(m.from_address))=r.sender and (r.mailbox_id is null or r.mailbox_id=file_security.mailbox_id)
+ and (file_security.threat_name ~* '^Heuristics[.]Encrypted([.][A-Za-z0-9_-]+)*$'
+ or (r.policy='preventive' and file_security.threat_name ~* '^Heuristics[.]Limits[.]Exceeded([.][A-Za-z0-9_-]+)*$'))) `;
 const instant = (value: Date | string | null | undefined) =>
   typeof value === 'string' ? value : (value?.toISOString() ?? null);
 export const securitySummary = (row: SecurityEvidence | null | undefined) => ({
@@ -60,12 +89,24 @@ export const securitySummary = (row: SecurityEvidence | null | undefined) => ({
   error_code: row?.error_code ?? null,
   engine_version: row?.engine_version ?? null,
   definitions_at: instant(row?.definitions_at),
+  updated_at: instant(row?.updated_at),
+  access_allowed: row?.status === 'clean' || isFileReleased(row) || row?.access_allowed === true,
+  released_at: instant(row?.released_at),
+  released_by: row?.released_by ?? null,
+  released_by_name: row?.released_by_name ?? null,
+  release_reason: row?.release_reason ?? null,
+  release_kind: row?.release_kind ?? null,
+  release_rule_id: row?.release_rule_id ?? null,
+  false_positive: row?.false_positive ?? false,
 });
 export async function securityForFiles(db: Kysely<DB>, paths: string[]) {
   const rows = paths.length
     ? await db
         .selectFrom('file_security')
-        .selectAll()
+        .leftJoin('users', 'users.id', 'file_security.released_by')
+        .selectAll('file_security')
+        .select('users.full_name as released_by_name')
+        .select(releaseRuleValidSql.as('release_rule_valid'))
         .where('storage_key', 'in', [...new Set(paths)])
         .execute()
     : [];
@@ -91,6 +132,7 @@ export async function registerSecurityFile(
   const existing = await db
     .selectFrom('file_security')
     .selectAll()
+    .select(releaseRuleValidSql.as('release_rule_valid'))
     .where('storage_key', '=', input.storage_key)
     .executeTakeFirstOrThrow();
   if (
@@ -141,15 +183,18 @@ export async function assertFilesClean(db: Kysely<DB>, paths: string[], storage?
   const rows = await db
     .selectFrom('file_security')
     .selectAll()
+    .select(releaseRuleValidSql.as('release_rule_valid'))
     .where('storage_key', 'in', [...new Set(paths)])
     .execute();
   const byPath = new Map(rows.map((row) => [row.storage_key, row]));
   for (const path of new Set(paths)) {
     const row = byPath.get(path);
+    const released = isFileReleased(row);
     if (!row || row.status === 'pending') throw new FileSecurityError('file_pending');
-    if (row.status === 'infected') throw new FileSecurityError('file_infected');
-    if (row.status !== 'clean' || !row.sha256 || !row.scanned_at)
+    if (row.status === 'infected' && !released) throw new FileSecurityError('file_infected');
+    if (!released && (row.status !== 'clean' || !row.sha256 || !row.scanned_at))
       throw new FileSecurityError('file_scan_error');
+    const expectedHash = released ? row.release_sha256 : row.sha256;
     if (storage) {
       let valid = false;
       try {
@@ -157,7 +202,7 @@ export async function assertFilesClean(db: Kysely<DB>, paths: string[], storage?
         if (stat && stat.size.toString() === String(row.size_bytes)) {
           const hash = createHash('sha256');
           for await (const chunk of await storage.openReadStream(path)) hash.update(chunk);
-          valid = hash.digest('hex') === row.sha256;
+          valid = hash.digest('hex') === expectedHash;
         }
       } catch {
         /* A missing or changed file is never released using old evidence. */

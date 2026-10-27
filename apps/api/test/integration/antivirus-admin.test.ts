@@ -1,5 +1,7 @@
 import { beforeAll, afterAll, beforeEach, expect, it, vi } from 'vitest';
-import { randomUUID, randomBytes } from 'node:crypto';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import Fastify from 'fastify';
 import { sql } from 'kysely';
 import { Server } from 'socket.io';
@@ -10,6 +12,10 @@ import {
   registerSecurityFile,
   refreshAntivirusHealth,
   countUnverifiedFiles,
+  Storage,
+  assertFilesClean,
+  applySenderTrust,
+  securityForFiles,
 } from '@apmail/db';
 import { ZodError } from 'zod';
 import { registerAntivirus } from '../../src/modules/antivirus.js';
@@ -42,6 +48,7 @@ const env = envSchema.parse({
   APP_URL: 'http://localhost:5173',
   SESSION_SECRET: secret,
   CREDENTIALS_ENCRYPTION_KEY: secret,
+  STORAGE_DIR: join(tmpdir(), 'apmail-trust-' + tenant),
 });
 let role: 'owner' | 'admin' | 'member' | 'supervisor' = 'owner',
   authenticated = true;
@@ -82,7 +89,7 @@ app.setErrorHandler((error, _req, reply) => {
     error: { code: 'internal', message: error instanceof Error ? error.message : 'failed' },
   });
 });
-const call = (method: 'GET' | 'POST', path: string, body?: unknown) =>
+const call = (method: 'GET' | 'POST' | 'PATCH', path: string, body?: unknown) =>
   app.inject({
     method,
     url: '/api/security/antivirus' + path,
@@ -522,4 +529,177 @@ it('retries failed files only for this tenant and skips active leases', async ()
           .executeTakeFirstOrThrow()
       ).status,
     ).toBe(status);
+});
+
+async function blockedFile(threat = 'Heuristics.Encrypted.PDF') {
+  const id = randomUUID(),
+    storage = new Storage(env.STORAGE_DIR),
+    data = Buffer.from('Synthetic invoice ' + id),
+    path = prefix + '/' + id;
+  await storage.writeFile(path, data);
+  const file = await registerSecurityFile(db, {
+    tenant_id: tenant,
+    mailbox_id: mailbox,
+    message_id: message,
+    resource_id: id,
+    kind: 'attachment',
+    storage_key: path,
+    filename: 'fatura-' + id + '.pdf',
+    content_type: 'application/pdf',
+    size_bytes: data.length,
+  });
+  return db
+    .updateTable('file_security')
+    .set({
+      status: 'infected',
+      threat_name: threat,
+      sha256: createHash('sha256').update(data).digest('hex'),
+      scanned_at: new Date(),
+    })
+    .where('id', '=', file.id)
+    .returningAll()
+    .executeTakeFirstOrThrow();
+}
+it('requires admin permission and explicit consent, releases a batch atomically and records revocation', async () => {
+  const a = await blockedFile(),
+    b = await blockedFile();
+  const input = {
+    file_ids: [a.id, b.id],
+    reason: 'Faturas conhecidas e conferidas pelo administrador.',
+    false_positive: true,
+    acknowledge_risk: true,
+  };
+  role = 'member';
+  expect((await call('POST', '/releases', input)).statusCode).toBe(403);
+  expect((await call('GET', '/rules')).statusCode).toBe(403);
+  role = 'owner';
+  expect((await call('POST', '/releases', { ...input, acknowledge_risk: false })).statusCode).toBe(
+    400,
+  );
+  expect(
+    (await call('POST', '/releases', { ...input, file_ids: [a.id, foreignFile] })).statusCode,
+  ).toBe(404);
+  expect((await securityForFiles(db, [a.storage_key])).get(a.storage_key)?.access_allowed).toBe(
+    false,
+  );
+  const released = await call('POST', '/releases', input);
+  expect(released.statusCode, released.body).toBe(200);
+  await assertFilesClean(db, [a.storage_key, b.storage_key], new Storage(env.STORAGE_DIR));
+  const current = await db
+    .selectFrom('file_security')
+    .selectAll()
+    .where('id', '=', a.id)
+    .executeTakeFirstOrThrow();
+  expect(current).toMatchObject({
+    status: 'infected',
+    threat_name: 'Heuristics.Encrypted.PDF',
+    false_positive: true,
+    release_kind: 'manual',
+  });
+  expect(
+    (await call('GET', '/files?status=released'))
+      .json()
+      .items.some(
+        (f: { id: string; access_allowed: boolean }) => f.id === a.id && f.access_allowed,
+      ),
+  ).toBe(true);
+  const decisions = await call('GET', '/decisions?file_id=' + a.id);
+  expect(decisions.statusCode, decisions.body).toBe(200);
+  expect(decisions.json().items[0]).toMatchObject({
+    action: 'release',
+    actor_id: owner,
+    false_positive: true,
+  });
+  expect(
+    (
+      await call('POST', '/releases/revoke', {
+        file_ids: [a.id],
+        reason: 'Revisão da confiança na origem do arquivo.',
+      })
+    ).statusCode,
+  ).toBe(200);
+  await expect(assertFilesClean(db, [a.storage_key])).rejects.toMatchObject({
+    code: 'file_infected',
+  });
+  await new Storage(env.STORAGE_DIR).writeFile(b.storage_key, Buffer.from('changed'));
+  await expect(
+    assertFilesClean(db, [b.storage_key], new Storage(env.STORAGE_DIR)),
+  ).rejects.toMatchObject({ code: 'file_pending' });
+});
+it('requires additional confirmation for malware and rolls back the entire mixed batch', async () => {
+  const safe = await blockedFile(),
+    malware = await blockedFile('Eicar-Signature');
+  const body = {
+    file_ids: [safe.id, malware.id],
+    reason: 'Análise independente e autorização expressa.',
+    acknowledge_risk: true,
+  };
+  expect((await call('POST', '/releases', body)).statusCode).toBe(409);
+  expect(
+    (await securityForFiles(db, [safe.storage_key])).get(safe.storage_key)?.access_allowed,
+  ).toBe(false);
+  expect((await call('POST', '/releases', { ...body, acknowledge_malware: true })).statusCode).toBe(
+    200,
+  );
+});
+it('trusts only the exact sender and allowed heuristic, stops immediately on expiration or disabling', async () => {
+  await db
+    .updateTable('messages')
+    .set({ from_address: 'faturas@fornecedor.example', direction: 'inbound' })
+    .where('id', '=', message)
+    .execute();
+  const row = await blockedFile(),
+    malware = await blockedFile('Trojan.Encrypted.PDF');
+  const msg = await db
+    .selectFrom('messages')
+    .select('from_address')
+    .where('id', '=', message)
+    .executeTakeFirstOrThrow();
+  const input = {
+    sender: msg.from_address,
+    mailbox_id: mailbox,
+    policy: 'encrypted',
+    notes: 'Faturas recorrentes com senha.',
+  };
+  expect((await call('POST', '/rules', { ...input, mailbox_id: randomUUID() })).statusCode).toBe(
+    404,
+  );
+  const created = await call('POST', '/rules', input);
+  expect(created.statusCode, created.body).toBe(200);
+  const rule = created.json();
+  await db.transaction().execute(async (tx) => {
+    await applySenderTrust(tx, row);
+    await applySenderTrust(tx, malware);
+  });
+  await assertFilesClean(db, [row.storage_key], new Storage(env.STORAGE_DIR));
+  await expect(assertFilesClean(db, [malware.storage_key])).rejects.toMatchObject({
+    code: 'file_infected',
+  });
+  await db
+    .updateTable('antivirus_sender_rules')
+    .set({ expires_at: new Date(Date.now() - 1000) })
+    .where('id', '=', rule.id)
+    .execute();
+  await expect(assertFilesClean(db, [row.storage_key])).rejects.toMatchObject({
+    code: 'file_infected',
+  });
+  const updated = await call('PATCH', '/rules/' + rule.id, { ...input, enabled: false });
+  expect(updated.statusCode, updated.body).toBe(200);
+  expect((await call('POST', '/rules/' + rule.id + '/apply', {})).statusCode).toBe(409);
+  expect(
+    (await call('PATCH', '/rules/' + randomUUID(), { ...input, enabled: true })).statusCode,
+  ).toBe(404);
+  expect((await call('PATCH', '/rules/' + rule.id, { ...input, enabled: true })).statusCode).toBe(
+    200,
+  );
+  const existing = await call('POST', '/rules/' + rule.id + '/apply', {});
+  expect(existing.statusCode, existing.body).toBe(200);
+  expect(existing.json().released).toBeGreaterThan(0);
+  await assertFilesClean(db, [row.storage_key], new Storage(env.STORAGE_DIR));
+  expect((await call('PATCH', '/rules/' + rule.id, { ...input, enabled: false })).statusCode).toBe(
+    200,
+  );
+  await expect(assertFilesClean(db, [row.storage_key])).rejects.toMatchObject({
+    code: 'file_infected',
+  });
 });

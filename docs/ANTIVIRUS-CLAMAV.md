@@ -13,7 +13,36 @@ publicam um trabalho BullMQ. O e-mail continua disponível; os bytes ficam inace
 até resultado **verificado**. **Infectado** significa quarentena lógica, sem exclusão
 automática. **Falha** permanece bloqueada e recebe novas tentativas com espera crescente.
 Arquivos criptografados ou acima dos limites aparecem como bloqueio preventivo,
-sem afirmar que contêm malware.
+sem afirmar que contêm malware. Administradores podem autorizar o acesso conforme as regras abaixo.
+
+## Liberações e remetentes confiáveis
+
+A migration aditiva **0061_antivirus_trust_and_releases.sql** separa a decisão de acesso
+do veredito do ClamAV. Não libera arquivos existentes nem cadastra remetentes automaticamente.
+
+- Nos anexos do e-mail ou na central, o administrador pode liberar, registrar possível
+  falso positivo e revogar. A seleção da página permite trabalhar em lotes de até 100 anexos.
+  Motivo e confirmação são obrigatórios; detecções de malware exigem confirmação adicional.
+- Liberações manuais atendem anexos de mensagens e de composição com bloqueio ou falha.
+  O SHA-256 é calculado no momento da decisão e conferido antes do acesso. Nova geração
+  de análise ou conteúdo alterado invalida a autorização anterior.
+- **Remetentes confiáveis** permite endereço exato, caixa específica ou todas da empresa,
+  política, observações, validade opcional e ativação. A análise continua obrigatória.
+  A política padrão libera apenas `Heuristics.Encrypted.*`; a alternativa inclui
+  `Heuristics.Limits.Exceeded.*`. Malware, phishing, falhas e arquivos ainda não analisados
+  não são liberados automaticamente. Endereço de remetente não comprova autenticidade.
+- Regras novas valem nas próximas análises. **Aplicar aos anexos existentes** processa
+  até 100 bloqueios compatíveis por ação. A edição ou desativação revoga as liberações
+  anteriores feitas pela regra; liberações manuais permanecem independentes.
+- A validade e o estado atual da regra são conferidos no backend a cada acesso. Uma
+  regra expirada não autoriza downloads, mesmo com metadados de liberação anteriores.
+- **Liberações e decisões** apresenta responsável, motivo, possível falso positivo,
+  resultado original e data. Mudanças de regras constam também na auditoria. Não há envio
+  de arquivos ou denúncias para serviços externos.
+
+As tabelas privadas `antivirus_sender_rules` e `file_security_decisions` possuem RLS sem
+grants públicos. API e worker usam as conexões privadas existentes. Alterar confiança é
+exclusivo de proprietários e administradores, com escopo da empresa validado no servidor.
 
 A proteção cobre download, prévia, imagens CID, imagens de assinatura, avatares,
 encaminhamento, envio/reenvio/agendamento e exportação. Rascunhos continuam editáveis.

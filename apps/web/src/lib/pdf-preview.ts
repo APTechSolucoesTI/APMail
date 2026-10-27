@@ -8,8 +8,9 @@ export async function renderPdfPreview(
   data: ArrayBuffer,
   container: HTMLElement,
   signal: AbortSignal,
+  password?: string,
 ) {
-  const task = getDocument({ data, useSystemFonts: true });
+  const task = getDocument({ data, useSystemFonts: true, password });
   const abort = () => {
     void task.destroy();
   };

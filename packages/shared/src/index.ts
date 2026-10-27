@@ -3,6 +3,7 @@ export * from './permissions.js';
 export * from './threading.js';
 export * from './fromName.js';
 export * from './queues.js';
+export * from './antivirus.js';
 export * from './events.js';
 export * from './schemas/common.js';
 export * from './rules.js';
