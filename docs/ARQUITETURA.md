@@ -18,3 +18,5 @@ O PostgreSQL é a fonte da verdade. Redis organiza execução e tempo real; jobs
 As sete filas usam prefixo `apmail`: mailbox-sync, mailbox-connection, outbox-send, mail-actions, rules-apply, system-email e maintenance. As salas Socket.IO serão autorizadas por sessão e recurso: user, tenant, mailbox, thread e chat.
 
 Migrations SQL são aplicadas em transações com lock exclusivo e checksum imutável. Segredos locais não entram no Git. A infraestrutura nova usa recursos Docker exclusivos.
+
+O ambiente /admin compartilha sessão, empresa, cache, socket e transferências com o e-mail. A API filtra cada seção administrativa por permissão. Domínios/diagnósticos são metadados por empresa; identidades de mensagens resolvem conversas independentemente das filas. A política de apresentação pertence à empresa e o recálculo com geração/checkpoint é executado na fila maintenance.

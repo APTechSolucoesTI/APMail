@@ -1,3 +1,4 @@
+import { refreshTenantQueues } from './handlers/refresh-tenant-queues.js';
 import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { writeFile } from 'node:fs/promises';
@@ -49,6 +50,8 @@ const workers = QUEUE_NAMES.map(
     new Worker(
       name,
       async (job) => {
+        if (name === 'maintenance' && job.name === 'refresh-tenant-queues')
+          return refreshTenantQueues(r, job.data);
         if (name === 'antivirus-scan') return handleAntivirus(r, job.data);
         if (name === 'storage-metering') {
           const mode = job.data.mode ?? 'changed';

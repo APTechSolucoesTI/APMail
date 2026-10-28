@@ -1,8 +1,23 @@
 import { toBullJobId } from '@apmail/shared';
+import { backfillMailboxDomains } from '@apmail/db';
 import type { WorkerResources } from '../resources.js';
 import { ensureAntivirusScheduler } from './antivirus.js';
 import { enqueueMailboxRecovery } from './mailbox-health.js';
 export async function ensureSchedulers(r: WorkerResources) {
+  await backfillMailboxDomains(r.db);
+  const pending = await r.db
+    .selectFrom('tenant_mail_policy_runs')
+    .select(['tenant_id', 'generation'])
+    .where('state', 'in', ['queued', 'running', 'failed'])
+    .execute();
+  for (const job of pending)
+    await r.queues.maintenance.add('refresh-tenant-queues', job, {
+      jobId: 'tenant-queues~' + job.tenant_id + '~' + job.generation,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 1000 },
+      removeOnComplete: true,
+      removeOnFail: true,
+    });
   await ensureAntivirusScheduler(r);
   const exports = await r.db
     .selectFrom('mail_archive_exports')

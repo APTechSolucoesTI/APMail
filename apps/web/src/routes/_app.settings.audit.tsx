@@ -1,11 +1,11 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { requireSettingsCapability } from '@/lib/settings';
-import { AuditExplorer, auditSearchSchema } from '@/components/settings/audit-explorer';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 export const Route = createFileRoute('/_app/settings/audit')({
-  beforeLoad: () => requireSettingsCapability('audit'),
-  validateSearch: auditSearchSchema,
-  component: AuditPage,
+  validateSearch: (search: Record<string, unknown>) => search,
+  beforeLoad: ({ location }) => {
+    throw redirect({
+      to: location.pathname.replace('/settings/audit', '/admin/audit'),
+      search: location.search,
+      replace: true,
+    });
+  },
 });
-function AuditPage() {
-  return <AuditExplorer query={Route.useSearch()} />;
-}

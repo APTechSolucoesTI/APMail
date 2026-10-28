@@ -103,17 +103,19 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
   ) => {
     await requireMailboxPerm(c, db, body.mailbox_id, 'send');
     const scope = await readableFolders(c, db, body.mailbox_id);
-    if (body.thread_id) {
+    const sourceThread =
+      body.kind === 'forward' ? (body.source_thread_id ?? body.thread_id) : body.thread_id;
+    if (sourceThread) {
       const t = await db
         .selectFrom('threads')
         .select('id')
-        .where('id', '=', body.thread_id)
+        .where('id', '=', sourceThread!)
         .where('tenant_id', '=', c.tenantId)
         .where('mailbox_id', '=', body.mailbox_id)
         .where('deleted_at', 'is', null)
         .executeTakeFirst();
       if (!t) throw notFound();
-      await requireThread(c, r, body.thread_id);
+      await requireThread(c, r, sourceThread!);
     }
     if (body.reply_to_message_id) {
       const m = await db
@@ -124,7 +126,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         .where('mailbox_id', '=', body.mailbox_id)
         .where('deleted_at', 'is', null)
         .executeTakeFirst();
-      if (!m || m.thread_id !== body.thread_id) throw notFound();
+      if (!m || m.thread_id !== sourceThread) throw notFound();
       await requireFolder(c, db, body.mailbox_id, m.folder_id);
     }
     if (
@@ -181,7 +183,8 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
   };
   const values = (body: OutboxInput) => ({
     ...body,
-    thread_id: body.thread_id ?? null,
+    thread_id: body.kind === 'new' ? null : (body.thread_id ?? null),
+    source_thread_id: body.kind === 'forward' ? (body.thread_id ?? null) : null,
     reply_to_message_id: body.reply_to_message_id ?? null,
     signature_id: body.signature_id ?? null,
     body_html: sanitizeEmailHtml(body.body_html, '', false),

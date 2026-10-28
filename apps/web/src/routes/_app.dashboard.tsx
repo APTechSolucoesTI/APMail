@@ -1,3 +1,4 @@
+import { useMailQueues } from '@/lib/auth';
 import { useState, type ReactNode } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -154,6 +155,7 @@ function CustomPeriod({
   );
 }
 function Dashboard() {
+  const showQueues = useMailQueues();
   const search = Route.useSearch(),
     navigate = Route.useNavigate(),
     tenantId = useTenantId(),
@@ -188,9 +190,9 @@ function Dashboard() {
   const kpis = useDashboardData<DashboardKpis>('kpis', params, enabled),
     volume = useDashboardData<DailyVolume[]>('daily-volume', params, enabled),
     folders = useDashboardData<FolderVolume[]>('by-folder', params, enabled),
-    queues = useDashboardData<DashboardQueue[]>('queue-counts', params, enabled),
-    users = useDashboardData<UserProductivity[]>('by-user', params, enabled),
-    stale = useDashboardData<StaleThread[]>('stale-threads', params, enabled);
+    queues = useDashboardData<DashboardQueue[]>('queue-counts', params, enabled && showQueues),
+    users = useDashboardData<UserProductivity[]>('by-user', params, enabled && showQueues),
+    stale = useDashboardData<StaleThread[]>('stale-threads', params, enabled && showQueues);
   const directoryParams = new URLSearchParams({
     ...dates,
     ...(search.mailboxId ? { mailbox_id: search.mailboxId } : {}),
@@ -371,42 +373,46 @@ function Dashboard() {
                     icon={Send}
                     boxes={selected}
                   />
-                  <KpiCard
-                    label="A responder"
-                    value={values.to_reply}
-                    icon={Inbox}
-                    queue="to_reply"
-                    boxes={selected}
-                  />
-                  <KpiCard
-                    label="Em atendimento"
-                    value={values.in_progress}
-                    icon={UserCheck}
-                    queue="in_progress"
-                    boxes={selected}
-                  />
-                  <KpiCard
-                    label="Aguardando resposta"
-                    value={values.awaiting_reply}
-                    icon={Hourglass}
-                    queue="awaiting_reply"
-                    boxes={selected}
-                  />
-                  <KpiCard
-                    label="Fora do SLA"
-                    value={values.overdue}
-                    icon={AlarmClock}
-                    danger={values.overdue > 0}
-                    queue="overdue"
-                    boxes={selected}
-                  />
-                  <KpiCard
-                    label="Tempo médio de 1ª resposta"
-                    value={durationLabel(values.avg_first_response_minutes)}
-                    detail={`${values.response_rate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% das conversas respondidas`}
-                    icon={Timer}
-                    boxes={selected}
-                  />
+                  {showQueues && (
+                    <>
+                      <KpiCard
+                        label="A responder"
+                        value={values.to_reply}
+                        icon={Inbox}
+                        queue="to_reply"
+                        boxes={selected}
+                      />
+                      <KpiCard
+                        label="Em atendimento"
+                        value={values.in_progress}
+                        icon={UserCheck}
+                        queue="in_progress"
+                        boxes={selected}
+                      />
+                      <KpiCard
+                        label="Aguardando resposta"
+                        value={values.awaiting_reply}
+                        icon={Hourglass}
+                        queue="awaiting_reply"
+                        boxes={selected}
+                      />
+                      <KpiCard
+                        label="Fora do SLA"
+                        value={values.overdue}
+                        icon={AlarmClock}
+                        danger={values.overdue > 0}
+                        queue="overdue"
+                        boxes={selected}
+                      />
+                      <KpiCard
+                        label="Tempo médio de 1ª resposta"
+                        value={durationLabel(values.avg_first_response_minutes)}
+                        detail={`${values.response_rate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% das conversas respondidas`}
+                        icon={Timer}
+                        boxes={selected}
+                      />
+                    </>
+                  )}
                   <KpiCard
                     label="Usuários ativos"
                     value={values.active_users}
@@ -439,46 +445,52 @@ function Dashboard() {
             >
               <FolderChart data={folders.data ?? []} />
             </ChartBlock>
-            <ChartBlock
-              title="Filas"
-              description="Conversas por estado atual, incluindo todos os agendamentos."
-              isLoading={queues.isLoading}
-              error={queues.error}
-              onRetry={() => void queues.refetch()}
-              empty={!queues.data?.some((q) => q.count)}
-            >
-              <QueueChart data={queues.data ?? []} />
-            </ChartBlock>
+            {showQueues && (
+              <ChartBlock
+                title="Filas"
+                description="Conversas por estado atual, incluindo todos os agendamentos."
+                isLoading={queues.isLoading}
+                error={queues.error}
+                onRetry={() => void queues.refetch()}
+                empty={!queues.data?.some((q) => q.count)}
+              >
+                <QueueChart data={queues.data ?? []} />
+              </ChartBlock>
+            )}
           </div>
-          <section className="min-w-0 space-y-3">
-            <h2 className="text-xl font-semibold">Produtividade por usuário</h2>
-            <p className="text-xs text-muted-foreground">
-              Envios e conclusões no período; atribuições em aberto mostram o estado atual.
-            </p>
-            <UserTable
-              key={params}
-              data={users.data}
-              isLoading={users.isLoading}
-              isFetching={users.isFetching}
-              error={users.error}
-              onRetry={() => void users.refetch()}
-              {...dates}
-            />
-          </section>
-          <section className="min-w-0 space-y-3">
-            <h2 className="text-xl font-semibold">Conversas paradas há mais tempo</h2>
-            <p className="text-xs text-muted-foreground">
-              As 20 conversas em aberto com espera mais longa nas caixas escolhidas.
-            </p>
-            <StaleThreadsTable
-              key={params}
-              data={stale.data}
-              isLoading={stale.isLoading}
-              isFetching={stale.isFetching}
-              error={stale.error}
-              onRetry={() => void stale.refetch()}
-            />
-          </section>
+          {showQueues && (
+            <>
+              <section className="min-w-0 space-y-3">
+                <h2 className="text-xl font-semibold">Produtividade por usuário</h2>
+                <p className="text-xs text-muted-foreground">
+                  Envios e conclusões no período; atribuições em aberto mostram o estado atual.
+                </p>
+                <UserTable
+                  key={params}
+                  data={users.data}
+                  isLoading={users.isLoading}
+                  isFetching={users.isFetching}
+                  error={users.error}
+                  onRetry={() => void users.refetch()}
+                  {...dates}
+                />
+              </section>
+              <section className="min-w-0 space-y-3">
+                <h2 className="text-xl font-semibold">Conversas paradas há mais tempo</h2>
+                <p className="text-xs text-muted-foreground">
+                  As 20 conversas em aberto com espera mais longa nas caixas escolhidas.
+                </p>
+                <StaleThreadsTable
+                  key={params}
+                  data={stale.data}
+                  isLoading={stale.isLoading}
+                  isFetching={stale.isFetching}
+                  error={stale.error}
+                  onRetry={() => void stale.refetch()}
+                />
+              </section>{' '}
+            </>
+          )}
         </>
       )}
     </div>

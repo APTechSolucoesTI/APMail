@@ -4,6 +4,19 @@ import type { MailboxPerm } from './permissions.js';
 
 export const ACCESS_PERMISSIONS = [
   {
+    key: 'domains.view',
+    group: 'Administração',
+    label: 'Visualizar domínios',
+    description: 'Consultar domínios e seus registros DNS.',
+  },
+  {
+    key: 'domains.manage',
+    parent: 'domains.view',
+    group: 'Administração',
+    label: 'Gerenciar domínios',
+    description: 'Cadastrar e configurar domínios da empresa.',
+  },
+  {
     key: 'mail',
     group: 'Comunicação',
     label: 'E-mail',
@@ -248,6 +261,8 @@ export function hasAccess(
   if (identity.access_permissions != null) return identity.access_permissions.includes(permission);
   if (isTenantAdmin(identity.role)) return true;
   return ![
+    'domains.view',
+    'domains.manage',
     'users.invite',
     'users.manage',
     'profiles.manage',
@@ -263,6 +278,7 @@ export function hasAccess(
   ].includes(permission);
 }
 export const permissionDependencies: Partial<Record<AccessPermission, AccessPermission[]>> = {
+  'domains.manage': ['domains.view'],
   'antivirus.release': ['antivirus.view'],
   'antivirus.trust': ['antivirus.view'],
   'profiles.manage': ['users.view'],
@@ -293,6 +309,16 @@ export const profileMissingDependencies = (permissions: readonly string[]) =>
 
 export function screenPermission(path: string): AccessPermission | null {
   const prefixes: [string, AccessPermission][] = [
+    ['/admin/domains', 'domains.view'],
+    ['/admin/mailboxes', 'mailboxes.manage'],
+    ['/admin/user-permissions', 'users.manage'],
+    ['/admin/access-profiles', 'profiles.manage'],
+    ['/admin/users', 'users.view'],
+    ['/admin/company', 'company.manage'],
+    ['/admin/integrations', 'integrations'],
+    ['/admin/audit', 'audit.view'],
+    ['/admin/security/antivirus', 'antivirus.view'],
+    ['/admin/reports', 'reports'],
     ['/security/antivirus', 'antivirus.view'],
     ['/settings/access-profiles', 'profiles.manage'],
     ['/settings/user-permissions', 'users.manage'],

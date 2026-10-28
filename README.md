@@ -97,3 +97,7 @@ aditivas **0049**, **0050** e **0053–0055**, executadas pelo migrador habitual
 O cadastro da empresa inclui identificação, CNPJ com consulta automática, endereço
 e contato, disponível também no Superadmin. Requer a migration aditiva **0052**.
 Veja [Cadastro de empresas](docs/COMPANY-DETAILS.md).
+
+## Administração
+
+O [Painel Administrativo](docs/PAINEL-ADMINISTRATIVO.md) reúne domínios/DNS, caixas, equipe, empresa, integrações, segurança, auditoria e relatórios, com acesso delegado por seção. O Dashboard das caixas permanece no ambiente de e-mail.

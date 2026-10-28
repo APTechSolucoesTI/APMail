@@ -178,10 +178,10 @@ const incoming = (address: string, request = false, id: string = randomUUID()) =
   Buffer.from(
     `From: SMTP Name <${address}>\r\nTo: operacao@qa.example\r\nMessage-ID: <${id}@qa.example>\r\nReturn-Path: <${address}>\r\n${request ? 'Disposition-Notification-To: ' + address + '\r\n' : ''}Subject: Solicitação ${id}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nMensagem operacional.\r\n`,
   );
-async function send(addresses: string[], request = false) {
+async function send(addresses: string[], request = false, subject = 'Envio QA ' + randomUUID()) {
   const created = await call('POST', '/api/outbox', {
     mailbox_id: boxId,
-    subject: 'Envio QA ' + randomUUID(),
+    subject,
     body_html: '<p>Mensagem</p>',
     request_read_receipt: request,
     to_addresses: addresses.slice(0, 1).map((address) => ({ address, name: '' })),
@@ -205,6 +205,83 @@ async function send(addresses: string[], request = false) {
   });
   return db.selectFrom('outbox').selectAll().where('id', '=', id).executeTakeFirstOrThrow();
 }
+it('keeps independent SMTP sends separate and maintains explicit reply and forward intent', async () => {
+  await call('POST', '/api/contacts', {
+    name: 'Threading QA',
+    emails: [{ email: 'threading@qa.example' }],
+  });
+  const a = await send(
+    ['threading@qa.example'],
+    false,
+    'Mesmo assunto de uma mensagem independente',
+  );
+  const b = await send(
+    ['threading@qa.example'],
+    false,
+    'Mesmo assunto de uma mensagem independente',
+  );
+  expect(a.thread_id).not.toBe(b.thread_id);
+  for (const kind of ['reply', 'reply_all', 'forward'] as const) {
+    const draft = await call('POST', '/api/outbox', {
+      mailbox_id: boxId,
+      kind,
+      thread_id: a.thread_id,
+      reply_to_message_id: a.sent_message_id,
+      subject: a.subject,
+      body_html: '<p>QA</p>',
+      to_addresses: [{ address: 'threading@qa.example', name: '' }],
+    });
+    expect(draft.statusCode, draft.body).toBe(201);
+    const id = draft.json().id,
+      submitted = await call('POST', '/api/outbox/' + id + '/submit', {});
+    expect(submitted.statusCode, submitted.body).toBe(200);
+    await db
+      .updateTable('outbox')
+      .set({ send_after: new Date(0) })
+      .where('id', '=', id)
+      .execute();
+    await handleOutboxSend(r, id, {
+      id: submitted.json().job_id,
+      attemptsMade: 0,
+      opts: { attempts: 1 },
+    });
+    const sent = await db
+      .selectFrom('outbox')
+      .selectAll()
+      .where('id', '=', id)
+      .executeTakeFirstOrThrow();
+    const mime = await simpleParser(deliveries.at(-1)!.raw);
+    if (kind === 'forward') {
+      expect(sent.thread_id).not.toBe(a.thread_id);
+      expect(sent.source_thread_id).toBe(a.thread_id);
+      expect(mime.inReplyTo).toBeUndefined();
+      const next = await db
+        .insertInto('outbox')
+        .values({
+          tenant_id: tenant,
+          mailbox_id: boxId,
+          created_by: owner,
+          kind: 'forward',
+          thread_id: null,
+          source_thread_id: a.thread_id,
+          reply_to_message_id: a.sent_message_id,
+          subject: 'Próximo encaminhamento',
+          to_addresses: asJson([{ address: 'threading@qa.example', name: '' }]),
+          status: 'scheduled',
+          scheduled_at: new Date(Date.now() + 3600000),
+          send_after: new Date(Date.now() + 3600000),
+          job_id: randomUUID(),
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      const now = await call('POST', '/api/outbox/' + next.id + '/send-now', {});
+      expect(now.statusCode, now.body).toBe(200);
+    } else {
+      expect(sent.thread_id).toBe(a.thread_id);
+      expect(mime.inReplyTo).toBe(a.message_id_header);
+    }
+  }
+});
 beforeAll(async () => {
   await migrate(url);
   await app.ready();
@@ -511,6 +588,12 @@ it('pedido recebido somente envia por consentimento explícito, em MIME MDN; con
   await handleOutboxSend(r, row.id, { id: row.job_id!, attemptsMade: 0, opts: { attempts: 1 } });
   await handleOutboxSend(r, row.id, { id: row.job_id!, attemptsMade: 0, opts: { attempts: 1 } });
   expect(deliveries).toHaveLength(before + 1);
+  const sentReceipt = await db
+    .selectFrom('outbox')
+    .select('thread_id')
+    .where('id', '=', row.id)
+    .executeTakeFirstOrThrow();
+  expect(sentReceipt.thread_id).toBe(message.thread_id);
   const receipt = deliveries.at(-1)!;
   expect(receipt.from).toBe('<>');
   expect(receipt.to).toEqual(['<reader@qa.example>']);

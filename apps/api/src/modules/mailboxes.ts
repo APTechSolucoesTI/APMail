@@ -1,3 +1,4 @@
+import { ensureMailboxDomain } from '@apmail/db';
 import { isTenantAdmin } from '@apmail/shared';
 import { MAILBOX_PERMS, can, canDelegate, profileAllowsMailbox } from '@apmail/shared';
 import type { FastifyInstance } from 'fastify';
@@ -149,6 +150,9 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
         .insertInto('mailboxes')
         .values({
           ...data,
+          domain_id: (
+            await ensureMailboxDomain(tx, c.tenantId, data.email_address.split('@')[1]!, c.userId)
+          ).id,
           tenant_id: c.tenantId,
           created_by: c.userId,
           ...(data.receiving_protocol === 'local' ? { status: 'active' as const } : {}),
@@ -328,6 +332,18 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
         .updateTable('mailboxes')
         .set({
           ...data,
+          ...(data.email_address
+            ? {
+                domain_id: (
+                  await ensureMailboxDomain(
+                    tx,
+                    c.tenantId,
+                    data.email_address.split('@')[1]!,
+                    c.userId,
+                  )
+                ).id,
+              }
+            : {}),
           ...(sync_days ? { sync_since: new Date(Date.now() - sync_days * 86400000) } : {}),
           ...(changed && previous.receiving_protocol !== 'local'
             ? {

@@ -152,7 +152,7 @@ export function OnlineMeeting({
         <div className="mt-2 flex flex-wrap gap-3 text-xs">
           {eventId && (
             <Link
-              to="/reports/meet"
+              to="/admin/reports/meet"
               search={{
                 search: value,
                 ...reportRange,
@@ -195,7 +195,7 @@ export function OnlineMeeting({
           {!google.data?.meet && (
             <p className="mb-2 text-muted-foreground">
               <Link
-                to="/settings/integrations"
+                to="/admin/integrations"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary underline"

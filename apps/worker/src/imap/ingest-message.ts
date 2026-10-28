@@ -148,6 +148,7 @@ export async function ingestMessage(
       message_at.getTime() >=
         box.import_started_at.getTime() - box.history_classify_days * 86400000);
   const metadata = {
+    message_id_header: header,
     tenant_id: box.tenant_id,
     mailbox_id: box.id,
     subject: mailText(parsed?.subject ?? env?.subject ?? ''),

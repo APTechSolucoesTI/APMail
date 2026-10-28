@@ -40,6 +40,12 @@ const groups: { id: string; title: string; description: string; fields: FormFiel
     description: 'Defina como organizar suas mensagens e trabalhar com confirmações de leitura.',
     fields: [
       {
+        name: 'mail_group_by_domain',
+        label: 'Agrupar caixas por domínio',
+        type: 'checkbox',
+        help: 'Organizar suas caixas de e-mail em grupos por domínio.',
+      },
+      {
         name: 'mail_summary_enabled',
         label: 'Deseja utilizar o Resumo das caixas de entrada?',
         type: 'checkbox',

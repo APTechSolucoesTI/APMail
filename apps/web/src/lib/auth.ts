@@ -26,6 +26,7 @@ export type Preferences = {
   mail_queues_enabled?: boolean;
   mail_page_size?: 10 | 25 | 50 | 100;
   mail_summary_enabled?: boolean;
+  mail_group_by_domain?: boolean;
 };
 export type Me = {
   user: { id: string; email: string; full_name: string; avatar_url: string | null };
@@ -33,6 +34,7 @@ export type Me = {
     id: string;
     name: string;
     slug: string;
+    mail_queues_enabled?: boolean;
     role: TenantRole;
     capabilities: string[];
     access_profile_id?: string | null;
@@ -50,6 +52,7 @@ export type Mailbox = {
   id: string;
   name: string;
   email_address: string;
+  domain_id?: string | null;
   status: 'pending' | 'active' | 'error' | 'disabled';
   last_error: string | null;
   last_synced_at: string | null;
@@ -77,8 +80,12 @@ export const canMailbox = (
   (permission !== 'send' || box.receiving_protocol !== 'local') &&
   (box.permissions?.includes(permission) ?? can(box.role, permission));
 export const meQuery = { queryKey: ['me'], queryFn: () => api<Me>('/auth/me'), retry: false };
-export const useMailQueues = () =>
-  useQuery(meQuery).data?.preferences.mail_queues_enabled !== false;
+export const useMailQueues = () => {
+  const me = useQuery(meQuery).data;
+  return (
+    !!me && me.tenants.find((t) => t.id === me.current_tenant_id)?.mail_queues_enabled !== false
+  );
+};
 export const useUserId = () => useQuery(meQuery).data?.user.id;
 export const useAccess = (permission: AccessPermission) => {
   const me = useQuery(meQuery).data;

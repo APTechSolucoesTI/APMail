@@ -45,6 +45,7 @@ function mount(user = 'user', tenant = 'tenant') {
   client.setQueryData(['me'], {
     user: { id: user },
     current_tenant_id: tenant,
+    tenants: [{ id: tenant, mail_queues_enabled: false }],
     preferences: { mail_queues_enabled: false },
   });
   return render(

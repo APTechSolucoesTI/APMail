@@ -62,6 +62,7 @@ it('prioriza tema e fuso; salvar uma aba não sobrescreve preferências das dema
       method: 'PUT',
       body: {
         mail_summary_enabled: true,
+        mail_group_by_domain: false,
         mail_page_size: 25,
         request_read_receipt: true,
         load_remote_images: false,

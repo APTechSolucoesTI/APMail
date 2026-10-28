@@ -52,56 +52,7 @@ export async function registerAntivirus(app: FastifyInstance, r: Resources) {
   const prefix = '/api/security/antivirus';
   app.get(prefix + '/overview', async (req) => {
     const c = requireTenantAdmin(req.ctx, 'antivirus.view');
-    const [health, totals, unverified] = await Promise.all([
-      refreshAntivirusHealth(r.db, antivirusOptions(r.env)),
-      sql<{
-        status: string;
-        n: string;
-      }>`select s.status,count(*) as n from file_security s where ${scope(c.tenantId)} group by s.status`.execute(
-        r.db,
-      ),
-      countUnverifiedFiles(r.db, c.tenantId),
-    ]);
-    const counts = {
-      total: unverified,
-      pending: unverified,
-      clean: 0,
-      infected: 0,
-      error: 0,
-      unverified,
-    };
-    for (const row of totals.rows) {
-      const key = row.status as 'pending' | 'clean' | 'infected' | 'error';
-      counts[key] += Number(row.n);
-      counts.total += Number(row.n);
-    }
-    const released = await r.db
-      .selectFrom('file_security')
-      .select(['status', sql<string>`count(*)`.as('n')])
-      .where('tenant_id', '=', c.tenantId)
-      .where('status', 'in', ['infected', 'error'])
-      .where('released_at', 'is not', null)
-      .whereRef('release_generation', '=', 'generation')
-      .where((eb) =>
-        eb.or([
-          eb('release_kind', '=', 'manual'),
-          eb.and([eb('release_kind', '=', 'sender'), releaseRuleValidSql]),
-        ]),
-      )
-      .groupBy('status')
-      .execute();
-    const age = health.definitions_at
-      ? (Date.now() - health.definitions_at.getTime()) / 3600000
-      : null;
-    const stale = Date.now() - health.checked_at.getTime() > 120000 || (age !== null && age > 48);
-    return {
-      health: { ...health, stale, age_hours: age },
-      counts: {
-        ...counts,
-        released: released.reduce((sum, row) => sum + Number(row.n), 0),
-        blocked: counts.infected - Number(released.find((f) => f.status === 'infected')?.n ?? 0),
-      },
-    };
+    return readAntivirusOverview(r, c.tenantId);
   });
   for (const history of [false, true])
     app.get(prefix + (history ? '/history' : '/files'), async (req) => {
@@ -264,4 +215,57 @@ export async function registerAntivirus(app: FastifyInstance, r: Resources) {
     });
     return { queued: rows.length };
   });
+}
+
+export async function readAntivirusOverview(r: Resources, tenantId: string) {
+  const [health, totals, unverified] = await Promise.all([
+    refreshAntivirusHealth(r.db, antivirusOptions(r.env)),
+    sql<{
+      status: string;
+      n: string;
+    }>`select s.status,count(*) as n from file_security s where ${scope(tenantId)} group by s.status`.execute(
+      r.db,
+    ),
+    countUnverifiedFiles(r.db, tenantId),
+  ]);
+  const counts = {
+    total: unverified,
+    pending: unverified,
+    clean: 0,
+    infected: 0,
+    error: 0,
+    unverified,
+  };
+  for (const row of totals.rows) {
+    const key = row.status as 'pending' | 'clean' | 'infected' | 'error';
+    counts[key] += Number(row.n);
+    counts.total += Number(row.n);
+  }
+  const released = await r.db
+    .selectFrom('file_security')
+    .select(['status', sql<string>`count(*)`.as('n')])
+    .where('tenant_id', '=', tenantId)
+    .where('status', 'in', ['infected', 'error'])
+    .where('released_at', 'is not', null)
+    .whereRef('release_generation', '=', 'generation')
+    .where((eb) =>
+      eb.or([
+        eb('release_kind', '=', 'manual'),
+        eb.and([eb('release_kind', '=', 'sender'), releaseRuleValidSql]),
+      ]),
+    )
+    .groupBy('status')
+    .execute();
+  const age = health.definitions_at
+    ? (Date.now() - health.definitions_at.getTime()) / 3600000
+    : null;
+  const stale = Date.now() - health.checked_at.getTime() > 120000 || (age !== null && age > 48);
+  return {
+    health: { ...health, stale, age_hours: age },
+    counts: {
+      ...counts,
+      released: released.reduce((sum, row) => sum + Number(row.n), 0),
+      blocked: counts.infected - Number(released.find((f) => f.status === 'infected')?.n ?? 0),
+    },
+  };
 }

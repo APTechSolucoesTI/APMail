@@ -2,7 +2,11 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { WorkerResources } from '../src/resources.js';
 import { ensureSchedulers } from '../src/handlers/ensure-schedulers.js';
 const security = vi.hoisted(() => ({ sweepSecurityFiles: vi.fn() }));
-vi.mock('@apmail/db', async (original) => ({ ...(await original<object>()), ...security }));
+vi.mock('@apmail/db', async (original) => ({
+  ...(await original<object>()),
+  ...security,
+  backfillMailboxDomains: async () => undefined,
+}));
 beforeEach(() => vi.resetAllMocks());
 it('recria o agendamento da verificação após perda das filas e solicita recuperação persistente', async () => {
   const scheduled: string[] = [],

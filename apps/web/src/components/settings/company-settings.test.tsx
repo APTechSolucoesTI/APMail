@@ -29,9 +29,11 @@ const registration = {
     default_invitation_mailbox_id: null,
   },
 };
-function setup() {
+function setup(settings: Record<string, unknown> = registration.settings) {
   vi.mocked(api).mockReset();
-  vi.mocked(api).mockImplementation(async (path) => (path === '/tenant' ? registration : []));
+  vi.mocked(api).mockImplementation(async (path) =>
+    path === '/tenant' ? { ...registration, settings } : [],
+  );
   render(
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
@@ -40,6 +42,29 @@ function setup() {
     </QueryClientProvider>,
   );
 }
+it('saves a disabled company queue policy even when older settings are incomplete', async () => {
+  setup({ mail_queues_enabled: true });
+  fireEvent.mouseDown(await screen.findByRole('tab', { name: 'E-mail e contatos' }), {
+    button: 0,
+    ctrlKey: false,
+  });
+  fireEvent.click(screen.getByRole('checkbox', { name: /Exibir filas de atendimento/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Salvar atendimento' }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith(
+      '/tenant',
+      expect.objectContaining({
+        body: {
+          settings: {
+            sla_first_response_hours: 24,
+            default_sync_days: 90,
+            mail_queues_enabled: false,
+          },
+        },
+      }),
+    ),
+  );
+});
 it('separates registration, operations and storage without losing unsaved registration edits', async () => {
   setup();
   await screen.findByRole('tab', { name: 'Cadastro' });
@@ -93,7 +118,13 @@ it('saves the import period as a number without overwriting other settings', asy
   await waitFor(() =>
     expect(api).toHaveBeenCalledWith('/tenant', {
       method: 'PATCH',
-      body: { settings: { sla_first_response_hours: 8, default_sync_days: 365 } },
+      body: {
+        settings: {
+          sla_first_response_hours: 8,
+          default_sync_days: 365,
+          mail_queues_enabled: true,
+        },
+      },
     }),
   );
 });

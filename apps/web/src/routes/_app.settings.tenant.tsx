@@ -1,7 +1,11 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { requireSettingsPermission } from '@/lib/settings';
-import { CompanySettings } from '@/components/settings/company-settings';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 export const Route = createFileRoute('/_app/settings/tenant')({
-  beforeLoad: () => requireSettingsPermission('company.manage'),
-  component: CompanySettings,
+  validateSearch: (search: Record<string, unknown>) => search,
+  beforeLoad: ({ location }) => {
+    throw redirect({
+      to: location.pathname.replace('/settings/tenant', '/admin/company'),
+      search: location.search,
+      replace: true,
+    });
+  },
 });

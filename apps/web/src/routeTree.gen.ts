@@ -18,6 +18,7 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SuperadminRouteImport } from './routes/superadmin'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
+import { Route as AppAdminRouteImport } from './routes/_app.admin'
 import { Route as AppCalendarRouteImport } from './routes/_app.calendar'
 import { Route as AppChatRouteImport } from './routes/_app.chat'
 import { Route as AppCompaniesRouteImport } from './routes/_app.companies'
@@ -28,6 +29,16 @@ import { Route as AppRemindersRouteImport } from './routes/_app.reminders'
 import { Route as AppReportsRouteImport } from './routes/_app.reports'
 import { Route as AppScheduledRouteImport } from './routes/_app.scheduled'
 import { Route as DevUiRouteImport } from './routes/[_]dev.ui'
+import { Route as AppAdminIndexRouteImport } from './routes/_app.admin.index'
+import { Route as AppAdminAccessProfilesRouteImport } from './routes/_app.admin.access-profiles'
+import { Route as AppAdminAuditRouteImport } from './routes/_app.admin.audit'
+import { Route as AppAdminCompanyRouteImport } from './routes/_app.admin.company'
+import { Route as AppAdminDomainsRouteImport } from './routes/_app.admin.domains'
+import { Route as AppAdminIntegrationsRouteImport } from './routes/_app.admin.integrations'
+import { Route as AppAdminMailboxesRouteImport } from './routes/_app.admin.mailboxes'
+import { Route as AppAdminReportsRouteImport } from './routes/_app.admin.reports'
+import { Route as AppAdminUserPermissionsRouteImport } from './routes/_app.admin.user-permissions'
+import { Route as AppAdminUsersRouteImport } from './routes/_app.admin.users'
 import { Route as AppChatIndexRouteImport } from './routes/_app.chat.index'
 import { Route as AppChatConversationIdRouteImport } from './routes/_app.chat.$conversationId'
 import { Route as AppMailMailboxIdRouteImport } from './routes/_app.mail.$mailboxId'
@@ -45,8 +56,13 @@ import { Route as AppSettingsSignaturesRouteImport } from './routes/_app.setting
 import { Route as AppSettingsTenantRouteImport } from './routes/_app.settings.tenant'
 import { Route as AppSettingsUserPermissionsRouteImport } from './routes/_app.settings.user-permissions'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app.settings.users'
+import { Route as AppAdminDomainsDomainIdRouteImport } from './routes/_app.admin.domains_.$domainId'
+import { Route as AppAdminMailboxesMailboxIdRouteImport } from './routes/_app.admin.mailboxes_.$mailboxId'
+import { Route as AppAdminReportsMeetRouteImport } from './routes/_app.admin.reports_.meet'
+import { Route as AppAdminSecurityAntivirusRouteImport } from './routes/_app.admin.security.antivirus'
 import { Route as AppReportsMeetMeetingIdRouteImport } from './routes/_app.reports_.meet_.$meetingId'
 import { Route as AppSettingsMailboxesMailboxIdRouteImport } from './routes/_app.settings.mailboxes_.$mailboxId'
+import { Route as AppAdminReportsMeetMeetingIdRouteImport } from './routes/_app.admin.reports_.meet_.$meetingId'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -90,6 +106,11 @@ const SuperadminRoute = SuperadminRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAdminRoute = AppAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => AppRoute,
 } as any)
 const AppCalendarRoute = AppCalendarRouteImport.update({
@@ -141,6 +162,56 @@ const DevUiRoute = DevUiRouteImport.update({
   id: '/_dev/ui',
   path: '/_dev/ui',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppAdminIndexRoute = AppAdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminAccessProfilesRoute = AppAdminAccessProfilesRouteImport.update({
+  id: '/access-profiles',
+  path: '/access-profiles',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminAuditRoute = AppAdminAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminCompanyRoute = AppAdminCompanyRouteImport.update({
+  id: '/company',
+  path: '/company',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminDomainsRoute = AppAdminDomainsRouteImport.update({
+  id: '/domains',
+  path: '/domains',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminIntegrationsRoute = AppAdminIntegrationsRouteImport.update({
+  id: '/integrations',
+  path: '/integrations',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminMailboxesRoute = AppAdminMailboxesRouteImport.update({
+  id: '/mailboxes',
+  path: '/mailboxes',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminReportsRoute = AppAdminReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminUserPermissionsRoute = AppAdminUserPermissionsRouteImport.update({
+  id: '/user-permissions',
+  path: '/user-permissions',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminUsersRoute = AppAdminUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AppAdminRoute,
 } as any)
 const AppChatIndexRoute = AppChatIndexRouteImport.update({
   id: '/',
@@ -229,6 +300,28 @@ const AppSettingsUsersRoute = AppSettingsUsersRouteImport.update({
   path: '/settings/users',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAdminDomainsDomainIdRoute = AppAdminDomainsDomainIdRouteImport.update({
+  id: '/domains_/$domainId',
+  path: '/domains/$domainId',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminMailboxesMailboxIdRoute =
+  AppAdminMailboxesMailboxIdRouteImport.update({
+    id: '/mailboxes_/$mailboxId',
+    path: '/mailboxes/$mailboxId',
+    getParentRoute: () => AppAdminRoute,
+  } as any)
+const AppAdminReportsMeetRoute = AppAdminReportsMeetRouteImport.update({
+  id: '/reports_/meet',
+  path: '/reports/meet',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminSecurityAntivirusRoute =
+  AppAdminSecurityAntivirusRouteImport.update({
+    id: '/security/antivirus',
+    path: '/security/antivirus',
+    getParentRoute: () => AppAdminRoute,
+  } as any)
 const AppReportsMeetMeetingIdRoute = AppReportsMeetMeetingIdRouteImport.update({
   id: '/reports_/meet_/$meetingId',
   path: '/reports/meet/$meetingId',
@@ -240,6 +333,12 @@ const AppSettingsMailboxesMailboxIdRoute =
     path: '/settings/mailboxes/$mailboxId',
     getParentRoute: () => AppRoute,
   } as any)
+const AppAdminReportsMeetMeetingIdRoute =
+  AppAdminReportsMeetMeetingIdRouteImport.update({
+    id: '/reports_/meet_/$meetingId',
+    path: '/reports/meet/$meetingId',
+    getParentRoute: () => AppAdminRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -250,6 +349,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/superadmin': typeof SuperadminRoute
+  '/admin': typeof AppAdminRouteWithChildren
   '/calendar': typeof AppCalendarRoute
   '/chat': typeof AppChatRouteWithChildren
   '/companies': typeof AppCompaniesRoute
@@ -260,6 +360,15 @@ export interface FileRoutesByFullPath {
   '/reports': typeof AppReportsRoute
   '/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
+  '/admin/access-profiles': typeof AppAdminAccessProfilesRoute
+  '/admin/audit': typeof AppAdminAuditRoute
+  '/admin/company': typeof AppAdminCompanyRoute
+  '/admin/domains': typeof AppAdminDomainsRoute
+  '/admin/integrations': typeof AppAdminIntegrationsRoute
+  '/admin/mailboxes': typeof AppAdminMailboxesRoute
+  '/admin/reports': typeof AppAdminReportsRoute
+  '/admin/user-permissions': typeof AppAdminUserPermissionsRoute
+  '/admin/users': typeof AppAdminUsersRoute
   '/chat/$conversationId': typeof AppChatConversationIdRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/reports/meet': typeof AppReportsMeetRoute
@@ -276,9 +385,15 @@ export interface FileRoutesByFullPath {
   '/settings/tenant': typeof AppSettingsTenantRoute
   '/settings/user-permissions': typeof AppSettingsUserPermissionsRoute
   '/settings/users': typeof AppSettingsUsersRoute
+  '/admin/': typeof AppAdminIndexRoute
   '/chat/': typeof AppChatIndexRoute
+  '/admin/domains/$domainId': typeof AppAdminDomainsDomainIdRoute
+  '/admin/mailboxes/$mailboxId': typeof AppAdminMailboxesMailboxIdRoute
+  '/admin/reports/meet': typeof AppAdminReportsMeetRoute
+  '/admin/security/antivirus': typeof AppAdminSecurityAntivirusRoute
   '/reports/meet/$meetingId': typeof AppReportsMeetMeetingIdRoute
   '/settings/mailboxes/$mailboxId': typeof AppSettingsMailboxesMailboxIdRoute
+  '/admin/reports/meet/$meetingId': typeof AppAdminReportsMeetMeetingIdRoute
 }
 export interface FileRoutesByTo {
   '/accept-invite': typeof AcceptInviteRoute
@@ -298,6 +413,15 @@ export interface FileRoutesByTo {
   '/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
   '/': typeof AppIndexRoute
+  '/admin/access-profiles': typeof AppAdminAccessProfilesRoute
+  '/admin/audit': typeof AppAdminAuditRoute
+  '/admin/company': typeof AppAdminCompanyRoute
+  '/admin/domains': typeof AppAdminDomainsRoute
+  '/admin/integrations': typeof AppAdminIntegrationsRoute
+  '/admin/mailboxes': typeof AppAdminMailboxesRoute
+  '/admin/reports': typeof AppAdminReportsRoute
+  '/admin/user-permissions': typeof AppAdminUserPermissionsRoute
+  '/admin/users': typeof AppAdminUsersRoute
   '/chat/$conversationId': typeof AppChatConversationIdRoute
   '/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/reports/meet': typeof AppReportsMeetRoute
@@ -314,9 +438,15 @@ export interface FileRoutesByTo {
   '/settings/tenant': typeof AppSettingsTenantRoute
   '/settings/user-permissions': typeof AppSettingsUserPermissionsRoute
   '/settings/users': typeof AppSettingsUsersRoute
+  '/admin': typeof AppAdminIndexRoute
   '/chat': typeof AppChatIndexRoute
+  '/admin/domains/$domainId': typeof AppAdminDomainsDomainIdRoute
+  '/admin/mailboxes/$mailboxId': typeof AppAdminMailboxesMailboxIdRoute
+  '/admin/reports/meet': typeof AppAdminReportsMeetRoute
+  '/admin/security/antivirus': typeof AppAdminSecurityAntivirusRoute
   '/reports/meet/$meetingId': typeof AppReportsMeetMeetingIdRoute
   '/settings/mailboxes/$mailboxId': typeof AppSettingsMailboxesMailboxIdRoute
+  '/admin/reports/meet/$meetingId': typeof AppAdminReportsMeetMeetingIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -328,6 +458,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/superadmin': typeof SuperadminRoute
+  '/_app/admin': typeof AppAdminRouteWithChildren
   '/_app/calendar': typeof AppCalendarRoute
   '/_app/chat': typeof AppChatRouteWithChildren
   '/_app/companies': typeof AppCompaniesRoute
@@ -339,6 +470,15 @@ export interface FileRoutesById {
   '/_app/scheduled': typeof AppScheduledRoute
   '/_dev/ui': typeof DevUiRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/admin/access-profiles': typeof AppAdminAccessProfilesRoute
+  '/_app/admin/audit': typeof AppAdminAuditRoute
+  '/_app/admin/company': typeof AppAdminCompanyRoute
+  '/_app/admin/domains': typeof AppAdminDomainsRoute
+  '/_app/admin/integrations': typeof AppAdminIntegrationsRoute
+  '/_app/admin/mailboxes': typeof AppAdminMailboxesRoute
+  '/_app/admin/reports': typeof AppAdminReportsRoute
+  '/_app/admin/user-permissions': typeof AppAdminUserPermissionsRoute
+  '/_app/admin/users': typeof AppAdminUsersRoute
   '/_app/chat/$conversationId': typeof AppChatConversationIdRoute
   '/_app/mail/$mailboxId': typeof AppMailMailboxIdRoute
   '/_app/reports_/meet': typeof AppReportsMeetRoute
@@ -355,9 +495,15 @@ export interface FileRoutesById {
   '/_app/settings/tenant': typeof AppSettingsTenantRoute
   '/_app/settings/user-permissions': typeof AppSettingsUserPermissionsRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
+  '/_app/admin/': typeof AppAdminIndexRoute
   '/_app/chat/': typeof AppChatIndexRoute
+  '/_app/admin/domains_/$domainId': typeof AppAdminDomainsDomainIdRoute
+  '/_app/admin/mailboxes_/$mailboxId': typeof AppAdminMailboxesMailboxIdRoute
+  '/_app/admin/reports_/meet': typeof AppAdminReportsMeetRoute
+  '/_app/admin/security/antivirus': typeof AppAdminSecurityAntivirusRoute
   '/_app/reports_/meet_/$meetingId': typeof AppReportsMeetMeetingIdRoute
   '/_app/settings/mailboxes_/$mailboxId': typeof AppSettingsMailboxesMailboxIdRoute
+  '/_app/admin/reports_/meet_/$meetingId': typeof AppAdminReportsMeetMeetingIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -370,6 +516,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/superadmin'
+    | '/admin'
     | '/calendar'
     | '/chat'
     | '/companies'
@@ -380,6 +527,15 @@ export interface FileRouteTypes {
     | '/reports'
     | '/scheduled'
     | '/_dev/ui'
+    | '/admin/access-profiles'
+    | '/admin/audit'
+    | '/admin/company'
+    | '/admin/domains'
+    | '/admin/integrations'
+    | '/admin/mailboxes'
+    | '/admin/reports'
+    | '/admin/user-permissions'
+    | '/admin/users'
     | '/chat/$conversationId'
     | '/mail/$mailboxId'
     | '/reports/meet'
@@ -396,9 +552,15 @@ export interface FileRouteTypes {
     | '/settings/tenant'
     | '/settings/user-permissions'
     | '/settings/users'
+    | '/admin/'
     | '/chat/'
+    | '/admin/domains/$domainId'
+    | '/admin/mailboxes/$mailboxId'
+    | '/admin/reports/meet'
+    | '/admin/security/antivirus'
     | '/reports/meet/$meetingId'
     | '/settings/mailboxes/$mailboxId'
+    | '/admin/reports/meet/$meetingId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/accept-invite'
@@ -418,6 +580,15 @@ export interface FileRouteTypes {
     | '/scheduled'
     | '/_dev/ui'
     | '/'
+    | '/admin/access-profiles'
+    | '/admin/audit'
+    | '/admin/company'
+    | '/admin/domains'
+    | '/admin/integrations'
+    | '/admin/mailboxes'
+    | '/admin/reports'
+    | '/admin/user-permissions'
+    | '/admin/users'
     | '/chat/$conversationId'
     | '/mail/$mailboxId'
     | '/reports/meet'
@@ -434,9 +605,15 @@ export interface FileRouteTypes {
     | '/settings/tenant'
     | '/settings/user-permissions'
     | '/settings/users'
+    | '/admin'
     | '/chat'
+    | '/admin/domains/$domainId'
+    | '/admin/mailboxes/$mailboxId'
+    | '/admin/reports/meet'
+    | '/admin/security/antivirus'
     | '/reports/meet/$meetingId'
     | '/settings/mailboxes/$mailboxId'
+    | '/admin/reports/meet/$meetingId'
   id:
     | '__root__'
     | '/_app'
@@ -447,6 +624,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/superadmin'
+    | '/_app/admin'
     | '/_app/calendar'
     | '/_app/chat'
     | '/_app/companies'
@@ -458,6 +636,15 @@ export interface FileRouteTypes {
     | '/_app/scheduled'
     | '/_dev/ui'
     | '/_app/'
+    | '/_app/admin/access-profiles'
+    | '/_app/admin/audit'
+    | '/_app/admin/company'
+    | '/_app/admin/domains'
+    | '/_app/admin/integrations'
+    | '/_app/admin/mailboxes'
+    | '/_app/admin/reports'
+    | '/_app/admin/user-permissions'
+    | '/_app/admin/users'
     | '/_app/chat/$conversationId'
     | '/_app/mail/$mailboxId'
     | '/_app/reports_/meet'
@@ -474,9 +661,15 @@ export interface FileRouteTypes {
     | '/_app/settings/tenant'
     | '/_app/settings/user-permissions'
     | '/_app/settings/users'
+    | '/_app/admin/'
     | '/_app/chat/'
+    | '/_app/admin/domains_/$domainId'
+    | '/_app/admin/mailboxes_/$mailboxId'
+    | '/_app/admin/reports_/meet'
+    | '/_app/admin/security/antivirus'
     | '/_app/reports_/meet_/$meetingId'
     | '/_app/settings/mailboxes_/$mailboxId'
+    | '/_app/admin/reports_/meet_/$meetingId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -556,6 +749,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/admin': {
+      id: '/_app/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AppAdminRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/calendar': {
       id: '/_app/calendar'
       path: '/calendar'
@@ -625,6 +825,76 @@ declare module '@tanstack/react-router' {
       fullPath: '/_dev/ui'
       preLoaderRoute: typeof DevUiRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/admin/': {
+      id: '/_app/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AppAdminIndexRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/access-profiles': {
+      id: '/_app/admin/access-profiles'
+      path: '/access-profiles'
+      fullPath: '/admin/access-profiles'
+      preLoaderRoute: typeof AppAdminAccessProfilesRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/audit': {
+      id: '/_app/admin/audit'
+      path: '/audit'
+      fullPath: '/admin/audit'
+      preLoaderRoute: typeof AppAdminAuditRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/company': {
+      id: '/_app/admin/company'
+      path: '/company'
+      fullPath: '/admin/company'
+      preLoaderRoute: typeof AppAdminCompanyRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/domains': {
+      id: '/_app/admin/domains'
+      path: '/domains'
+      fullPath: '/admin/domains'
+      preLoaderRoute: typeof AppAdminDomainsRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/integrations': {
+      id: '/_app/admin/integrations'
+      path: '/integrations'
+      fullPath: '/admin/integrations'
+      preLoaderRoute: typeof AppAdminIntegrationsRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/mailboxes': {
+      id: '/_app/admin/mailboxes'
+      path: '/mailboxes'
+      fullPath: '/admin/mailboxes'
+      preLoaderRoute: typeof AppAdminMailboxesRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/reports': {
+      id: '/_app/admin/reports'
+      path: '/reports'
+      fullPath: '/admin/reports'
+      preLoaderRoute: typeof AppAdminReportsRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/user-permissions': {
+      id: '/_app/admin/user-permissions'
+      path: '/user-permissions'
+      fullPath: '/admin/user-permissions'
+      preLoaderRoute: typeof AppAdminUserPermissionsRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/users': {
+      id: '/_app/admin/users'
+      path: '/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AppAdminUsersRouteImport
+      parentRoute: typeof AppAdminRoute
     }
     '/_app/chat/': {
       id: '/_app/chat/'
@@ -745,6 +1015,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsUsersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/admin/domains_/$domainId': {
+      id: '/_app/admin/domains_/$domainId'
+      path: '/domains/$domainId'
+      fullPath: '/admin/domains/$domainId'
+      preLoaderRoute: typeof AppAdminDomainsDomainIdRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/mailboxes_/$mailboxId': {
+      id: '/_app/admin/mailboxes_/$mailboxId'
+      path: '/mailboxes/$mailboxId'
+      fullPath: '/admin/mailboxes/$mailboxId'
+      preLoaderRoute: typeof AppAdminMailboxesMailboxIdRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/reports_/meet': {
+      id: '/_app/admin/reports_/meet'
+      path: '/reports/meet'
+      fullPath: '/admin/reports/meet'
+      preLoaderRoute: typeof AppAdminReportsMeetRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/security/antivirus': {
+      id: '/_app/admin/security/antivirus'
+      path: '/security/antivirus'
+      fullPath: '/admin/security/antivirus'
+      preLoaderRoute: typeof AppAdminSecurityAntivirusRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
     '/_app/reports_/meet_/$meetingId': {
       id: '/_app/reports_/meet_/$meetingId'
       path: '/reports/meet/$meetingId'
@@ -759,8 +1057,55 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsMailboxesMailboxIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/admin/reports_/meet_/$meetingId': {
+      id: '/_app/admin/reports_/meet_/$meetingId'
+      path: '/reports/meet/$meetingId'
+      fullPath: '/admin/reports/meet/$meetingId'
+      preLoaderRoute: typeof AppAdminReportsMeetMeetingIdRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
   }
 }
+
+interface AppAdminRouteChildren {
+  AppAdminAccessProfilesRoute: typeof AppAdminAccessProfilesRoute
+  AppAdminAuditRoute: typeof AppAdminAuditRoute
+  AppAdminCompanyRoute: typeof AppAdminCompanyRoute
+  AppAdminDomainsRoute: typeof AppAdminDomainsRoute
+  AppAdminIntegrationsRoute: typeof AppAdminIntegrationsRoute
+  AppAdminMailboxesRoute: typeof AppAdminMailboxesRoute
+  AppAdminReportsRoute: typeof AppAdminReportsRoute
+  AppAdminUserPermissionsRoute: typeof AppAdminUserPermissionsRoute
+  AppAdminUsersRoute: typeof AppAdminUsersRoute
+  AppAdminIndexRoute: typeof AppAdminIndexRoute
+  AppAdminDomainsDomainIdRoute: typeof AppAdminDomainsDomainIdRoute
+  AppAdminMailboxesMailboxIdRoute: typeof AppAdminMailboxesMailboxIdRoute
+  AppAdminReportsMeetRoute: typeof AppAdminReportsMeetRoute
+  AppAdminSecurityAntivirusRoute: typeof AppAdminSecurityAntivirusRoute
+  AppAdminReportsMeetMeetingIdRoute: typeof AppAdminReportsMeetMeetingIdRoute
+}
+
+const AppAdminRouteChildren: AppAdminRouteChildren = {
+  AppAdminAccessProfilesRoute: AppAdminAccessProfilesRoute,
+  AppAdminAuditRoute: AppAdminAuditRoute,
+  AppAdminCompanyRoute: AppAdminCompanyRoute,
+  AppAdminDomainsRoute: AppAdminDomainsRoute,
+  AppAdminIntegrationsRoute: AppAdminIntegrationsRoute,
+  AppAdminMailboxesRoute: AppAdminMailboxesRoute,
+  AppAdminReportsRoute: AppAdminReportsRoute,
+  AppAdminUserPermissionsRoute: AppAdminUserPermissionsRoute,
+  AppAdminUsersRoute: AppAdminUsersRoute,
+  AppAdminIndexRoute: AppAdminIndexRoute,
+  AppAdminDomainsDomainIdRoute: AppAdminDomainsDomainIdRoute,
+  AppAdminMailboxesMailboxIdRoute: AppAdminMailboxesMailboxIdRoute,
+  AppAdminReportsMeetRoute: AppAdminReportsMeetRoute,
+  AppAdminSecurityAntivirusRoute: AppAdminSecurityAntivirusRoute,
+  AppAdminReportsMeetMeetingIdRoute: AppAdminReportsMeetMeetingIdRoute,
+}
+
+const AppAdminRouteWithChildren = AppAdminRoute._addFileChildren(
+  AppAdminRouteChildren,
+)
 
 interface AppChatRouteChildren {
   AppChatConversationIdRoute: typeof AppChatConversationIdRoute
@@ -776,6 +1121,7 @@ const AppChatRouteWithChildren =
   AppChatRoute._addFileChildren(AppChatRouteChildren)
 
 interface AppRouteChildren {
+  AppAdminRoute: typeof AppAdminRouteWithChildren
   AppCalendarRoute: typeof AppCalendarRoute
   AppChatRoute: typeof AppChatRouteWithChildren
   AppCompaniesRoute: typeof AppCompaniesRoute
@@ -806,6 +1152,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAdminRoute: AppAdminRouteWithChildren,
   AppCalendarRoute: AppCalendarRoute,
   AppChatRoute: AppChatRouteWithChildren,
   AppCompaniesRoute: AppCompaniesRoute,

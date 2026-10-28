@@ -1,6 +1,7 @@
 import { sql } from 'kysely';
 import {
   assignThread,
+  tenantQueuesEnabled,
   audit,
   mailboxUserCan,
   userCanReadThread,
@@ -25,6 +26,8 @@ export async function changeThread(
   action: 'done' | 'reopen' | 'excluded' | 'assign',
   value?: boolean | string | null,
 ) {
+  if (!(await tenantQueuesEnabled(r.db, requireTenant(ctx).tenantId)))
+    throw conflict('O atendimento por filas está desativado nesta empresa.');
   const perm: MailboxPerm =
     action === 'assign' ? (value === ctx?.userId ? 'assign_self' : 'assign_others') : 'queue';
   const { thread, c } = await requireThread(ctx, r, id, perm);
@@ -77,6 +80,8 @@ export async function bulkQueue(
   userId: string | null,
 ) {
   const c = requireTenant(ctx);
+  if (!(await tenantQueuesEnabled(r.db, c.tenantId)))
+    throw conflict('O atendimento por filas está desativado nesta empresa.');
   for (const id of ids) await requireThread(c, r, id);
   if (action === 'assign' && userId)
     for (const id of ids)

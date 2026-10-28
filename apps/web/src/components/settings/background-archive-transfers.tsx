@@ -41,7 +41,7 @@ export function BackgroundArchiveTransfers({
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline" size="sm">
               <Link
-                to="/settings/mailboxes/$mailboxId"
+                to="/admin/mailboxes/$mailboxId"
                 params={{ mailboxId: t.scope.mailboxId }}
                 search={{ tab: 'archives' }}
               >

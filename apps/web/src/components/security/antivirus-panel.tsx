@@ -104,7 +104,8 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
     placeholderData: keepPreviousData,
     refetchInterval: 15000,
   });
-  const change = (value: ListQuery) => void navigate({ to: '/security/antivirus', search: value });
+  const change = (value: ListQuery) =>
+    void navigate({ to: '/admin/security/antivirus', search: value });
   const refresh = async () => {
     await Promise.all([
       client.invalidateQueries({ queryKey: ['antivirus-overview', tenant] }),

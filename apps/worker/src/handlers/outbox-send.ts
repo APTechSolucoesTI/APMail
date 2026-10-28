@@ -6,6 +6,7 @@ import {
   asJson,
   touchThreads,
   resolveThread,
+  createIndependentThread,
   messageSnippet,
   sanitizeEmailHtml,
   userCanReadThread,
@@ -117,13 +118,13 @@ export async function handleOutboxSend(
     )
       throw new Error('send_permission_revoked');
     if (
-      row.thread_id &&
+      (row.source_thread_id ?? row.thread_id) &&
       !(await userCanReadThread(
         r.db,
         row.tenant_id,
         box.id,
         row.created_by,
-        row.thread_id,
+        (row.source_thread_id ?? row.thread_id)!,
         row.reply_to_message_id ?? undefined,
       ))
     )
@@ -182,6 +183,7 @@ export async function handleOutboxSend(
               tenant_id: box.tenant_id,
               mailbox_id: box.id,
               subject: row.subject,
+              message_id_header: mime.messageId,
               message_at: at,
               in_reply_to: mime.inReplyTo,
               references_headers: mime.references,
@@ -190,8 +192,10 @@ export async function handleOutboxSend(
               cc_addresses: row.cc_addresses as Address[],
             };
             const threadId =
-              row.thread_id ??
-              (await resolveThread(tx, metadata, [box.email_address, ...box.aliases]));
+              !row.mdn_original_message_id && (row.kind === 'new' || row.kind === 'forward')
+                ? await createIndependentThread(tx, metadata, [box.email_address, ...box.aliases])
+                : (row.thread_id ??
+                  (await resolveThread(tx, metadata, [box.email_address, ...box.aliases])));
             await tx
               .updateTable('threads')
               .set({ history_queue_eligible: true })

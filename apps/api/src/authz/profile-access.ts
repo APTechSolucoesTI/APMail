@@ -7,6 +7,11 @@ export function routePermission(
   path: string,
   method: string,
 ): AccessPermission | 'personal' | null {
+  if (path === '/api/admin/overview') return 'personal';
+  if (path === '/api/tenant/mail-policy-refresh') return 'company.manage';
+  if (/^\/api\/mailbox-domains(?:\/|$)/.test(path)) return 'mailboxes.manage';
+  if (/^\/api\/domains(?:\/|$)/.test(path))
+    return method === 'GET' || path.endsWith('/check-dns') ? 'domains.view' : 'domains.manage';
   if (/^\/api\/security\/antivirus(?:\/|$)/.test(path)) {
     if (method !== 'GET' && /\/rules(?:\/|$)/.test(path)) return 'antivirus.trust';
     if (method !== 'GET' && /\/releases(?:\/|$)/.test(path)) return 'antivirus.release';

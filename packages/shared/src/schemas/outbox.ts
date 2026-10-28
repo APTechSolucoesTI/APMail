@@ -16,6 +16,7 @@ export const outboxSchema = z.object({
   mailbox_id: z.uuid(),
   kind: z.enum(['new', 'reply', 'reply_all', 'forward']).default('new'),
   thread_id: z.uuid().nullable().optional(),
+  source_thread_id: z.uuid().nullable().optional(),
   reply_to_message_id: z.uuid().nullable().optional(),
   to_addresses: z.array(addressSchema).max(100).default([]),
   cc_addresses: z.array(addressSchema).max(100).default([]),

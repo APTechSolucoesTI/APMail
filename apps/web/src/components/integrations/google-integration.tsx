@@ -231,7 +231,7 @@ export function GoogleIntegration({ result }: { result?: 'connected' | 'cancelle
               diferente; quem organiza a sala é a conta Google conectada.
             </p>
             <Button variant="outline" size="sm" asChild>
-              <Link to="/reports/meet" search={{}}>
+              <Link to="/admin/reports/meet" search={{}}>
                 <BarChart3 />
                 Abrir relatórios do Meet
               </Link>

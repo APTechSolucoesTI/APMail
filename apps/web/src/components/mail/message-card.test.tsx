@@ -1,8 +1,22 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render as renderUI, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MessageCard } from './message-card';
 import type { Message } from '@/lib/mail';
-vi.mock('@/lib/auth', () => ({ useAccess: () => true, useTenantId: () => 'tenant' }));
+vi.mock('@/lib/auth', () => ({
+  useAccess: () => true,
+  useTenantId: () => 'tenant',
+  meQuery: { queryKey: ['me'], queryFn: async () => ({ user: { id: 'user' } }) },
+}));
+function render(ui: React.ReactNode) {
+  return renderUI(
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+    >
+      {ui}
+    </QueryClientProvider>,
+  );
+}
 
 vi.mock('./email-body-frame', () => ({
   EmailBodyFrame: ({ cidMap }: { cidMap: Record<string, string> }) => (
@@ -178,7 +192,6 @@ it('identifica a Lixeira pela pasta da mensagem, independentemente da conversa',
   );
   expect(screen.getByRole('button', { name: 'Restaurar' })).toBeVisible();
 });
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { pendingSecurity } from '@/lib/antivirus';
 it('blocks pending downloads and previews, then releases only clean attachments', () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

@@ -39,7 +39,7 @@ const notificationVisibility = (c: RequestContext) => sql<boolean>`(
   (notifications.type='chat_message' and ${!!c.accessPermissions?.includes('chat')}) or
   (notifications.type='reminder' and ${!!c.accessPermissions?.includes('reminders')}) or
   (notifications.type not in ('chat_message','reminder') and ${!!c.accessPermissions?.includes('mail')})
-)`;
+) and (notifications.type <> 'assignment' or not exists(select 1 from tenants t where t.id=notifications.tenant_id and t.settings->>'mail_queues_enabled'='false'))`;
 export const avatarUrl = (user: { id: string; avatar_path: string | null; updated_at: Date }) =>
   user.avatar_path ? `/api/avatars/${user.id}?v=${user.updated_at.getTime()}` : null;
 export async function me(ctx: RequestContext, r: Resources) {
@@ -60,6 +60,9 @@ export async function me(ctx: RequestContext, r: Resources) {
       'tenants.id',
       'tenants.name',
       'tenants.slug',
+      sql<boolean>`coalesce((tenants.settings->>'mail_queues_enabled')::boolean,true)`.as(
+        'mail_queues_enabled',
+      ),
       'tenant_members.role',
       'tenant_members.capabilities',
       'tenant_members.access_profile_id',

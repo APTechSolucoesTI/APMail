@@ -1,7 +1,11 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { requireSettingsPermission } from '@/lib/settings';
-import { AccessProfiles } from '@/components/settings/access-profiles';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 export const Route = createFileRoute('/_app/settings/access-profiles')({
-  beforeLoad: () => requireSettingsPermission('profiles.manage'),
-  component: AccessProfiles,
+  validateSearch: (search: Record<string, unknown>) => search,
+  beforeLoad: ({ location }) => {
+    throw redirect({
+      to: location.pathname.replace('/settings/access-profiles', '/admin/access-profiles'),
+      search: location.search,
+      replace: true,
+    });
+  },
 });

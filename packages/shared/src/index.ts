@@ -32,3 +32,5 @@ export * from './google-meet.js';
 export * from './access.js';
 export * from './composition.js';
 export * from './company.js';
+export * from './domains.js';
+export * from './mail-policy.js';

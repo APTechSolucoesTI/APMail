@@ -146,7 +146,7 @@ export async function registerGoogleIntegrations(
       throw new ApiError(403, 'forbidden', 'Esta autorização pertence a outra sessão.');
     if (!(await r.redis.getdel('google-oauth:' + query.state)))
       throw conflict('Esta autorização já foi utilizada.');
-    const target = new URL('/settings/integrations', r.env.APP_URL);
+    const target = new URL('/admin/integrations', r.env.APP_URL);
     reply.header('Cache-Control', 'no-store').header('Referrer-Policy', 'no-referrer');
     if (query.error || !query.code) {
       target.searchParams.set('google', 'cancelled');

@@ -190,7 +190,7 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">Capacidade para importar</h2>
           <Button asChild variant="outline" size="sm">
-            <Link to="/settings/tenant" hash="storage-allocation">
+            <Link to="/admin/company" hash="storage-allocation">
               <Settings2 aria-hidden />
               Gerenciar armazenamento
             </Link>

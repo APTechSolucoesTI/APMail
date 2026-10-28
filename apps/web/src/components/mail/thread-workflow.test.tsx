@@ -17,7 +17,9 @@ function open(enabled?: boolean) {
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
   client.setQueryData(['me'], {
     user: { id: 'user' },
-    preferences: { mail_queues_enabled: enabled },
+    current_tenant_id: 'tenant',
+    tenants: [{ id: 'tenant', mail_queues_enabled: enabled }],
+    preferences: { mail_queues_enabled: !enabled },
   });
   return render(
     <QueryClientProvider client={client}>
@@ -28,7 +30,7 @@ function open(enabled?: boolean) {
   );
 }
 it.each([true, undefined])(
-  'preserva controles de atendimento quando a preferência é %s',
+  'preserva controles de atendimento quando a política da empresa é %s',
   (enabled) => {
     open(enabled);
     expect(screen.getByRole('button', { name: 'Assumir' })).toBeVisible();
@@ -50,7 +52,12 @@ it('desativar filas remove controles sem afetar ações de organização nem mud
 });
 it('explica que tarefas pendentes impedem concluir o e-mail', () => {
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
-  client.setQueryData(['me'], { user: { id: 'user' }, preferences: {} });
+  client.setQueryData(['me'], {
+    user: { id: 'user' },
+    current_tenant_id: 'tenant',
+    tenants: [{ id: 'tenant', mail_queues_enabled: true }],
+    preferences: {},
+  });
   render(
     <QueryClientProvider client={client}>
       <ThreadWorkflow thread={{ ...thread, pending_task_count: 2 }} mailboxId="box" role="editor" />

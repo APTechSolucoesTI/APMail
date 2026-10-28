@@ -1,8 +1,8 @@
+import { resolveIncomingThread } from './thread-identities.js';
 import { sql, type Kysely, type Transaction } from 'kysely';
 import {
   computeThreadStatus,
   externalParticipants,
-  normalizeSubject,
   type QueueReason,
   type Address,
 } from '@apmail/shared';
@@ -13,6 +13,7 @@ export type ThreadMessage = {
   mailbox_id: string;
   subject: string;
   message_at: Date;
+  message_id_header: string;
   in_reply_to: string | null;
   references_headers: string[];
   from_address: string;
@@ -24,50 +25,7 @@ export async function resolveThread(
   msg: ThreadMessage,
   ourAddresses: string[],
 ): Promise<string> {
-  const candidates = [
-    ...new Set([msg.in_reply_to, ...msg.references_headers].filter((s): s is string => !!s)),
-  ].slice(-50);
-  if (candidates.length) {
-    const parent = await db
-      .selectFrom('messages')
-      .select('thread_id')
-      .where('tenant_id', '=', msg.tenant_id)
-      .where('mailbox_id', '=', msg.mailbox_id)
-      .where('message_id_header', 'in', candidates)
-      .where('deleted_at', 'is', null)
-      .orderBy('message_at', 'desc')
-      .executeTakeFirst();
-    if (parent) return parent.thread_id;
-  }
-  const subject = normalizeSubject(msg.subject),
-    participants = externalParticipants(msg, ourAddresses);
-  if (subject.length >= 4 && participants.length) {
-    const found = await db
-      .selectFrom('threads')
-      .select('id')
-      .where('tenant_id', '=', msg.tenant_id)
-      .where('mailbox_id', '=', msg.mailbox_id)
-      .where('subject_normalized', '=', subject)
-      .where('deleted_at', 'is', null)
-      .where('last_message_at', '>=', new Date(msg.message_at.getTime() - 14 * 86400000))
-      .where(sql<boolean>`participants && ${participants}::text[]`)
-      .orderBy('last_message_at', 'desc')
-      .executeTakeFirst();
-    if (found) return found.id;
-  }
-  return (
-    await db
-      .insertInto('threads')
-      .values({
-        tenant_id: msg.tenant_id,
-        mailbox_id: msg.mailbox_id,
-        subject: msg.subject,
-        subject_normalized: subject,
-        participants,
-      })
-      .returning('id')
-      .executeTakeFirstOrThrow()
-  ).id;
+  return resolveIncomingThread(db, msg, ourAddresses);
 }
 export async function refreshThreadAggregates(db: Database, threadId: string): Promise<void> {
   const thread = await db

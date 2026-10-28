@@ -11,6 +11,7 @@ import { X } from 'lucide-react';
 import { TimezoneSelect } from './timezone-select';
 export type FormField = {
   name: string;
+  render?: (props: { value: unknown; onChange: (value: string) => void }) => React.ReactNode;
   label: string;
   type?: 'text' | 'email' | 'password' | 'number' | 'checkbox' | 'select' | 'emails' | 'timezone';
   autoComplete?: string;
@@ -58,7 +59,12 @@ export function SchemaForm({
         return (
           <div key={field.name} className="space-y-2">
             <Label htmlFor={id}>{field.label}</Label>
-            {field.type === 'timezone' ? (
+            {field.render ? (
+              field.render({
+                value: values[field.name],
+                onChange: (value) => form.setValue(field.name, value, { shouldValidate: true }),
+              })
+            ) : field.type === 'timezone' ? (
               <TimezoneSelect
                 id={id}
                 value={String(values[field.name] ?? '')}

@@ -188,7 +188,7 @@ export function Composer({
     fileInput = useRef<HTMLInputElement>(null),
     pendingSchedule = useRef<SendSchedule | undefined>(undefined);
   useComposingPresence(
-    data.thread_id,
+    data.source_thread_id ?? data.thread_id,
     ready &&
       ['reply', 'reply_all'].includes(data.kind) &&
       can(boxes.data?.find((b) => b.id === data.mailbox_id)?.role ?? null, 'send'),
@@ -286,7 +286,8 @@ export function Composer({
           value = {
             ...value,
             kind,
-            thread_id: conversation.data.thread.id,
+            thread_id: kind === 'forward' ? null : conversation.data.thread.id,
+            source_thread_id: kind === 'forward' ? conversation.data.thread.id : null,
             reply_to_message_id: m.id,
             subject: replySubject(m.subject, kind),
             ...replyRecipients(original, kind, [box.email_address, ...box.aliases]),

@@ -35,3 +35,7 @@ export * from './domain/local-folders.js';
 export * from './domain/folder-access.js';
 export * from './mail-backup.js';
 export * from './domain/calendar.js';
+export * from './domain/thread-identities.js';
+
+export * from './domain/mail-policy.js';
+export * from './domain/domains.js';

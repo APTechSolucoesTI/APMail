@@ -1,3 +1,6 @@
+import { AdminNavigation } from '@/components/admin/admin-navigation';
+import { ProfileMenu } from '@/components/admin/profile-menu';
+import { DomainMailboxNavigation } from '@/components/mail/domain-mailbox-navigation';
 import { hasAccess, screenPermission, type AccessPermission } from '@apmail/shared';
 import { isTenantAdmin } from '@apmail/shared';
 import { canDelegate } from '@apmail/shared';
@@ -8,7 +11,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
 import { toast } from 'sonner';
 import { SocketContext } from '@/hooks/use-socket-room';
-import { MailboxFolderNavigation } from '@/components/mail/mailbox-folder-navigation';
 import { SummaryNavigation } from '@/components/mail/summary-navigation';
 import { ChatNavigation } from '@/components/chat/chat-navigation';
 import { useChatRealtime } from '@/hooks/use-chat';
@@ -30,15 +32,12 @@ import {
   CalendarDays,
   BellRing,
   Plug,
-  BarChart3,
-  ShieldCheck,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { UserAvatar } from '@/components/common/user-avatar';
 import { NotificationBell } from './notification-bell';
 import { KeyboardHelp } from './keyboard-help';
 import { GlobalSearch } from './global-search';
@@ -135,6 +134,10 @@ export function AppShell() {
       void client.invalidateQueries({}, { cancelRefetch: false }).then(() => {
         if (!socket.connected && !loggingOut.current) socket.connect();
       });
+    });
+    socket.on('tenant:settings-changed', () => {
+      for (const key of ['me', 'tenant', 'admin-overview', 'dashboard', 'queue-counts'])
+        void client.invalidateQueries({ queryKey: [key] });
     });
     socket.on('mailboxes:changed', () => {
       for (const key of [
@@ -295,7 +298,9 @@ export function AppShell() {
   const tenant = me.data.tenants.find((t) => t.id === me.data!.current_tenant_id);
   const admin = isTenantAdmin(tenant?.role);
   const allowed = (permission: AccessPermission) => hasAccess(tenant, permission);
-  const sidebar = (
+  const sidebar = pathname.startsWith('/admin') ? (
+    <AdminNavigation onNavigate={() => setOpen(false)} />
+  ) : (
     <ScrollArea
       type="hover"
       className="h-full min-w-0 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-scrollbar]]:w-2 [&_[data-slot=scroll-area-thumb]]:bg-muted-foreground/80 [&_[data-slot=scroll-area-thumb]:hover]:bg-muted-foreground"
@@ -382,9 +387,7 @@ export function AppShell() {
             {me.data?.preferences.mail_summary_enabled && (
               <SummaryNavigation onNavigate={() => setOpen(false)} />
             )}
-            {boxes.data?.map((b) => (
-              <MailboxFolderNavigation key={b.id} box={b} onNavigate={() => setOpen(false)} />
-            ))}
+            <DomainMailboxNavigation boxes={boxes.data ?? []} onNavigate={() => setOpen(false)} />
             {!boxes.data?.length && (
               <p className="px-2 py-3 text-xs text-muted-foreground">Sem caixas disponíveis</p>
             )}
@@ -401,35 +404,6 @@ export function AppShell() {
             </Link>
           )}
           {allowed('chat') && <ChatNavigation onNavigate={() => setOpen(false)} />}
-        </NavigationGroup>
-        <NavigationGroup id="analysis" label="Análises" visible={allowed('reports')}>
-          {allowed('reports') && (
-            <Link
-              to="/reports"
-              onClick={() => setOpen(false)}
-              activeProps={{ className: 'bg-accent text-accent-foreground' }}
-              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-            >
-              <BarChart3 aria-hidden className="size-4" />
-              Relatórios
-            </Link>
-          )}
-        </NavigationGroup>
-        <NavigationGroup
-          id="security"
-          label="Segurança"
-          visible={allowed('antivirus.view')}
-          defaultOpen={pathname.startsWith('/security')}
-        >
-          <Link
-            to="/security/antivirus"
-            onClick={() => setOpen(false)}
-            activeProps={{ className: 'bg-accent text-accent-foreground' }}
-            className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted sm:min-h-8"
-          >
-            <ShieldCheck aria-hidden className="size-4" />
-            Antivírus
-          </Link>
         </NavigationGroup>
         <div className="mt-auto border-t pt-4">
           <NavigationGroup
@@ -470,6 +444,14 @@ export function AppShell() {
                   ]
                 : []),
             ]
+              .filter(([to]) =>
+                [
+                  '/settings/preferences',
+                  '/settings/signatures',
+                  '/settings/labels',
+                  '/settings/rules',
+                ].includes(to!),
+              )
               .filter(([to]) => {
                 const permission = screenPermission(to!);
                 return tenant?.access_permissions == null || !permission || allowed(permission);
@@ -576,16 +558,7 @@ export function AppShell() {
                   <div className="flex items-center gap-0 sm:gap-2">
                     <KeyboardHelp mailboxes={boxes.data ?? []} />
                     <NotificationBell />
-                    <Link
-                      to="/settings/profile"
-                      aria-label="Meu perfil"
-                      className="inline-flex min-h-11 min-w-11 items-center justify-center"
-                    >
-                      <UserAvatar
-                        name={me.data.user.full_name}
-                        src={me.data.user.avatar_url ?? undefined}
-                      />
-                    </Link>
+                    <ProfileMenu />
                     <Button
                       variant="ghost"
                       size="icon"

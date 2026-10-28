@@ -1,12 +1,11 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { listQuerySchema } from '@apmail/shared';
-import { requireSettingsPermission } from '@/lib/settings';
-import { AntivirusPanel } from '@/components/security/antivirus-panel';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 export const Route = createFileRoute('/_app/security/antivirus')({
-  beforeLoad: () => requireSettingsPermission('antivirus.view'),
-  validateSearch: listQuerySchema,
-  component: AntivirusPage,
+  validateSearch: (search: Record<string, unknown>) => search,
+  beforeLoad: ({ location }) => {
+    throw redirect({
+      to: location.pathname.replace('/security/antivirus', '/admin/security/antivirus'),
+      search: location.search,
+      replace: true,
+    });
+  },
 });
-function AntivirusPage() {
-  return <AntivirusPanel query={Route.useSearch()} />;
-}

@@ -7,7 +7,7 @@ export function TeamNavigation() {
   return (
     <nav aria-label="Equipe e acesso" className="mb-4 flex flex-wrap gap-1 border-b pb-2">
       <Link
-        to="/settings/users"
+        to="/admin/users"
         className="flex min-h-11 items-center gap-2 rounded-md px-3 text-sm hover:bg-muted sm:min-h-9"
         activeProps={{ className: 'bg-secondary font-medium text-primary' }}
       >
@@ -16,7 +16,7 @@ export function TeamNavigation() {
       </Link>
       {profiles && (
         <Link
-          to="/settings/access-profiles"
+          to="/admin/access-profiles"
           className="flex min-h-11 items-center gap-2 rounded-md px-3 text-sm hover:bg-muted sm:min-h-9"
           activeProps={{ className: 'bg-secondary font-medium text-primary' }}
         >
@@ -26,7 +26,7 @@ export function TeamNavigation() {
       )}
       {users && (
         <Link
-          to="/settings/user-permissions"
+          to="/admin/user-permissions"
           className="flex min-h-11 items-center gap-2 rounded-md px-3 text-sm hover:bg-muted sm:min-h-9"
           activeProps={{ className: 'bg-secondary font-medium text-primary' }}
         >

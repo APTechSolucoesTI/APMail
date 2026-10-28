@@ -1,11 +1,11 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { z } from 'zod';
-import { GoogleIntegration } from '@/components/integrations/google-integration';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 export const Route = createFileRoute('/_app/settings/integrations')({
-  validateSearch: z.object({ google: z.enum(['connected', 'cancelled', 'failed']).optional() }),
-  component: Integrations,
+  validateSearch: (search: Record<string, unknown>) => search,
+  beforeLoad: ({ location }) => {
+    throw redirect({
+      to: location.pathname.replace('/settings/integrations', '/admin/integrations'),
+      search: location.search,
+      replace: true,
+    });
+  },
 });
-function Integrations() {
-  const search = Route.useSearch();
-  return <GoogleIntegration result={search.google} />;
-}

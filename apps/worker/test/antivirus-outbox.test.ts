@@ -20,6 +20,7 @@ vi.mock('@apmail/db', async (original) => ({
   audit: async () => undefined,
   touchThreads: async () => undefined,
   resolveThread: async () => 'thread',
+  createIndependentThread: async () => 'thread',
   lockStorageTenant: async () => undefined,
   assertStorageCapacity: async () => undefined,
 }));

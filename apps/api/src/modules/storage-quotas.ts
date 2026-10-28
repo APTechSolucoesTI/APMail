@@ -31,7 +31,7 @@ export async function readMailboxQuotas(r: Resources, tenant: string, id?: strin
     order by b.name,b.id`.execute(r.db)
   ).rows;
 }
-async function readTenantQuota(r: Resources, tenant: string): Promise<TenantQuota> {
+export async function readTenantQuota(r: Resources, tenant: string): Promise<TenantQuota> {
   if (!r.db.isTransaction)
     return r.db
       .transaction()

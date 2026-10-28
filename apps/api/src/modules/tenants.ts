@@ -1,3 +1,5 @@
+import { requestTenantQueueRefresh } from '@apmail/db';
+import { queuesEnabled } from '@apmail/shared';
 import { isTenantAdmin } from '@apmail/shared';
 import { ROLE_PERMS } from '@apmail/shared';
 import { companyDetailsSchema, cnpjSchema } from '@apmail/shared';
@@ -175,6 +177,16 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       return lookupCompany(cnpj);
     },
   );
+  app.get('/api/tenant/mail-policy-refresh', async (req) => {
+    const c = requireTenantAdmin(req.ctx, 'company.manage');
+    return (
+      (await r.db
+        .selectFrom('tenant_mail_policy_runs')
+        .select(['state', 'processed', 'updated_at', 'error'])
+        .where('tenant_id', '=', c.tenantId)
+        .executeTakeFirst()) ?? { state: 'succeeded', processed: 0, error: null }
+    );
+  });
   app.get('/api/tenant', async (req) => {
     const c = requireTenant(req.ctx);
     return r.db
@@ -206,23 +218,42 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       if (!sender)
         throw new ApiError(400, 'validation_error', 'Escolha uma caixa ativa da empresa.');
     }
-    const old = await r.db
-      .selectFrom('tenants')
-      .selectAll()
-      .where('id', '=', c.tenantId)
-      .executeTakeFirstOrThrow();
-    const next = await r.db
-      .updateTable('tenants')
-      .set({
-        ...b,
-        ...(b.company_details
-          ? { company_details: sql`company_details || ${JSON.stringify(b.company_details)}::jsonb` }
-          : {}),
-        settings: b.settings ? sql`settings || ${JSON.stringify(b.settings)}::jsonb` : old.settings,
-      })
-      .where('id', '=', c.tenantId)
-      .returningAll()
-      .executeTakeFirstOrThrow();
+    const { old, next, generation } = await r.db.transaction().execute(async (tx) => {
+      const old = await tx
+        .selectFrom('tenants')
+        .selectAll()
+        .where('id', '=', c.tenantId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      const next = await tx
+        .updateTable('tenants')
+        .set({
+          ...b,
+          ...(b.company_details
+            ? {
+                company_details: sql`company_details || ${JSON.stringify(b.company_details)}::jsonb`,
+              }
+            : {}),
+          settings: b.settings
+            ? sql`settings || ${JSON.stringify(b.settings)}::jsonb`
+            : old.settings,
+        })
+        .where('id', '=', c.tenantId)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      let generation: string | null = null;
+      if (b.settings?.mail_queues_enabled !== undefined) {
+        if (queuesEnabled(next.settings) && !queuesEnabled(old.settings))
+          generation = await requestTenantQueueRefresh(tx, c.tenantId);
+        else if (!queuesEnabled(next.settings))
+          await tx
+            .updateTable('tenant_mail_policy_runs')
+            .set({ state: 'superseded', updated_at: new Date() })
+            .where('tenant_id', '=', c.tenantId)
+            .execute();
+      }
+      return { old, next, generation };
+    });
     await audit(r.db, {
       tenantId: c.tenantId,
       actorId: c.userId,
@@ -237,6 +268,17 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       }),
       ip: c.ip,
     });
+    if (b.settings?.mail_queues_enabled !== undefined) {
+      if (generation)
+        await r.queues.maintenance
+          .add(
+            'refresh-tenant-queues',
+            { tenant_id: c.tenantId, generation },
+            { attempts: 3, backoff: { type: 'exponential', delay: 1000 } },
+          )
+          .catch(() => app.log.warn('Atualização de filas persistida; o agendador retomará.'));
+      r.io.to('tenant:' + c.tenantId).emit('tenant:settings-changed', {});
+    }
     return next;
   });
   app.get('/api/members/directory', async (req) => {

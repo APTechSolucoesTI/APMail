@@ -64,7 +64,7 @@ function open(lastRead = '2026-10-26T12:00:00Z', admin = false) {
   client.setQueryData(['me'], {
     user: { id: 'viewer' },
     current_tenant_id: 'tenant',
-    tenants: [{ id: 'tenant', role: admin ? 'owner' : 'member' }],
+    tenants: [{ id: 'tenant', role: admin ? 'owner' : 'member', mail_queues_enabled: false }],
     preferences: {
       mail_queues_enabled: false,
       timezone: 'America/Sao_Paulo',
@@ -111,7 +111,7 @@ it('oferece spam somente em Mais ações superior, ao lado de Organizar', async 
   const toolbar = screen.getByRole('group', { name: 'Ações da conversa' });
   const buttons = within(toolbar).getAllByRole('button');
   expect(buttons.at(-1)).toHaveAccessibleName('Imprimir conversa');
-  expect(more).not.toHaveTextContent('Mais ações');
+  expect(more).toHaveTextContent('Mais ações');
   fireEvent.keyDown(more, { key: 'Enter' });
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Marcar como spam' }));
   expect(await screen.findByRole('alertdialog')).toHaveTextContent('recente@example.com');

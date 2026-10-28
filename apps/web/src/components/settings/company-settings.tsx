@@ -1,3 +1,4 @@
+import { MailPolicyProgress } from './mail-policy-progress';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Building2, Mail, HardDrive } from 'lucide-react';
@@ -108,13 +109,21 @@ export function CompanySettings() {
       title: 'Atendimento e recebimento',
       description: 'Configure o prazo de resposta e o período de importação de novas caixas.',
       submitLabel: 'Salvar atendimento',
-      schema: tenantSettingsSchema.pick({ sla_first_response_hours: true }).extend({
-        default_sync_days: z.coerce
-          .number()
-          .pipe(z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)]))
-          .optional(),
-      }),
+      schema: tenantSettingsSchema
+        .pick({ sla_first_response_hours: true, mail_queues_enabled: true })
+        .extend({
+          default_sync_days: z.coerce
+            .number()
+            .pipe(z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)]))
+            .optional(),
+        }),
       fields: [
+        {
+          name: 'settings.mail_queues_enabled',
+          label: 'Exibir filas de atendimento',
+          type: 'checkbox',
+          help: 'Exibir filas, responsáveis e SLA para toda a equipe. O cálculo interno continua ativo quando as filas estão ocultas.',
+        },
         {
           name: 'settings.sla_first_response_hours',
           label: 'Prazo da primeira resposta (horas)',
@@ -135,6 +144,8 @@ export function CompanySettings() {
   async function save(values: Record<string, unknown>, message: string) {
     await api('/tenant', { method: 'PATCH', body: values });
     await client.invalidateQueries({ queryKey: ['tenant', tenantId] });
+    await client.invalidateQueries({ queryKey: ['me'] });
+    await client.invalidateQueries({ queryKey: ['admin-overview'] });
     toast.success(message);
   }
   return (
@@ -143,6 +154,7 @@ export function CompanySettings() {
         title="Empresa"
         description="Gerencie o cadastro e os padrões compartilhados pela equipe."
       />
+      <MailPolicyProgress />
       {q.isPending ? (
         <LoadingState />
       ) : q.isError ? (
@@ -214,7 +226,18 @@ export function CompanySettings() {
                   </div>
                   <SchemaForm
                     schema={z.object({ settings: section.schema })}
-                    defaults={{ settings: { contact_mode: 'tenant', ...q.data.settings } }}
+                    defaults={{
+                      settings: {
+                        contact_mode: 'tenant',
+                        mail_queues_enabled: true,
+                        sla_first_response_hours: 24,
+                        default_sync_days: 90,
+                        max_attachment_mb: 25,
+                        allow_external_auto_forward: false,
+                        default_invitation_mailbox_id: null,
+                        ...q.data.settings,
+                      },
+                    }}
                     fields={section.fields}
                     submitLabel={section.submitLabel}
                     onSubmit={(values) => save(values, 'Padrões da empresa atualizados.')}

@@ -96,6 +96,9 @@ export interface AntivirusSenderRules {
   id: Generated<string>;
   mailbox_id: string | null;
   notes: Generated<string>;
+  /**
+   * Legacy compatibility field. Sender trust now authorizes all attachment findings independently of the ClamAV result.
+   */
   policy: Generated<string>;
   sender: string;
   tenant_id: string;
@@ -664,6 +667,7 @@ export interface Mailboxes {
   created_at: Generated<Timestamp>;
   created_by: string | null;
   deleted_at: Timestamp | null;
+  domain_id: string | null;
   email_address: string;
   from_name_template: Generated<string>;
   history_classify_days: Generated<number>;
@@ -888,6 +892,7 @@ export interface Outbox {
   sent_at: Timestamp | null;
   sent_message_id: string | null;
   signature_id: string | null;
+  source_thread_id: string | null;
   status: Generated<OutboxStatus>;
   subject: Generated<string>;
   submit_count: Generated<number>;
@@ -1138,6 +1143,36 @@ export interface TablePreferences {
   user_id: string;
 }
 
+export interface TenantDomainChecks {
+  checked_at: Generated<Timestamp>;
+  domain_id: string;
+  snapshot: Json;
+  tenant_id: string;
+}
+
+export interface TenantDomains {
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  display_name: string;
+  dkim_selector: string | null;
+  domain: string;
+  id: Generated<string>;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface TenantMailPolicyRuns {
+  after_thread_id: string | null;
+  error: string | null;
+  finished_at: Timestamp | null;
+  generation: string;
+  processed: Generated<number>;
+  started_at: Timestamp | null;
+  state: string;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface TenantMembers {
   access_profile_id: string | null;
   capabilities: Generated<string[]>;
@@ -1176,6 +1211,15 @@ export interface TenantStorageLimits {
   revision: Generated<Int8>;
   storage_limit_bytes: Int8 | null;
   tenant_id: string;
+}
+
+export interface ThreadMessageIdentities {
+  created_at: Generated<Timestamp>;
+  mailbox_id: string;
+  message_id_header: string;
+  observed: Generated<boolean>;
+  tenant_id: string;
+  thread_id: string;
 }
 
 export interface ThreadNotes {
@@ -1268,6 +1312,7 @@ export interface UserPreferences {
   density: Generated<string>;
   desktop_notifications: Generated<boolean>;
   load_remote_images: Generated<boolean>;
+  mail_group_by_domain: Generated<boolean>;
   mail_page_size: Generated<number>;
   /**
    * Personal visibility of mail service queues and workflow controls; does not change shared threads or permissions.
@@ -1384,9 +1429,13 @@ export interface DB {
   storage_usage_snapshots: StorageUsageSnapshots;
   support_sessions: SupportSessions;
   table_preferences: TablePreferences;
+  tenant_domain_checks: TenantDomainChecks;
+  tenant_domains: TenantDomains;
+  tenant_mail_policy_runs: TenantMailPolicyRuns;
   tenant_members: TenantMembers;
   tenant_storage_limits: TenantStorageLimits;
   tenants: Tenants;
+  thread_message_identities: ThreadMessageIdentities;
   thread_notes: ThreadNotes;
   thread_personal_labels: ThreadPersonalLabels;
   thread_status_history: ThreadStatusHistory;

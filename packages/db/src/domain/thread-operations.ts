@@ -1,3 +1,4 @@
+import { tenantQueuesEnabled } from './mail-policy.js';
 import { isTenantAdmin, profileAllowsMailbox } from '@apmail/shared';
 import { sql } from 'kysely';
 import { can, type MailboxPerm, type QueueReason } from '@apmail/shared';
@@ -65,6 +66,7 @@ export async function threadNotification(
     !(await userCanReadThread(db, value.tenantId, value.mailboxId, value.userId, value.threadId))
   )
     return null;
+  if (value.type === 'assignment' && !(await tenantQueuesEnabled(db, value.tenantId))) return null;
   const prefs = await db
     .selectFrom('user_preferences')
     .select(['notify_assignments', 'notify_mentions'])

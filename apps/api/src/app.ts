@@ -1,3 +1,5 @@
+import { registerDomains } from './modules/domains/routes.js';
+import { registerAdminOverview } from './modules/admin/overview.js';
 import Fastify, { LogController } from 'fastify';
 import helmet from '@fastify/helmet';
 import sensible from '@fastify/sensible';
@@ -286,6 +288,8 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await registerAccessProfileRoutes(app, resources);
   await registerAuditRoutes(app, resources);
   await registerMailboxRoutes(app, resources);
+  await registerDomains(app, resources);
+  registerAdminOverview(app, resources);
   await registerInvitationRoutes(app, resources);
   await registerAvatarRoutes(app, resources);
   await registerMailRoutes(app, resources);

@@ -1,8 +1,11 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { requireSettingsPermission } from '@/lib/settings';
-import { UserPermissions } from '@/components/settings/user-permissions';
-
+import { createFileRoute, redirect } from '@tanstack/react-router';
 export const Route = createFileRoute('/_app/settings/user-permissions')({
-  beforeLoad: () => requireSettingsPermission('users.manage'),
-  component: UserPermissions,
+  validateSearch: (search: Record<string, unknown>) => search,
+  beforeLoad: ({ location }) => {
+    throw redirect({
+      to: location.pathname.replace('/settings/user-permissions', '/admin/user-permissions'),
+      search: location.search,
+      replace: true,
+    });
+  },
 });

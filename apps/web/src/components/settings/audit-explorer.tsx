@@ -65,7 +65,7 @@ export function AuditExplorer({ query }: { query: AuditQuery }) {
       api<{ items: AuditEntry[]; total: number }>('/audit-logs?' + parameters, { signal }),
   });
   const change = (patch: Partial<AuditQuery>) =>
-    void navigate({ to: '/settings/audit', search: { ...query, ...patch, page: 1 } });
+    void navigate({ to: '/admin/audit', search: { ...query, ...patch, page: 1 } });
   const date = (value: string) => new Date(value).toLocaleString('pt-BR', { timeZone: timezone });
   async function exportCsv() {
     setExporting(true);
@@ -135,7 +135,7 @@ export function AuditExplorer({ query }: { query: AuditQuery }) {
         total={q.data?.total ?? 0}
         query={query}
         onQueryChange={(value) =>
-          void navigate({ to: '/settings/audit', search: { ...query, ...value } })
+          void navigate({ to: '/admin/audit', search: { ...query, ...value } })
         }
         isLoading={q.isLoading}
         isFetching={q.isFetching}

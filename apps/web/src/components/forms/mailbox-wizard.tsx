@@ -1,3 +1,4 @@
+import { MailboxAddressFields } from './mailbox-address-fields';
 import { useTenantId } from '@/lib/auth';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -157,7 +158,11 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
             }}
             fields={[
               { name: 'name', label: 'Nome da caixa' },
-              { name: 'email_address', label: 'Endereço de e-mail', type: 'email' },
+              {
+                name: 'email_address',
+                label: 'Endereço de e-mail',
+                render: (props) => <MailboxAddressFields {...props} />,
+              },
               {
                 name: 'aliases_input',
                 label: 'Aliases',
