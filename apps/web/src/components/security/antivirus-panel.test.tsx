@@ -14,14 +14,14 @@ vi.mock('@/components/data/configurable-table', () => ({
   ConfigurableTable: () => <div>Lista de arquivos</div>,
 }));
 const query: ListQuery = { page: 1, pageSize: 10, search: '', filters: {} };
-function open(role = 'admin') {
+function open(role = 'admin', access_permissions?: string[]) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
   client.setQueryData(meQuery.queryKey, {
     user: { id: 'u' },
     current_tenant_id: 't',
-    tenants: [{ id: 't', role }],
+    tenants: [{ id: 't', role, access_permissions }],
     preferences: { timezone: 'America/Sao_Paulo' },
   });
   return render(
@@ -76,4 +76,11 @@ it('asks for confirmation before bounded backfill', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Verificar pendentes' }));
   expect(await screen.findByRole('alertdialog')).toBeVisible();
   expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+});
+it('allows delegated security access without administrator scan controls', async () => {
+  open('member', ['antivirus.view', 'antivirus.release']);
+  expect(await screen.findByText('Motor ClamAV')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Verificar pendentes' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Remetentes confiáveis' }));
+  expect(screen.queryByRole('button', { name: 'Adicionar remetente' })).not.toBeInTheDocument();
 });

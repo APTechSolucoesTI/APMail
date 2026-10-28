@@ -130,7 +130,7 @@ it('refuses cached clean evidence when bytes were modified outside the database 
     code: 'file_pending',
   });
 });
-it('automatically releases only matching protected invoices after a real scan and keeps the raw detection', async () => {
+it('automatically releases all findings from a trusted sender while retaining the scan evidence', async () => {
   const thread = randomUUID(),
     message = randomUUID();
   await db
@@ -180,17 +180,22 @@ it('automatically releases only matching protected invoices after a real scan an
   const malware = await file(message);
   vi.mocked(scanClamAv).mockResolvedValue(verdict('infected'));
   await scanSecurityFile(db, storage, malware.id, options);
-  await expect(assertFilesClean(db, [malware.storage_key])).rejects.toMatchObject({
-    code: 'file_infected',
-  });
+  await assertFilesClean(db, [malware.storage_key], storage);
   const limited = await file(message);
   vi.mocked(scanClamAv).mockResolvedValue({
     ...verdict('infected'),
     threat_name: 'Heuristics.Limits.Exceeded.MaxScanSize',
   });
   await scanSecurityFile(db, storage, limited.id, options);
-  await expect(assertFilesClean(db, [limited.storage_key])).rejects.toMatchObject({
-    code: 'file_infected',
+  await assertFilesClean(db, [limited.storage_key], storage);
+  const failed = await file(message);
+  vi.mocked(scanClamAv).mockResolvedValue({ ...verdict('error'), sha256: null });
+  await scanSecurityFile(db, storage, failed.id, options);
+  await assertFilesClean(db, [failed.storage_key], storage);
+  expect((await securityForFiles(db, [failed.storage_key])).get(failed.storage_key)).toMatchObject({
+    status: 'error',
+    access_allowed: true,
+    release_kind: 'sender',
   });
   await db
     .updateTable('messages')

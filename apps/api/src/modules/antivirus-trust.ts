@@ -48,7 +48,13 @@ async function validateRule(db: Kysely<DB>, tenant: string, input: SenderTrustIn
   )
     throw notFound();
 }
-async function createRule(db: Kysely<DB>, tenant: string, actor: string, input: SenderTrustInput) {
+async function createRule(
+  db: Kysely<DB>,
+  tenant: string,
+  actor: string,
+  input: SenderTrustInput,
+  storage: Storage,
+) {
   await validateRule(db, tenant, input);
   const duplicate = await db
     .selectFrom('antivirus_sender_rules')
@@ -80,17 +86,65 @@ async function createRule(db: Kysely<DB>, tenant: string, actor: string, input: 
     entityId: row.id,
     metadata: { sender: row.sender, mailbox_id: row.mailbox_id, policy: row.policy },
   });
+  await applyExistingTrust(db, storage, row);
   return row;
+}
+async function applyExistingTrust(
+  tx: Kysely<DB>,
+  storage: Storage,
+  rule: import('kysely').Selectable<DB['antivirus_sender_rules']>,
+) {
+  if (!rule.enabled || (rule.expires_at && +new Date(rule.expires_at) <= Date.now()))
+    return { files: [] as FileSecurityRow[], checked: 0 };
+  const rows = await tx
+    .selectFrom('file_security as f')
+    .innerJoin('messages as m', 'm.id', 'f.message_id')
+    .selectAll('f')
+    .where('f.tenant_id', '=', rule.tenant_id)
+    .where('m.tenant_id', '=', rule.tenant_id)
+    .where('m.direction', '=', 'inbound')
+    .where('m.deleted_at', 'is', null)
+    .where(sql<boolean>`lower(trim(m.from_address))=${rule.sender}`)
+    .where('f.kind', '=', 'attachment')
+    .where('f.status', 'in', ['infected', 'error'])
+    .where('f.scanned_at', 'is not', null)
+    .where('f.released_at', 'is', null)
+    .where((eb) =>
+      eb.or([eb('f.mailbox_id', '=', rule.mailbox_id), eb.val(rule.mailbox_id === null)]),
+    )
+    .where((eb) =>
+      eb.or([eb('f.lease_expires_at', 'is', null), eb('f.lease_expires_at', '<', new Date())]),
+    )
+    .orderBy('f.id')
+    .limit(100)
+    .forUpdate('f')
+    .execute();
+  const files: FileSecurityRow[] = [];
+  for (const file of rows) {
+    const updated = await applySenderTrust(tx, file, storage);
+    if (updated.released_at) files.push(updated);
+  }
+  return { files, checked: rows.length };
 }
 export async function registerAntivirusTrust(app: FastifyInstance, r: Resources) {
   const prefix = '/api/security/antivirus';
   const storage = new Storage(r.env.STORAGE_DIR, r.db);
+  app.get(prefix + '/mailboxes', async (req) => {
+    const c = requireTenantAdmin(req.ctx, 'antivirus.view');
+    return r.db
+      .selectFrom('mailboxes')
+      .select(['id', 'name', 'email_address'])
+      .where('tenant_id', '=', c.tenantId)
+      .where('deleted_at', 'is', null)
+      .orderBy('name')
+      .execute();
+  });
   const emit = (rows: FileSecurityRow[]) => {
     for (const mailbox of new Set(rows.map((row) => row.mailbox_id).filter(Boolean)))
       r.io.to('mailbox:' + mailbox).emit('attachments:changed', { mailbox_id: mailbox });
   };
   app.get(prefix + '/rules', async (req) => {
-    const c = requireTenantAdmin(req.ctx);
+    const c = requireTenantAdmin(req.ctx, 'antivirus.view');
     const q = z
       .object({
         page: z.coerce.number().int().min(1).default(1),
@@ -123,12 +177,12 @@ export async function registerAntivirusTrust(app: FastifyInstance, r: Resources)
     return { items, total: Number(total.n) };
   });
   app.post(prefix + '/rules', async (req) => {
-    const c = requireTenantAdmin(req.ctx),
+    const c = requireTenantAdmin(req.ctx, 'antivirus.trust'),
       input = senderTrustSchema.parse(req.body);
-    return r.db.transaction().execute((tx) => createRule(tx, c.tenantId, c.userId, input));
+    return r.db.transaction().execute((tx) => createRule(tx, c.tenantId, c.userId, input, storage));
   });
   app.patch(prefix + '/rules/:id', async (req) => {
-    const c = requireTenantAdmin(req.ctx),
+    const c = requireTenantAdmin(req.ctx, 'antivirus.trust'),
       { id } = idSchema.parse(req.params),
       input = senderTrustSchema.parse(req.body);
     const result = await r.db.transaction().execute(async (tx) => {
@@ -182,13 +236,14 @@ export async function registerAntivirusTrust(app: FastifyInstance, r: Resources)
           revoked: files.length,
         },
       });
-      return { row, files };
+      const applied = await applyExistingTrust(tx, storage, row);
+      return { row, files: [...files, ...applied.files] };
     });
     emit(result.files);
     return result.row;
   });
   app.post(prefix + '/rules/:id/apply', async (req) => {
-    const c = requireTenantAdmin(req.ctx),
+    const c = requireTenantAdmin(req.ctx, 'antivirus.trust'),
       { id } = idSchema.parse(req.params);
     const result = await r.db.transaction().execute(async (tx) => {
       const rule = await tx
@@ -200,46 +255,16 @@ export async function registerAntivirusTrust(app: FastifyInstance, r: Resources)
       if (!rule) throw notFound();
       if (!rule.enabled || (rule.expires_at && +new Date(rule.expires_at) <= Date.now()))
         throw conflict('Ative uma regra válida antes de aplicá-la.');
-      const rows = await tx
-        .selectFrom('file_security as f')
-        .innerJoin('messages as m', 'm.id', 'f.message_id')
-        .selectAll('f')
-        .where('f.tenant_id', '=', c.tenantId)
-        .where('m.tenant_id', '=', c.tenantId)
-        .where('m.direction', '=', 'inbound')
-        .where('m.deleted_at', 'is', null)
-        .where(sql<boolean>`lower(trim(m.from_address))=${rule.sender}`)
-        .where('f.kind', '=', 'attachment')
-        .where('f.status', '=', 'infected')
-        .where('f.sha256', 'is not', null)
-        .where('f.scanned_at', 'is not', null)
-        .where('f.released_at', 'is', null)
-        .where(
-          sql<boolean>`(f.threat_name ~* '^Heuristics[.]Encrypted([.][A-Za-z0-9_-]+)*$' or (${rule.policy}='preventive' and f.threat_name ~* '^Heuristics[.]Limits[.]Exceeded([.][A-Za-z0-9_-]+)*$'))`,
-        )
-        .where((eb) =>
-          eb.or([eb('f.mailbox_id', '=', rule.mailbox_id), eb.val(rule.mailbox_id === null)]),
-        )
-        .where((eb) =>
-          eb.or([eb('f.lease_expires_at', 'is', null), eb('f.lease_expires_at', '<', new Date())]),
-        )
-        .orderBy('f.id')
-        .limit(100)
-        .forUpdate('f')
-        .execute();
-      const files: FileSecurityRow[] = [];
-      for (const file of rows) {
-        const updated = await applySenderTrust(tx, file);
-        if (updated.released_at) files.push(updated);
-      }
-      return { files, checked: rows.length };
+      return applyExistingTrust(tx, storage, rule);
     });
     emit(result.files);
     return { released: result.files.length, checked: result.checked, limit: 100 };
   });
   app.post(prefix + '/releases', async (req) => {
-    const c = requireTenantAdmin(req.ctx),
+    const c = requireTenantAdmin(req.ctx, 'antivirus.view'),
       input = fileReleaseSchema.parse(req.body);
+    requireTenantAdmin(req.ctx, 'antivirus.release');
+    if (input.trust_sender) requireTenantAdmin(req.ctx, 'antivirus.trust');
     const rows = await r.db.transaction().execute(async (tx) => {
       const files = await tx
         .selectFrom('file_security')
@@ -272,7 +297,7 @@ export async function registerAntivirusTrust(app: FastifyInstance, r: Resources)
               'A regra deve corresponder ao remetente e à caixa dos anexos selecionados.',
             );
         }
-        await createRule(tx, c.tenantId, c.userId, input.trust_sender);
+        await createRule(tx, c.tenantId, c.userId, input.trust_sender, storage);
       }
       const changed: FileSecurityRow[] = [];
       for (const file of files) {
@@ -300,8 +325,9 @@ export async function registerAntivirusTrust(app: FastifyInstance, r: Resources)
     return { released: rows.length };
   });
   app.post(prefix + '/releases/revoke', async (req) => {
-    const c = requireTenantAdmin(req.ctx),
+    const c = requireTenantAdmin(req.ctx, 'antivirus.view'),
       input = idsSchema.parse(req.body);
+    requireTenantAdmin(req.ctx, 'antivirus.release');
     const rows = await r.db.transaction().execute(async (tx) => {
       const files = await tx
         .selectFrom('file_security')
@@ -321,7 +347,7 @@ export async function registerAntivirusTrust(app: FastifyInstance, r: Resources)
     return { revoked: rows.length };
   });
   app.get(prefix + '/decisions', async (req) => {
-    const c = requireTenantAdmin(req.ctx),
+    const c = requireTenantAdmin(req.ctx, 'antivirus.view'),
       q = z
         .object({
           page: z.coerce.number().int().min(1).default(1),
@@ -349,7 +375,7 @@ export async function registerAntivirusTrust(app: FastifyInstance, r: Resources)
     return { items, total: Number(total.n) };
   });
   app.get(prefix + '/files/:id/release-context', async (req) => {
-    const c = requireTenantAdmin(req.ctx),
+    const c = requireTenantAdmin(req.ctx, 'antivirus.view'),
       { id } = idSchema.parse(req.params);
     const row = await r.db
       .selectFrom('file_security as f')

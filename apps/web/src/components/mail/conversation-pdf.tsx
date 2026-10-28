@@ -48,7 +48,8 @@ export function ConversationPdf({ threadId, subject }: { threadId: string; subje
         if (!controller.signal.aborted)
           setResult({ key: requestKey, url: objectUrl, error: false, ready: true });
       } catch {
-        if (!controller.signal.aborted) setResult({ key: requestKey, url: null, error: true });
+        if (!controller.signal.aborted)
+          setResult({ key: requestKey, url: objectUrl ?? null, error: true });
       }
     })();
     return () => {
@@ -108,13 +109,17 @@ export function ConversationPdf({ threadId, subject }: { threadId: string; subje
               role="alert"
               className="flex flex-1 flex-col items-center justify-center gap-3 text-center text-sm"
             >
-              <p>Não foi possível preparar o PDF. Tente novamente.</p>
+              <p>
+                {url
+                  ? 'Não foi possível exibir a prévia. Você pode baixar ou abrir o PDF.'
+                  : 'Não foi possível preparar o PDF. Tente novamente.'}
+              </p>
               <Button variant="outline" onClick={() => setAttempt((value) => value + 1)}>
                 Tentar novamente
               </Button>
             </div>
           )}
-          {url && !error && (
+          {url && (
             <>
               <div className="flex flex-wrap items-center gap-2">
                 <Button
@@ -150,6 +155,7 @@ export function ConversationPdf({ threadId, subject }: { threadId: string; subje
             role="region"
             aria-label="Prévia do PDF da conversa"
             aria-busy={!current?.ready && !error}
+            hidden={error}
             className="min-h-0 flex-1 overflow-auto rounded-md border bg-muted p-3"
           />
         </DialogContent>

@@ -418,7 +418,7 @@ export function AppShell() {
         <NavigationGroup
           id="security"
           label="Segurança"
-          visible={admin}
+          visible={allowed('antivirus.view')}
           defaultOpen={pathname.startsWith('/security')}
         >
           <Link

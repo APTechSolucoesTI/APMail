@@ -5,7 +5,7 @@ import { antivirusFindingKind } from '@apmail/shared';
 import { FileCheck2, ShieldAlert, ShieldOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { useTenantId } from '@/lib/auth';
+import { useTenantId, useAccess } from '@/lib/auth';
 import type { ReleaseTarget } from '@/lib/antivirus';
 import {
   Dialog,
@@ -45,7 +45,7 @@ export function FileReleaseDialog({
     formState: { errors },
   } = useForm<ReleaseValues>({
     defaultValues: {
-      reason: revoke ? 'Revogação da liberação por decisão do administrador.' : '',
+      reason: revoke ? 'Revogação da liberação por decisão do responsável.' : '',
       false_positive: false,
       acknowledge_risk: false,
       acknowledge_malware: false,
@@ -53,17 +53,15 @@ export function FileReleaseDialog({
     },
   });
   const malware = targets.some((t) => antivirusFindingKind(t) === 'malware');
+  const mayTrust = useAccess('antivirus.trust');
   const sender = targets[0]?.sender,
     mailbox = targets[0]?.mailbox_id;
   const canTrust =
     !revoke &&
+    mayTrust &&
     !!sender &&
     targets.every(
-      (t) =>
-        t.sender === sender &&
-        t.mailbox_id === mailbox &&
-        t.kind === 'attachment' &&
-        ['encrypted', 'limits'].includes(antivirusFindingKind(t)),
+      (t) => t.sender === sender && t.mailbox_id === mailbox && t.kind === 'attachment',
     );
   const mutation = useMutation({
     mutationFn: (values: ReleaseValues) =>
@@ -79,9 +77,6 @@ export function FileReleaseDialog({
                   trust_sender: {
                     sender,
                     mailbox_id: mailbox,
-                    policy: targets.some((t) => antivirusFindingKind(t) === 'limits')
-                      ? 'preventive'
-                      : 'encrypted',
                     notes: values.reason,
                   },
                 }
@@ -164,7 +159,7 @@ export function FileReleaseDialog({
               <ShieldAlert className="size-4 shrink-0" />
               {malware
                 ? 'Há uma ameaça detectada nesta seleção. Libere somente após uma análise independente de segurança.'
-                : 'Criptografia, limites de análise ou falhas impedem a verificação completa. A liberação é uma decisão de confiança do administrador.'}
+                : 'O arquivo foi bloqueado pelo antivírus. Confira sua origem antes de autorizar o acesso.'}
             </p>
           )}
           <div className="space-y-2">
@@ -210,8 +205,8 @@ export function FileReleaseDialog({
                   <span className="min-w-0">
                     Adicionar aos remetentes confiáveis
                     <span className="mt-1 block break-all text-xs text-muted-foreground">
-                      {sender} · somente nesta caixa. Ameaças continuam bloqueadas. Configure a
-                      regra em Remetentes confiáveis.
+                      {sender} · somente nesta caixa. Os anexos deste remetente serão liberados
+                      automaticamente. Configure validade e escopo em Remetentes confiáveis.
                     </span>
                   </span>
                 </label>

@@ -4,6 +4,7 @@ import {
   profileMissingDependencies,
   profileAllowsMailbox,
   legacyAccessPermissions,
+  hasAccess,
 } from './access.js';
 it('keeps move, delete, restore and flag permissions independent', () => {
   const permissions = ['mail', 'mail.organize', 'mail.move'];
@@ -15,6 +16,18 @@ it('keeps move, delete, restore and flag permissions independent', () => {
   expect(profileAllowsMailbox({ role: 'member', access_permissions: permissions }, 'delete')).toBe(
     false,
   );
+});
+it('delegates antivirus decisions independently and denies them to legacy members', () => {
+  const permissions = ['antivirus.view', 'antivirus.release'];
+  expect(accessProfileSchema.safeParse({ name: 'Liberar anexos', permissions }).success).toBe(true);
+  expect(profileMissingDependencies(permissions)).toEqual([]);
+  expect(hasAccess({ role: 'member', access_permissions: permissions }, 'antivirus.release')).toBe(
+    true,
+  );
+  expect(hasAccess({ role: 'member', access_permissions: permissions }, 'antivirus.trust')).toBe(
+    false,
+  );
+  expect(legacyAccessPermissions('member')).not.toContain('antivirus.release');
 });
 it('requires contact consultation for mutations, without granting other mutations', () => {
   expect(profileMissingDependencies(['contacts.create'])).toContain('contacts');

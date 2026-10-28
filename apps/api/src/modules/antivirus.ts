@@ -51,7 +51,7 @@ export async function registerAntivirus(app: FastifyInstance, r: Resources) {
     );
   const prefix = '/api/security/antivirus';
   app.get(prefix + '/overview', async (req) => {
-    const c = requireTenantAdmin(req.ctx);
+    const c = requireTenantAdmin(req.ctx, 'antivirus.view');
     const [health, totals, unverified] = await Promise.all([
       refreshAntivirusHealth(r.db, antivirusOptions(r.env)),
       sql<{
@@ -105,7 +105,7 @@ export async function registerAntivirus(app: FastifyInstance, r: Resources) {
   });
   for (const history of [false, true])
     app.get(prefix + (history ? '/history' : '/files'), async (req) => {
-      const c = requireTenantAdmin(req.ctx),
+      const c = requireTenantAdmin(req.ctx, 'antivirus.view'),
         q = schema.parse(req.query);
       const columns = sql`s.id,s.id as file_id,s.tenant_id,s.mailbox_id,s.message_id,s.filename,s.kind,s.content_type,
       s.size_bytes,s.status,s.threat_name,s.scanned_at,s.error_code,s.engine_version,s.signature_version,s.definitions_at`;

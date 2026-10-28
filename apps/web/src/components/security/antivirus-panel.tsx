@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { meQuery, useTenantId } from '@/lib/auth';
+import { meQuery, useTenantId, useAccess } from '@/lib/auth';
 import {
   type AntivirusFile,
   type AntivirusOverview,
@@ -59,6 +59,8 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
   const tenant = useTenantId();
   const me = useQuery(meQuery).data;
   const admin = isTenantAdmin(me?.tenants.find((t) => t.id === me.current_tenant_id)?.role);
+  const mayView = useAccess('antivirus.view'),
+    mayRelease = useAccess('antivirus.release');
   const navigate = useNavigate();
   const client = useQueryClient();
   const timezone = me?.preferences.timezone ?? 'America/Sao_Paulo';
@@ -88,7 +90,7 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
   const overview = useQuery({
     queryKey: ['antivirus-overview', tenant],
     queryFn: ({ signal }) => api<AntivirusOverview>('/security/antivirus/overview', { signal }),
-    enabled: admin,
+    enabled: mayView,
     refetchInterval: 15000,
   });
   const files = useQuery({
@@ -98,7 +100,7 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
         '/security/antivirus/' + (mode === 'history' ? 'history' : 'files') + '?' + parameters,
         { signal },
       ),
-    enabled: admin && ['files', 'threats', 'history'].includes(mode),
+    enabled: mayView && ['files', 'threats', 'history'].includes(mode),
     placeholderData: keepPreviousData,
     refetchInterval: 15000,
   });
@@ -121,7 +123,7 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
   });
   const date = (value: string | null) =>
     value ? new Date(value).toLocaleString('pt-BR', { timeZone: timezone }) : 'Não disponível';
-  if (!admin) return <NoPermissionState />;
+  if (!mayView) return <NoPermissionState />;
   const health = overview.data?.health;
   return (
     <>
@@ -138,10 +140,12 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
               <RefreshCw aria-hidden className="size-4" />
               Atualizar
             </Button>
-            <Button onClick={() => setBackfill('unverified')}>
-              <ScanLine aria-hidden className="size-4" />
-              Verificar pendentes
-            </Button>
+            {admin && (
+              <Button onClick={() => setBackfill('unverified')}>
+                <ScanLine aria-hidden className="size-4" />
+                Verificar pendentes
+              </Button>
+            )}
           </div>
         }
       />
@@ -284,7 +288,7 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
               </select>
             </>
           )}
-          {['files', 'threats', 'history'].includes(mode) && (
+          {admin && ['files', 'threats', 'history'].includes(mode) && (
             <Button variant="outline" onClick={() => setBackfill('failed')}>
               Repetir falhas
             </Button>
@@ -296,7 +300,7 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
           <p className="mb-3 text-xs text-muted-foreground">
             {mode === 'history'
               ? 'Cada linha preserva o resultado de uma análise. Uma nova verificação não apaga resultados anteriores.'
-              : 'Bloqueios por senha e limites são preventivos. Selecione anexos para liberar, registrar um possível falso positivo ou revogar uma liberação. O resultado original permanece no histórico.'}{' '}
+              : 'Selecione anexos para liberar, registrar um possível falso positivo ou revogar uma liberação, conforme suas permissões. O resultado original permanece no histórico.'}{' '}
             Horários em {timezone}.
           </p>
           <ConfigurableTable<AntivirusFile>
@@ -304,7 +308,7 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
             mode="server"
             query={query}
             onQueryChange={change}
-            selectable={mode !== 'history'}
+            selectable={mayRelease && mode !== 'history'}
             selectedIds={selection}
             onSelectionChange={setSelection}
             bulkActions={(ids) => {
@@ -468,7 +472,7 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
             ]}
             rowActions={(row) => (
               <div className="flex">
-                {mode !== 'history' && eligible(row) && (
+                {mayRelease && mode !== 'history' && eligible(row) && (
                   <MailActionButton
                     iconOnly
                     label={
@@ -496,23 +500,25 @@ export function AntivirusPanel({ query }: { query: ListQuery }) {
                     <ExternalLink />
                   </MailActionButton>
                 )}
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={'Reanalisar ' + row.filename}
-                  disabled={rescan.isPending || (mode === 'history' && !row.file_id)}
-                  onClick={() => rescan.mutate(mode === 'history' ? row.file_id! : row.id)}
-                >
-                  <RefreshCw
-                    aria-hidden
-                    className={
-                      'size-4 ' +
-                      (rescan.isPending && rescan.variables === (row.file_id ?? row.id)
-                        ? 'animate-spin motion-reduce:animate-none'
-                        : '')
-                    }
-                  />
-                </Button>
+                {admin && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={'Reanalisar ' + row.filename}
+                    disabled={rescan.isPending || (mode === 'history' && !row.file_id)}
+                    onClick={() => rescan.mutate(mode === 'history' ? row.file_id! : row.id)}
+                  >
+                    <RefreshCw
+                      aria-hidden
+                      className={
+                        'size-4 ' +
+                        (rescan.isPending && rescan.variables === (row.file_id ?? row.id)
+                          ? 'animate-spin motion-reduce:animate-none'
+                          : '')
+                      }
+                    />
+                  </Button>
+                )}
               </div>
             )}
           />

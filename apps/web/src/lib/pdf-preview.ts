@@ -1,7 +1,8 @@
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
+import PdfWorker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?worker';
 
-GlobalWorkerOptions.workerSrc = workerUrl;
+// Vite emits this worker as .js, with a fresh URL and JavaScript MIME type behind nginx/CDNs.
+GlobalWorkerOptions.workerPort = new PdfWorker();
 
 /** Render the actual PDF without depending on a browser's optional PDF plug-in. */
 export async function renderPdfPreview(

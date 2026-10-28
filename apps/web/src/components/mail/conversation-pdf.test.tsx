@@ -62,6 +62,33 @@ it('keeps a readable error and retries PDF generation', async () => {
   expect(fetch).toHaveBeenCalledTimes(2);
   vi.unstubAllGlobals();
 });
+it('keeps the PDF available for download when only the preview fails', async () => {
+  vi.mocked(renderPdfPreview).mockRejectedValueOnce(new Error('worker unavailable'));
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn()
+      .mockResolvedValue(
+        new Response(new Blob(['%PDF-1.7'], { type: 'application/pdf' }), {
+          headers: { 'Content-Type': 'application/pdf' },
+        }),
+      ),
+  );
+  Object.defineProperty(URL, 'createObjectURL', {
+    configurable: true,
+    value: vi.fn(() => 'blob:downloadable'),
+  });
+  const { unmount } = render(<ConversationPdf threadId="preview-failure" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Imprimir conversa' }));
+  await waitFor(() => expect(renderPdfPreview).toHaveBeenCalled());
+  expect(await screen.findByRole('link', { name: 'Baixar PDF' })).toHaveAttribute(
+    'href',
+    'blob:downloadable',
+  );
+  expect(screen.getByRole('button', { name: 'Imprimir PDF' })).toBeDisabled();
+  unmount();
+  vi.unstubAllGlobals();
+});
 it('aborts an unfinished PDF request when the dialog is closed', async () => {
   let resolve: (value: Response) => void = () => {};
   const fetch = vi.fn().mockImplementation(

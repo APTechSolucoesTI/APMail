@@ -7,8 +7,11 @@ export function routePermission(
   path: string,
   method: string,
 ): AccessPermission | 'personal' | null {
-  // This private namespace enforces strict owner/admin roles in every handler.
-  if (/^\/api\/security\/antivirus(?:\/|$)/.test(path)) return 'personal';
+  if (/^\/api\/security\/antivirus(?:\/|$)/.test(path)) {
+    if (method !== 'GET' && /\/rules(?:\/|$)/.test(path)) return 'antivirus.trust';
+    if (method !== 'GET' && /\/releases(?:\/|$)/.test(path)) return 'antivirus.release';
+    return 'antivirus.view';
+  }
   if (
     /^\/api\/(auth(?:\/|$)|preferences(?:\/|$)|avatars(?:\/|$)|notifications(?:\/|$)|presence(?:\/|$)|health$)/.test(
       path,

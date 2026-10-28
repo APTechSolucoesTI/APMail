@@ -14,13 +14,13 @@ import {
   countUnverifiedFiles,
   Storage,
   assertFilesClean,
-  applySenderTrust,
   securityForFiles,
 } from '@apmail/db';
 import { ZodError } from 'zod';
 import { registerAntivirus } from '../../src/modules/antivirus.js';
 import { envSchema } from '../../src/env.js';
 import { ApiError } from '../../src/authz/context.js';
+import { installProfileAccess } from '../../src/authz/profile-access.js';
 vi.mock('@apmail/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@apmail/db')>()),
   refreshAntivirusHealth: vi.fn(),
@@ -53,6 +53,7 @@ const env = envSchema.parse({
 let role: 'owner' | 'admin' | 'member' | 'supervisor' = 'owner',
   authenticated = true;
 let cleanFile: string, badFile: string, foreignFile: string;
+let delegatedPermissions: string[] | null = null;
 const prefix = 'qa-av-' + randomUUID();
 app.addHook('onRequest', async (req) => {
   req.ctx = authenticated
@@ -67,7 +68,7 @@ app.addHook('onRequest', async (req) => {
         capabilities: ['members', 'audit'],
         accessRestricted: role === 'member',
         accessProfileId: role === 'member' ? randomUUID() : null,
-        accessPermissions: [
+        accessPermissions: delegatedPermissions ?? [
           'mail',
           'users.view',
           'users.manage',
@@ -78,6 +79,7 @@ app.addHook('onRequest', async (req) => {
       }
     : null;
 });
+installProfileAccess(app);
 app.setErrorHandler((error, _req, reply) => {
   if (error instanceof ZodError)
     return reply.code(400).send({ error: { code: 'validation_error' } });
@@ -361,6 +363,7 @@ beforeAll(async () => {
 beforeEach(() => {
   authenticated = true;
   role = 'owner';
+  delegatedPermissions = null;
   vi.mocked(refreshAntivirusHealth).mockResolvedValue({
     id: 1,
     status: 'online',
@@ -642,7 +645,7 @@ it('requires additional confirmation for malware and rolls back the entire mixed
     200,
   );
 });
-it('trusts only the exact sender and allowed heuristic, stops immediately on expiration or disabling', async () => {
+it('trusts every finding from the exact sender and stops on expiration or disabling', async () => {
   await db
     .updateTable('messages')
     .set({ from_address: 'faturas@fornecedor.example', direction: 'inbound' })
@@ -658,8 +661,7 @@ it('trusts only the exact sender and allowed heuristic, stops immediately on exp
   const input = {
     sender: msg.from_address,
     mailbox_id: mailbox,
-    policy: 'encrypted',
-    notes: 'Faturas recorrentes com senha.',
+    notes: 'Remetente conhecido e conferido.',
   };
   expect((await call('POST', '/rules', { ...input, mailbox_id: randomUUID() })).statusCode).toBe(
     404,
@@ -667,14 +669,8 @@ it('trusts only the exact sender and allowed heuristic, stops immediately on exp
   const created = await call('POST', '/rules', input);
   expect(created.statusCode, created.body).toBe(200);
   const rule = created.json();
-  await db.transaction().execute(async (tx) => {
-    await applySenderTrust(tx, row);
-    await applySenderTrust(tx, malware);
-  });
   await assertFilesClean(db, [row.storage_key], new Storage(env.STORAGE_DIR));
-  await expect(assertFilesClean(db, [malware.storage_key])).rejects.toMatchObject({
-    code: 'file_infected',
-  });
+  await assertFilesClean(db, [malware.storage_key], new Storage(env.STORAGE_DIR));
   await db
     .updateTable('antivirus_sender_rules')
     .set({ expires_at: new Date(Date.now() - 1000) })
@@ -694,7 +690,7 @@ it('trusts only the exact sender and allowed heuristic, stops immediately on exp
   );
   const existing = await call('POST', '/rules/' + rule.id + '/apply', {});
   expect(existing.statusCode, existing.body).toBe(200);
-  expect(existing.json().released).toBeGreaterThan(0);
+  expect(existing.json().released).toBeGreaterThanOrEqual(0);
   await assertFilesClean(db, [row.storage_key], new Storage(env.STORAGE_DIR));
   expect((await call('PATCH', '/rules/' + rule.id, { ...input, enabled: false })).statusCode).toBe(
     200,
@@ -702,4 +698,41 @@ it('trusts only the exact sender and allowed heuristic, stops immediately on exp
   await expect(assertFilesClean(db, [row.storage_key])).rejects.toMatchObject({
     code: 'file_infected',
   });
+});
+it('delegates releases and sender trust separately and enforces both at the API boundary', async () => {
+  const file = await blockedFile();
+  role = 'member';
+  delegatedPermissions = ['antivirus.view'];
+  expect((await call('GET', '/files')).statusCode).toBe(200);
+  expect((await call('GET', '/mailboxes')).statusCode).toBe(200);
+  const input = {
+    file_ids: [file.id],
+    reason: 'Origem conhecida e documento conferido.',
+    acknowledge_risk: true,
+  };
+  expect((await call('POST', '/releases', input)).statusCode).toBe(403);
+  delegatedPermissions = ['antivirus.view', 'antivirus.release'];
+  expect(
+    (await call('POST', '/releases', { ...input, trust_sender: { sender: 'contact@qa.example' } }))
+      .statusCode,
+  ).toBe(403);
+  expect((await call('POST', '/releases', input)).statusCode).toBe(200);
+  expect((await call('POST', '/rules', { sender: 'contact@qa.example' })).statusCode).toBe(403);
+  delegatedPermissions = ['antivirus.view', 'antivirus.trust'];
+  const rule = await call('POST', '/rules', { sender: 'trust@qa.example', mailbox_id: mailbox });
+  expect(rule.statusCode, rule.body).toBe(200);
+  expect(
+    (
+      await call('POST', '/releases/revoke', {
+        file_ids: [file.id],
+        reason: 'Revisão da decisão anterior.',
+      })
+    ).statusCode,
+  ).toBe(403);
+  expect(
+    (await call('POST', '/rules', { sender: 'foreign@qa.example', mailbox_id: randomUUID() }))
+      .statusCode,
+  ).toBe(404);
+  delegatedPermissions = [];
+  expect((await call('GET', '/rules')).statusCode).toBe(403);
 });

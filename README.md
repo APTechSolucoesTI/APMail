@@ -8,7 +8,7 @@ senha inválida e falha TLS. Migration aditiva `0057`; publicar API/worker/web j
 
 [Proteção de anexos e ClamAV](docs/ANTIVIRUS-CLAMAV.md): análise assíncrona, quarentena,
 bloqueios de download/prévia/envio e central administrativa. Migrations aditivas `0056`
-e `0061` (liberação auditada, possíveis falsos positivos e regras de remetentes confiáveis).
+e `0061` (liberação auditada e remetentes confiáveis); `0062` adiciona a delegação por perfis de acesso.
 API/worker precisam alcançar o ClamD privado na `dokploy-network`. Arquivos antigos
 exigem backfill controlado; limite atual do scanner compartilhado: 25 MiB.
 

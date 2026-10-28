@@ -1,6 +1,6 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { isTenantAdmin, antivirusFindingKind } from '@apmail/shared';
+import { antivirusFindingKind } from '@apmail/shared';
 import {
   Download,
   Eye,
@@ -11,7 +11,7 @@ import {
   FileCheck2,
   ShieldOff,
 } from 'lucide-react';
-import { useTenantId, meQuery } from '@/lib/auth';
+import { useTenantId, meQuery, useAccess } from '@/lib/auth';
 import { AttachmentReleaseDialog } from '@/components/security/file-release-dialog';
 import { MailActionButton } from './mail-action-button';
 import {
@@ -102,7 +102,7 @@ export function ReceivedAttachment({
 }) {
   const tenant = useTenantId();
   const me = useQuery(meQuery).data;
-  const admin = isTenantAdmin(me?.tenants.find((t) => t.id === tenant)?.role);
+  const mayRelease = useAccess('antivirus.release');
   const [releaseOpen, setReleaseOpen] = useState(false);
   const query = useQuery(
     attachmentSecurityQuery(tenant, 'attachment', attachment.id, attachment.security),
@@ -132,14 +132,14 @@ export function ReceivedAttachment({
         )}
         {security.released_at && clean && (
           <p className="text-xs text-muted-foreground">
-            {security.released_by_name ?? 'Administrador'} ·{' '}
+            {security.released_by_name ?? 'Usuário autorizado'} ·{' '}
             {new Date(security.released_at).toLocaleString('pt-BR', {
               timeZone: me?.preferences.timezone ?? 'America/Sao_Paulo',
             })}
           </p>
         )}
       </div>
-      {admin && security.id && ['infected', 'error'].includes(security.status) && (
+      {mayRelease && security.id && ['infected', 'error'].includes(security.status) && (
         <MailActionButton
           iconOnly
           label={

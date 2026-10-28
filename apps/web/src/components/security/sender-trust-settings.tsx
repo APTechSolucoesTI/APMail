@@ -5,7 +5,7 @@ import type { ListQuery } from '@apmail/shared';
 import { Plus, Pencil, ShieldOff, ShieldCheck, Play, MailCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { useTenantId } from '@/lib/auth';
+import { useTenantId, useAccess } from '@/lib/auth';
 import type { SenderTrustRule } from '@/lib/antivirus';
 import { ConfigurableTable } from '@/components/data/configurable-table';
 import { Button } from '@/components/ui/button';
@@ -38,6 +38,7 @@ export function SenderTrustSettings({
   const [action, setAction] = useState<{ rule: SenderTrustRule; kind: 'toggle' | 'apply' } | null>(
     null,
   );
+  const mayTrust = useAccess('antivirus.trust');
   const params = new URLSearchParams({
     page: String(query.page),
     page_size: String(query.pageSize),
@@ -76,15 +77,17 @@ export function SenderTrustSettings({
             endereço exato e pode valer para uma caixa ou para toda a empresa.
           </p>
           <p className="mt-2 text-xs text-muted-foreground">
-            O ClamAV continua analisando os arquivos. A regra libera apenas bloqueios preventivos
-            selecionados; ameaças e falhas continuam bloqueadas. O endereço do remetente pode ser
-            falsificado: cadastre apenas origens conhecidas.
+            Os anexos de um remetente confiável são liberados automaticamente. O ClamAV continua
+            analisando e registrando os resultados. O endereço do remetente pode ser falsificado:
+            cadastre apenas origens conhecidas.
           </p>
         </div>
-        <Button onClick={() => setEditing(null)}>
-          <Plus className="size-4" />
-          Adicionar remetente
-        </Button>
+        {mayTrust && (
+          <Button onClick={() => setEditing(null)}>
+            <Plus className="size-4" />
+            Adicionar remetente
+          </Button>
+        )}
       </section>
       <ConfigurableTable<SenderTrustRule>
         listKey="antivirus-trust-v1"
@@ -126,13 +129,6 @@ export function SenderTrustSettings({
             ),
           },
           {
-            id: 'policy',
-            header: 'Liberação automática',
-            sortable: false,
-            cell: (rule) =>
-              rule.policy === 'encrypted' ? 'Arquivos com senha' : 'Senha e limites de análise',
-          },
-          {
             id: 'status',
             header: 'Estado',
             sortable: false,
@@ -167,43 +163,47 @@ export function SenderTrustSettings({
             header: 'Criado por',
             sortable: false,
             defaultVisible: false,
-            cell: (rule) => rule.creator_name ?? 'Administrador',
+            cell: (rule) => rule.creator_name ?? 'Usuário autorizado',
           },
         ]}
-        rowActions={(rule) => (
-          <div className="flex">
-            <MailActionButton
-              iconOnly
-              label={'Editar ' + rule.sender}
-              onClick={() => setEditing(rule)}
-            >
-              <Pencil />
-            </MailActionButton>
-            <MailActionButton
-              iconOnly
-              label={(rule.enabled ? 'Desativar ' : 'Ativar ') + rule.sender}
-              onClick={() => setAction({ rule, kind: 'toggle' })}
-            >
-              {rule.enabled ? <ShieldOff /> : <ShieldCheck />}
-            </MailActionButton>
-            <MailActionButton
-              iconOnly
-              label={'Aplicar regra aos anexos existentes de ' + rule.sender}
-              disabled={
-                !rule.enabled ||
-                (!!rule.expires_at && +new Date(rule.expires_at) <= rules.dataUpdatedAt)
-              }
-              onClick={() => setAction({ rule, kind: 'apply' })}
-            >
-              <Play />
-            </MailActionButton>
-          </div>
-        )}
+        rowActions={
+          mayTrust
+            ? (rule) => (
+                <div className="flex">
+                  <MailActionButton
+                    iconOnly
+                    label={'Editar ' + rule.sender}
+                    onClick={() => setEditing(rule)}
+                  >
+                    <Pencil />
+                  </MailActionButton>
+                  <MailActionButton
+                    iconOnly
+                    label={(rule.enabled ? 'Desativar ' : 'Ativar ') + rule.sender}
+                    onClick={() => setAction({ rule, kind: 'toggle' })}
+                  >
+                    {rule.enabled ? <ShieldOff /> : <ShieldCheck />}
+                  </MailActionButton>
+                  <MailActionButton
+                    iconOnly
+                    label={'Aplicar regra aos anexos existentes de ' + rule.sender}
+                    disabled={
+                      !rule.enabled ||
+                      (!!rule.expires_at && +new Date(rule.expires_at) <= rules.dataUpdatedAt)
+                    }
+                    onClick={() => setAction({ rule, kind: 'apply' })}
+                  >
+                    <Play />
+                  </MailActionButton>
+                </div>
+              )
+            : undefined
+        }
         emptyState={
           <EmptyState
             icon={MailCheck}
             title="Nenhum remetente confiável"
-            description="Adicione uma origem conhecida para liberar automaticamente os bloqueios preventivos escolhidos."
+            description="Adicione um remetente para liberar seus anexos automaticamente."
           />
         }
       />
@@ -224,8 +224,8 @@ export function SenderTrustSettings({
         }
         description={
           action?.kind === 'apply'
-            ? 'Serão processados até 100 anexos bloqueados compatíveis com esta regra. Se houver mais, repita a ação. Arquivos com ameaças detectadas não serão liberados.'
-            : 'A alteração revoga as liberações anteriores feitas por esta regra. Liberações manuais continuam válidas. Ao ativar, a regra vale para as próximas análises; use Aplicar para arquivos já recebidos.'
+            ? 'Serão liberados até 100 anexos já recebidos deste remetente, preservando os resultados originais da análise. Se houver mais, repita a ação.'
+            : 'Desativar bloqueia os anexos liberados por este remetente. Ativar libera também até 100 anexos já recebidos. Liberações manuais permanecem independentes.'
         }
         onConfirm={async () => {
           if (!action) return;
@@ -261,7 +261,8 @@ function SenderTrustEditor({
   const tenant = useTenantId();
   const boxes = useQuery({
     queryKey: ['antivirus-mailboxes', tenant],
-    queryFn: () => api<{ id: string; name: string; email_address: string }[]>('/mailboxes'),
+    queryFn: () =>
+      api<{ id: string; name: string; email_address: string }[]>('/security/antivirus/mailboxes'),
   });
   const {
     register,
@@ -270,7 +271,6 @@ function SenderTrustEditor({
   } = useForm<{
     sender: string;
     mailbox_id: string;
-    policy: 'encrypted' | 'preventive';
     notes: string;
     enabled: boolean;
     expires: string;
@@ -278,7 +278,6 @@ function SenderTrustEditor({
     defaultValues: {
       sender: rule?.sender ?? '',
       mailbox_id: rule?.mailbox_id ?? '',
-      policy: rule?.policy ?? 'encrypted',
       notes: rule?.notes ?? '',
       enabled: rule?.enabled ?? true,
       expires: rule?.expires_at ? new Date(rule.expires_at).toLocaleDateString('en-CA') : '',
@@ -288,7 +287,6 @@ function SenderTrustEditor({
     mutationFn: (values: {
       sender: string;
       mailbox_id: string;
-      policy: 'encrypted' | 'preventive';
       notes: string;
       enabled: boolean;
       expires: string;
@@ -323,7 +321,7 @@ function SenderTrustEditor({
             {rule ? 'Editar remetente confiável' : 'Adicionar remetente confiável'}
           </DialogTitle>
           <DialogDescription>
-            Defina exatamente quais bloqueios preventivos esta origem pode liberar.
+            Os anexos deste endereço serão liberados automaticamente nas caixas selecionadas.
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={handleSubmit((values) => mutation.mutate(values))}>
@@ -367,37 +365,6 @@ function SenderTrustEditor({
               </p>
             )}
           </div>
-          <fieldset className="space-y-2">
-            <legend className="mb-2 text-sm font-medium">Permitir automaticamente</legend>
-            <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
-              <input
-                type="radio"
-                value="encrypted"
-                className="mt-0.5 size-4 shrink-0 accent-primary"
-                {...register('policy')}
-              />
-              <span>
-                Somente arquivos protegidos por senha
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  Libera anexos criptografados enviados por esta origem.
-                </span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
-              <input
-                type="radio"
-                value="preventive"
-                className="mt-0.5 size-4 shrink-0 accent-primary"
-                {...register('policy')}
-              />
-              <span>
-                Senha e limites de análise
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  Inclui alertas preventivos do ClamAV por limites de inspeção.
-                </span>
-              </span>
-            </label>
-          </fieldset>
           <div className="space-y-2">
             <Label htmlFor="trust-expiry">Válida até (opcional)</Label>
             <Input id="trust-expiry" type="date" {...register('expires')} />
@@ -415,8 +382,8 @@ function SenderTrustEditor({
           </label>
           {rule && (
             <p className="rounded-md border border-warning/30 bg-warning-bg p-3 text-xs text-warning-fg">
-              Salvar a edição revoga as liberações anteriores desta regra. Após salvar, use Aplicar
-              para reavaliar os anexos já recebidos.
+              As alterações valem imediatamente. A regra ativa libera também até 100 anexos já
+              recebidos; use Aplicar para processar lotes adicionais.
             </p>
           )}
           {mutation.error && (

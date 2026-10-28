@@ -25,7 +25,6 @@ export const senderTrustSchema = z.object({
     .max(254)
     .transform((value) => value.trim().toLowerCase()),
   mailbox_id: z.uuid().nullable().default(null),
-  policy: z.enum(['encrypted', 'preventive']).default('encrypted'),
   notes: z.string().trim().max(2000).default(''),
   enabled: z.boolean().default(true),
   expires_at: z.iso.datetime().nullable().default(null),

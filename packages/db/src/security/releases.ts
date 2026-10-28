@@ -17,7 +17,7 @@ export const clearedRelease = {
   false_positive: false,
 };
 export function ruleAllowsFile(
-  rule: Pick<Selectable<DB['antivirus_sender_rules']>, 'enabled' | 'expires_at' | 'policy'>,
+  rule: Pick<Selectable<DB['antivirus_sender_rules']>, 'enabled' | 'expires_at'>,
   file: FileSecurityRow,
 ) {
   if (
@@ -28,8 +28,7 @@ export function ruleAllowsFile(
     file.kind !== 'attachment'
   )
     return false;
-  const kind = antivirusFindingKind(file);
-  return kind === 'encrypted' || (rule.policy === 'preventive' && kind === 'limits');
+  return ['infected', 'error'].includes(file.status);
 }
 async function decision(
   db: Kysely<DB>,
@@ -145,14 +144,13 @@ export async function revokeFileRelease(
     .returningAll()
     .executeTakeFirstOrThrow();
 }
-/** Called only after a real scan. A trusted address never turns an unknown or malicious result into clean. */
-export async function applySenderTrust(db: Kysely<DB>, file: FileSecurityRow) {
+/** Access approval is independent of the raw ClamAV verdict. */
+export async function applySenderTrust(db: Kysely<DB>, file: FileSecurityRow, storage?: Storage) {
   if (
     !file.tenant_id ||
     !file.message_id ||
     file.kind !== 'attachment' ||
-    !file.sha256 ||
-    !['encrypted', 'limits'].includes(antivirusFindingKind(file))
+    !['infected', 'error'].includes(file.status)
   )
     return file;
   const message = await db
@@ -174,23 +172,59 @@ export async function applySenderTrust(db: Kysely<DB>, file: FileSecurityRow) {
     .orderBy('mailbox_id', 'asc')
     .execute();
   const rule = rules.find((rule) => ruleAllowsFile(rule, file));
-  if (!rule) return file;
+  const activeRule =
+    rule ??
+    rules.find(
+      (rule) => rule.enabled && (!rule.expires_at || +new Date(rule.expires_at) > Date.now()),
+    );
+  if (!activeRule || !file.scanned_at) return file;
   if (
-    file.release_rule_id === rule.id &&
+    file.release_kind === 'manual' &&
+    file.release_generation === file.generation &&
+    file.release_sha256 &&
+    (!file.sha256 || file.release_sha256 === file.sha256)
+  )
+    return file;
+  if (!file.sha256) {
+    if (!storage) return file;
+    try {
+      return await releaseFile(
+        db,
+        storage,
+        file,
+        activeRule.updated_by ?? activeRule.created_by,
+        `Remetente confiável: ${activeRule.sender}.`,
+        false,
+        true,
+        activeRule.id,
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message === 'file_content_changed' ||
+          error.message === 'file_scan_busy' ||
+          ('code' in error && ['ENOENT', 'EACCES'].includes(String(error.code))))
+      )
+        return file;
+      throw error;
+    }
+  }
+  if (
+    file.release_rule_id === activeRule.id &&
     file.release_generation === file.generation &&
     file.release_sha256 === file.sha256
   )
     return file;
-  const reason = `Regra de confiança para ${rule.sender}: ${rule.policy === 'encrypted' ? 'arquivo protegido por senha' : 'bloqueio preventivo'}.`;
+  const reason = `Remetente confiável: ${activeRule.sender}.`;
   const row = await db
     .updateTable('file_security')
     .set({
       released_at: new Date(),
-      released_by: rule.created_by,
+      released_by: activeRule.updated_by ?? activeRule.created_by,
       release_reason: reason,
       release_sha256: file.sha256,
       release_generation: file.generation,
-      release_rule_id: rule.id,
+      release_rule_id: activeRule.id,
       release_kind: 'sender',
       false_positive: false,
       updated_at: new Date(),
@@ -199,6 +233,14 @@ export async function applySenderTrust(db: Kysely<DB>, file: FileSecurityRow) {
     .where('generation', '=', file.generation)
     .returningAll()
     .executeTakeFirstOrThrow();
-  await decision(db, row, 'release', rule.created_by, reason, file.sha256, rule.id);
+  await decision(
+    db,
+    row,
+    'release',
+    activeRule.updated_by ?? activeRule.created_by,
+    reason,
+    file.sha256,
+    activeRule.id,
+  );
   return row;
 }

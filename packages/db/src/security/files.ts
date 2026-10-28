@@ -76,9 +76,8 @@ export const releaseRuleValidSql = sql<boolean>`exists(select 1 from antivirus_s
  join messages m on m.id=file_security.message_id and m.tenant_id=r.tenant_id
  where r.id=file_security.release_rule_id and r.tenant_id=file_security.tenant_id and r.enabled
  and (r.expires_at is null or r.expires_at>now()) and m.direction='inbound' and m.deleted_at is null
- and lower(trim(m.from_address))=r.sender and (r.mailbox_id is null or r.mailbox_id=file_security.mailbox_id)
- and (file_security.threat_name ~* '^Heuristics[.]Encrypted([.][A-Za-z0-9_-]+)*$'
- or (r.policy='preventive' and file_security.threat_name ~* '^Heuristics[.]Limits[.]Exceeded([.][A-Za-z0-9_-]+)*$'))) `;
+ and m.mailbox_id=file_security.mailbox_id and lower(trim(m.from_address))=r.sender
+ and (r.mailbox_id is null or r.mailbox_id=file_security.mailbox_id))`;
 const instant = (value: Date | string | null | undefined) =>
   typeof value === 'string' ? value : (value?.toISOString() ?? null);
 export const securitySummary = (row: SecurityEvidence | null | undefined) => ({

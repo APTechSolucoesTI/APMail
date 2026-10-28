@@ -133,6 +133,27 @@ export const ACCESS_PERMISSIONS = [
       'Consultar o histórico da empresa, incluindo ações e destinatários. Contatos pessoais permanecem privados.',
   },
   {
+    key: 'antivirus.view',
+    group: 'Segurança',
+    label: 'Consultar antivírus',
+    description: 'Consultar arquivos, análises e decisões de segurança da empresa.',
+  },
+  {
+    key: 'antivirus.release',
+    parent: 'antivirus.view',
+    group: 'Segurança',
+    label: 'Liberar arquivos e avaliar falsos positivos',
+    description: 'Liberar ou revogar o acesso a anexos e registrar possíveis falsos positivos.',
+  },
+  {
+    key: 'antivirus.trust',
+    parent: 'antivirus.view',
+    group: 'Segurança',
+    label: 'Gerenciar remetentes confiáveis',
+    description:
+      'Autorizar automaticamente os anexos de remetentes, definir validade e revogar confiança.',
+  },
+  {
     key: 'audit.content',
     parent: 'audit.view',
     group: 'Auditoria',
@@ -236,9 +257,14 @@ export function hasAccess(
     'archives',
     'audit.view',
     'users.view',
+    'antivirus.view',
+    'antivirus.release',
+    'antivirus.trust',
   ].includes(permission);
 }
 export const permissionDependencies: Partial<Record<AccessPermission, AccessPermission[]>> = {
+  'antivirus.release': ['antivirus.view'],
+  'antivirus.trust': ['antivirus.view'],
   'profiles.manage': ['users.view'],
   schedules: ['mail'],
   reports: ['mail'],
@@ -267,6 +293,7 @@ export const profileMissingDependencies = (permissions: readonly string[]) =>
 
 export function screenPermission(path: string): AccessPermission | null {
   const prefixes: [string, AccessPermission][] = [
+    ['/security/antivirus', 'antivirus.view'],
     ['/settings/access-profiles', 'profiles.manage'],
     ['/settings/user-permissions', 'users.manage'],
     ['/settings/users', 'users.view'],

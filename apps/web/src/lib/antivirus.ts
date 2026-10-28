@@ -62,7 +62,7 @@ export function antivirusExplanation(security: Safety | null | undefined) {
     return (
       (security.release_kind === 'sender'
         ? 'Liberado por uma regra de confiança.'
-        : 'Liberado por um administrador.') +
+        : 'Liberado por um usuário autorizado.') +
       ' O resultado original do ClamAV foi preservado.' +
       (security.release_reason ? ' Motivo: ' + security.release_reason : '')
     );
@@ -133,7 +133,6 @@ export type SenderTrustRule = {
   mailbox_id: string | null;
   mailbox_name: string | null;
   mailbox_email: string | null;
-  policy: 'encrypted' | 'preventive';
   notes: string;
   enabled: boolean;
   expires_at: string | null;

@@ -175,7 +175,7 @@ export async function scanSecurityFile(
       })
       .onConflict((oc) => oc.columns(['file_id', 'generation', 'attempt']).doNothing())
       .execute();
-    const effective = await applySenderTrust(tx, updated);
+    const effective = await applySenderTrust(tx, updated, storage);
     const allowed = (await securityForFiles(tx, [effective.storage_key])).get(
       effective.storage_key,
     )?.access_allowed;
