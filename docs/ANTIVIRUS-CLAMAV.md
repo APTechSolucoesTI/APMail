@@ -28,9 +28,11 @@ do veredito do ClamAV. Não libera arquivos existentes nem cadastra remetentes a
   de análise ou conteúdo alterado invalida a autorização anterior.
 - **Remetentes confiáveis** exige **Gerenciar remetentes confiáveis** e permite endereço
   exato, caixa específica ou todas da empresa, observações, validade e ativação.
-  Seus anexos são liberados independentemente do resultado do ClamAV, inclusive detecções
-  e falhas. A análise e o resultado original continuam registrados; a liberação não
-  significa um resultado limpo. O endereço do remetente não comprova autenticidade.
+  A confiança libera bloqueios preventivos por criptografia ou limites de inspeção
+  (`Heuristics.Encrypted.*`, `Heuristics.Limits.Exceeded.*` e `size_limit`). Detecções de
+  vírus/malware e falhas de análise permanecem bloqueadas, inclusive quando existe uma
+  liberação antiga por remetente. Possíveis falsos positivos também podem receber uma
+  decisão manual auditada. A análise e o resultado original continuam registrados.
 - Salvar ou ativar a confiança libera também até 100 anexos já analisados do remetente.
   **Aplicar aos anexos existentes** processa lotes adicionais de até 100 por ação.
   A edição reavalia as liberações feitas pela regra; desativação ou vencimento bloqueiam

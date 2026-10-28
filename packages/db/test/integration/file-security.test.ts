@@ -130,7 +130,7 @@ it('refuses cached clean evidence when bytes were modified outside the database 
     code: 'file_pending',
   });
 });
-it('automatically releases all findings from a trusted sender while retaining the scan evidence', async () => {
+it('releases policy blocks for trusted senders but keeps malware and unavailable scans blocked', async () => {
   const thread = randomUUID(),
     message = randomUUID();
   await db
@@ -180,7 +180,32 @@ it('automatically releases all findings from a trusted sender while retaining th
   const malware = await file(message);
   vi.mocked(scanClamAv).mockResolvedValue(verdict('infected'));
   await scanSecurityFile(db, storage, malware.id, options);
-  await assertFilesClean(db, [malware.storage_key], storage);
+  await expect(assertFilesClean(db, [malware.storage_key], storage)).rejects.toMatchObject({
+    code: 'file_infected',
+  });
+  const approval = await db
+    .selectFrom('file_security')
+    .select('release_rule_id')
+    .where('id', '=', invoice.id)
+    .executeTakeFirstOrThrow();
+  await db
+    .updateTable('file_security')
+    .set({
+      released_at: new Date(),
+      release_kind: 'sender',
+      release_rule_id: approval.release_rule_id,
+      release_sha256: verdict('infected').sha256,
+      release_generation: malware.generation,
+      release_reason: 'Legacy sender approval',
+    })
+    .where('id', '=', malware.id)
+    .execute();
+  await expect(assertFilesClean(db, [malware.storage_key], storage)).rejects.toMatchObject({
+    code: 'file_infected',
+  });
+  expect(
+    (await securityForFiles(db, [malware.storage_key])).get(malware.storage_key)?.access_allowed,
+  ).toBe(false);
   const limited = await file(message);
   vi.mocked(scanClamAv).mockResolvedValue({
     ...verdict('infected'),
@@ -191,12 +216,22 @@ it('automatically releases all findings from a trusted sender while retaining th
   const failed = await file(message);
   vi.mocked(scanClamAv).mockResolvedValue({ ...verdict('error'), sha256: null });
   await scanSecurityFile(db, storage, failed.id, options);
-  await assertFilesClean(db, [failed.storage_key], storage);
+  await expect(assertFilesClean(db, [failed.storage_key], storage)).rejects.toMatchObject({
+    code: 'file_scan_error',
+  });
   expect((await securityForFiles(db, [failed.storage_key])).get(failed.storage_key)).toMatchObject({
     status: 'error',
-    access_allowed: true,
-    release_kind: 'sender',
+    access_allowed: false,
+    release_kind: null,
   });
+  const oversized = await file(message);
+  vi.mocked(scanClamAv).mockResolvedValue({
+    ...verdict('error'),
+    sha256: null,
+    error_code: 'size_limit',
+  });
+  await scanSecurityFile(db, storage, oversized.id, options);
+  await assertFilesClean(db, [oversized.storage_key], storage);
   await db
     .updateTable('messages')
     .set({ from_address: 'someone-else@qa.example' })

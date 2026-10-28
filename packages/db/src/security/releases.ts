@@ -28,7 +28,7 @@ export function ruleAllowsFile(
     file.kind !== 'attachment'
   )
     return false;
-  return ['infected', 'error'].includes(file.status);
+  return ['encrypted', 'limits'].includes(antivirusFindingKind(file));
 }
 async function decision(
   db: Kysely<DB>,
@@ -150,7 +150,7 @@ export async function applySenderTrust(db: Kysely<DB>, file: FileSecurityRow, st
     !file.tenant_id ||
     !file.message_id ||
     file.kind !== 'attachment' ||
-    !['infected', 'error'].includes(file.status)
+    !['encrypted', 'limits'].includes(antivirusFindingKind(file))
   )
     return file;
   const message = await db

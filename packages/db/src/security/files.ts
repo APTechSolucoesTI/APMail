@@ -3,6 +3,7 @@ import type { Kysely, Selectable } from 'kysely';
 import { sql } from 'kysely';
 import type { DB } from '../types.js';
 import type { Storage } from '../storage.js';
+import { antivirusFindingKind } from '@apmail/shared';
 
 export type FileSecurityRow = Selectable<DB['file_security']>;
 export type FileSecurityStatus = 'pending' | 'clean' | 'infected' | 'error';
@@ -69,10 +70,16 @@ export const isFileReleased = (row: SecurityEvidence | null | undefined) =>
   ['infected', 'error'].includes(row.status) &&
   !!row.released_at &&
   !!row.release_sha256 &&
-  (row.release_kind !== 'sender' || row.release_rule_valid === true) &&
+  (row.release_kind !== 'sender' ||
+    (row.release_rule_valid === true &&
+      ['encrypted', 'limits'].includes(antivirusFindingKind(row)))) &&
   row.release_generation === row.generation &&
   (!row.sha256 || row.sha256 === row.release_sha256);
-export const releaseRuleValidSql = sql<boolean>`exists(select 1 from antivirus_sender_rules r
+export const senderPolicyFindingSql = (alias = 'file_security') => sql<boolean>`(
+ (${sql.ref(alias + '.status')}='infected' and (${sql.ref(alias + '.threat_name')} ~* '^Heuristics[.]Encrypted([.][A-Za-z0-9_-]+)*$'
+ or ${sql.ref(alias + '.threat_name')} ~* '^Heuristics[.]Limits[.]Exceeded([.][A-Za-z0-9_-]+)*$'))
+ or (${sql.ref(alias + '.status')}='error' and ${sql.ref(alias + '.error_code')}='size_limit'))`;
+export const releaseRuleValidSql = sql<boolean>`${senderPolicyFindingSql()} and exists(select 1 from antivirus_sender_rules r
  join messages m on m.id=file_security.message_id and m.tenant_id=r.tenant_id
  where r.id=file_security.release_rule_id and r.tenant_id=file_security.tenant_id and r.enabled
  and (r.expires_at is null or r.expires_at>now()) and m.direction='inbound' and m.deleted_at is null

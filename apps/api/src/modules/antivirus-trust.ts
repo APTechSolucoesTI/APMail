@@ -9,6 +9,7 @@ import {
   applySenderTrust,
   clearedRelease,
   securityForFiles,
+  senderPolicyFindingSql,
   audit,
   type DB,
   type FileSecurityRow,
@@ -107,6 +108,7 @@ async function applyExistingTrust(
     .where(sql<boolean>`lower(trim(m.from_address))=${rule.sender}`)
     .where('f.kind', '=', 'attachment')
     .where('f.status', 'in', ['infected', 'error'])
+    .where(senderPolicyFindingSql('f'))
     .where('f.scanned_at', 'is not', null)
     .where('f.released_at', 'is', null)
     .where((eb) =>

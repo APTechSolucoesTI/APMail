@@ -645,7 +645,7 @@ it('requires additional confirmation for malware and rolls back the entire mixed
     200,
   );
 });
-it('trusts every finding from the exact sender and stops on expiration or disabling', async () => {
+it('trusts policy findings from the exact sender, blocks malware and respects rule expiration', async () => {
   await db
     .updateTable('messages')
     .set({ from_address: 'faturas@fornecedor.example', direction: 'inbound' })
@@ -670,7 +670,9 @@ it('trusts every finding from the exact sender and stops on expiration or disabl
   expect(created.statusCode, created.body).toBe(200);
   const rule = created.json();
   await assertFilesClean(db, [row.storage_key], new Storage(env.STORAGE_DIR));
-  await assertFilesClean(db, [malware.storage_key], new Storage(env.STORAGE_DIR));
+  await expect(
+    assertFilesClean(db, [malware.storage_key], new Storage(env.STORAGE_DIR)),
+  ).rejects.toMatchObject({ code: 'file_infected' });
   await db
     .updateTable('antivirus_sender_rules')
     .set({ expires_at: new Date(Date.now() - 1000) })
