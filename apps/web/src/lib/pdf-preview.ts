@@ -66,7 +66,7 @@ export async function printPdfPages(container: HTMLElement, title: string) {
     doc.title = title;
     const style = doc.createElement('style');
     style.textContent =
-      '@page{size:A4;margin:0}html,body{margin:0;padding:0;background:white}img{display:block;width:100%;height:auto;break-after:page;page-break-after:always}img:last-child{break-after:auto;page-break-after:auto}';
+      '@page{size:A4;margin:0}html,body{margin:0;padding:0;background:white}.pdf-page{width:210mm;height:296mm;overflow:hidden;break-inside:avoid;break-after:page;page-break-after:always}.pdf-page:last-child{break-after:auto;page-break-after:auto}img{display:block;width:100%;height:100%;object-fit:contain}';
     doc.head.append(style);
     await Promise.all(
       canvases.map(
@@ -78,7 +78,10 @@ export async function printPdfPages(container: HTMLElement, title: string) {
             img.onerror = () =>
               reject(new Error('Não foi possível preparar as páginas para impressão.'));
             img.src = canvas.toDataURL('image/png');
-            doc.body.append(img);
+            const page = doc.createElement('div');
+            page.className = 'pdf-page';
+            page.append(img);
+            doc.body.append(page);
           }),
       ),
     );

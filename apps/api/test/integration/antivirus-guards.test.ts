@@ -375,6 +375,15 @@ it.each(['pending', 'infected', 'error'] as const)(
   },
 );
 
+it('embeds verified CID images in conversation PDFs while keeping quarantined bytes out', async () => {
+  const clean = await call('GET', `/threads/${thread}/pdf`);
+  expect(clean.statusCode, clean.body).toBe(200);
+  expect(clean.rawPayload.toString('latin1')).toContain('/Subtype /Image');
+  await setStatus(paths.inline, 'infected');
+  const blocked = await call('GET', `/threads/${thread}/pdf`);
+  expect(blocked.statusCode, blocked.body).toBe(200);
+  expect(blocked.rawPayload.toString('latin1')).not.toContain('/Subtype /Image');
+});
 it('keeps clean downloads, previews and ranged PST downloads functional', async () => {
   expect((await call('GET', `/attachments/${attachment}/download`)).body).toBe(
     'QUARANTINED-CONTENT',

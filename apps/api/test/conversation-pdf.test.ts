@@ -1,4 +1,5 @@
 import { inflateSync } from 'node:zlib';
+import sharp from 'sharp';
 import { expect, it } from 'vitest';
 import { conversationPdf, type ConversationPdfDocument } from '../src/modules/conversation-pdf.js';
 
@@ -165,4 +166,25 @@ it('preserves the end of a table cell taller than one page', async () => {
     ],
   });
   expect(pdfText(pdf)).toContain('FIM DA TABELA');
+});
+it('embeds signature images inside links and layout tables instead of an image placeholder', async () => {
+  const data = await sharp({
+    create: { width: 600, height: 197, channels: 3, background: '#1686a7' },
+  })
+    .png()
+    .toBuffer();
+  const source = 'https://example.com/signature.jpg';
+  const pdf = await conversationPdf({
+    ...conversation,
+    messages: [
+      {
+        ...conversation.messages[0]!,
+        body_html: `<p>Atenciosamente,</p><table><tr><td><a href="https://example.com"><img data-apmail-src="${source}" width="600" alt="Assinatura"/></a></td></tr></table>`,
+        images: { [source]: { data, width: 600, height: 197 } },
+      },
+    ],
+  });
+  expect(pdf.toString('latin1')).toContain('/Subtype /Image');
+  expect(pdfText(pdf)).not.toContain('[Imagem');
+  expect(pdfText(pdf)).toContain('Atenciosamente,');
 });

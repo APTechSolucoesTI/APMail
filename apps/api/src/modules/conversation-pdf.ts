@@ -15,6 +15,7 @@ export type ConversationPdfMessage = {
   body_text: string;
   body_html: string | null;
   attachments: { id: string; filename: string }[];
+  images?: Record<string, { data: Buffer; width: number; height: number }>;
 };
 export type ConversationPdfDocument = {
   subject: string;
@@ -69,8 +70,13 @@ function addresses(value: unknown): string {
 function bodyTree(html: string): HtmlNode {
   const clean = sanitizeHtml(html, {
     allowedTags: [...sanitizeHtml.defaults.allowedTags, 'img', 'u', 's'],
-    allowedAttributes: { a: ['href'], img: ['alt'], '*': ['colspan', 'rowspan', 'style'] },
+    allowedAttributes: {
+      a: ['href'],
+      img: ['alt', 'src', 'data-apmail-src', 'data-apmail-cid', 'width', 'height'],
+      '*': ['colspan', 'rowspan', 'style'],
+    },
     allowedSchemes: ['https', 'http', 'mailto', 'tel'],
+    allowedSchemesByTag: { img: ['http', 'https', 'cid', 'data'] },
     allowProtocolRelative: false,
     allowedStyles: {
       '*': {
@@ -275,7 +281,34 @@ export async function conversationPdf(conversation: ConversationPdfDocument): Pr
     'table',
     'hr',
   ]);
+  let images: NonNullable<ConversationPdfMessage['images']> = {};
+  const containsImage = (node: HtmlNode): boolean =>
+    node.tag === 'img' || node.children.some(containsImage);
   const render = (node: HtmlNode, indent = 0) => {
+    if (node.tag === 'img') {
+      const source = node.attrs['data-apmail-cid']
+        ? 'cid:' + node.attrs['data-apmail-cid']
+        : (node.attrs['data-apmail-src'] ?? node.attrs.src ?? '');
+      const image = images[source];
+      if (!image) {
+        text(`[Imagem indisponível${node.attrs.alt ? ': ' + node.attrs.alt : ''}]`, {
+          size: 8,
+          color: '#667085',
+          indent,
+        });
+        return;
+      }
+      const requested = Number.parseFloat(node.attrs.width ?? '');
+      const imageWidth = Math.min(width - indent, (requested > 0 ? requested : image.width) * 0.75);
+      const scale = Math.min(1, 450 / ((imageWidth * image.height) / image.width));
+      const w = imageWidth * scale,
+        h = (w * image.height) / image.width;
+      space(h + 8);
+      const top = doc.y;
+      doc.image(image.data, 42 + indent, top, { width: w, height: h });
+      doc.y = top + h + 6;
+      return;
+    }
     if (node.tag === 'hr') {
       doc.y += 5;
       space(14);
@@ -289,6 +322,10 @@ export async function conversationPdf(conversation: ConversationPdfDocument): Pr
       return;
     }
     if (node.tag === 'table') {
+      if (containsImage(node)) {
+        for (const child of node.children) render(child, indent);
+        return;
+      }
       const rows: HtmlNode[] = [];
       const collect = (child: HtmlNode) => {
         if (child.tag === 'tr') rows.push(child);
@@ -354,7 +391,7 @@ export async function conversationPdf(conversation: ConversationPdfDocument): Pr
     };
     if (node.tag === 'li') pending.push({ text: '• ' });
     for (const child of node.children) {
-      if (blocks.has(child.tag)) {
+      if (blocks.has(child.tag) || containsImage(child)) {
         flush();
         render(child, nextIndent);
       } else
@@ -374,6 +411,7 @@ export async function conversationPdf(conversation: ConversationPdfDocument): Pr
   });
   doc.y += 18;
   for (const [index, message] of conversation.messages.entries()) {
+    images = message.images ?? {};
     space(130);
     text(`Mensagem ${index + 1} de ${conversation.messages.length}`, {
       size: 11,
@@ -408,7 +446,8 @@ export async function conversationPdf(conversation: ConversationPdfDocument): Pr
           color: '#667085',
         });
     }
-    doc.y += 16;
+    if (index === conversation.messages.length - 1) continue;
+    doc.y += 10;
     space(18);
     doc
       .moveTo(42, doc.y)
@@ -416,7 +455,7 @@ export async function conversationPdf(conversation: ConversationPdfDocument): Pr
       .strokeColor('#e4e7ec')
       .lineWidth(0.5)
       .stroke();
-    doc.y += 18;
+    doc.y += 12;
   }
   const pages = doc.bufferedPageRange();
   for (let page = pages.start; page < pages.start + pages.count; page++) {

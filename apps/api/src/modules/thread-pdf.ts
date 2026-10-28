@@ -5,6 +5,7 @@ import { notFound } from '../authz/context.js';
 import { requireThread } from './mail.js';
 import type { Resources } from './resources.js';
 import { conversationPdf } from './conversation-pdf.js';
+import { conversationPdfImages } from './conversation-pdf-images.js';
 
 export async function registerThreadPdf(app: FastifyInstance, resources: Resources) {
   app.get('/api/threads/:id/pdf', async (request, reply) => {
@@ -38,7 +39,7 @@ export async function registerThreadPdf(app: FastifyInstance, resources: Resourc
     if (!messages.length) throw notFound();
     const attachments = await resources.db
       .selectFrom('attachments')
-      .select(['id', 'message_id', 'filename'])
+      .select(['id', 'message_id', 'filename', 'content_id', 'storage_path', 'size_bytes'])
       .where('tenant_id', '=', c.tenantId)
       .where('mailbox_id', '=', thread.mailbox_id)
       .where(
@@ -57,10 +58,15 @@ export async function registerThreadPdf(app: FastifyInstance, resources: Resourc
     const pdf = await conversationPdf({
       timezone: preferences?.timezone ?? 'America/Sao_Paulo',
       subject: scope === null ? thread.subject : messages.at(-1)!.subject,
-      messages: messages.map((message) => ({
-        ...message,
-        attachments: attachments.filter((attachment) => attachment.message_id === message.id),
-      })),
+      messages: await conversationPdfImages(
+        resources,
+        c.tenantId,
+        messages.map((message) => ({
+          ...message,
+          attachments: attachments.filter((attachment) => attachment.message_id === message.id),
+        })),
+        attachments,
+      ),
     });
     return reply
       .header('Cache-Control', 'private, no-store')
