@@ -5,6 +5,8 @@ import type { DB } from '@apmail/db';
 import type { Redis } from 'ioredis';
 import type { ApiEnv } from '../env.js';
 import { ApiError, type RequestContext } from '../authz/context.js';
+import { assertLoginAccessSchedule, outsideSchedule } from '../authz/access-schedule.js';
+import { isWithinAccessSchedule } from '@apmail/shared';
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 export const newToken = () => randomBytes(32).toString('base64url');
 export async function contextForToken(
@@ -47,6 +49,8 @@ export async function contextForToken(
           'tenant_members.access_profile_id',
           'tenant_members.custom_permissions',
           'ap.permissions as access_permissions',
+          'tenant_members.access_schedule',
+          'tenants.timezone',
         ])
         .where('tenant_members.user_id', '=', session.user_id)
         .where('tenant_members.tenant_id', '=', session.current_tenant_id)
@@ -60,6 +64,8 @@ export async function contextForToken(
     .select('user_id')
     .where('user_id', '=', session.user_id)
     .executeTakeFirst();
+  if (!platform && member && !isWithinAccessSchedule(member.access_schedule, member.timezone))
+    throw outsideSchedule();
   return {
     userId: session.user_id,
     // Platform accounts never inherit operational access from legacy memberships or support.
@@ -76,6 +82,12 @@ export async function contextForToken(
       : (member?.custom_permissions ??
         (member?.access_profile_id ? (member.access_permissions ?? []) : null)),
     platformAdmin: !!platform,
+    accessScheduleEnabled:
+      !platform &&
+      member?.access_schedule != null &&
+      typeof member.access_schedule === 'object' &&
+      'enabled' in member.access_schedule &&
+      member.access_schedule.enabled === true,
     ip,
     requestId,
     sessionHash: hash,
@@ -84,7 +96,7 @@ export async function contextForToken(
 }
 export async function installAuth(app: FastifyInstance, db: Kysely<DB>, redis: Redis, env: ApiEnv) {
   app.decorateRequest('ctx', null);
-  app.addHook('onRequest', async (req) => {
+  app.addHook('onRequest', async (req, reply) => {
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
       let origin = req.headers.origin;
       try {
@@ -102,8 +114,30 @@ export async function installAuth(app: FastifyInstance, db: Kysely<DB>, redis: R
     const signed = req.cookies.apmail_session;
     if (signed) {
       const unsigned = app.unsignCookie(signed);
-      if (unsigned.valid && unsigned.value)
-        req.ctx = await contextForToken(db, redis, unsigned.value, req.ip, req.id);
+      if (unsigned.valid && unsigned.value) {
+        try {
+          req.ctx = await contextForToken(db, redis, unsigned.value, req.ip, req.id);
+        } catch (error) {
+          if (!(error instanceof ApiError) || error.code !== 'outside_access_schedule') throw error;
+          reply.clearCookie('apmail_session', { path: '/' });
+          await db
+            .deleteFrom('sessions')
+            .where('token_hash', '=', hashToken(unsigned.value))
+            .execute();
+          await redis.del('session:' + hashToken(unsigned.value));
+          const path = req.url.split('?')[0];
+          if (
+            ![
+              '/api/auth/login',
+              '/api/auth/logout',
+              '/api/auth/forgot-password',
+              '/api/auth/reset-password',
+              '/api/auth/two-factor/login',
+            ].includes(path ?? '')
+          )
+            throw error;
+        }
+      }
     }
   });
   app.addHook('preHandler', async (req) => {
@@ -144,6 +178,7 @@ export async function createSession(
     .where('id', '=', userId)
     .forUpdate()
     .executeTakeFirstOrThrow();
+  await assertLoginAccessSchedule(db, userId);
   const factor = await db
     .selectFrom('user_two_factor')
     .select(['enabled_at', 'version'])

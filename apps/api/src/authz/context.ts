@@ -11,6 +11,7 @@ export type RequestContext = {
   mailboxRoles: Map<string, import('@apmail/shared').MailboxRole | null>;
   capabilities?: string[];
   platformAdmin?: boolean;
+  accessScheduleEnabled?: boolean;
   accessProfileId?: string | null;
   accessRestricted?: boolean;
   accessPermissions?: string[] | null;

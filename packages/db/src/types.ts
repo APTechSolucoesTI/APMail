@@ -1175,6 +1175,10 @@ export interface TenantMailPolicyRuns {
 
 export interface TenantMembers {
   access_profile_id: string | null;
+  /**
+   * Per-company login/access schedule. NULL is unrestricted. Weekly days indexed Sunday=0; dated exceptions override the entire day. Validated at the API boundary; company timezone applies.
+   */
+  access_schedule: Json | null;
   capabilities: Generated<string[]>;
   created_at: Generated<Timestamp>;
   /**

@@ -22,7 +22,8 @@ import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { api } from '@/lib/api';
 import { requireSettingsCapability } from '@/lib/settings';
 import { isTenantAdmin } from '@apmail/shared';
-import { Pencil, UserPlus, Trash2 } from 'lucide-react';
+import { Pencil, UserPlus, Trash2, Clock3 } from 'lucide-react';
+import { AccessScheduleDialog } from '@/components/settings/access-schedule-editor';
 import { toast } from 'sonner';
 import { meQuery } from '@/lib/auth';
 type Member = {
@@ -34,6 +35,7 @@ type Member = {
   access_profile_name?: string | null;
   status: 'active' | 'disabled';
   mailbox_count: number;
+  access_schedule_enabled: boolean;
 };
 type Invite = {
   access_profile_name?: string | null;
@@ -68,6 +70,9 @@ function Users() {
   });
   const [editing, setEditing] = useState<string | null | undefined>(undefined);
   const [change, setChange] = useState<Member | null>(null);
+  const [scheduleUser, setScheduleUser] = useState<{ user_id: string; full_name: string } | null>(
+    null,
+  );
   const [sending, setSending] = useState<string | null>(null);
   const rows = [
     ...(q.data?.members ?? []).map((m) => ({
@@ -88,6 +93,7 @@ function Users() {
       access_profile_name: i.access_profile_name ?? null,
       status: 'invited' as const,
       mailbox_count: null,
+      access_schedule_enabled: false,
       delivery_status: i.delivery_status,
       delivery_error: i.delivery_error,
     })),
@@ -157,6 +163,32 @@ function Users() {
             ),
           },
           { id: 'mailbox_count', header: 'Caixas', align: 'right' },
+          {
+            id: 'access_schedule_enabled',
+            header: 'Horário de acesso',
+            cell: (m) =>
+              m.invitation_id ? (
+                '—'
+              ) : manage &&
+                (m.role !== 'owner' || owner) &&
+                (currentTenant?.access_permissions == null ||
+                  (!isTenantAdmin(m.role) && m.user_id !== me.data?.user.id)) ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-11 sm:min-h-9"
+                  aria-label={'Horário de acesso de ' + m.full_name}
+                  onClick={() => setScheduleUser(m)}
+                >
+                  <Clock3 className="size-4" />
+                  {m.access_schedule_enabled ? 'Restrito por horário' : 'Qualquer horário'}
+                </Button>
+              ) : m.access_schedule_enabled ? (
+                'Restrito por horário'
+              ) : (
+                'Qualquer horário'
+              ),
+          },
           {
             id: 'delivery_status',
             header: 'Entrega do convite',
@@ -303,6 +335,9 @@ function Users() {
             setChange(null);
           }}
         />
+      )}
+      {scheduleUser && (
+        <AccessScheduleDialog user={scheduleUser} onClose={() => setScheduleUser(null)} />
       )}
     </>
   );

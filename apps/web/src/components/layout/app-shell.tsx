@@ -61,7 +61,7 @@ const settingsIcons: Record<string, typeof Mail> = {
   '/settings/audit': ClipboardList,
 };
 export function AppShell() {
-  const me = useQuery(meQuery);
+  const me = useQuery({ ...meQuery, refetchInterval: 30000, refetchIntervalInBackground: true });
   const transferUser = me.data?.user.id;
   useEffect(
     () => () => {
@@ -96,6 +96,9 @@ export function AppShell() {
   }, [theme, setTheme]);
   useEffect(() => {
     socket.connect();
+    socket.on('access:schedule-blocked', () =>
+      window.location.replace('/login?reason=outside_schedule'),
+    );
     socket.on('connect', () => {
       void client.invalidateQueries({ queryKey: ['mailboxes'] });
       void client.invalidateQueries({ queryKey: ['mailbox'] });

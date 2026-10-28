@@ -43,6 +43,7 @@ import { installSocket } from './plugins/socket.js';
 import { registerAuthRoutes } from './modules/auth.js';
 import { registerTwoFactorRoutes } from './modules/two-factor.js';
 import { registerTenantRoutes } from './modules/tenants.js';
+import { registerAccessSchedules } from './modules/access-schedules.js';
 import { registerMailboxRoutes } from './modules/mailboxes.js';
 import { registerInvitationRoutes } from './modules/invitations.js';
 import { registerAvatarRoutes } from './modules/avatars.js';
@@ -285,6 +286,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await registerAuthRoutes(app, resources);
   await registerTwoFactorRoutes(app, resources);
   await registerTenantRoutes(app, resources);
+  await registerAccessSchedules(app, resources);
   await registerAccessProfileRoutes(app, resources);
   await registerAuditRoutes(app, resources);
   await registerMailboxRoutes(app, resources);

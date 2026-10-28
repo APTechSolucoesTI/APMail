@@ -98,6 +98,8 @@ export async function requireUser() {
   try {
     return await queryClient.fetchQuery({ ...meQuery, staleTime: 0 });
   } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'outside_access_schedule')
+      throw redirect({ to: '/login', search: { reason: 'outside_schedule' } });
     if (error instanceof Error && 'status' in error && error.status === 401)
       throw redirect({ to: '/login' });
     throw error;

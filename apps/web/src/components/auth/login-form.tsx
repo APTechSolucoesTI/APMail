@@ -23,6 +23,12 @@ export function LoginForm() {
           : 'Acesse as caixas de e-mail da sua equipe.'
       }
     >
+      {new URLSearchParams(window.location.search).get('reason') === 'outside_schedule' && (
+        <p role="alert" className="mb-4 rounded-md border bg-muted p-3 text-sm">
+          Seu horário de acesso terminou. Entre novamente no próximo expediente ou solicite uma
+          exceção ao administrador.
+        </p>
+      )}
       {challenge ? (
         <div className="space-y-4">
           <TwoFactorForm

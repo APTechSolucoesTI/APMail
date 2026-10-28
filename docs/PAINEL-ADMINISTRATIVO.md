@@ -20,6 +20,18 @@ Ao reativar, o worker atualiza as conversas por empresa em lotes e mantém as co
 
 Preferências → E-mail permite agrupar as caixas acessíveis por domínio. Essa escolha pertence à pessoa; o recolhimento dos grupos é uma preferência local por pessoa e empresa. O Resumo permanece acima dos grupos.
 
+## Horário de acesso por usuário
+
+Em Equipe e acesso → Usuários, a coluna Horário de acesso abre a configuração individual. A opção **Pode acessar a qualquer horário** inicia ativada para todos os usuários existentes. Enquanto ativa, dispensa o preenchimento e desabilita a grade e as exceções. Desativá-la permite configurar segunda a domingo, até quatro intervalos por dia e exceções por data. Um dia sem intervalos bloqueia o acesso. Cada exceção substitui o dia inteiro: sem intervalos para um feriado; com intervalos para um expediente extraordinário.
+
+O fuso é sempre o da empresa, independentemente do computador ou da preferência pessoal. O início é inclusivo e o fim é exclusivo: 08:00–17:00 permite entrada às 08:00 e bloqueia às 17:00. Pausas podem ser representadas por intervalos separados. Para turnos que atravessam a meia-noite, configure os dois dias; `24:00` é aceito como fim do dia.
+
+A API verifica o horário em cada requisição autenticada, na criação de sessões (inclusive na conclusão do segundo fator) e na troca de empresa. Conexões ociosas são verificadas no limite de cada minuto e desconectadas quando o expediente termina; a sessão é revogada, exigindo novo login. Uma alteração administrativa desconecta as conexões da pessoa para reavaliar a regra imediatamente. Horários são isolados por vínculo com a empresa; não alteram filas, recebimento, envios agendados ou expediente de outras pessoas. Contas globais da plataforma continuam sem acesso operacional às caixas.
+
+Somente quem possui `users.manage` pode configurar. Gestores com acesso delegado não podem alterar a própria regra nem a de administradores; apenas proprietários alteram a regra de outro proprietário. Alterações são registradas na auditoria. Administradores operacionais também cumprem a regra quando configurados.
+
+Requer a migration aditiva `0067_member_access_schedule.sql`, que adiciona metadados à associação do usuário e preserva sessões e dados existentes. API e web devem usar a mesma revisão. Nenhum horário restritivo é ativado automaticamente.
+
 ## Conversas
 
 Assunto, remetente ou destinatário iguais não criam um vínculo de resposta. O recebimento usa a identidade da mensagem, o pai direto e as referências de ancestrais. Identidades pendentes permitem receber uma resposta antes da mensagem original. E-mails novos e encaminhamentos iniciam conversas independentes; responder e responder a todos mantêm a conversa. Concluir muda somente o atendimento.

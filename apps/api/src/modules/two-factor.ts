@@ -6,6 +6,7 @@ import QRCode from 'qrcode';
 import { z } from 'zod';
 import { audit, type DB } from '@apmail/db';
 import { ApiError, requireAuth } from '../authz/context.js';
+import { assertLoginAccessSchedule } from '../authz/access-schedule.js';
 import { createSession, hashToken, invalidateSessions, newToken } from '../plugins/auth.js';
 import {
   authenticator,
@@ -118,6 +119,7 @@ export async function completePasswordLogin(
       .executeTakeFirstOrThrow();
     if (user.password_hash !== verifiedHash)
       throw new ApiError(401, 'unauthenticated', 'Entre novamente com sua senha atual.');
+    await assertLoginAccessSchedule(tx, userId);
     const factor = await tx
       .selectFrom('user_two_factor')
       .selectAll()

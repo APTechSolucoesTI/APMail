@@ -323,6 +323,9 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         'm.access_profile_id',
         'p.name as access_profile_name',
         'm.status',
+        sql<boolean>`coalesce((m.access_schedule->>'enabled')::boolean,false)`.as(
+          'access_schedule_enabled',
+        ),
         'm.created_at',
         sql<number>`case when m.role in ('owner','admin') then (select count(*)::int from mailboxes b where b.tenant_id=${c.tenantId} and b.deleted_at is null) else (select count(*)::int from mailbox_members mm join mailboxes b on b.id=mm.mailbox_id where mm.user_id=m.user_id and mm.tenant_id=${c.tenantId} and b.tenant_id=${c.tenantId} and b.deleted_at is null) end`.as(
           'mailbox_count',
@@ -362,6 +365,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         access_profile_id: u.access_profile_id,
         access_profile_name: u.access_profile_name,
         status: u.status,
+        access_schedule_enabled: u.access_schedule_enabled,
         created_at: u.created_at,
         mailbox_count: u.mailbox_count,
         avatar_url: avatarUrl(u),

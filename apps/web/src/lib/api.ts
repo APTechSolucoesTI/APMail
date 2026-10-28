@@ -43,6 +43,13 @@ export async function api<T>(
     const error = (
       data as { error?: { code?: string; message?: string; details?: Record<string, string[]> } }
     ).error;
+    if (
+      error?.code === 'outside_access_schedule' &&
+      (!path.startsWith('/auth/') || path === '/auth/me') &&
+      typeof window !== 'undefined'
+    ) {
+      window.location.replace('/login?reason=outside_schedule');
+    }
     throw new ApiError(
       response.status,
       error?.code ?? 'internal',

@@ -27,6 +27,7 @@ export function routePermission(
     return method === 'GET' ? 'personal' : 'company.manage';
   if (/^\/api\/members\/directory$/.test(path)) return 'personal';
   if (/^\/api\/members\/[^/]+\/permissions$/.test(path)) return 'users.manage';
+  if (/^\/api\/members\/[^/]+\/access-schedule$/.test(path)) return 'users.manage';
   if (/^\/api\/access-profiles(?:\/|$)/.test(path))
     return method === 'GET' ? 'personal' : 'profiles.manage';
   if (/^\/api\/invitations(?:\/|$)/.test(path)) return 'users.invite';

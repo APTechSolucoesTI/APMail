@@ -62,6 +62,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   'member.invite_revoked': 'Convite revogado',
   'member.joined': 'Convite aceito',
   'member.access_updated': 'Permissões atualizadas',
+  'member.access_schedule_updated': 'Horário de acesso atualizado',
   'member.status_changed': 'Status do usuário alterado',
   'member.removed': 'Usuário removido da empresa',
   'mailbox.deleted': 'Exclusão definitiva da caixa solicitada',

@@ -24,6 +24,7 @@ import { hashToken, newToken, createSession, invalidateSessions } from '../plugi
 import type { Resources } from './resources.js';
 import { completePasswordLogin } from './two-factor.js';
 import { registerCompositionPreferences } from './composition-preferences.js';
+import { assertTenantAccessSchedule } from '../authz/access-schedule.js';
 export const hashPassword = (value: string) =>
   hash(value, { algorithm: Algorithm.Argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
 const publicUserColumns = [
@@ -321,6 +322,7 @@ export async function registerAuthRoutes(app: FastifyInstance, r: Resources) {
       .where('status', '=', 'active')
       .executeTakeFirst();
     if (!m) throw notFound();
+    await assertTenantAccessSchedule(r.db, c.userId, b.tenant_id);
     await r.db
       .updateTable('users')
       .set({ current_tenant_id: b.tenant_id })
@@ -363,6 +365,8 @@ export async function registerAuthRoutes(app: FastifyInstance, r: Resources) {
   app.put('/api/preferences', async (req) => {
     const c = requireAuth(req.ctx);
     const b = preferencesSchema.parse(req.body);
+    if (!Object.keys(b).length)
+      throw new ApiError(400, 'validation_error', 'Informe ao menos uma preferência válida.');
     return r.db
       .updateTable('user_preferences')
       .set(b)

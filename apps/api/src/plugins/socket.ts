@@ -7,6 +7,7 @@ import { installThreadPresence } from './thread-presence.js';
 import { installChatSocket } from './chat-socket.js';
 import { installTenantPresence } from './tenant-presence.js';
 import { requireThread } from '../modules/mail.js';
+import { ApiError } from '../authz/context.js';
 export function installSocket(app: FastifyInstance, r: Resources) {
   const pending = new Set<Promise<void>>();
   const track = (task: Promise<void>) => {
@@ -44,6 +45,14 @@ export function installSocket(app: FastifyInstance, r: Resources) {
   r.io.on('connection', (socket) => {
     const c = socket.data.ctx as Awaited<ReturnType<typeof contextForToken>>;
     if (!c) return;
+    const blockSchedule = async (error: unknown) => {
+      if (error instanceof ApiError && error.code === 'outside_access_schedule') {
+        r.io.to('session:' + c.sessionHash).emit('access:schedule-blocked', {});
+        await r.db.deleteFrom('sessions').where('token_hash', '=', c.sessionHash).execute();
+        await r.redis.del('session:' + c.sessionHash);
+        r.io.in('session:' + c.sessionHash).disconnectSockets(true);
+      }
+    };
     const freshContext = async () => {
       const fresh = await contextForToken(
         r.db,
@@ -51,12 +60,38 @@ export function installSocket(app: FastifyInstance, r: Resources) {
         socket.data.token as string,
         socket.handshake.address,
         socket.id,
-      );
+      ).catch(async (error) => {
+        await blockSchedule(error);
+        throw error;
+      });
       if (!fresh || fresh.platformAdmin || fresh.tenantId !== c.tenantId)
         throw new Error('unauthenticated');
       socket.data.ctx = fresh;
       return fresh;
     };
+    // Check on the minute boundary even for idle clients subscribed to mail/chat rooms.
+    // Every API request and socket action also checks the server clock independently.
+    let scheduleTimer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleCheck = () => {
+      if (!socket.connected || !c.accessScheduleEnabled) return;
+      scheduleTimer = setTimeout(
+        () =>
+          track(
+            (async () => {
+              try {
+                await freshContext();
+                scheduleCheck();
+              } catch {
+                socket.disconnect(true);
+              }
+            })(),
+          ),
+        60000 - (Date.now() % 60000),
+      );
+      scheduleTimer.unref();
+    };
+    scheduleCheck();
+    socket.on('disconnect', () => clearTimeout(scheduleTimer));
     let events = Promise.resolve();
     const ordered = (operation: () => Promise<void>) => {
       const task = events.then(async () => {
