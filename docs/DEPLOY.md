@@ -244,3 +244,7 @@ Exclusão de caixa exige duas etapas e oferece backup; não excluir a caixa enqu
 A atualização usa as migrations aditivas 0063–0066 e requer web, API e worker da mesma revisão. Consulte [Painel Administrativo](PAINEL-ADMINISTRATIVO.md) para os fluxos, compatibilidade e conferência após deploy. Não resetar dados ou editar checksums de migrations existentes.
 
 O horário de acesso por usuário acrescenta a migration aditiva `0067_member_access_schedule.sql`. Aplicar antes da nova API; publicar API e web da mesma revisão. Usuários existentes permanecem com acesso a qualquer horário até a configuração individual pelo administrador. Depois de publicar, conferir uma conta de teste dentro e fora do expediente e uma exceção por data.
+
+## Atualização de 30/10/2026 — pastas da importação direta
+
+Reconstruir/publicar o worker com a versão correspondente de `@apmail/db`. Sem migration, dependências novas ou alteração de API/web. Depois da publicação, backups importados em caixas conectadas usam as pastas normais da caixa, com subpastas preservadas; caixas locais separadas mantêm Importados. A organização dos dados legados é manutenção independente, com backup e bloqueio por caixa. Não exige reenviar os backups.

@@ -32,6 +32,7 @@ export * from './domain/signatures.js';
 export * from './domain/thread-operations.js';
 export * from './domain/notifications.js';
 export * from './domain/local-folders.js';
+export * from './domain/archive-folders.js';
 export * from './domain/folder-access.js';
 export * from './mail-backup.js';
 export * from './domain/calendar.js';

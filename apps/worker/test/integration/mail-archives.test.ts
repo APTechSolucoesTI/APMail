@@ -21,6 +21,7 @@ import { cleanupMailArchiveFiles } from '../../src/handlers/mail-archive-mainten
 import { readMailArchive } from '../../src/archives/read-mail-archive.js';
 import { toMbox } from '../../../api/src/modules/mail-archive-exports.js';
 import { createServer } from 'node:net';
+import { ZipFile } from 'yazl';
 import { writeMailboxCredential } from '@apmail/db';
 import { handleMailboxSync } from '../../src/handlers/mailbox-sync.js';
 import { handleMailAction } from '../../src/handlers/mail-actions.js';
@@ -1111,6 +1112,62 @@ it('receives POP3 continuously, keeps server messages and resumes quota by UIDL 
   } finally {
     await new Promise<void>((resolve, reject) => server.close((e) => (e ? reject(e) : resolve())));
   }
+}, 30000);
+
+it('imports directly into POP3 inbox and sent folders, preserves subfolders and deduplicates a repeated import', async () => {
+  const mailbox = await db
+    .insertInto('mailboxes')
+    .values({
+      tenant_id: tenant,
+      name: 'Direct archive QA',
+      email_address: 'direct-archive@qa.example',
+      receiving_protocol: 'pop3',
+      username: 'qa',
+      imap_host: 'localhost',
+      smtp_host: 'localhost',
+      status: 'active',
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  const zip = new ZipFile(),
+    chunks: Buffer[] = [];
+  const output = (async () => {
+    for await (const chunk of zip.outputStream) chunks.push(Buffer.from(chunk));
+    return Buffer.concat(chunks);
+  })();
+  const root = 'Importados/Início do arquivo de dados do Outlook/';
+  zip.addBuffer(mime('direct-inbox'), root + 'Caixa de Entrada/inbox.eml');
+  zip.addBuffer(mime('direct-sent'), root + 'Itens Enviados/sent.eml');
+  zip.addBuffer(mime('direct-child'), root + 'Caixa de Entrada/Clientes/child.eml');
+  zip.end();
+  const raw = await output;
+  const id = await upload(raw, 'direct.zip', mailbox.id);
+  await handleMailArchive(r, id, 'direct-archive-first');
+  expect(await state(id)).toMatchObject({ state: 'completed', imported: 3 });
+  const messages = await db
+    .selectFrom('messages as m')
+    .innerJoin('folders as f', 'f.id', 'm.folder_id')
+    .select(['m.message_id_header', 'f.id', 'f.name', 'f.parent_id', 'f.special_use'])
+    .where('m.mailbox_id', '=', mailbox.id)
+    .execute();
+  const inbox = messages.find((m) => m.message_id_header === '<direct-inbox@qa.example>')!;
+  expect(inbox.special_use).toBe('inbox');
+  expect(
+    messages.find((m) => m.message_id_header === '<direct-sent@qa.example>')?.special_use,
+  ).toBe('sent');
+  expect(messages.find((m) => m.name === 'Clientes')?.parent_id).toBe(inbox.id);
+  const repeated = await upload(raw, 'direct-again.zip', mailbox.id);
+  await handleMailArchive(r, repeated, 'direct-archive-again');
+  expect(await state(repeated)).toMatchObject({ state: 'completed', imported: 0, skipped: 3 });
+  expect(
+    await db
+      .selectFrom('folders')
+      .select('id')
+      .where('mailbox_id', '=', mailbox.id)
+      .where('imap_path', 'like', 'local/importados%')
+      .where('deleted_at', 'is', null)
+      .execute(),
+  ).toHaveLength(0);
 }, 30000);
 
 it('keeps imported folder hierarchy and messages when remote IMAP folders are refreshed', async () => {

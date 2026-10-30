@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
 import { sql } from 'kysely';
 import { resolve } from 'node:path';
-import { ensureLocalFolders, isStorageQuotaError, audit } from '@apmail/db';
+import {
+  ensureLocalFolders,
+  createArchiveFolderResolver,
+  isStorageQuotaError,
+  audit,
+} from '@apmail/db';
 import { MAIL_MESSAGE_MAX_BYTES } from '@apmail/shared';
 import { withMailboxLock } from '../lib/mailbox-lock.js';
 import { ingestMessage } from '../imap/ingest-message.js';
@@ -96,7 +101,7 @@ export async function handleMailArchive(r: WorkerResources, importId: string, jo
         }
         if (box.receiving_protocol !== 'imap')
           await ensureLocalFolders(r.db, box.tenant_id, box.id);
-        const folders = new Map<string, Awaited<ReturnType<typeof ensureLocalFolders>>>();
+        const resolveFolder = await createArchiveFolderResolver(r.db, box);
         for await (const item of readMailArchive(
           resolve(r.env.STORAGE_DIR, task.storage_path!),
           task.format,
@@ -116,74 +121,7 @@ export async function handleMailArchive(r: WorkerResources, importId: string, jo
             return;
           if (item.raw.length > MAIL_MESSAGE_MAX_BYTES)
             throw new Error('Mensagem acima de 50 MiB.');
-          const path =
-            'local/importados/' +
-            mailText(item.folder)
-              .split(/[\\/]+/)
-              .filter((p) => p && p !== '.' && p !== '..')
-              .map((p) => p.slice(0, 100))
-              .slice(0, 100)
-              .join('/')
-              .slice(0, 900);
-          let folder = folders.get(path);
-          if (!folder) {
-            let parentId: string | null = null;
-            const parts = path.split('/');
-            for (let depth = 2; depth <= parts.length; depth++) {
-              const childPath = parts.slice(0, depth).join('/');
-              let child =
-                folders.get(childPath) ??
-                (await r.db
-                  .selectFrom('folders')
-                  .selectAll()
-                  .where('tenant_id', '=', box.tenant_id)
-                  .where('mailbox_id', '=', box.id)
-                  .where('imap_path', '=', childPath)
-                  .where('deleted_at', 'is', null)
-                  .executeTakeFirst());
-              if (!child) {
-                await r.db
-                  .insertInto('folders')
-                  .values({
-                    tenant_id: box.tenant_id,
-                    mailbox_id: box.id,
-                    name: depth === 2 ? 'Importados' : parts[depth - 1]!,
-                    imap_path: childPath,
-                    parent_id: parentId,
-                    is_local: true,
-                    special_use: null,
-                  })
-                  .onConflict((oc) =>
-                    oc
-                      .columns(['mailbox_id', 'imap_path'])
-                      .where('deleted_at', 'is', null)
-                      .doNothing(),
-                  )
-                  .execute();
-                child = await r.db
-                  .selectFrom('folders')
-                  .selectAll()
-                  .where('tenant_id', '=', box.tenant_id)
-                  .where('mailbox_id', '=', box.id)
-                  .where('imap_path', '=', childPath)
-                  .where('deleted_at', 'is', null)
-                  .executeTakeFirstOrThrow();
-              }
-              if (child.parent_id !== parentId) {
-                await r.db
-                  .updateTable('folders')
-                  .set({ parent_id: parentId })
-                  .where('id', '=', child.id)
-                  .where('tenant_id', '=', box.tenant_id)
-                  .execute();
-                child.parent_id = parentId;
-              }
-              folders.set(childPath, child);
-              parentId = child.id;
-              folder = child;
-            }
-          }
-          if (!folder) throw new Error('Pasta de importação indisponível.');
+          const folder = await resolveFolder(mailText(item.folder), undefined, task.format);
           const key = createHash('sha256').update(item.raw).digest('hex');
           const thread = await ingestMessage(
             r,
