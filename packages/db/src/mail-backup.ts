@@ -4,6 +4,7 @@ import type { DB } from './types.js';
 import type { Selectable, Kysely } from 'kysely';
 import type { Address } from '@apmail/shared';
 import { assertFilesClean } from './security/files.js';
+import { sanitizeEmailHtml } from './sanitize.js';
 type Message = Selectable<DB['messages']>;
 export function toMbox(raw: Buffer, date: Date, sender: string) {
   // mboxrd: quote every From separator, including already quoted body lines.
@@ -23,6 +24,7 @@ export async function backupMime(
   m: Message,
   options: { preferRaw?: boolean } = {},
 ) {
+  const preferRaw = options.preferRaw !== false && !m.archive_reconstructed_key;
   const attachments = await db
     .selectFrom('attachments')
     .selectAll()
@@ -33,12 +35,11 @@ export async function backupMime(
     db,
     [
       ...attachments.map((attachment) => attachment.storage_path),
-      ...(m.raw_storage_path && options.preferRaw !== false ? [m.raw_storage_path] : []),
+      ...(m.raw_storage_path && preferRaw ? [m.raw_storage_path] : []),
     ],
     storage,
   );
-  if (m.raw_storage_path && options.preferRaw !== false)
-    return storage.openReadStream(m.raw_storage_path);
+  if (m.raw_storage_path && preferRaw) return storage.openReadStream(m.raw_storage_path);
   const files = [];
   for (const a of attachments)
     files.push({
@@ -60,7 +61,9 @@ export async function backupMime(
     inReplyTo: m.in_reply_to ?? undefined,
     references: m.references_headers,
     text: m.body_text,
-    html: m.body_html || undefined,
+    // Stored display HTML parks CID/remote URLs in data attributes. Restore the
+    // references for MIME export only after all attached files passed the guard.
+    html: m.body_html ? sanitizeEmailHtml(m.body_html, m.body_text, false) : undefined,
     attachments: files,
     headers: { 'X-APMail-Backup-Source': 'reconstructed', 'X-APMail-Message-ID': m.id },
   })

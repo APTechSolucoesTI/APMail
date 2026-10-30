@@ -60,7 +60,14 @@ export async function ingestMessage(
         .where('mailbox_id', '=', box.id)
         .where('tenant_id', '=', box.tenant_id)
         .where('source_kind', '=', external!.kind)
-        .where('source_key', '=', external!.key),
+        .where((eb) =>
+          external!.kind === 'archive'
+            ? eb.or([
+                eb('source_key', '=', external!.key),
+                eb('archive_reconstructed_key', '=', external!.key),
+              ])
+            : eb('source_key', '=', external!.key),
+        ),
     )
     .executeTakeFirst();
   if (duplicate) {

@@ -248,7 +248,7 @@ it.each([undefined, 'pop3', 'archive'] as const)(
       .execute();
     expect(security).toHaveLength(kind ? 3 : 2);
     expect(security.every((file) => file.status === 'pending')).toBe(true);
-    const jobs = await r.queues['antivirus-scan'].getJobs(['waiting', 'delayed']);
+    const jobs = await r.queues['antivirus-scan'].getJobs(['waiting', 'prioritized', 'delayed']);
     for (const file of security) expect(jobs.some((job) => job.data.id === file.id)).toBe(true);
   },
 );
@@ -282,7 +282,7 @@ it('não perde ingestão quando Redis falha e recupera o trabalho pelo banco', a
     )
     .execute();
   await sweepSecurityFiles(db, r.queues['antivirus-scan']);
-  const jobs = await r.queues['antivirus-scan'].getJobs(['waiting', 'delayed']);
+  const jobs = await r.queues['antivirus-scan'].getJobs(['waiting', 'prioritized', 'delayed']);
   expect(rows.every((file) => jobs.some((job) => job.data.id === file.id))).toBe(true);
 });
 it('a transação revertida não deixa anexo nem veredito órfão', async () => {
@@ -530,6 +530,6 @@ it('recria agendamento apagado e recupera fila pelos registros pendentes persist
     )
     .execute();
   await sweepSecurityFiles(db, r.queues['antivirus-scan']);
-  const jobs = await r.queues['antivirus-scan'].getJobs(['waiting', 'delayed']);
+  const jobs = await r.queues['antivirus-scan'].getJobs(['waiting', 'prioritized', 'delayed']);
   expect(pending.every((file) => jobs.some((job) => job.data.id === file.id))).toBe(true);
 });

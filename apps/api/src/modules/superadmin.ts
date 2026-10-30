@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import {
   audit,
+  queueHealthCounts,
   asJson,
   safeAuditMetadata,
   writeMailboxCredential,
@@ -812,10 +813,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
     requireSuperAdmin(req.ctx);
     await sql`select 1`.execute(r.db);
     const entries = await Promise.all(
-      Object.entries(r.queues).map(async ([name, queue]) => [
-        name,
-        await queue.getJobCounts('waiting', 'active', 'delayed', 'failed'),
-      ]),
+      Object.entries(r.queues).map(async ([name, queue]) => [name, await queueHealthCounts(queue)]),
     );
     return {
       database: 'ok',

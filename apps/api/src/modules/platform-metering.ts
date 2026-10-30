@@ -4,7 +4,7 @@ import { sql, type Kysely } from 'kysely';
 import { PassThrough } from 'node:stream';
 import { once } from 'node:events';
 import { z } from 'zod';
-import { requestStorageScan, type DB } from '@apmail/db';
+import { requestStorageScan, queueHealthCounts, type DB } from '@apmail/db';
 import {
   STORAGE_FORMULA_VERSION,
   type MeteringResult,
@@ -490,8 +490,9 @@ export async function registerPlatformMetering(app: FastifyInstance, r: Resource
     const queues = await Promise.all(
       Object.entries(r.queues).map(async ([name, queue]) => {
         try {
-          const c = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed');
-          const oldest = (await queue.getWaiting(0, 0))[0];
+          const c = await queueHealthCounts(queue);
+          const waiting = await queue.getJobs(['waiting', 'prioritized'], 0, 0);
+          const oldest = waiting[0];
           return {
             name,
             waiting: c.waiting ?? 0,

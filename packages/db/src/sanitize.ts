@@ -1,5 +1,6 @@
 import sanitizeHtml from 'sanitize-html';
 import { convert } from 'html-to-text';
+import juice from 'juice';
 export const escapeHtml = (text: string): string =>
   text.replace(
     /[&<>"']/g,
@@ -9,6 +10,8 @@ const styles: Record<string, RegExp[]> = Object.fromEntries(
   [
     'color',
     'background-color',
+    'background',
+    'font',
     'font-family',
     'font-size',
     'font-weight',
@@ -34,20 +37,52 @@ const styles: Record<string, RegExp[]> = Object.fromEntries(
     'width',
     'height',
     'max-width',
+    'min-width',
     'vertical-align',
+    'white-space',
+    'text-indent',
+    'letter-spacing',
+    'list-style-type',
+    'border-top',
+    'border-right',
+    'border-bottom',
+    'border-left',
+    'border-spacing',
   ].map((key) => [key, [/^(?!.*(?:url\s*\(|expression|javascript|@import|\\)).{1,200}$/i]]),
 );
+// Shorthand backgrounds are needed for Outlook highlighting, but image-set(),
+// cross-fade() and other resource loaders must never bypass image consent.
+styles.background = [
+  /^(?:[a-z]+|#[0-9a-f]{3,8}|(?:rgb|rgba|hsl|hsla)\([-+\d.%\s,/]+\))(?:\s*!important)?$/i,
+];
 export function sanitizeEmailHtml(
   html: string,
   text = '',
   blockRemoteImages = true,
   transformImage?: (attributes: Record<string, string>) => Record<string, string>,
 ): string {
-  const source =
+  let source =
     html ||
     escapeHtml(text)
       .replace(/\bhttps?:\/\/[^\s<]+/g, (url) => `<a href="${url}">${url}</a>`)
       .replace(/\r?\n/g, '<br>');
+  if (/<style\b/i.test(source)) {
+    // Inline only embedded CSS. Unlike juiceResources/juiceFile, juice() never
+    // retrieves linked stylesheets, images, fonts or any other remote resources.
+    try {
+      source = juice(source, {
+        applyStyleTags: true,
+        removeStyleTags: true,
+        preserveMediaQueries: false,
+        preserveFontFaces: false,
+        preserveKeyFrames: false,
+        preservePseudos: false,
+      });
+    } catch {
+      // Malformed legacy CSS must not discard the message; inline styles still
+      // go through the same allowlist below, even when a stylesheet cannot inline.
+    }
+  }
   return sanitizeHtml(source, {
     allowedTags: [
       ...sanitizeHtml.defaults.allowedTags,
@@ -86,10 +121,13 @@ export function sanitizeEmailHtml(
         'bgcolor',
         'color',
         'style',
+        'dir',
+        'lang',
         'data-apmail-signature',
         'data-apmail-quote',
       ],
       a: ['href', 'target', 'rel'],
+      font: ['face', 'size'],
       img: [
         'src',
         'alt',
@@ -100,10 +138,23 @@ export function sanitizeEmailHtml(
       ],
     },
     allowedSchemes: ['http', 'https', 'mailto', 'tel'],
-    allowedSchemesByTag: { img: blockRemoteImages ? ['data'] : ['https', 'data', 'cid'] },
+    allowedSchemesByTag: { img: blockRemoteImages ? ['data'] : ['https', 'http', 'data', 'cid'] },
     allowProtocolRelative: false,
     allowedStyles: { '*': styles },
     transformTags: {
+      '*': (tagName, attribs) => ({
+        tagName,
+        attribs: attribs.style
+          ? {
+              ...attribs,
+              style: attribs.style.replace(
+                /(^|;)\s*mso-highlight\s*:\s*([^;]+)/gi,
+                '$1background-color:$2',
+              ),
+            }
+          : attribs,
+      }),
+      body: (_, attribs) => ({ tagName: 'div', attribs }),
       a: (_, attribs) => ({
         tagName: 'a',
         attribs: { ...attribs, target: '_blank', rel: 'noopener noreferrer nofollow' },

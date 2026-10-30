@@ -9,6 +9,13 @@ import type { WorkerResources } from '../resources.js';
 
 export async function ensureAntivirusScheduler(r: WorkerResources) {
   const queue = r.queues['antivirus-scan'];
+  // This queue is mandatory protection. A persisted Redis pause must not disable
+  // it across worker restarts. Files still require the normal scanner verdict.
+  await queue.resume();
+  // Run recovery outside the scan queue: a large import can keep a scheduled
+  // sweep behind hours of scans, hiding engine outages and delaying retries.
+  await refreshAntivirusHealth(r.db, antivirusOptions(r.env));
+  await sweepSecurityFiles(r.db, queue);
   await queue.upsertJobScheduler(
     'antivirus-sweep',
     { every: 60000 },

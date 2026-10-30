@@ -8,7 +8,14 @@ import { Redis } from 'ioredis';
 import { Queue } from 'bullmq';
 import { Emitter } from '@socket.io/redis-emitter';
 import pino from 'pino';
-import { createDb, migrate, Storage, createQueues } from '@apmail/db';
+import {
+  createDb,
+  migrate,
+  Storage,
+  createQueues,
+  backupMime,
+  registerSecurityFile,
+} from '@apmail/db';
 import { buildApp } from '../../../api/src/app.js';
 import { envSchema as apiEnv } from '../../../api/src/env.js';
 import { envSchema as workerEnv } from '../../src/env.js';
@@ -101,7 +108,15 @@ async function verifyFixtureFiles(target: string) {
     .where('status', '=', 'pending')
     .execute();
   for (const row of rows) {
-    const content = await readFile(join(dir, row.storage_key));
+    let content: Buffer;
+    try {
+      content = await readFile(join(dir, row.storage_key));
+    } catch (error) {
+      // Earlier purge scenarios intentionally unlink their registered fixtures.
+      // Missing files must never be marked clean by this test-only scanner.
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw error;
+    }
     await db
       .updateTable('file_security')
       .set({
@@ -1113,6 +1128,89 @@ it('receives POP3 continuously, keeps server messages and resumes quota by UIDL 
     await new Promise<void>((resolve, reject) => server.close((e) => (e ? reject(e) : resolve())));
   }
 }, 30000);
+
+it('exports recovered Outlook bodies while preserving original MIME, attachment security and both source identities', async () => {
+  const raw = mime('outlook-content-recovery');
+  const id = await upload(raw, 'outlook.eml');
+  await handleMailArchive(r, id, 'outlook-recovery-import');
+  const message = await db
+    .selectFrom('messages')
+    .selectAll()
+    .where('mailbox_id', '=', box)
+    .where('message_id_header', '=', '<outlook-content-recovery@qa.example>')
+    .executeTakeFirstOrThrow();
+  const corrected = mime('outlook-recovered-key', 'Ação e Salários recuperados');
+  const reconstructedKey = createHash('sha256').update(corrected).digest('hex');
+  await db
+    .updateTable('messages')
+    .set({
+      archive_reconstructed_key: reconstructedKey,
+      body_text: 'Ação e Salários recuperados',
+      body_html: '<p style="background:yellow">Ação e Salários recuperados</p>',
+    })
+    .where('id', '=', message.id)
+    .execute();
+  const saved = await db
+    .selectFrom('messages')
+    .selectAll()
+    .where('id', '=', message.id)
+    .executeTakeFirstOrThrow();
+  expect(saved.source_key).toBe(message.source_key);
+  expect(await readFile(join(dir, saved.raw_storage_path!))).toEqual(raw);
+  const chunks: Buffer[] = [];
+  for await (const chunk of await backupMime(db, r.storage, saved)) chunks.push(Buffer.from(chunk));
+  expect(Buffer.concat(chunks).toString()).toContain('background:yellow');
+  const repeated = await upload(corrected, 'corrected.eml');
+  await handleMailArchive(r, repeated, 'outlook-recovery-dedupe');
+  expect(await state(repeated)).toMatchObject({ state: 'completed', imported: 0, skipped: 1 });
+  const png = Buffer.from('verified inline image fixture');
+  const imagePath = `attachments/${tenant}/${box}/${message.id}/recovered-inline.png`;
+  await r.storage.writeFile(imagePath, png);
+  const attachment = await db
+    .insertInto('attachments')
+    .values({
+      tenant_id: tenant,
+      mailbox_id: box,
+      message_id: message.id,
+      filename: 'inline.png',
+      content_type: 'image/png',
+      size_bytes: png.length,
+      storage_path: imagePath,
+      content_id: 'recovered-cid',
+      is_inline: true,
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  const security = await registerSecurityFile(db, {
+    tenant_id: tenant,
+    mailbox_id: box,
+    message_id: message.id,
+    resource_id: attachment.id,
+    kind: 'attachment',
+    storage_key: imagePath,
+    filename: 'inline.png',
+    content_type: 'image/png',
+    size_bytes: png.length,
+  });
+  const withImage = { ...saved, body_html: '<p>Ação</p><img data-apmail-cid="recovered-cid">' };
+  await expect(backupMime(db, r.storage, withImage)).rejects.toThrow();
+  await db
+    .updateTable('file_security')
+    .set({
+      status: 'clean',
+      sha256: createHash('sha256').update(png).digest('hex'),
+      scanned_at: new Date(),
+    })
+    .where('id', '=', security.id)
+    .execute();
+  const restored = [];
+  for await (const chunk of await backupMime(db, r.storage, withImage))
+    restored.push(Buffer.from(chunk));
+  const { simpleParser } = await import('mailparser');
+  const exported = await simpleParser(Buffer.concat(restored), { keepCidLinks: true });
+  expect(exported.html).toContain('src="cid:recovered-cid"');
+  expect(exported.attachments[0]?.content).toEqual(png);
+});
 
 it('imports directly into POP3 inbox and sent folders, preserves subfolders and deduplicates a repeated import', async () => {
   const mailbox = await db

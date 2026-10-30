@@ -11,16 +11,79 @@ from email.policy import SMTP, default
 from email.utils import format_datetime, formataddr
 import json
 import hashlib
+import re
 import sys
 import pypff
 
 MAX_BYTES = 50 * 1024 * 1024
-MESSAGE_PROPERTIES = {0x001A, 0x0037, 0x0C1A, 0x0C1F, 0x1035, 0x5D01, 0x5D02}
+MESSAGE_PROPERTIES = {0x001A, 0x0037, 0x0C1A, 0x0C1F, 0x1035, 0x5D01, 0x5D02, 0x3FDE, 0x3FFD}
 RECIPIENT_PROPERTIES = {0x0C15, 0x3001, 0x3003, 0x39FE}
 ATTACHMENT_PROPERTIES = {0x3704, 0x3705, 0x3707, 0x370E, 0x3712}
 
 def text(value):
     return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value or "")
+
+def mixed_utf8_html(value):
+    """Outlook forwards can embed ANSI quote bytes in an otherwise UTF-8 body.
+
+    Keep valid UTF-8 sequences intact; decode only undecodable byte runs with the
+    Windows Western code page. No replacement characters or byte dropping.
+    """
+    if not isinstance(value, bytes):
+        return None
+    declared = re.search(br'<meta\b[^>]*\bcharset\s*=\s*["\']?([a-zA-Z0-9._-]+)', value[:16384], re.I)
+    if not declared or declared.group(1).lower().replace(b'-', b'') != b'utf8':
+        return None
+    projected = value.decode('utf-8-sig', errors='surrogateescape')
+    if not re.search(r'[\udc80-\udcff]', projected) or not any(127 < ord(c) < 0xDC80 or ord(c) > 0xDCFF for c in projected):
+        return None
+    def legacy(match):
+        raw = match.group().encode('utf-8', errors='surrogateescape')
+        try:
+            return raw.decode('cp1252')
+        except UnicodeError:
+            return raw.decode('latin-1')
+    return re.sub(r'[\udc80-\udcff]+', legacy, projected)
+
+def body_text(value, properties, is_html=False):
+    """HTML is binary MAPI data, unlike pypff's UTF-8 plain-text projection.
+
+    Honor the original BOM/meta/MAPI code page instead of destroying Windows-1252
+    accents with UTF-8 replacement characters. MIME is reconstructed as UTF-8.
+    """
+    if not isinstance(value, bytes):
+        result = str(value or "")
+    elif is_html and (mixed := mixed_utf8_html(value)) is not None:
+        result = mixed
+    else:
+        encodings = []
+        for bom, encoding in ((b"\xff\xfe\x00\x00", "utf-32"), (b"\x00\x00\xfe\xff", "utf-32"),
+                              (b"\xef\xbb\xbf", "utf-8-sig"), (b"\xff\xfe", "utf-16"), (b"\xfe\xff", "utf-16")):
+            if value.startswith(bom):
+                encodings.append(encoding)
+                break
+        if not is_html:
+            encodings.append("utf-8")
+        if is_html:
+            declared = re.search(br'<meta\b[^>]*\bcharset\s*=\s*["\']?([a-zA-Z0-9._-]+)', value[:16384], re.I)
+            if declared:
+                encodings.append(declared.group(1).decode("ascii"))
+        for key in (0x3FDE, 0x3FFD):
+            codepage = properties.get(key)
+            if isinstance(codepage, int) and codepage > 0:
+                encodings.append({1200: "utf-16-le", 1201: "utf-16-be", 65001: "utf-8",
+                                  20127: "ascii", 28591: "iso-8859-1", 28605: "iso-8859-15"}.get(codepage, "cp%d" % codepage))
+        encodings.extend(("utf-8", "cp1252", "latin-1"))
+        for encoding in dict.fromkeys(encodings):
+            try:
+                result = value.decode(encoding)
+                break
+            except (UnicodeError, LookupError):
+                continue
+    if is_html:
+        # The outgoing HTML bytes are UTF-8, so an old Outlook meta must agree.
+        result = re.sub(r'(<meta\b[^>]*\bcharset\s*=\s*["\']?)[a-zA-Z0-9._-]+', r'\1utf-8', result, flags=re.I)
+    return result
 
 def safe_get(item, field, default=None):
     try:
@@ -102,8 +165,8 @@ def convert(item):
     date = safe_get(item, "client_submit_time") or safe_get(item, "delivery_time")
     if date and not message.get("Date"):
         message["Date"] = format_datetime(date)
-    plain = text(safe_get(item, "plain_text_body"))
-    html = text(safe_get(item, "html_body"))
+    plain = body_text(safe_get(item, "plain_text_body"), properties)
+    html = body_text(safe_get(item, "html_body"), properties, is_html=True)
     if len(plain.encode()) + len(html.encode()) > MAX_BYTES:
         raise ValueError("message_too_large")
     message.set_content(plain)

@@ -1,7 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { WorkerResources } from '../src/resources.js';
 import { ensureSchedulers } from '../src/handlers/ensure-schedulers.js';
-const security = vi.hoisted(() => ({ sweepSecurityFiles: vi.fn() }));
+const security = vi.hoisted(() => ({
+  sweepSecurityFiles: vi.fn(),
+  refreshAntivirusHealth: vi.fn(),
+  antivirusOptions: vi.fn(),
+}));
 vi.mock('@apmail/db', async (original) => ({
   ...(await original<object>()),
   ...security,
@@ -19,6 +23,7 @@ it('recria o agendamento da verificação após perda das filas e solicita recup
     executeTakeFirst: async () => undefined,
   };
   const queue = {
+    resume: async () => undefined,
     upsertJobScheduler: async (id: string, schedule: unknown, job: unknown) => {
       scheduled.push(id);
       return { schedule, job };

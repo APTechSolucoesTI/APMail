@@ -1,0 +1,18 @@
+[Unit]
+Description=Recover the confirmed shared antivirus scanner when unhealthy
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /usr/local/libexec/apmail-antivirus-watchdog.py
+StateDirectory=apmail-antivirus-watchdog
+StateDirectoryMode=0700
+UMask=0077
+TimeoutStartSec=110
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/apmail-antivirus-watchdog

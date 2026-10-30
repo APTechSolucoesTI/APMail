@@ -103,7 +103,8 @@ export async function registerMailArchiveExports(app: FastifyInstance, r: Resour
       };
       for await (const message of messages()) {
         pageIds.push(message.id);
-        if (message.raw_storage_path) rawPaths.push(message.raw_storage_path);
+        if (message.raw_storage_path && !message.archive_reconstructed_key)
+          rawPaths.push(message.raw_storage_path);
         if (pageIds.length === 50) await checkPage();
       }
       await checkPage();

@@ -17,6 +17,7 @@ import { Redis } from 'ioredis';
 import {
   createDb,
   createQueues,
+  queueHealthCounts,
   asJson,
   quotaErrors,
   GoogleApiError,
@@ -248,8 +249,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
       requireTenantAdmin(req.ctx);
       const entries = await Promise.all(
         Object.entries(resources.queues).map(
-          async ([name, queue]) =>
-            [name, await queue.getJobCounts('waiting', 'active', 'delayed', 'failed')] as const,
+          async ([name, queue]) => [name, await queueHealthCounts(queue)] as const,
         ),
       );
       return healthQueuesSchema.parse({

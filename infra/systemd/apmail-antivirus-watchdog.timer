@@ -1,0 +1,11 @@
+[Unit]
+Description=Check the shared antivirus scanner every minute
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=60s
+AccuracySec=10s
+Unit=apmail-antivirus-watchdog.service
+
+[Install]
+WantedBy=timers.target

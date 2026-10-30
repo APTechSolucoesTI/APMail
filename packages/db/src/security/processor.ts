@@ -28,7 +28,7 @@ export const antivirusOptions = (env: {
 });
 export async function enqueueSecurityScan(
   queue: Queue,
-  row: Pick<FileSecurityRow, 'id' | 'generation' | 'status'>,
+  row: Pick<FileSecurityRow, 'id' | 'generation' | 'status' | 'kind'>,
 ) {
   if (!['pending', 'error'].includes(row.status)) return;
   await queue.add(
@@ -39,13 +39,20 @@ export async function enqueueSecurityScan(
       removeOnComplete: true,
       removeOnFail: true,
       attempts: 1,
+      // Give every scan a positive priority: BullMQ runs unprioritized jobs
+      // before prioritized jobs. Visible files should precede bulky containers.
+      priority: ['mail_raw', 'mail_import'].includes(row.kind)
+        ? 10
+        : row.kind === 'mail_export'
+          ? 5
+          : 1,
     },
   );
 }
 export async function sweepSecurityFiles(db: Kysely<DB>, queue: Queue, limit = 100) {
   const rows = await db
     .selectFrom('file_security')
-    .select(['id', 'generation', 'status'])
+    .select(['id', 'generation', 'status', 'kind'])
     .where('status', 'in', ['pending', 'error'])
     .where('next_attempt_at', '<=', sql<Date>`now()`)
     .where((eb) =>
@@ -259,6 +266,22 @@ export async function refreshAntivirusHealth(db: Kysely<DB>, options: ClamAvOpti
       .where('id', '=', 1)
       .returningAll()
       .executeTakeFirstOrThrow();
+    if (health.status === 'online' && current.status !== 'online')
+      // An engine outage is not a verdict about a file. Retry those failures
+      // promptly after recovery, while leaving policy errors and leases intact.
+      await tx
+        .updateTable('file_security')
+        .set({ next_attempt_at: sql<Date>`now()` })
+        .where('status', '=', 'error')
+        .where('error_code', 'in', ['connection_failed', 'connect_timeout', 'timeout'])
+        .where('next_attempt_at', '>', sql<Date>`now()`)
+        .where((eb) =>
+          eb.or([
+            eb('lease_expires_at', 'is', null),
+            eb('lease_expires_at', '<', sql<Date>`now()`),
+          ]),
+        )
+        .execute();
     if (alert) {
       const admins = await tx
         .selectFrom('tenant_members as m')

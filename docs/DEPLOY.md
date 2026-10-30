@@ -1,5 +1,9 @@
 # Publicação do APMail
 
+## Correção de 30/10/2026 — Outlook e disponibilidade do antivírus
+
+Publicar API e worker com o mesmo `@apmail/db`. Migration aditiva `0068_archive_content_recovery.sql`, já aplicada na produção desta instalação. Preserva originais e adiciona identidade alternativa para o conteúdo recuperado. Detalhes e operação em [Recuperação Outlook e antivírus](RECUPERACAO-OUTLOOK-ANTIVIRUS-2026-10-30.md). Não exige reenviar PSTs nem publicar mudanças de interface.
+
 ## Atualização vigente — regras e recorrência (0030–0031)
 
 Atualizar API, web e worker juntos. A migration `0030_rules_recurring_schedules.sql` preserva os dados existentes e cria séries de envio recorrente, vínculo das ocorrências e fixação compartilhada. Foi aplicada e validada no banco local de testes. API e worker passam a executar o migrador antes de iniciar em produção, além do serviço `migrate` já existente no Compose. O migrador usa lock no PostgreSQL e controle de checksum; instâncias concorrentes não reaplicam migrations. Assim, o próximo deploy aplica também migrations anteriores pendentes, mesmo que o container `migrate` antigo já esteja concluído. Não requer reset nem execução manual de SQL.

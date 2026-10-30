@@ -1,6 +1,17 @@
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import { QUEUE_NAMES, type QueueName } from '@apmail/shared';
+
+/** Prioritized jobs wait in a separate Redis set, but are still pending work. */
+export async function queueHealthCounts(queue: Queue) {
+  const counts = await queue.getJobCounts('waiting', 'prioritized', 'active', 'delayed', 'failed');
+  return {
+    waiting: (counts.waiting ?? 0) + (counts.prioritized ?? 0),
+    active: counts.active ?? 0,
+    delayed: counts.delayed ?? 0,
+    failed: counts.failed ?? 0,
+  };
+}
 export function createQueues(redisUrl: string): {
   queues: Record<QueueName, Queue>;
   connection: Redis;

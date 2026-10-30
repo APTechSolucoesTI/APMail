@@ -189,6 +189,43 @@ class MimeReconstructionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "attachment_too_large"):
                 reader.convert(item([attachment(b"x" * 21, "application/octet-stream")]))
 
+    def test_outlook_windows1252_html_keeps_accents_highlights_and_consistent_charset(self):
+        source = item([])
+        source.html_body = ('<html><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252"></head>'
+                            '<body><span style="background:yellow">mês, Soluções, Cartão, Salários</span></body></html>').encode('cp1252')
+        parsed = email.message_from_bytes(reader.convert(source), policy=reader.default)
+        html = parsed.get_body(preferencelist=('html',)).get_content()
+        self.assertIn('mês, Soluções, Cartão, Salários', html)
+        self.assertIn('background:yellow', html)
+        self.assertNotIn('\ufffd', html)
+        self.assertNotIn('charset=windows-1252', html)
+        self.assertEqual(parsed.get_body(preferencelist=('html',)).get_content_charset(), 'utf-8')
+
+    def test_mapi_codepage_and_bom_are_used_when_html_has_no_charset(self):
+        for raw, properties in [
+            ('<p>Ação — João</p>'.encode('cp1252'), {0x3FDE: 1252}),
+            ('<p>Ação — João</p>'.encode('utf-16'), {}),
+            ('<p>Ação — João</p>'.encode('utf-8-sig'), {}),
+        ]:
+            source = item([])
+            source.html_body = raw
+            source.number_of_record_sets = 1
+            source.get_record_set = lambda _: records(properties)
+            html = email.message_from_bytes(reader.convert(source), policy=reader.default).get_body(preferencelist=('html',)).get_content()
+            self.assertIn('<p>Ação — João</p>', html)
+            self.assertNotIn('\ufffd', html)
+
+    def test_utf8_html_with_legacy_bytes_in_an_outlook_quote_keeps_both_sections(self):
+        source = item([])
+        source.html_body = ('<meta charset="utf-8"><p>Ação atual — João</p>'.encode('utf-8')
+                            + '<blockquote>Soluções antigas</blockquote>'.encode('cp1252'))
+        source.number_of_record_sets = 1
+        source.get_record_set = lambda _: records({0x3FDE: 28591})
+        html = email.message_from_bytes(reader.convert(source), policy=reader.default).get_body(preferencelist=('html',)).get_content()
+        self.assertIn('Ação atual — João', html)
+        self.assertIn('Soluções antigas', html)
+        self.assertNotIn('\ufffd', html)
+
 
 if __name__ == "__main__":
     unittest.main()

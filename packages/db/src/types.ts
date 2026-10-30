@@ -792,6 +792,10 @@ export interface MdnReceipts {
 }
 
 export interface Messages {
+  /**
+   * SHA256 of corrected PST MIME. Original source_key/raw MIME are retained; exports reconstruct recovered bodies with existing verified attachments.
+   */
+  archive_reconstructed_key: string | null;
   auto_reply_to: string | null;
   bcc_addresses: Generated<Json>;
   body_html: string | null;
