@@ -1,5 +1,9 @@
 # Publicação do APMail
 
+## Correção de 30/10/2026 — destinatários dos enviados importados
+
+Reconstruir/publicar o worker. Sem migration ou biblioteca nova. O leitor usa a tabela nativa de destinatários quando o pypff do Debian não a expõe em Python. Os registros recentes estão sendo reparados em segundo plano, sem reimportação completa. Operação e validação em [Destinatários de PST/OST](IMPORTACAO-DESTINATARIOS-2026-10-30.md).
+
 ## Correção de 30/10/2026 — Outlook e disponibilidade do antivírus
 
 Publicar API e worker com o mesmo `@apmail/db`. Migration aditiva `0068_archive_content_recovery.sql`, já aplicada na produção desta instalação. Preserva originais e adiciona identidade alternativa para o conteúdo recuperado. Detalhes e operação em [Recuperação Outlook e antivírus](RECUPERACAO-OUTLOOK-ANTIVIRUS-2026-10-30.md). Não exige reenviar PSTs nem publicar mudanças de interface.

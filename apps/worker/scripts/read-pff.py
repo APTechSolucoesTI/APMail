@@ -8,11 +8,13 @@ import email
 from email.message import EmailMessage
 from email.headerregistry import HeaderRegistry, UnstructuredHeader
 from email.policy import SMTP, default
-from email.utils import format_datetime, formataddr
+from email.utils import format_datetime, formataddr, getaddresses
 import json
 import hashlib
 import re
 import sys
+import importlib.util
+from pathlib import Path
 import pypff
 
 MAX_BYTES = 50 * 1024 * 1024
@@ -124,7 +126,57 @@ def record_properties(item, fields=MESSAGE_PROPERTIES):
         values.update(record_values(item.get_record_set(index), fields))
     return values
 
-def convert(item):
+def recipient_rows(item, fallback=None):
+    table = safe_get(item, 'recipients')
+    if table is not None:
+        return [record_values(table.get_record_set(index), RECIPIENT_PROPERTIES)
+                for index in range(table.number_of_record_sets)]
+    if fallback is not None:
+        return fallback(item)
+    rows = []
+    for index in range(safe_get(item, 'number_of_sub_items', 0)):
+        child = item.get_sub_item(index)
+        for record_index in range(safe_get(child, 'number_of_record_sets', 0)):
+            row = record_values(child.get_record_set(record_index), RECIPIENT_PROPERTIES)
+            if 0x0C15 in row:
+                rows.append(row)
+    return rows
+
+
+class ArchiveRecipients:
+    """Lazy native fallback for distro pypff versions without .recipients."""
+    def __init__(self, filename):
+        self.filename, self.native = filename, None
+
+    def rows(self, item):
+        if self.native is None:
+            path = Path(__file__).with_name('pff-recipients.py')
+            spec = importlib.util.spec_from_file_location('pff_recipients', path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            self.native = module.RecipientTable(self.filename)
+        return self.native.rows(item)
+
+    def close(self):
+        if self.native is not None:
+            self.native.close()
+
+
+def message_recipients(item, fallback=None):
+    recipients = {1: [], 2: [], 3: []}
+    seen = {1: set(), 2: set(), 3: set()}
+    for row in recipient_rows(item, fallback):
+        address = text(row.get(0x39FE) or row.get(0x3003)).strip()
+        kind = row.get(0x0C15)
+        if '\r' in address or '\n' in address or '\x00' in address:
+            raise ValueError('Invalid Outlook recipient address')
+        if '@' in address and kind in recipients and address.casefold() not in seen[kind]:
+            seen[kind].add(address.casefold())
+            recipients[kind].append(formataddr((' '.join(text(row.get(0x3001)).splitlines()), address)))
+    return recipients
+
+
+def convert(item, recipient_reader=None):
     properties = record_properties(item)
     headers = email.message_from_string(text(safe_get(item, "transport_headers")), policy=default)
     message = EmailMessage(policy=SMTP)
@@ -149,18 +201,11 @@ def convert(item):
             message["From"] = formataddr((text(safe_get(item, "sender_name") or properties.get(0x0C1A)), sender))
     if not message.get("Message-ID") and properties.get(0x1035):
         message["Message-ID"] = properties[0x1035]
-    recipients = {1: [], 2: [], 3: []}
-    for index in range(safe_get(item, "number_of_sub_items", 0)):
-        child = item.get_sub_item(index)
-        for record_index in range(safe_get(child, "number_of_record_sets", 0)):
-            record = child.get_record_set(record_index)
-            row = record_values(record, RECIPIENT_PROPERTIES)
-            address = row.get(0x39FE) or row.get(0x3003) or ""
-            kind = row.get(0x0C15, 1)
-            if "@" in address and kind in recipients:
-                recipients[kind].append(formataddr((row.get(0x3001, ""), address)))
+    recipients = message_recipients(item, recipient_reader)
     for kind, header in ((1, "To"), (2, "Cc"), (3, "Bcc")):
-        if not message.get(header) and recipients[kind]:
+        if recipients[kind] and not any('@' in address for _, address in getaddresses(message.get_all(header, []))):
+            if header in message:
+                del message[header]
             message[header] = ", ".join(recipients[kind])
     date = safe_get(item, "client_submit_time") or safe_get(item, "delivery_time")
     if date and not message.get("Date"):
@@ -222,7 +267,7 @@ def convert(item):
         raise ValueError("message_too_large")
     return raw
 
-def walk(folder, path, depth=0):
+def walk(folder, path, depth=0, recipient_reader=None):
     if depth > 100:
         raise ValueError("folder_depth")
     name = text(safe_get(folder, "name")) or "Importados"
@@ -232,18 +277,20 @@ def walk(folder, path, depth=0):
         kind = str(record_properties(item, {0x001A}).get(0x001A, "IPM.Note")).lower()
         if not kind.startswith(("ipm.note", "report.ipm.note")):
             continue
-        raw = convert(item)
+        raw = convert(item, recipient_reader) if recipient_reader else convert(item)
         print(json.dumps({"folder": current, "mime": base64.b64encode(raw).decode("ascii")}), flush=True)
     for index in range(folder.number_of_sub_folders):
-        walk(folder.get_sub_folder(index), path + [name], depth + 1)
+        walk(folder.get_sub_folder(index), path + [name], depth + 1, recipient_reader)
 
 if __name__ == "__main__":
     archive = pypff.file()
+    recipients = ArchiveRecipients(sys.argv[1])
     try:
         archive.open(sys.argv[1])
         root = archive.get_root_folder()
         if root is None:
             raise ValueError("missing_root")
-        walk(root, [])
+        walk(root, [], recipient_reader=recipients.rows)
     finally:
         archive.close()
+        recipients.close()

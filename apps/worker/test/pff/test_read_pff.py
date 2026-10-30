@@ -181,6 +181,35 @@ class MimeReconstructionTests(unittest.TestCase):
         self.assertEqual([a.addr_spec for a in result["To"].addresses], ["first@example.com", "second@example.com"])
         self.assertEqual([a.addr_spec for a in result["Cc"].addresses], ["copy@example.com"])
 
+    def test_sent_recipients_use_native_table_when_python_binding_has_no_sub_items(self):
+        source = item([attachment(b'unchanged', 'application/pdf', 'doc.pdf')])
+        source.transport_headers = 'From: sender@example.com\r\n'
+        rows = [{0x3001:'João',0x3003:'to@example.com',0x0C15:1},
+                {0x3001:'Cópia',0x39FE:'cc@example.com',0x0C15:2},
+                {0x3001:'Oculto',0x39FE:'bcc@example.com',0x0C15:3}]
+        parsed = email.message_from_bytes(reader.convert(source, lambda _: rows), policy=reader.default)
+        self.assertEqual(parsed['To'].addresses[0].addr_spec, 'to@example.com')
+        self.assertEqual(parsed['Cc'].addresses[0].addr_spec, 'cc@example.com')
+        self.assertEqual(parsed['Bcc'].addresses[0].addr_spec, 'bcc@example.com')
+        self.assertEqual(list(parsed.iter_attachments())[0].get_payload(decode=True), b'unchanged')
+
+    def test_recipient_table_preserves_existing_header_and_ignores_non_recipient_subitems(self):
+        source = item([])
+        source.number_of_sub_items = 1
+        source.get_sub_item = lambda _: SimpleNamespace(number_of_record_sets=1,get_record_set=lambda _:records({0x3001:'Not a recipient',0x3003:'wrong@example.com'}))
+        rows = [{0x3001:'CC',0x3003:'copy@example.com',0x0C15:2}]
+        parsed = email.message_from_bytes(reader.convert(source,lambda _:rows),policy=reader.default)
+        self.assertEqual(parsed['To'].addresses[0].addr_spec,'recipient@example.com')
+        self.assertEqual(parsed['Cc'].addresses[0].addr_spec,'copy@example.com')
+        self.assertNotIn('wrong@example.com',str(parsed))
+
+    def test_current_binding_recipient_property_and_empty_group_header_are_supported(self):
+        source = item([])
+        source.transport_headers = 'From: sender@example.com\r\nTo: undisclosed-recipients:;\r\n'
+        source.recipients = SimpleNamespace(number_of_record_sets=2,get_record_set=lambda _:records({0x3001:'Destino',0x3003:'to@example.com',0x0C15:1}))
+        parsed = email.message_from_bytes(reader.convert(source),policy=reader.default)
+        self.assertEqual([a.addr_spec for a in parsed['To'].addresses],['to@example.com'])
+
     def test_message_and_attachment_limits_are_still_enforced(self):
         with patch.object(reader, "MAX_BYTES", 10):
             with self.assertRaisesRegex(ValueError, "message_too_large"):

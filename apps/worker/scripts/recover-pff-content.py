@@ -18,7 +18,7 @@ def load(name, path):
     return module
 
 
-def recover(folder, reader, original, depth=0):
+def recover(folder, reader, original, depth=0, recipient_reader=None):
     if depth > 100:
         raise ValueError("folder_depth")
     for index in range(folder.number_of_sub_messages):
@@ -28,22 +28,24 @@ def recover(folder, reader, original, depth=0):
             continue
         if len(sys.argv) > 4 and sys.argv[4] == '--mixed-only' and reader.mixed_utf8_html(reader.safe_get(item, 'html_body')) is None:
             continue
-        raw = reader.convert(item)
+        raw = reader.convert(item,recipient_reader)
         legacy_key = hashlib.sha256(original.convert(item)).hexdigest()
         print(json.dumps({"mime": base64.b64encode(raw).decode("ascii"), "legacy_key": legacy_key}), flush=True)
     for index in range(folder.number_of_sub_folders):
-        recover(folder.get_sub_folder(index), reader, original, depth + 1)
+        recover(folder.get_sub_folder(index), reader, original, depth + 1, recipient_reader)
 
 
 if __name__ == "__main__":
     reader = load("corrected_pff_reader", sys.argv[2])
     original = load("original_pff_reader", sys.argv[3])
     archive = reader.pypff.file()
+    recipients = reader.ArchiveRecipients(sys.argv[1])
     try:
         archive.open(sys.argv[1])
         root = archive.get_root_folder()
         if root is None:
             raise ValueError("missing_root")
-        recover(root, reader, original)
+        recover(root, reader, original, recipient_reader=recipients.rows)
     finally:
         archive.close()
+        recipients.close()
