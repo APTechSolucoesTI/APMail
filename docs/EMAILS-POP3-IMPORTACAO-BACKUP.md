@@ -34,6 +34,8 @@ No cadastro e em **Configurações → Caixas de e-mail → caixa → Importaç�
 
 Somente e-mails, sem contatos/calendários/tarefas. Arquivos corrompidos, criptografados ou variantes PST/OST não suportadas podem falhar com diagnóstico na listagem. Extensão e assinatura são conferidas. ZIP recusa caminhos inválidos, links, senha, mais de 100.000 entradas ou expansão acima de 20 GiB.
 
+O leitor preserva como texto identificadores `Message-ID` malformados que causam `IndexError` no parser do Python 3.11, evitando interromper a análise inteira por esse cabeçalho. A correção exige reconstruir/publicar a imagem do worker; depois, basta **Retomar**, sem reenviar o PST.
+
 Anexos do tipo `message/*`, incluindo relatórios de entrega (`message/delivery-status`) e e-mails anexados (`message/rfc822`), são reconstruídos como MIME estruturado. Isso corrige a interrupção da análise de PSTs válidos ao serializar um relatório de entrega como bytes comuns. Os blocos do relatório, a mensagem anexada, nomes de arquivos e CID são preservados; limites, cotas e checkpoints continuam aplicáveis. O nome do anexo também usa as propriedades MAPI quando o pypff do Debian não oferece `long_filename`.
 
 Registros `ATTACH_NONE` do Outlook são marcadores sem conteúdo, não arquivos: o leitor não tenta abrir um stream inexistente. Apenas as propriedades MAPI necessárias são decodificadas. Texto de metadados com UTF-16 inválido é recuperado com caracteres de substituição, preservando a parte legível e permitindo importar o corpo e os anexos disponíveis.

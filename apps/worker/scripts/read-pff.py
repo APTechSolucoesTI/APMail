@@ -6,6 +6,7 @@ No archive data is logged and no files or external URLs are opened from message 
 import base64
 import email
 from email.message import EmailMessage
+from email.headerregistry import HeaderRegistry, UnstructuredHeader
 from email.policy import SMTP, default
 from email.utils import format_datetime, formataddr
 import json
@@ -65,8 +66,18 @@ def convert(item):
     headers = email.message_from_string(text(safe_get(item, "transport_headers")), policy=default)
     message = EmailMessage(policy=SMTP)
     for key in ("From", "To", "Cc", "Bcc", "Reply-To", "Subject", "Date", "Message-ID", "In-Reply-To", "References"):
-        if headers.get(key):
-            message[key] = " ".join(str(headers.get(key)).splitlines())
+        try:
+            if headers.get(key):
+                message[key] = " ".join(str(headers.get(key)).splitlines())
+        except IndexError:
+            if key != "Message-ID":
+                raise
+            # Python 3.11's structured parser crashes on IDs like <[opaque=@host]>.
+            # Preserve the unfolded ID as text, without discarding the email.
+            value = next(value for name, value in headers.raw_items() if name.lower() == "message-id")
+            registry = HeaderRegistry()
+            registry.map_to_type(key, UnstructuredHeader)
+            message[key] = registry(key, " ".join(value.splitlines()))
     if not message.get("Subject"):
         message["Subject"] = " ".join(text(safe_get(item, "subject") or properties.get(0x0037)).splitlines())
     if not message.get("From"):

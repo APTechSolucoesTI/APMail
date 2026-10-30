@@ -102,6 +102,15 @@ class MimeReconstructionTests(unittest.TestCase):
                        attachment(FORWARDED, "message/rfc822")])
         self.assertEqual(reader.convert(source), reader.convert(source))
 
+    def test_malformed_message_id_preserves_mail_and_does_not_abort_following_messages(self):
+        source = item([])
+        source.transport_headers += "Message-ID: <[opaque=@example.com]>\r\n"
+        raw = reader.convert(source)
+        self.assertIn(b"Message-ID: <[opaque=@example.com]>", raw)
+        self.assertIn(b"Message body", raw)
+        self.assertEqual(raw, reader.convert(source))
+        self.assertIn(b"Message body", reader.convert(item([])))
+
     def test_outlook_attach_none_placeholder_is_not_read_or_exported_as_empty_file(self):
         record = records({0x3705: 0})
         placeholder = SimpleNamespace(number_of_record_sets=1, get_record_set=lambda _: record)
