@@ -16,6 +16,9 @@ import { meQuery } from '@/lib/auth';
 import { FolderControls } from './folder-controls';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { FolderRow } from './folder-row';
+import { useMailNavigation } from '@/hooks/use-mail-navigation';
+import { orderedSiblingItems } from '@/lib/mail-drag';
 const icons = {
   inbox: Inbox,
   sent: Send,
@@ -31,6 +34,7 @@ type Props = {
   onNavigate?: () => void;
   organize?: boolean;
   draftsFallback?: ReactNode;
+  favoritesOnly?: boolean;
 };
 function activeAncestors(folders: Folder[], activeId?: string, parents: string[] = []): string[] {
   for (const folder of folders) {
@@ -65,7 +69,9 @@ function FolderBranches({
   organize = false,
   draftsFallback,
   storageKey,
+  favoritesOnly = false,
 }: Props & { storageKey: string }) {
+  const navigation = useMailNavigation();
   const [expanded, setExpanded] = useState(() => readExpanded(storageKey));
   const [collapsedForSelection, setCollapsedForSelection] = useState<
     Record<string, string | undefined>
@@ -81,90 +87,114 @@ function FolderBranches({
       /* Keep navigation usable when storage is unavailable. */
     }
   };
-  const draftsIndex = folders.findIndex((f) => !['inbox', 'sent'].includes(f.special_use ?? ''));
-  const branch = (nodes: Folder[], depth = 0, parents: string[] = []) => (
-    <ul className="min-w-0" aria-label={depth === 0 ? 'Pastas da caixa' : undefined}>
-      {nodes.map((folder, index) => {
-        const label = folderLabel(folder),
-          path = [...parents, label].join(' / ');
-        const Icon = icons[folder.special_use as keyof typeof icons] ?? FolderIcon;
-        const hasChildren = folder.children.length > 0;
-        const isOpen =
-          ancestors.has(folder.id) && collapsedForSelection[folder.id] !== activeId
-            ? true
-            : (expanded[folder.id] ?? false);
-        const row = (
-          <div
-            className={cn(
-              'flex min-w-0 items-center rounded-md pr-1 hover:bg-muted',
-              ['pl-1', 'pl-4', 'pl-7', 'pl-10'][Math.min(depth, 3)],
-              activeId === folder.id && 'bg-secondary text-secondary-foreground',
-            )}
-          >
-            {hasChildren ? (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="size-11 shrink-0 rounded-sm lg:size-8"
-                aria-label={(isOpen ? 'Recolher ' : 'Expandir ') + label}
-                aria-expanded={isOpen}
-                onClick={() => toggle(folder.id, isOpen)}
-              >
-                <ChevronRight className={cn('size-3.5', isOpen && 'rotate-90')} aria-hidden />
-              </Button>
-            ) : (
-              <span className="w-11 shrink-0 lg:w-8" aria-hidden />
-            )}
-            <Link
-              to="/mail/$mailboxId"
-              params={{ mailboxId }}
-              search={{ folderId: folder.id }}
-              onClick={onNavigate}
-              aria-current={activeId === folder.id ? 'page' : undefined}
-              aria-label={label}
-              title={path}
-              className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-sm pr-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:min-h-8"
-              onKeyDown={(event) => {
-                if (
-                  hasChildren &&
-                  ((event.key === 'ArrowRight' && !isOpen) || (event.key === 'ArrowLeft' && isOpen))
-                ) {
-                  event.preventDefault();
-                  toggle(folder.id, isOpen);
-                }
-              }}
+  const branch = (nodes: Folder[], depth = 0, parents: string[] = []) => {
+    const visible = favoritesOnly
+      ? nodes
+      : orderedSiblingItems(nodes, mailboxId, navigation.config.folder_orders);
+    const draftsIndex =
+      Math.max(
+        visible.findIndex((f) => f.special_use === 'inbox'),
+        visible.findIndex((f) => f.special_use === 'sent'),
+      ) + 1;
+    return (
+      <ul className="min-w-0" aria-label={depth === 0 ? 'Pastas da caixa' : undefined}>
+        {visible.map((folder, index, siblings) => {
+          const label = folderLabel(folder),
+            path = [...parents, label].join(' / ');
+          const Icon = icons[folder.special_use as keyof typeof icons] ?? FolderIcon;
+          const hasChildren = !favoritesOnly && folder.children.length > 0;
+          const isOpen =
+            ancestors.has(folder.id) && collapsedForSelection[folder.id] !== activeId
+              ? true
+              : (expanded[folder.id] ?? false);
+          const row = (
+            <FolderRow
+              folder={folder}
+              mailboxId={mailboxId}
+              siblings={siblings.filter((sibling) => sibling.parent_id === folder.parent_id)}
+              organize={organize}
+              reorder={!favoritesOnly}
             >
-              <Icon className="size-4 shrink-0" aria-hidden />
-              <span className="min-w-0 flex-1 truncate">{label}</span>
-              {folder.unread_count > 0 && (
-                <span
-                  className="shrink-0 text-xs font-semibold tabular-nums"
-                  aria-label={folder.unread_count + ' não lidas'}
+              <div
+                className={cn(
+                  'flex min-w-0 items-center rounded-md pr-1 hover:bg-muted',
+                  ['pl-1', 'pl-4', 'pl-7', 'pl-10'][Math.min(depth, 3)],
+                  activeId === folder.id && 'bg-secondary text-secondary-foreground',
+                )}
+              >
+                {hasChildren ? (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="size-11 shrink-0 rounded-sm lg:size-7"
+                    aria-label={(isOpen ? 'Recolher ' : 'Expandir ') + label}
+                    aria-expanded={isOpen}
+                    onClick={() => toggle(folder.id, isOpen)}
+                  >
+                    <ChevronRight className={cn('size-3.5', isOpen && 'rotate-90')} aria-hidden />
+                  </Button>
+                ) : (
+                  <span className="w-11 shrink-0 lg:w-7" aria-hidden />
+                )}
+                <Link
+                  draggable={false}
+                  to="/mail/$mailboxId"
+                  params={{ mailboxId }}
+                  search={{ folderId: folder.id }}
+                  onClick={onNavigate}
+                  aria-current={activeId === folder.id ? 'page' : undefined}
+                  aria-label={label}
+                  title={path}
+                  className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-sm pr-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:min-h-8 lg:text-xs"
+                  onKeyDown={(event) => {
+                    if (
+                      hasChildren &&
+                      ((event.key === 'ArrowRight' && !isOpen) ||
+                        (event.key === 'ArrowLeft' && isOpen))
+                    ) {
+                      event.preventDefault();
+                      toggle(folder.id, isOpen);
+                    }
+                  }}
                 >
-                  {folder.unread_count}
-                </span>
-              )}
-            </Link>
-          </div>
-        );
-        return (
-          <Fragment key={folder.id}>
-            {depth === 0 && index === draftsIndex && draftsFallback && <li>{draftsFallback}</li>}
-            <li>
-              {organize ? (
-                <FolderControls mailboxId={mailboxId} folder={folder} compact>
-                  {row}
-                </FolderControls>
-              ) : (
-                row
-              )}
-              {hasChildren && isOpen && branch(folder.children, depth + 1, [...parents, label])}
-            </li>
-          </Fragment>
-        );
-      })}
-      {depth === 0 && draftsIndex < 0 && draftsFallback && <li>{draftsFallback}</li>}
-    </ul>
-  );
+                  <Icon className="size-4 shrink-0" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">{label}</span>
+                  {folder.unread_count > 0 && (
+                    <span
+                      className="shrink-0 text-xs font-semibold tabular-nums"
+                      aria-label={folder.unread_count + ' não lidas'}
+                    >
+                      {folder.unread_count}
+                    </span>
+                  )}
+                </Link>
+              </div>
+            </FolderRow>
+          );
+          return (
+            <Fragment key={folder.id}>
+              {depth === 0 && index === draftsIndex && draftsFallback && <li>{draftsFallback}</li>}
+              <li>
+                {organize ? (
+                  <FolderControls mailboxId={mailboxId} folder={folder} compact>
+                    {row}
+                  </FolderControls>
+                ) : (
+                  row
+                )}
+                {!favoritesOnly &&
+                  hasChildren &&
+                  isOpen &&
+                  branch(folder.children, depth + 1, [...parents, label])}
+              </li>
+            </Fragment>
+          );
+        })}
+        {depth === 0 && draftsIndex === visible.length && draftsFallback && (
+          <li>{draftsFallback}</li>
+        )}
+      </ul>
+    );
+  };
   return branch(folders);
 }

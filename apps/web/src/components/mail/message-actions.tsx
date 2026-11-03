@@ -136,6 +136,7 @@ export function MessageActions({
           {mayMove && (
             <MailActionButton
               label="Mover"
+              text="Mover para pasta"
               ref={moveTrigger}
               disabled={mutation.isPending}
               onClick={() => setMove(true)}

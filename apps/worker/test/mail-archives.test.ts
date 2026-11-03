@@ -35,6 +35,7 @@ it('reads EMLX declared MIME and ZIP folders, ignoring non-mail files', async ()
     for await (const item of readMailArchive(emlx, 'emlx')) items.push(item);
     expect(items[0]?.raw.equals(mime)).toBe(true);
     const zip = new ZipFile();
+    zip.addEmptyDirectory('Empty');
     zip.addBuffer(mime, 'Inbox/message.eml');
     zip.addBuffer(Buffer.from('ignored'), 'notes.txt');
     zip.end();
@@ -43,8 +44,11 @@ it('reads EMLX declared MIME and ZIP folders, ignoring non-mail files', async ()
     const name = join(dir, 'mail.zip');
     await writeFile(name, Buffer.concat(chunks));
     const messages = [];
-    for await (const item of readMailArchive(name, 'zip')) messages.push(item);
+    const folders: string[] = [];
+    for await (const item of readMailArchive(name, 'zip', 'mail.zip', (path) => folders.push(path)))
+      messages.push(item);
     expect(messages).toEqual([{ folder: 'Inbox', raw: mime }]);
+    expect(folders).toEqual(['Empty', 'Inbox']);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

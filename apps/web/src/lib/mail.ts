@@ -18,6 +18,9 @@ export type Folder = {
   parent_id: string | null;
   special_use: string | null;
   imap_path?: string;
+  is_local?: boolean;
+  delimiter?: string;
+  sort_order?: number;
   special_use_official?: boolean;
   unread_count: number;
   children: Folder[];

@@ -14,6 +14,9 @@ import { flattenFolders, type Folder } from '@/lib/mail';
 import { useSocketRoom } from '@/hooks/use-socket-room';
 import { NavigationGroup } from '@/components/layout/navigation-group';
 import { cn } from '@/lib/utils';
+import { useMailNavigation } from '@/hooks/use-mail-navigation';
+import { Star } from 'lucide-react';
+import { useMailboxReorder } from './mailbox-reorder';
 export function MailboxFolderNavigation({
   box,
   onNavigate,
@@ -39,6 +42,7 @@ function MailboxNavigation({
 }) {
   const location = useLocation(),
     active = location.pathname === '/mail/' + box.id;
+  const reorderHeader = useMailboxReorder();
   const controlsId = useId();
   const [expanded, setExpanded] = useState(() => {
     try {
@@ -63,13 +67,19 @@ function MailboxNavigation({
   });
   useSocketRoom('mailbox', expanded ? box.id : undefined);
   const queuesEnabled = useMailQueues();
+  const navigation = useMailNavigation();
+  const favorites = flattenFolders(folders.data ?? []).filter((folder) =>
+    navigation.config.favorite_folder_ids.includes(folder.id),
+  );
   const search = location.search as { folderId?: string; view?: string };
   return (
     <div className="min-w-0">
       <div
+        {...reorderHeader}
         className={cn(
           'flex min-w-0 items-center rounded-md bg-mailbox-header text-mailbox-header-foreground',
           active && 'ring-1 ring-inset ring-mailbox-header-foreground/40',
+          reorderHeader?.className,
         )}
       >
         <Button
@@ -91,6 +101,8 @@ function MailboxNavigation({
           />
         </Button>
         <Link
+          draggable={false}
+          aria-description={reorderHeader?.['aria-description']}
           to="/mail/$mailboxId"
           params={{ mailboxId: box.id }}
           onClick={() => {
@@ -124,6 +136,26 @@ function MailboxNavigation({
           aria-label={'Navegação de ' + box.name}
           className="ml-2 mt-1 min-w-0 space-y-1 border-l pl-2"
         >
+          <NavigationGroup
+            id={'favorites-' + box.id}
+            label="Favoritos"
+            icon={<Star className="size-4" />}
+          >
+            {favorites.length ? (
+              <FolderTree
+                folders={favorites}
+                mailboxId={box.id}
+                activeId={active ? search.folderId : undefined}
+                onNavigate={onNavigate}
+                organize={can(box.role, 'organize')}
+                favoritesOnly
+              />
+            ) : (
+              <p className="px-2 py-1 text-xs text-muted-foreground">
+                Marque a estrela de uma pasta para criar um atalho aqui.
+              </p>
+            )}
+          </NavigationGroup>
           {queuesEnabled && (
             <NavigationGroup id={'queues-' + box.id} label="Filas">
               <QueueNavigation mailboxId={box.id} onNavigate={onNavigate} />

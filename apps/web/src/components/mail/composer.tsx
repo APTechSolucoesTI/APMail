@@ -43,6 +43,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useMediaQuery } from '@/hooks/use-media-query';
+import { useComposerPosition } from '@/hooks/use-composer-position';
 import { useComposingPresence } from '@/hooks/use-thread-presence';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -120,6 +121,8 @@ export function Composer({
   const tenant = useTenantId(),
     client = useQueryClient(),
     me = useQuery(meQuery);
+  const floating = desktop && !maximized;
+  const position = useComposerPosition(tenant + ':' + (me.data?.user.id ?? 'pending'), floating);
   const company = useQuery({
     queryKey: ['tenant', tenant],
     queryFn: () => api<{ settings: { max_attachment_mb?: number } }>('/tenant'),
@@ -562,11 +565,13 @@ export function Composer({
         }}
       >
         <DialogContent
+          style={floating ? { left: position.style.left, top: position.style.top } : undefined}
           className={cn(
             'flex flex-col gap-0 overflow-hidden bg-card p-0',
             desktop && !maximized
-              ? 'fixed bottom-4 right-4 left-auto top-auto h-[760px] max-h-[calc(100dvh-2rem)] w-[960px] max-w-[calc(100vw-2rem)] translate-x-0 translate-y-0 sm:max-w-[960px]'
+              ? 'fixed h-[760px] max-h-[calc(100dvh-2rem)] w-[960px] max-w-[calc(100vw-2rem)] translate-x-0 translate-y-0 sm:max-w-[960px]'
               : 'fixed left-0 top-0 h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 rounded-none sm:max-w-none',
+            position.dragging && 'ring-2 ring-primary/50 shadow-xl',
           )}
           onInteractOutside={(e) => {
             if (desktop && !maximized) e.preventDefault();
@@ -586,7 +591,17 @@ export function Composer({
             }
           }}
         >
-          <DialogHeader className="relative shrink-0 border-b bg-muted/40 px-4 py-3 text-left">
+          <DialogHeader
+            className={cn(
+              'relative shrink-0 border-b bg-muted/40 px-4 py-3 text-left',
+              floating && 'touch-none select-none cursor-grab',
+              position.dragging && 'cursor-grabbing bg-accent/50',
+            )}
+            onPointerDown={position.onPointerDown}
+            onPointerMove={position.onPointerMove}
+            onPointerUp={position.onPointerUp}
+            onPointerCancel={position.onPointerCancel}
+          >
             {desktop && (
               <div className="absolute right-10 top-1 flex justify-end gap-1">
                 <Button
@@ -610,7 +625,17 @@ export function Composer({
                 </Button>
               </div>
             )}
-            <DialogTitle className="truncate pr-28 text-sm leading-6">
+            <DialogTitle
+              className="truncate pr-28 text-sm leading-6 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              tabIndex={floating ? 0 : undefined}
+              aria-describedby={floating ? 'composer-position-help' : undefined}
+              title={
+                floating
+                  ? 'Arraste o cabeçalho ou use as setas para mover; Home restaura a posição'
+                  : undefined
+              }
+              onKeyDown={position.onKeyDown}
+            >
               {draftId
                 ? 'Editar rascunho'
                 : mode === 'new'
@@ -619,6 +644,12 @@ export function Composer({
                     ? 'Encaminhar e-mail'
                     : 'Responder e-mail'}
             </DialogTitle>
+            <span id="composer-position-help" className="sr-only">
+              Use as setas para mover. Shift move mais rápido. Home restaura a posição inicial.
+            </span>
+            <span role="status" className="sr-only">
+              {position.announcement}
+            </span>
             <DialogDescription className="sr-only">
               O rascunho é salvo automaticamente enquanto você escreve.
             </DialogDescription>

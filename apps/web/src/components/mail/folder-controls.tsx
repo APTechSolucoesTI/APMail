@@ -1,7 +1,7 @@
 import { useState, useEffect, useContext, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
-import { Ellipsis, Plus, Pencil, Trash2, Lock } from 'lucide-react';
+import { Ellipsis, Plus, Pencil, Trash2, Lock, FolderInput } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useTenantId } from '@/lib/auth';
@@ -33,7 +33,12 @@ const nameSchema = z.object({
     .max(100)
     .refine((v) => !/[\r\n\0/\\]/.test(v), 'Use um nome sem barras ou quebras de linha.'),
 });
-type Pending = { id: string; kind: 'create' | 'rename' | 'delete'; name: string };
+type Pending = {
+  id: string;
+  kind: 'create' | 'rename' | 'move' | 'delete';
+  name: string;
+  parentId: string | null;
+};
 export function FolderControls({
   mailboxId,
   folder,
@@ -48,20 +53,36 @@ export function FolderControls({
   const client = useQueryClient(),
     socket = useContext(SocketContext);
   const [menu, setMenu] = useState(false),
-    [edit, setEdit] = useState<'create' | 'rename' | null>(null),
+    [edit, setEdit] = useState<'create' | 'rename' | 'move' | null>(null),
     [remove, setRemove] = useState(false),
     [pending, setPending] = useState<Pending | null>(null),
     [error, setError] = useState('');
-  const enqueue = async (kind: Pending['kind'], name = '') => {
+  const enqueue = async (
+    kind: Pending['kind'],
+    name = '',
+    parentId = folder?.parent_id ?? null,
+  ) => {
     const url =
       kind === 'create' ? '/mailboxes/' + mailboxId + '/folders' : '/folders/' + folder!.id;
     const result = await api<{ action_id: string }>(url, {
-      method: kind === 'create' ? 'POST' : kind === 'rename' ? 'PATCH' : 'DELETE',
+      method: kind === 'create' ? 'POST' : kind === 'delete' ? 'DELETE' : 'PATCH',
       ...(kind === 'delete'
         ? {}
-        : { body: kind === 'create' ? { name, parent_id: folder?.id ?? null } : { name } }),
+        : {
+            body:
+              kind === 'create'
+                ? { name, parent_id: folder?.id ?? null }
+                : kind === 'move'
+                  ? { name, parent_id: parentId }
+                  : { name },
+          }),
     });
-    setPending({ id: result.action_id, kind, name });
+    setPending({
+      id: result.action_id,
+      kind,
+      name,
+      parentId: kind === 'create' ? (folder?.id ?? null) : parentId,
+    });
     setEdit(null);
     setRemove(false);
     setError('');
@@ -78,12 +99,32 @@ export function FolderControls({
     };
     const check = async () => {
       try {
+        const action = await api<{ status: string; error?: string | null }>(
+          '/folder-actions/' + pending.id,
+        );
+        if (closed) return;
+        if (action.status === 'failed') {
+          closed = true;
+          setError(action.error ?? 'Não foi possível alterar a pasta. Tente novamente.');
+          setPending(null);
+          return;
+        }
+        if (action.status === 'done') {
+          completed();
+          return;
+        }
         const rows = flattenFolders(await api<Folder[]>('/mailboxes/' + mailboxId + '/folders'));
+        if (closed) return;
         const done =
           pending.kind === 'create'
-            ? rows.some((f) => f.name === pending.name && f.parent_id === (folder?.id ?? null))
-            : pending.kind === 'rename'
-              ? rows.some((f) => f.id === folder?.id && f.name === pending.name)
+            ? rows.some((f) => f.name === pending.name && f.parent_id === pending.parentId)
+            : pending.kind === 'rename' || pending.kind === 'move'
+              ? rows.some(
+                  (f) =>
+                    f.id === folder?.id &&
+                    f.name === pending.name &&
+                    f.parent_id === pending.parentId,
+                )
               : !rows.some((f) => f.id === folder?.id);
         if (done) completed();
       } catch {
@@ -95,7 +136,7 @@ export function FolderControls({
         if (event.status === 'failed') {
           setError(event.error ?? 'Não foi possível alterar a pasta.');
           setPending(null);
-        } else completed();
+        } else if (event.status === 'done') completed();
       }
     };
     socket?.on('folders:changed', changed);
@@ -113,10 +154,11 @@ export function FolderControls({
         className="group/folder-actions flex min-w-0 items-center gap-1"
         onContextMenu={(e) => {
           e.preventDefault();
+          if (pending) return;
           setMenu(true);
         }}
         onKeyDown={(e) => {
-          if (e.shiftKey && e.key === 'F10') {
+          if (!pending && e.shiftKey && e.key === 'F10') {
             e.preventDefault();
             setMenu(true);
           }
@@ -164,6 +206,10 @@ export function FolderControls({
                       <Pencil />
                       Renomear
                     </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setEdit('move')}>
+                      <FolderInput />
+                      Mover para…
+                    </DropdownMenuItem>
                     <DropdownMenuItem variant="destructive" onSelect={() => setRemove(true)}>
                       <Trash2 />
                       Excluir pasta
@@ -194,7 +240,13 @@ export function FolderControls({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {edit === 'rename' ? 'Renomear pasta' : folder ? 'Criar subpasta' : 'Criar pasta'}
+              {edit === 'move'
+                ? 'Mover pasta'
+                : edit === 'rename'
+                  ? 'Renomear pasta'
+                  : folder
+                    ? 'Criar subpasta'
+                    : 'Criar pasta'}
             </DialogTitle>
             <DialogDescription>
               {folder
@@ -202,14 +254,23 @@ export function FolderControls({
                 : 'A nova pasta será criada na raiz da caixa.'}
             </DialogDescription>
           </DialogHeader>
-          {edit && (
-            <SchemaForm
-              schema={nameSchema}
-              defaults={{ name: edit === 'rename' ? folder?.name : '' }}
-              fields={[{ name: 'name', label: 'Nome da pasta' }]}
-              cancelLabel="Cancelar"
-              onSubmit={async (b) => enqueue(edit, String(b.name))}
+          {edit === 'move' && folder ? (
+            <FolderMoveForm
+              mailboxId={mailboxId}
+              folder={folder}
+              onMove={(parentId) => enqueue('move', folder.name, parentId)}
+              onCancel={() => setEdit(null)}
             />
+          ) : (
+            edit && (
+              <SchemaForm
+                schema={nameSchema}
+                defaults={{ name: edit === 'rename' ? folder?.name : '' }}
+                fields={[{ name: 'name', label: 'Nome da pasta' }]}
+                cancelLabel="Cancelar"
+                onSubmit={async (b) => enqueue(edit, String(b.name))}
+              />
+            )
           )}
         </DialogContent>
       </Dialog>
@@ -224,6 +285,111 @@ export function FolderControls({
         onConfirm={() => enqueue('delete')}
       />
     </div>
+  );
+}
+function FolderMoveForm({
+  mailboxId,
+  folder,
+  onMove,
+  onCancel,
+}: {
+  mailboxId: string;
+  folder: Folder;
+  onMove: (parentId: string | null) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const tenant = useTenantId();
+  const q = useQuery({
+    queryKey: ['folders', tenant, mailboxId],
+    queryFn: () => api<Folder[]>('/mailboxes/' + mailboxId + '/folders'),
+    staleTime: 0,
+  });
+  const [target, setTarget] = useState(folder.parent_id ?? ''),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState('');
+  const rows = flattenFolders(q.data ?? []);
+  const blocked = new Set([folder.id]);
+  let added = true;
+  while (added) {
+    added = false;
+    for (const f of rows)
+      if (f.parent_id && blocked.has(f.parent_id) && !blocked.has(f.id)) {
+        blocked.add(f.id);
+        added = true;
+      }
+  }
+  const source = rows.find((f) => f.id === folder.id);
+  const pathLabel = (f: Folder) => f.imap_path ?? folderLabel(f);
+  return q.isLoading ? (
+    <LoadingState />
+  ) : q.error ? (
+    <ErrorState onRetry={() => void q.refetch()} />
+  ) : (
+    <form
+      className="space-y-4"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (busy || target === (folder.parent_id ?? '')) return;
+        setError('');
+        setBusy(true);
+        try {
+          await onMove(target || null);
+        } catch (error) {
+          setError(
+            error instanceof Error
+              ? error.message
+              : 'Não foi possível mover a pasta. Tente novamente.',
+          );
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <p className="text-sm text-muted-foreground">
+        A pasta e suas subpastas serão movidas juntas. Os e-mails serão preservados.
+      </p>
+      <div className="space-y-2">
+        <label htmlFor="folder-move-target" className="text-sm font-medium">
+          Pasta de destino
+        </label>
+        <select
+          id="folder-move-target"
+          value={target}
+          onChange={(event) => setTarget(event.target.value)}
+          disabled={busy}
+          className="h-11 w-full min-w-0 rounded-md border border-input bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        >
+          <option value="">Raiz da caixa</option>
+          {rows
+            .filter(
+              (f) =>
+                !blocked.has(f.id) &&
+                (f.id === folder.parent_id ||
+                  source?.is_local === undefined ||
+                  f.is_local === source.is_local),
+            )
+            .sort((a, b) => pathLabel(a).localeCompare(pathLabel(b), 'pt-BR', { numeric: true }))
+            .map((f) => (
+              <option key={f.id} value={f.id}>
+                {pathLabel(f)}
+              </option>
+            ))}
+        </select>
+      </div>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
+          Cancelar
+        </Button>
+        <Button type="submit" disabled={busy || target === (folder.parent_id ?? '')}>
+          {busy ? 'Enviando…' : 'Mover pasta'}
+        </Button>
+      </div>
+    </form>
   );
 }
 export function FolderManagement({ mailboxId }: { mailboxId: string }) {

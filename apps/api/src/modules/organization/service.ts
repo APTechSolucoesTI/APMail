@@ -1,3 +1,4 @@
+import { planFolderRelocation } from '@apmail/shared/folder-relocation';
 import { labelsService, validateLabelIds } from './labels.js';
 import { isTenantAdmin } from '@apmail/shared';
 export { replaceLabels, validateLabelIds, labelIdsSchema } from './labels.js';
@@ -134,6 +135,7 @@ export function organizationService(r: Resources) {
             .executeTakeFirst()
         : null;
       if (b.parent_id && !parent) throw notFound();
+      if (parent) await requireFolder(c, r.db, id, parent.id);
       const root = await r.db
         .selectFrom('folders')
         .select('delimiter')
@@ -166,6 +168,7 @@ export function organizationService(r: Resources) {
       if (!folder) throw notFound();
       mailboxId = folder.mailbox_id;
       await requireMailboxPerm(c, r.db, mailboxId, 'organize');
+      await requireFolder(c, r.db, mailboxId, folder.id);
       if (folder.special_use) throw conflict('Pastas especiais não podem ser alteradas.');
       if (kind === 'delete_folder') {
         const msg = await r.db
@@ -186,29 +189,33 @@ export function organizationService(r: Resources) {
           throw conflict('Esvazie a pasta e remova suas subpastas antes de excluir.');
         payload = { folder_id: id };
       } else {
-        const b = folderNameSchema.parse(input);
-        if (folder.delimiter && b.name.includes(folder.delimiter))
-          throw conflict('O nome não pode conter o separador de pastas.');
-        const parent = folder.parent_id
-          ? await r.db
-              .selectFrom('folders')
-              .select('imap_path')
-              .where('id', '=', folder.parent_id)
-              .where('tenant_id', '=', c.tenantId)
-              .executeTakeFirst()
-          : null;
-        const path = parent ? parent.imap_path + (folder.delimiter ?? '/') + b.name : b.name;
-        const existing = await r.db
+        const b = folderNameSchema
+          .extend({ parent_id: z.uuid().nullable().optional() })
+          .parse(input);
+        const parentId = b.parent_id === undefined ? folder.parent_id : b.parent_id;
+        const folders = await r.db
           .selectFrom('folders')
-          .select('id')
+          .selectAll()
           .where('tenant_id', '=', c.tenantId)
           .where('mailbox_id', '=', mailboxId)
-          .where('imap_path', '=', path)
-          .where('id', '!=', id)
           .where('deleted_at', 'is', null)
-          .executeTakeFirst();
-        if (existing) throw conflict('Já existe uma pasta com este nome.');
-        payload = { folder_id: id, name: b.name, imap_path: path };
+          .execute();
+        if (parentId && !folders.some((f) => f.id === parentId)) throw notFound();
+        if (parentId) await requireFolder(c, r.db, mailboxId, parentId);
+        let changes;
+        try {
+          changes = planFolderRelocation(folders, id, { name: b.name, parent_id: parentId });
+        } catch (error) {
+          throw conflict(error instanceof Error ? error.message : 'Destino inválido.');
+        }
+        for (const change of changes) await requireFolder(c, r.db, mailboxId, change.id);
+        payload = {
+          folder_id: id,
+          name: b.name,
+          parent_id: parentId,
+          source_path: folder.imap_path,
+          imap_path: changes.find((f) => f.id === id)!.imap_path,
+        };
       }
     }
     const box = await r.db
@@ -242,6 +249,24 @@ export function organizationService(r: Resources) {
   };
   return {
     folderAction,
+    folderActionStatus: async (ctx: RequestContext | null, id: string) => {
+      const c = requireTenant(ctx);
+      const action = await r.db
+        .selectFrom('mail_actions')
+        .select(['status', 'last_error'])
+        .where('id', '=', id)
+        .where('tenant_id', '=', c.tenantId)
+        .where('requested_by', '=', c.userId)
+        .where('type', 'in', ['create_folder', 'rename_folder', 'delete_folder'])
+        .executeTakeFirst();
+      if (!action) throw notFound();
+      // A requester must still see their own result after mailbox access is revoked.
+      // No folder contents, mailbox metadata or other users' actions are exposed here.
+      return {
+        status: action.status,
+        error: action.status === 'failed' ? action.last_error : null,
+      };
+    },
     ...labelsService(r),
     rules: async (ctx: RequestContext | null, query: unknown) => {
       const c = requireTenant(ctx),

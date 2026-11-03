@@ -1,6 +1,7 @@
 import { Pagination } from '@/components/data/pagination';
 import { ThreadListItem } from '@/components/mail/thread-list-item';
 import { MailboxDrafts } from '@/components/mail/mailbox-drafts';
+import { MAIL_MOVED_EVENT, selectionAfterMove, type MessageDrag } from '@/lib/mail-drag';
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
@@ -9,7 +10,14 @@ import { can, QUEUE_LABELS, type ContactResolution } from '@apmail/shared';
 import { toast } from 'sonner';
 import type { PersonalLabel } from '@/lib/organization';
 import { api } from '@/lib/api';
-import { useTenantId, meQuery, useMailQueues, canMailbox, type Mailbox } from '@/lib/auth';
+import {
+  useTenantId,
+  meQuery,
+  useMailQueues,
+  canMailbox,
+  useAccess,
+  type Mailbox,
+} from '@/lib/auth';
 import { mailSearchSchema } from '@/lib/search-params/mail';
 import {
   folderLabel,
@@ -72,6 +80,8 @@ function MailPage() {
       refetchInterval: (query) =>
         ['pending', 'error'].includes(query.state.data?.status ?? '') ? 15000 : 60000,
     });
+  const mayMove = useAccess('mail.move');
+  const mayDelete = useAccess('mail.delete');
   useEffect(() => {
     if (
       !queuesEnabled &&
@@ -157,7 +167,23 @@ function MailPage() {
     if (search.compose) setPendingCompose(mode);
     else if (!search.compose) change({ compose: mode });
   };
-  const items = isDrafts ? [] : (threads.data?.items ?? []);
+  const items = useMemo(
+    () => (isDrafts ? [] : (threads.data?.items ?? [])),
+    [isDrafts, threads.data?.items],
+  );
+  useEffect(() => {
+    const moved = (event: Event) => {
+      const payload = (event as CustomEvent<MessageDrag>).detail;
+      if (payload.mailboxId !== mailboxId) return;
+      setSelection((previous) =>
+        previous.context === context
+          ? { ...previous, ids: selectionAfterMove(previous.ids, payload, items) }
+          : previous,
+      );
+    };
+    window.addEventListener(MAIL_MOVED_EVENT, moved);
+    return () => window.removeEventListener(MAIL_MOVED_EVENT, moved);
+  }, [mailboxId, context, items]);
   const selectedThreads = [
     ...new Set(
       items.filter((item) => selected.includes(item.message_id ?? item.id)).map((item) => item.id),
@@ -165,6 +191,37 @@ function MailPage() {
   ];
   const individualMessages =
     isDrafts || (search.view === 'folder' && folder?.special_use === 'sent');
+  const quickTrash = async (thread: Thread) => {
+    const scope = {
+      kind: 'messages' as const,
+      mailboxId,
+      threadIds: individualMessages ? [] : [thread.id],
+      messageIds: individualMessages && thread.message_id ? [thread.message_id] : [],
+    };
+    try {
+      await api('/mailboxes/' + mailboxId + '/messages/actions', {
+        method: 'POST',
+        body: {
+          type: 'delete',
+          ...(scope.messageIds.length
+            ? { message_ids: scope.messageIds }
+            : { thread_ids: scope.threadIds }),
+        },
+      });
+      window.dispatchEvent(new CustomEvent(MAIL_MOVED_EVENT, { detail: scope }));
+      if (search.thread === thread.id) close();
+      await Promise.all(
+        ['threads', 'thread', 'folders', 'queue-counts'].map((key) =>
+          client.invalidateQueries({ queryKey: [key] }),
+        ),
+      );
+      toast.success('E-mail movido para a Lixeira.');
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Não foi possível mover o e-mail para a Lixeira.',
+      );
+    }
+  };
   const mark = async (action: 'read' | 'unread' | 'done' | 'reopen') => {
     setUpdating(true);
     try {
@@ -422,7 +479,6 @@ function MailPage() {
               folders={folders.data ?? []}
               inTrash={search.view === 'folder' && folder?.special_use === 'trash'}
               {...(individualMessages ? { messageIds: selected } : { threadIds: selectedThreads })}
-              compact
               onDone={() => setSelection({ context, ids: [] })}
             />
           )}
@@ -473,6 +529,36 @@ function MailPage() {
               contacts={threads.data?.contacts}
               key={t.message_id ?? t.id}
               thread={t}
+              onQuickTrash={
+                box.data &&
+                mayDelete &&
+                canMailbox(box.data, 'delete') &&
+                canMailbox(box.data, 'organize') &&
+                search.view === 'folder' &&
+                folder?.special_use === 'inbox'
+                  ? () => quickTrash(t)
+                  : undefined
+              }
+              drag={
+                box.data &&
+                mayMove &&
+                canMailbox(box.data, 'move') &&
+                canMailbox(box.data, 'organize')
+                  ? {
+                      mailboxId,
+                      threadIds: individualMessages
+                        ? []
+                        : selected.includes(t.message_id ?? t.id)
+                          ? selectedThreads
+                          : [t.id],
+                      messageIds: individualMessages
+                        ? selected.includes(t.message_id ?? t.id)
+                          ? selected
+                          : [t.message_id!]
+                        : [],
+                    }
+                  : undefined
+              }
               query={search.q}
               selected={selected.includes(t.message_id ?? t.id)}
               active={search.thread === t.id && (!t.message_id || search.message === t.message_id)}

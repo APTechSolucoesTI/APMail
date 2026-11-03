@@ -23,6 +23,7 @@ import { registerReadReceipts } from './read-receipts.js';
 import { resolveContacts } from './contact-resolution.js';
 import { registerMailboxDrafts } from './mailbox-drafts.js';
 import { rememberSpamSenders } from './spam-rules.js';
+import { registerMailNavigation } from './mail-navigation.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 export const threadListSchema = z.object({
   columns: z.string().max(16000).optional(),
@@ -97,6 +98,7 @@ type FolderNode = {
   children: FolderNode[];
 };
 export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
+  await registerMailNavigation(app, r);
   app.get('/api/mail-summary/threads', async (req) => {
     const c = requireTenant(req.ctx),
       q = threadListSchema.parse(req.query);
@@ -123,6 +125,9 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         'f.special_use',
         'f.imap_path',
         'f.special_use_official',
+        'f.sort_order',
+        'f.is_local',
+        'f.delimiter',
         sql<number>`(select count(distinct t.id)::int from messages m join threads t on t.id=m.thread_id left join thread_user_state us on us.thread_id=t.id and us.user_id=${c.userId} where m.folder_id=f.id and m.deleted_at is null and t.last_inbound_at > coalesce(us.last_read_at,'-infinity'::timestamptz))`.as(
           'unread_count',
         ),
@@ -138,6 +143,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         (a, b) =>
           (a.special_use ? order.indexOf(a.special_use) : 99) -
             (b.special_use ? order.indexOf(b.special_use) : 99) ||
+          a.sort_order - b.sort_order ||
           a.name.localeCompare(b.name, 'pt-BR'),
       )
       .map((f) => ({ ...f, children: [] as FolderNode[] }));

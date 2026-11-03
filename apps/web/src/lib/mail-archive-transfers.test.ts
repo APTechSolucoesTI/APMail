@@ -18,6 +18,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 const scope = { tenantId: 'tenant', userId: 'user', mailboxId: 'box' };
 const file = new File(['content'], 'backup.pst');
 const task = {
+  folder_order: 'original',
   id: 'task',
   filename: file.name,
   size_bytes: String(file.size),
@@ -28,6 +29,25 @@ const task = {
 afterEach(() => {
   stopArchiveTransfersForUser(scope.userId);
   vi.clearAllMocks();
+});
+it('persists folder order and refuses to reuse a differently configured upload', async () => {
+  vi.mocked(api)
+    .mockResolvedValueOnce([{ ...task, folder_order: 'original' }])
+    .mockResolvedValueOnce({})
+    .mockResolvedValueOnce({ ...task, folder_order: 'alphabetical' });
+  vi.mocked(uploadArchiveBlocks).mockResolvedValueOnce({
+    ...task,
+    state: 'queued',
+    uploaded_bytes: String(file.size),
+  });
+  await startArchiveTransfer(scope, file, 'hash', null, 'alphabetical');
+  expect(
+    vi
+      .mocked(api)
+      .mock.calls.find(
+        ([path, options]) => path.endsWith('/archive-imports') && options?.method === 'POST',
+      )?.[1]?.body,
+  ).toMatchObject({ folder_order: 'alphabetical' });
 });
 it('keeps sending after the panel unsubscribes and prevents double submission', async () => {
   vi.mocked(api).mockResolvedValue(task);

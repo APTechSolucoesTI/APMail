@@ -2,7 +2,7 @@ import { beforeAll, afterAll, it, expect, vi } from 'vitest';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
 import { io, type Socket } from 'socket.io-client';
-import { createDb, migrate, touchThreads } from '@apmail/db';
+import { createDb, migrate, touchThreads, createArchiveFolderResolver } from '@apmail/db';
 import { buildApp } from '../../src/app.js';
 import { envSchema } from '../../src/env.js';
 import { hashToken } from '../../src/plugins/auth.js';
@@ -733,4 +733,139 @@ it('encerrar outra instância da API preserva os sockets locais desta instância
   expect(await socket.timeout(3000).emitWithAck('thread:join', { thread_id: mixed })).toEqual({
     ok: true,
   });
+});
+it('renomeia subpasta local importada sob Inbox remoto sem mover ou trocar namespace', async () => {
+  const mailbox = await db
+    .updateTable('mailboxes')
+    .set({ status: 'active' })
+    .where('id', '=', box)
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  const resolver = await createArchiveFolderResolver(db, mailbox);
+  const imported = await resolver('Inbox/Projeto importado');
+  const nested = await resolver('Inbox/Projeto importado/2026');
+  expect(imported).toMatchObject({ is_local: true, parent_id: secret });
+  expect(imported.imap_path).toBe('local/folders/' + secret + '/Projeto importado');
+  const renamed = await call('PATCH', '/folders/' + imported.id, owner, {
+    name: 'Clientes importados',
+  });
+  expect(renamed.statusCode, renamed.body).toBe(202);
+  const action = await db
+    .selectFrom('mail_actions')
+    .selectAll()
+    .where('id', '=', renamed.json().action_id)
+    .executeTakeFirstOrThrow();
+  expect(action.payload).toMatchObject({
+    parent_id: secret,
+    source_path: imported.imap_path,
+    imap_path: 'local/folders/' + secret + '/Clientes importados',
+  });
+  expect(
+    (
+      await db
+        .selectFrom('folders')
+        .select('parent_id')
+        .where('id', '=', nested.id)
+        .executeTakeFirstOrThrow()
+    ).parent_id,
+  ).toBe(imported.id);
+});
+it('mover pasta explicitamente valida hierarquia, escopo e leitura antes de enfileirar', async () => {
+  const source = randomUUID(),
+    nested = randomUUID(),
+    destination = randomUUID(),
+    local = randomUUID();
+  await db.updateTable('mailboxes').set({ status: 'active' }).where('id', '=', box).execute();
+  await db
+    .insertInto('folders')
+    .values([
+      { id: source, tenant_id: tenant, mailbox_id: box, name: 'Origem', imap_path: 'Origem' },
+      {
+        id: nested,
+        tenant_id: tenant,
+        mailbox_id: box,
+        name: 'Filha',
+        imap_path: 'Origem/Filha',
+        parent_id: source,
+      },
+      {
+        id: destination,
+        tenant_id: tenant,
+        mailbox_id: box,
+        name: 'Destino',
+        imap_path: 'Destino',
+      },
+      {
+        id: local,
+        tenant_id: tenant,
+        mailbox_id: box,
+        name: 'Local',
+        imap_path: 'Local',
+        is_local: true,
+      },
+    ])
+    .execute();
+  const move = (parent_id: string | null, user = owner, folderId = source) =>
+    call('PATCH', '/folders/' + folderId, user, { name: 'Origem', parent_id });
+  const accepted = await move(destination);
+  expect(accepted.statusCode, accepted.body).toBe(202);
+  const action = await db
+    .selectFrom('mail_actions')
+    .selectAll()
+    .where('id', '=', accepted.json().action_id)
+    .executeTakeFirstOrThrow();
+  expect(action.payload).toMatchObject({
+    parent_id: destination,
+    imap_path: 'Destino/Origem',
+    source_path: 'Origem',
+  });
+  const anotherBox = randomUUID(),
+    anotherFolder = randomUUID();
+  await db
+    .insertInto('mailboxes')
+    .values({
+      id: anotherBox,
+      tenant_id: tenant,
+      name: 'Outro escopo',
+      email_address: anotherBox + '@folders.test',
+      username: 'qa',
+      imap_host: 'localhost',
+      smtp_host: 'localhost',
+    })
+    .execute();
+  await db
+    .insertInto('folders')
+    .values({
+      id: anotherFolder,
+      tenant_id: tenant,
+      mailbox_id: anotherBox,
+      name: 'Externa',
+      imap_path: 'Externa',
+    })
+    .execute();
+  expect((await move(anotherFolder)).statusCode).toBe(404);
+  expect((await call('GET', '/folder-actions/' + action.id, owner)).json()).toMatchObject({
+    status: 'pending',
+    error: null,
+  });
+  expect((await call('GET', '/folder-actions/' + action.id, admin)).statusCode).toBe(404);
+  expect((await call('GET', '/folder-actions/' + action.id, foreign)).statusCode).toBe(404);
+  expect((await move(nested)).statusCode).toBe(409);
+  expect((await move(source)).statusCode).toBe(409);
+  expect((await move(local)).statusCode).toBe(409);
+  expect((await move(randomUUID())).statusCode).toBe(404);
+  expect((await move(destination, editor)).statusCode).toBe(403);
+  expect((await move(destination, viewer)).statusCode).toBe(403);
+  expect((await move(destination, owner, secret)).statusCode).toBe(409);
+  await db
+    .insertInto('folders')
+    .values({
+      tenant_id: tenant,
+      mailbox_id: box,
+      name: 'Origem',
+      imap_path: 'Destino/Origem',
+      parent_id: destination,
+    })
+    .execute();
+  expect((await move(destination)).statusCode).toBe(409);
 });

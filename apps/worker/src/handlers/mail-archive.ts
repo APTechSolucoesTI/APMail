@@ -51,10 +51,18 @@ export async function handleMailArchive(r: WorkerResources, importId: string, jo
       if (!active) return;
       const affected = new Set<string>();
       let index = 0;
+      // Legacy tasks retain their MIME sequence so a saved cursor never skips different mail.
+      const preserveEnumeration = !task.mark_read;
       try {
         // Count the actual converted MIME without writing an expanded copy to disk.
         // PST/OST container sizes and ZIP sizes cannot predict this reliably.
         if (!active.analyzed_at) {
+          const paths = new Set<string>();
+          const collectFolder = (path: string) => {
+            if (path.length > 16384 || (!paths.has(mailText(path)) && paths.size >= 100000))
+              throw new Error('O arquivo excede o limite de estrutura de pastas.');
+            paths.add(mailText(path));
+          };
           let messages = 0,
             expanded = 0n,
             lastProgress = 0;
@@ -65,6 +73,7 @@ export async function handleMailArchive(r: WorkerResources, importId: string, jo
                 analyzed_messages: messages,
                 expanded_bytes: expanded.toString(),
                 analyzed_at: complete ? new Date() : null,
+                ...(complete ? { folder_manifest: sql`${JSON.stringify([...paths])}::jsonb` } : {}),
                 updated_at: new Date(),
               })
               .where('id', '=', task.id)
@@ -82,7 +91,10 @@ export async function handleMailArchive(r: WorkerResources, importId: string, jo
             resolve(r.env.STORAGE_DIR, task.storage_path!),
             task.format,
             task.filename,
+            collectFolder,
+            preserveEnumeration,
           )) {
+            collectFolder(item.folder);
             messages++;
             expanded += BigInt(item.raw.length);
             if (messages % 25 === 0 || Date.now() - lastProgress >= 2000) await saveAnalysis();
@@ -90,6 +102,7 @@ export async function handleMailArchive(r: WorkerResources, importId: string, jo
           if (!messages)
             throw new Error('O arquivo não contém mensagens de e-mail em formato suportado.');
           await saveAnalysis(true);
+          task.folder_manifest = [...paths];
         }
         if (!box.import_started_at) {
           box.import_started_at = new Date();
@@ -102,10 +115,29 @@ export async function handleMailArchive(r: WorkerResources, importId: string, jo
         if (box.receiving_protocol !== 'imap')
           await ensureLocalFolders(r.db, box.tenant_id, box.id);
         const resolveFolder = await createArchiveFolderResolver(r.db, box);
+        // Analysis preserves empty folders and paths before any checkpoint is advanced.
+        const manifest = Array.isArray(task.folder_manifest)
+          ? task.folder_manifest.filter((path): path is string => typeof path === 'string')
+          : [];
+        if (task.folder_order === 'alphabetical') {
+          const collator = new Intl.Collator('pt-BR', { numeric: true, sensitivity: 'base' });
+          manifest.sort((a, b) => {
+            const left = a.split('/'),
+              right = b.split('/');
+            for (let i = 0; i < Math.min(left.length, right.length); i++) {
+              const difference = collator.compare(left[i]!, right[i]!);
+              if (difference) return difference;
+            }
+            return left.length - right.length;
+          });
+        }
+        for (const path of manifest) await resolveFolder(path, undefined, task.format);
         for await (const item of readMailArchive(
           resolve(r.env.STORAGE_DIR, task.storage_path!),
           task.format,
           task.filename,
+          undefined,
+          preserveEnumeration,
         )) {
           index++;
           if (index <= active.cursor) continue;
@@ -133,6 +165,7 @@ export async function handleMailArchive(r: WorkerResources, importId: string, jo
               key,
               historical: true,
               measureStorage: true,
+              markRead: task.mark_read,
               persisted: async (tx, imported, addedStorageBytes = 0n) => {
                 const saved = await tx
                   .updateTable('mail_archive_imports')

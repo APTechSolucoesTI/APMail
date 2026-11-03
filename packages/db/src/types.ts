@@ -616,11 +616,14 @@ export interface MailArchiveImports {
   cursor: Generated<number>;
   expanded_bytes: Generated<Int8>;
   filename: string;
+  folder_manifest: Json | null;
+  folder_order: Generated<string>;
   format: string;
   id: Generated<string>;
   imported: Generated<number>;
   last_error: string | null;
   mailbox_id: string;
+  mark_read: Generated<boolean>;
   processed_bytes: Generated<Int8>;
   size_bytes: Int8;
   skipped: Generated<number>;
@@ -724,6 +727,13 @@ export interface MailboxStorageLimits {
   provider_used_bytes: Int8 | null;
   sync_checkpoint: Json | null;
   tenant_id: string;
+}
+
+export interface MailNavigationPreferences {
+  config: Generated<Json>;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
 }
 
 export interface MailRules {
@@ -1401,6 +1411,7 @@ export interface DB {
   mail_archive_exports: MailArchiveExports;
   mail_archive_imports: MailArchiveImports;
   mail_auto_reply_state: MailAutoReplyState;
+  mail_navigation_preferences: MailNavigationPreferences;
   mail_rules: MailRules;
   mail_schedule_series: MailScheduleSeries;
   mailbox_composition_preferences: MailboxCompositionPreferences;

@@ -50,6 +50,34 @@ FORWARDED = (b"From: original@example.com\r\nTo: recipient@example.com\r\n"
              b"Content-Type: text/plain; charset=utf-8\r\n\r\nOriginal body\r\n")
 
 
+class FolderOrderTests(unittest.TestCase):
+    def folder(self, name, children=(), position=None):
+        row = records({})
+        if position is not None:
+            row = SimpleNamespace(number_of_entries=1, get_entry=lambda _: SimpleNamespace(entry_type=0x3020, value_type=0x0102, data=position))
+        return SimpleNamespace(name=name, number_of_sub_messages=0, number_of_sub_folders=len(children),
+                               get_sub_folder=children.__getitem__, number_of_record_sets=1, get_record_set=lambda _:row)
+
+    def test_custom_binary_outlook_positions_preserve_empty_folders(self):
+        root = self.folder('Root', [self.folder('Alpha', position=b'\x20'), self.folder('Zulu', position=b'\x10')])
+        with patch('builtins.print') as output:
+            reader.walk(root, [])
+        self.assertEqual([json.loads(c.args[0])['folder'] for c in output.call_args_list], ['Root', 'Root/Zulu', 'Root/Alpha'])
+
+    def test_missing_custom_positions_preserve_native_archive_order(self):
+        root = self.folder('Root', [self.folder('Zulu'), self.folder('Alpha')])
+        with patch('builtins.print') as output:
+            reader.walk(root, [])
+        self.assertEqual([json.loads(c.args[0])['folder'] for c in output.call_args_list], ['Root', 'Root/Zulu', 'Root/Alpha'])
+
+
+    def test_legacy_checkpoint_traversal_ignores_new_custom_order(self):
+        root = self.folder('Root', [self.folder('Alpha', position=b'\x20'), self.folder('Zulu', position=b'\x10')])
+        with patch('builtins.print') as output:
+            reader.walk(root, [], preserve_enumeration=True)
+        self.assertEqual([json.loads(c.args[0])['folder'] for c in output.call_args_list], ['Root', 'Root/Alpha', 'Root/Zulu'])
+
+
 class MimeReconstructionTests(unittest.TestCase):
     def parse(self, attachments):
         return email.message_from_bytes(reader.convert(item(attachments)), policy=reader.default)
@@ -129,7 +157,8 @@ class MimeReconstructionTests(unittest.TestCase):
         output = []
         with patch.object(reader, "print", side_effect=lambda value, **_: output.append(json.loads(value)), create=True):
             reader.walk(folder, [])
-        self.assertEqual(len(output), 2)
+        self.assertEqual(output[0], {"folder": "Inbox", "kind": "folder"})
+        self.assertEqual(len(output), 3)
         self.assertTrue(all(envelope["folder"] == "Inbox" for envelope in output))
 
     def test_unrelated_outlook_properties_are_not_decoded(self):

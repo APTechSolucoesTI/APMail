@@ -117,6 +117,10 @@ def record_values(record, fields):
             value = safe_get(entry, "data_as_integer")
             if value is not None:
                 values[key] = value
+        elif value_type == 0x0102 and key == 0x3020:
+            value = safe_get(entry, "data")
+            if isinstance(value, bytes) and len(value) <= 4096:
+                values[key] = value
     return values
 
 def record_properties(item, fields=MESSAGE_PROPERTIES):
@@ -267,11 +271,13 @@ def convert(item, recipient_reader=None):
         raise ValueError("message_too_large")
     return raw
 
-def walk(folder, path, depth=0, recipient_reader=None):
+def walk(folder, path, depth=0, recipient_reader=None, preserve_enumeration=False):
     if depth > 100:
         raise ValueError("folder_depth")
     name = text(safe_get(folder, "name")) or "Importados"
     current = "/".join(path + [name])
+    # Folder envelopes preserve empty siblings and their order independently of mail.
+    print(json.dumps({"folder": current, "kind": "folder"}), flush=True)
     for index in range(folder.number_of_sub_messages):
         item = folder.get_sub_message(index)
         kind = str(record_properties(item, {0x001A}).get(0x001A, "IPM.Note")).lower()
@@ -279,8 +285,14 @@ def walk(folder, path, depth=0, recipient_reader=None):
             continue
         raw = convert(item, recipient_reader) if recipient_reader else convert(item)
         print(json.dumps({"folder": current, "mime": base64.b64encode(raw).decode("ascii")}), flush=True)
-    for index in range(folder.number_of_sub_folders):
-        walk(folder.get_sub_folder(index), path + [name], depth + 1, recipient_reader)
+    children = [folder.get_sub_folder(index) for index in range(folder.number_of_sub_folders)]
+    positions = [record_properties(child, {0x3020}).get(0x3020) for child in children]
+    # PR_SORT_POSITION is binary, not an integer. Missing keys compare as empty;
+    # ties retain the provider's original hierarchy order (stable sort).
+    if not preserve_enumeration and any(position is not None for position in positions):
+        children = [child for _, child in sorted(zip(positions, children), key=lambda row: row[0] or b'')]
+    for child in children:
+        walk(child, path + [name], depth + 1, recipient_reader, preserve_enumeration)
 
 if __name__ == "__main__":
     archive = pypff.file()
@@ -290,7 +302,7 @@ if __name__ == "__main__":
         root = archive.get_root_folder()
         if root is None:
             raise ValueError("missing_root")
-        walk(root, [], recipient_reader=recipients.rows)
+        walk(root, [], recipient_reader=recipients.rows, preserve_enumeration='--preserve-enumeration' in sys.argv[2:])
     finally:
         archive.close()
         recipients.close()

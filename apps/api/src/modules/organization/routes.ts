@@ -98,6 +98,7 @@ export async function registerOrganizationRoutes(app: FastifyInstance, r: Resour
   app.patch('/api/folders/:id', async (req, res) =>
     res.code(202).send(await s.folderAction(req.ctx, 'rename_folder', id(req.params), req.body)),
   );
+  app.get('/api/folder-actions/:id', (req) => s.folderActionStatus(req.ctx, id(req.params)));
   app.delete('/api/folders/:id', async (req, res) =>
     res.code(202).send(await s.folderAction(req.ctx, 'delete_folder', id(req.params), null)),
   );

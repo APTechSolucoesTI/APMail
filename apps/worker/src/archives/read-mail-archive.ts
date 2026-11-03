@@ -94,7 +94,10 @@ async function* textMessages(
     throw new Error('Mensagem sem cabeçalhos MIME válidos.');
   yield { raw, folder };
 }
-async function* zipMessages(filename: string): AsyncGenerator<ArchiveMessage> {
+async function* zipMessages(
+  filename: string,
+  onFolder?: (folder: string) => void,
+): AsyncGenerator<ArchiveMessage> {
   const zip = await new Promise<yauzl.ZipFile>((resolve, reject) =>
     yauzl.open(filename, { lazyEntries: true, validateEntrySizes: true }, (error, file) =>
       error || !file ? reject(error ?? new Error('ZIP inválido.')) : resolve(file),
@@ -138,9 +141,14 @@ async function* zipMessages(filename: string): AsyncGenerator<ArchiveMessage> {
         throw new Error('ZIP contém caminho ou link inválido.');
       if (entry.generalPurposeBitFlag & 1)
         throw new Error('ZIP protegido por senha não é suportado.');
-      if (entry.fileName.endsWith('/')) continue;
+      if (entry.fileName.endsWith('/')) {
+        onFolder?.(entry.fileName.replace(/\/+$/, ''));
+        continue;
+      }
       const format = mailArchiveFormat(entry.fileName);
       if (!format || !['eml', 'emlx', 'mbox'].includes(format)) continue;
+      const folder = dirname(entry.fileName) === '.' ? 'Importados' : dirname(entry.fileName);
+      onFolder?.(folder);
       inflated += entry.uncompressedSize;
       if (inflated > MAIL_ARCHIVE_MAX_BYTES) throw new Error('ZIP descompactado excede 20 GiB.');
       const stream = await new Promise<Readable>((resolve, reject) =>
@@ -149,11 +157,7 @@ async function* zipMessages(filename: string): AsyncGenerator<ArchiveMessage> {
         ),
       );
       try {
-        yield* textMessages(
-          stream,
-          format,
-          dirname(entry.fileName) === '.' ? 'Importados' : dirname(entry.fileName),
-        );
+        yield* textMessages(stream, format, folder);
       } finally {
         stream.destroy();
       }
@@ -162,13 +166,21 @@ async function* zipMessages(filename: string): AsyncGenerator<ArchiveMessage> {
     zip.close();
   }
 }
-async function* pffMessages(filename: string): AsyncGenerator<ArchiveMessage> {
+async function* pffMessages(
+  filename: string,
+  onFolder?: (folder: string) => void,
+  preserveEnumeration = false,
+): AsyncGenerator<ArchiveMessage> {
   const script = resolve(dirname(fileURLToPath(import.meta.url)), '../../scripts/read-pff.py');
   // No shell, no remote resources; the process emits only MIME envelopes over stdout.
-  const child = spawn('python3', ['-I', script, filename], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
+  const child = spawn(
+    'python3',
+    ['-I', script, filename, ...(preserveEnumeration ? ['--preserve-enumeration'] : [])],
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    },
+  );
   let error: Error | undefined;
   child.on('error', (value) => {
     error = value;
@@ -195,7 +207,15 @@ async function* pffMessages(filename: string): AsyncGenerator<ArchiveMessage> {
       timeout = setTimeout(expire, 30 * 60 * 1000);
       if (line.length > Math.ceil((MAIL_MESSAGE_MAX_BYTES * 4) / 3) + 4096)
         throw new Error('Uma mensagem PST/OST excede 50 MiB.');
-      const value = JSON.parse(line.toString('utf8')) as { folder: string; mime: string };
+      const value = JSON.parse(line.toString('utf8')) as {
+        folder: string;
+        mime?: string;
+        kind?: string;
+      };
+      if (value.kind === 'folder' && typeof value.folder === 'string') {
+        onFolder?.(value.folder);
+        continue;
+      }
       if (typeof value.mime !== 'string' || typeof value.folder !== 'string')
         throw new Error('Conversão PST/OST inválida.');
       yield { folder: value.folder, raw: Buffer.from(value.mime, 'base64') };
@@ -219,13 +239,15 @@ export async function* readMailArchive(
   filename: string,
   format: string,
   displayName = basename(filename),
+  onFolder?: (folder: string) => void,
+  preserveEnumeration = false,
 ): AsyncGenerator<ArchiveMessage> {
   if (format === 'zip') {
-    yield* zipMessages(filename);
+    yield* zipMessages(filename, onFolder);
     return;
   }
   if (format === 'pst' || format === 'ost') {
-    yield* pffMessages(filename);
+    yield* pffMessages(filename, onFolder, preserveEnumeration);
     return;
   }
   const stream = createReadStream(filename);

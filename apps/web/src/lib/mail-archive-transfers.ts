@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { MailArchiveTask } from '@apmail/shared';
+import type { ArchiveFolderOrder, MailArchiveTask } from '@apmail/shared';
 import { toast } from 'sonner';
 import { api } from './api';
 import { uploadArchiveBlocks } from './mail-archive-upload';
@@ -7,6 +7,7 @@ import { queryClient } from './query-client';
 
 export type ArchiveTransferScope = { tenantId: string; userId: string; mailboxId: string };
 export type ArchiveTransfer = {
+  folderOrder: ArchiveFolderOrder;
   scope: ArchiveTransferScope;
   runId: number;
   file: File | null;
@@ -69,6 +70,7 @@ export function startArchiveTransfer(
   file: File,
   fingerprint: string,
   initial: MailArchiveTask | null,
+  folderOrder: ArchiveFolderOrder = initial?.folder_order ?? 'original',
 ) {
   const id = key(scope);
   const active = runs.get(id);
@@ -82,6 +84,7 @@ export function startArchiveTransfer(
     file,
     filename: file.name,
     fingerprint,
+    folderOrder,
     task: initial,
     progress: Math.floor((Number(initial?.uploaded_bytes ?? 0) * 100) / file.size),
     status: 'sending',
@@ -110,7 +113,8 @@ export function startArchiveTransfer(
               t.state === 'uploading' &&
               t.filename === file.name &&
               Number(t.size_bytes) === file.size &&
-              t.upload_fingerprint === fingerprint,
+              t.upload_fingerprint === fingerprint &&
+              t.folder_order === folderOrder,
           ) ?? null;
       }
       if (!task || task.state === 'uploading') {
@@ -124,7 +128,12 @@ export function startArchiveTransfer(
         task = await api<MailArchiveTask>(base, {
           method: 'POST',
           signal: controller.signal,
-          body: { filename: file.name, size_bytes: file.size, upload_fingerprint: fingerprint },
+          body: {
+            filename: file.name,
+            size_bytes: file.size,
+            upload_fingerprint: fingerprint,
+            folder_order: folderOrder,
+          },
         });
       }
       update({ task });

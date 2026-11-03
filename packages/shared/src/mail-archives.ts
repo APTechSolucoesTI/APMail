@@ -4,7 +4,10 @@ export const MAIL_ARCHIVE_MAX_BYTES = 20 * 1024 ** 3;
 export const MAIL_ARCHIVE_CHUNK_BYTES = 4 * 1024 ** 2;
 export const MAIL_ARCHIVE_FINGERPRINT_BYTES = 64 * 1024;
 export const MAIL_MESSAGE_MAX_BYTES = 50 * 1024 ** 2;
+export const archiveFolderOrderSchema = z.enum(['original', 'alphabetical']);
+export type ArchiveFolderOrder = z.infer<typeof archiveFolderOrderSchema>;
 export const archivePreflightSchema = z.object({
+  folder_order: archiveFolderOrderSchema.default('original'),
   filename: z.string().trim().min(1).max(255),
   size_bytes: z.number().int().positive().max(MAIL_ARCHIVE_MAX_BYTES),
   upload_fingerprint: z
@@ -25,6 +28,8 @@ export function archiveQuotaCheck(bytes: bigint, used: bigint, limit: bigint | n
   };
 }
 export type MailArchiveTask = {
+  folder_order: ArchiveFolderOrder;
+  mark_read: boolean;
   id: string;
   filename: string;
   format: string;

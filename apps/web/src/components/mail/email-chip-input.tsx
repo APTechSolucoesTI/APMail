@@ -7,9 +7,10 @@ import { resolveAddress } from '@apmail/shared';
 import { useContactResolution } from '@/lib/contact-resolution';
 import { api } from '@/lib/api';
 import { recipientInputValue } from '@/lib/recipient-input';
-import { useTenantId, useUserId } from '@/lib/auth';
+import { useTenantId, useUserId, useAccess } from '@/lib/auth';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { RecipientPicker } from './recipient-picker';
 export function EmailChipInput({
   label,
   value,
@@ -31,6 +32,8 @@ export function EmailChipInput({
     tenant = useTenantId(),
     [input, setInput] = useState(initialInput);
   const [debounced, setDebounced] = useState('');
+  const canReadContacts = useAccess('contacts');
+  const [picker, setPicker] = useState(false);
   const [open, setOpen] = useState(false),
     [active, setActive] = useState(0);
   const field = useRef<HTMLInputElement>(null);
@@ -77,12 +80,36 @@ export function EmailChipInput({
         compact ? 'relative flex min-w-0 items-start gap-3 border-b' : 'relative space-y-1'
       }
     >
-      <Label
-        htmlFor={id}
-        className={compact ? 'w-12 shrink-0 pt-3 text-xs text-muted-foreground' : undefined}
-      >
-        {label}
-      </Label>
+      {canReadContacts ? (
+        <>
+          <Label htmlFor={id} className="sr-only">
+            {label}
+          </Label>
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            title="Selecionar contatos da agenda"
+            className={
+              compact
+                ? 'min-h-11 w-12 shrink-0 self-start text-left text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                : 'text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+            }
+            onClick={() => {
+              setOpen(false);
+              setPicker(true);
+            }}
+          >
+            {label}
+          </button>
+        </>
+      ) : (
+        <Label
+          htmlFor={id}
+          className={compact ? 'w-12 shrink-0 pt-3 text-xs text-muted-foreground' : undefined}
+        >
+          {label}
+        </Label>
+      )}
       <div
         className={
           compact
@@ -277,6 +304,21 @@ export function EmailChipInput({
       <p id={id + '-help'} className={compact ? 'sr-only' : 'text-xs text-muted-foreground'}>
         Separe endereços por vírgula ou ponto e vírgula.
       </p>
+      {picker && (
+        <RecipientPicker
+          label={label}
+          value={value}
+          initialEmail={input}
+          onSelect={(addresses) => {
+            onChange(addresses);
+            field.current?.focus();
+          }}
+          onClose={() => {
+            setPicker(false);
+            field.current?.focus();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -316,49 +316,28 @@ export function MailSelectionActions({
             iconOnly
           />
         )}
-        {(mayMove || mayDelete || mayFlag || mayRestore) && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <MailActionButton label="Organizar" disabled={busy}>
-                <FolderInput />
-              </MailActionButton>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {mayMove && (
-                <DropdownMenuItem onSelect={() => setDialog('move')}>
-                  <FolderInput />
-                  Mover para pasta
-                </DropdownMenuItem>
-              )}
-              {mayFlag && (
-                <>
-                  <DropdownMenuItem onSelect={() => void messages('set_flag', { flagged: true })}>
-                    <Flag />
-                    Sinalizar
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void messages('set_flag', { flagged: false })}>
-                    <Flag />
-                    Remover sinalização
-                  </DropdownMenuItem>
-                </>
-              )}
-              {mayRestore && (
-                <DropdownMenuItem onSelect={() => void messages('restore')}>
-                  <RotateCcw />
-                  Restaurar da Lixeira
-                </DropdownMenuItem>
-              )}
-              {mayDelete && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" onSelect={() => setDialog('delete')}>
-                    <Trash2 />
-                    Excluir
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+        {mayMove && (
+          <MailActionButton
+            label="Mover para pasta"
+            disabled={busy}
+            onClick={() => setDialog('move')}
+          >
+            <FolderInput />
+          </MailActionButton>
+        )}
+        {mayDelete && (
+          <MailActionButton label="Excluir" disabled={busy} onClick={() => setDialog('delete')}>
+            <Trash2 />
+          </MailActionButton>
+        )}
+        {mayRestore && (
+          <MailActionButton
+            label="Restaurar da Lixeira"
+            disabled={busy}
+            onClick={() => void messages('restore')}
+          >
+            <RotateCcw />
+          </MailActionButton>
         )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -367,6 +346,19 @@ export function MailSelectionActions({
             </MailActionButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
+            {mayFlag && (
+              <>
+                <DropdownMenuItem onSelect={() => void messages('set_flag', { flagged: true })}>
+                  <Flag />
+                  Sinalizar
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void messages('set_flag', { flagged: false })}>
+                  <Flag />
+                  Remover sinalização
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem onSelect={() => setDialog('labels')}>
               <Tags />
               Etiquetas

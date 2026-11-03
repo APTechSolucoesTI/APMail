@@ -101,13 +101,19 @@ it('mostra o mais recente primeiro e aberto, sem alterar o histórico usado pela
   expect(messages[0]!.id).toBe('Antigo');
 });
 
-it('oferece spam somente em Mais ações superior, ao lado de Organizar', async () => {
+it('oferece spam em Mais ações superior, com mover e excluir visíveis', async () => {
   open(undefined, true);
   const cards = screen.getAllByRole('article');
   for (const card of cards)
     expect(within(card).queryByRole('button', { name: /Mais ações/ })).not.toBeInTheDocument();
   const more = screen.getByRole('button', { name: /^Mais ações$/ });
-  expect(more.parentElement).toContainElement(screen.getByRole('button', { name: /Organizar/ }));
+  expect(more.parentElement).toContainElement(
+    within(more.parentElement!).getByRole('button', { name: 'Mover' }),
+  );
+  expect(more.parentElement).toContainElement(
+    within(more.parentElement!).getByRole('button', { name: 'Excluir' }),
+  );
+  expect(screen.queryByRole('button', { name: 'Organizar' })).not.toBeInTheDocument();
   const toolbar = screen.getByRole('group', { name: 'Ações da conversa' });
   const buttons = within(toolbar).getAllByRole('button');
   expect(buttons.at(-1)).toHaveAccessibleName('Imprimir conversa');

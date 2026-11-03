@@ -128,10 +128,16 @@ async function verifyFixtureFiles(target: string) {
       .execute();
   }
 }
-async function upload(raw: Buffer, filename = 'qa.eml', target = box) {
+async function upload(
+  raw: Buffer,
+  filename = 'qa.eml',
+  target = box,
+  folderOrder: 'original' | 'alphabetical' = 'original',
+) {
   const created = await call('POST', '/mailboxes/' + target + '/archive-imports', {
     filename,
     size_bytes: raw.length,
+    folder_order: folderOrder,
   });
   expect(created.statusCode, created.body).toBe(201);
   const task = created.json();
@@ -140,6 +146,185 @@ async function upload(raw: Buffer, filename = 'qa.eml', target = box) {
   await verifyFixtureFiles(target);
   return task.id as string;
 }
+it('persists archive order through upload and retry, appends only new folders in the chosen order', async () => {
+  const makeZip = async () => {
+    const zip = new ZipFile(),
+      chunks: Buffer[] = [];
+    const output = (async () => {
+      for await (const chunk of zip.outputStream) chunks.push(Buffer.from(chunk));
+      return Buffer.concat(chunks);
+    })();
+    zip.addBuffer(mime('order-zulu'), 'Zulu/a.eml');
+    zip.addBuffer(mime('order-alpha'), 'Alpha/b.eml');
+    zip.end();
+    return output;
+  };
+  const raw = await makeZip();
+  for (const folderOrder of ['original', 'alphabetical'] as const) {
+    const mailbox = await db
+      .insertInto('mailboxes')
+      .values({
+        tenant_id: tenant,
+        name: 'Order QA',
+        imap_host: 'localhost',
+        smtp_host: 'localhost',
+        username: 'qa',
+        email_address: randomUUID() + '@qa.example',
+        receiving_protocol: 'pop3',
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+    const existing = await db
+      .insertInto('folders')
+      .values({
+        tenant_id: tenant,
+        mailbox_id: mailbox.id,
+        name: 'Existing',
+        imap_path: 'existing',
+        is_local: true,
+        sort_order: 42,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+    const id = await upload(raw, 'ordered.zip', mailbox.id, folderOrder);
+    expect(await state(id)).toMatchObject({ folder_order: folderOrder, mark_read: true });
+    const fail = vi
+      .spyOn(ingestion, 'ingestMessage')
+      .mockRejectedValueOnce(new Error('QA checkpoint interruption'));
+    await handleMailArchive(r, id, 'archive-order-interrupted-' + folderOrder);
+    fail.mockRestore();
+    const checkpoint = await state(id);
+    expect(checkpoint).toMatchObject({ state: 'failed', folder_order: folderOrder });
+    expect(checkpoint.analyzed_at).not.toBeNull();
+    expect(
+      (await call('POST', `/mailboxes/${mailbox.id}/archive-imports/${id}/resume`)).statusCode,
+    ).toBe(200);
+    await handleMailArchive(r, id, 'archive-order-' + folderOrder);
+    expect(await state(id)).toMatchObject({ state: 'completed', folder_order: folderOrder });
+    const folders = await db
+      .selectFrom('folders')
+      .select(['name', 'sort_order'])
+      .where('mailbox_id', '=', mailbox.id)
+      .where('name', 'in', ['Zulu', 'Alpha', 'Existing'])
+      .orderBy('sort_order')
+      .execute();
+    expect(folders.map((f) => f.name)).toEqual([
+      'Existing',
+      ...(folderOrder === 'original' ? ['Zulu', 'Alpha'] : ['Alpha', 'Zulu']),
+    ]);
+    expect(folders[0]!.sort_order).toBe(existing.sort_order);
+    expect((await state(id)).folder_manifest).toEqual(['Zulu', 'Alpha']);
+    expect((await state(id)).analyzed_at).toEqual(checkpoint.analyzed_at);
+  }
+}, 30000);
+
+it('marks new imported threads read only for authorized existing users, preserves unread and future incoming mail', async () => {
+  const mailbox = await db
+    .insertInto('mailboxes')
+    .values({
+      tenant_id: tenant,
+      name: 'Read QA',
+      imap_host: 'localhost',
+      smtp_host: 'localhost',
+      username: 'qa',
+      email_address: randomUUID() + '@qa.example',
+      receiving_protocol: 'local',
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  await db
+    .insertInto('mailbox_members')
+    .values({ tenant_id: tenant, mailbox_id: mailbox.id, user_id: member, role: 'viewer' })
+    .execute();
+  const raw = mime('import-read');
+  const id = await upload(raw, 'read.eml', mailbox.id);
+  await handleMailArchive(r, id, 'archive-read');
+  const message = await db
+    .selectFrom('messages')
+    .selectAll()
+    .where('mailbox_id', '=', mailbox.id)
+    .executeTakeFirstOrThrow();
+  const states = await db
+    .selectFrom('thread_user_state')
+    .selectAll()
+    .where('thread_id', '=', message.thread_id)
+    .execute();
+  expect(states.map((s) => s.user_id).sort()).toEqual([owner, member].sort());
+  expect(
+    states.every(
+      (s) => new Date(s.last_read_at!).getTime() === new Date(message.message_at).getTime(),
+    ),
+  ).toBe(true);
+  const folder = await db
+    .selectFrom('folders')
+    .selectAll()
+    .where('id', '=', message.folder_id)
+    .executeTakeFirstOrThrow();
+  const reply = Buffer.from(
+    mime('live-after-import')
+      .toString()
+      .replace('Date: Wed, 07 Oct 2026 12:00:00 +0000', 'Date: Thu, 08 Oct 2026 12:00:00 +0000')
+      .replace('Subject:', 'In-Reply-To: <import-read@qa.example>\r\nSubject:'),
+  );
+  await ingestion.ingestMessage(
+    r,
+    mailbox,
+    folder,
+    { seq: 2, uid: 2, source: reply, size: reply.length, flags: new Set() },
+    { kind: 'pop3', key: 'future-live', historical: false },
+  );
+  const thread = await db
+    .selectFrom('threads')
+    .selectAll()
+    .where('id', '=', message.thread_id)
+    .executeTakeFirstOrThrow();
+  expect(new Date(thread.last_inbound_at!).getTime()).toBeGreaterThan(
+    new Date(states[0]!.last_read_at!).getTime(),
+  );
+  const importedReply = Buffer.from(
+    mime('import-later')
+      .toString()
+      .replace('Date: Wed, 07 Oct 2026 12:00:00 +0000', 'Date: Fri, 09 Oct 2026 12:00:00 +0000')
+      .replace('Subject:', 'In-Reply-To: <import-read@qa.example>\r\nSubject:'),
+  );
+  const next = await upload(importedReply, 'later.eml', mailbox.id);
+  await handleMailArchive(r, next, 'archive-read-preserve');
+  expect(
+    await db
+      .selectFrom('thread_user_state')
+      .select(['user_id', 'last_read_at'])
+      .where('thread_id', '=', message.thread_id)
+      .orderBy('user_id')
+      .execute(),
+  ).toEqual(
+    states
+      .map((s) => ({ user_id: s.user_id, last_read_at: s.last_read_at }))
+      .sort((a, b) => a.user_id.localeCompare(b.user_id)),
+  );
+  await db
+    .updateTable('mailbox_members')
+    .set({ restrict_to_folders: true })
+    .where('mailbox_id', '=', mailbox.id)
+    .where('user_id', '=', member)
+    .execute();
+  const restricted = await upload(mime('import-restricted'), 'restricted.eml', mailbox.id);
+  await handleMailArchive(r, restricted, 'archive-restricted-read');
+  const restrictedMessage = await db
+    .selectFrom('messages')
+    .select('thread_id')
+    .where('mailbox_id', '=', mailbox.id)
+    .where('message_id_header', '=', '<import-restricted@qa.example>')
+    .executeTakeFirstOrThrow();
+  expect(
+    (
+      await db
+        .selectFrom('thread_user_state')
+        .select('user_id')
+        .where('thread_id', '=', restrictedMessage.thread_id)
+        .execute()
+    ).map((s) => s.user_id),
+  ).toEqual([owner]);
+}, 30000);
 async function state(id: string) {
   return db
     .selectFrom('mail_archive_imports')

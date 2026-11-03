@@ -1,4 +1,6 @@
-import { Paperclip, Pin, ListTodo, CheckCheck, Mail } from 'lucide-react';
+import { Paperclip, Pin, ListTodo, CheckCheck, Mail, Trash2, Loader2 } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { QueueStatusBadge, OverdueBadge } from '@/components/common/status-badge';
 import { UserAvatar } from '@/components/common/user-avatar';
@@ -9,6 +11,7 @@ import { SearchHighlight } from './search-highlight';
 import { useQuery } from '@tanstack/react-query';
 import { meQuery, useMailQueues } from '@/lib/auth';
 import { resolveAddress, type ContactResolution } from '@apmail/shared';
+import { useMessageDrag } from '@/hooks/use-message-drag';
 export function ThreadListItem({
   thread,
   selected,
@@ -18,6 +21,8 @@ export function ThreadListItem({
   query,
   contacts = {},
   showMailbox = false,
+  drag,
+  onQuickTrash,
 }: {
   thread: Thread;
   selected: boolean;
@@ -27,6 +32,8 @@ export function ThreadListItem({
   query?: string;
   contacts?: ContactResolution;
   showMailbox?: boolean;
+  drag?: { mailboxId: string; threadIds: string[]; messageIds: string[] };
+  onQuickTrash?: () => Promise<void>;
 }) {
   const date = thread.last_message_at ? new Date(thread.last_message_at) : null;
   const identity =
@@ -37,12 +44,19 @@ export function ThreadListItem({
   const timeZone = useQuery(meQuery).data?.preferences.timezone ?? 'America/Sao_Paulo';
   const queuesEnabled = useMailQueues();
   const fullTime = date?.toLocaleString('pt-BR', { timeZone });
+  const dragging = useMessageDrag(drag);
+  const [trashing, setTrashing] = useState(false),
+    trashLock = useRef(false);
   return (
     <article
+      {...dragging.handlers}
       className={cn(
         'relative flex items-start gap-2 border-b p-3 hover:bg-muted/50',
         active && 'bg-secondary',
         selected && 'bg-muted',
+        drag &&
+          'cursor-grab active:cursor-grabbing transition-[opacity,background-color,box-shadow] motion-reduce:transition-none',
+        dragging.dragging && 'opacity-50 bg-accent ring-2 ring-inset ring-primary',
       )}
     >
       <Checkbox
@@ -56,7 +70,10 @@ export function ThreadListItem({
         onClick={onOpen}
         aria-current={active ? 'true' : undefined}
         aria-label={(thread.is_unread ? 'Não lida: ' : '') + (thread.subject || '(Sem assunto)')}
-        className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className={cn(
+          'min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          onQuickTrash && 'pr-8',
+        )}
       >
         <div className="flex items-center gap-2">
           {thread.is_unread && (
@@ -196,6 +213,33 @@ export function ThreadListItem({
           </div>
         )}
       </button>
+      {onQuickTrash && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          data-mail-drag-ignore
+          draggable={false}
+          className="absolute right-1 top-1 size-11 bg-transparent text-muted-foreground/40 hover:bg-destructive/10 hover:text-destructive focus-visible:text-destructive lg:right-2 lg:top-2 lg:size-8"
+          aria-label={'Mover para a lixeira: ' + (thread.subject || 'conversa sem assunto')}
+          title="Mover para a lixeira"
+          disabled={trashing}
+          onClick={async (event) => {
+            event.stopPropagation();
+            if (trashLock.current) return;
+            trashLock.current = true;
+            setTrashing(true);
+            try {
+              await onQuickTrash();
+            } finally {
+              trashLock.current = false;
+              setTrashing(false);
+            }
+          }}
+        >
+          {trashing ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <Trash2 />}
+        </Button>
+      )}
     </article>
   );
 }

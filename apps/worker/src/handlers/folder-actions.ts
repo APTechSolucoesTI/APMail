@@ -10,6 +10,9 @@ import { withMailboxLock } from '../lib/mailbox-lock.js';
 import { isConnectionError } from '../lib/errors.js';
 import { markMailboxError } from './mailbox-connection.js';
 import { userCanMailbox } from '../lib/mailbox-permissions.js';
+import { planFolderRelocation } from '@apmail/shared/folder-relocation';
+import { isTenantAdmin } from '@apmail/shared';
+import { sql } from 'kysely';
 export async function handleFolderAction(
   r: WorkerResources,
   initial: Selectable<DB['mail_actions']>,
@@ -41,6 +44,7 @@ export async function handleFolderAction(
           .object({
             folder_id: z.uuid().optional(),
             imap_path: z.string().optional(),
+            source_path: z.string().optional(),
             name: z.string().optional(),
             parent_id: z.uuid().nullable().optional(),
           })
@@ -57,7 +61,8 @@ export async function handleFolderAction(
           throw new UnrecoverableError('O superadmin não pode alterar pastas.');
         if (
           !action.requested_by ||
-          !(await userCanMailbox(r, box, action.requested_by, 'organize'))
+          !(await userCanMailbox(r, box, action.requested_by, 'organize')) ||
+          !(await userCanMailbox(r, box, action.requested_by, 'read'))
         )
           throw new UnrecoverableError('Você não tem mais permissão para organizar esta caixa.');
         await r.db
@@ -65,17 +70,72 @@ export async function handleFolderAction(
           .set({ status: 'processing', attempts: action.attempts + 1 })
           .where('id', '=', action.id)
           .execute();
+        const folders = await r.db
+          .selectFrom('folders')
+          .selectAll()
+          .where('tenant_id', '=', box.tenant_id)
+          .where('mailbox_id', '=', box.id)
+          .where('deleted_at', 'is', null)
+          .execute();
         const referenceFolder = p.folder_id ?? p.parent_id;
-        const localFolder = referenceFolder
-          ? await r.db
-              .selectFrom('folders')
-              .select('is_local')
-              .where('id', '=', referenceFolder)
-              .where('tenant_id', '=', box.tenant_id)
-              .where('mailbox_id', '=', box.id)
-              .where('deleted_at', 'is', null)
-              .executeTakeFirst()
-          : null;
+        const localFolder = folders.find((f) => f.id === referenceFolder);
+        if (referenceFolder && !localFolder) throw new UnrecoverableError('Pasta indisponível.');
+        if (p.folder_id && localFolder?.special_use)
+          throw new UnrecoverableError('Pastas especiais não podem ser alteradas.');
+        let changes: ReturnType<typeof planFolderRelocation> = [];
+        if (action.type === 'rename_folder') {
+          if (!localFolder || !p.name || !p.imap_path)
+            throw new UnrecoverableError('Destino inválido.');
+          if (
+            p.source_path &&
+            localFolder.imap_path !== p.source_path &&
+            localFolder.imap_path !== p.imap_path
+          )
+            throw new UnrecoverableError('A pasta foi alterada por outra operação.');
+          try {
+            changes = planFolderRelocation(folders, localFolder.id, {
+              name: p.name,
+              parent_id: p.parent_id === undefined ? localFolder.parent_id : p.parent_id,
+            });
+          } catch (error) {
+            throw new UnrecoverableError(
+              error instanceof Error ? error.message : 'Destino inválido.',
+            );
+          }
+          if (changes.find((f) => f.id === localFolder.id)?.imap_path !== p.imap_path)
+            throw new UnrecoverableError('A pasta de destino foi alterada. Atualize a lista.');
+        }
+        // Permissions may change while a job waits; resolve inherited folder access again.
+        const access = await r.db
+          .selectFrom('tenant_members as tm')
+          .leftJoin('mailbox_members as mm', (j) =>
+            j
+              .onRef('mm.tenant_id', '=', 'tm.tenant_id')
+              .onRef('mm.user_id', '=', 'tm.user_id')
+              .on('mm.mailbox_id', '=', box.id),
+          )
+          .select(['tm.role', 'mm.role as mailbox_role', 'mm.restrict_to_folders'])
+          .where('tm.tenant_id', '=', box.tenant_id)
+          .where('tm.user_id', '=', action.requested_by)
+          .executeTakeFirstOrThrow();
+        if (
+          !isTenantAdmin(access.role) &&
+          access.mailbox_role !== 'mailbox_admin' &&
+          access.restrict_to_folders
+        ) {
+          const allowed = await sql<{ id: string }>`with recursive allowed as (
+            select f.id from folders f join folder_permissions p on p.folder_id=f.id and p.tenant_id=f.tenant_id and p.mailbox_id=f.mailbox_id
+            where p.tenant_id=${box.tenant_id} and p.mailbox_id=${box.id} and p.user_id=${action.requested_by} and f.deleted_at is null
+            union select f.id from folders f join allowed a on f.parent_id=a.id
+            where f.tenant_id=${box.tenant_id} and f.mailbox_id=${box.id} and f.deleted_at is null
+          ) select id from allowed`.execute(r.db);
+          const visible = new Set(allowed.rows.map((f) => f.id));
+          const required = [p.folder_id, p.parent_id, ...changes.map((f) => f.id)].filter(
+            (id): id is string => !!id,
+          );
+          if (required.some((id) => !visible.has(id)))
+            throw new UnrecoverableError('Você não tem mais acesso às pastas desta operação.');
+        }
         if (box.receiving_protocol !== 'imap' || localFolder?.is_local) {
           await r.db.transaction().execute(async (tx) => {
             if (action.type === 'create_folder')
@@ -119,30 +179,14 @@ export async function handleFolderAction(
                 .where('special_use', 'is', null)
                 .execute();
             } else {
-              const folder = await tx
-                .selectFrom('folders')
-                .selectAll()
-                .where('id', '=', p.folder_id!)
-                .where('tenant_id', '=', box.tenant_id)
-                .executeTakeFirstOrThrow();
-              if (folder.special_use) throw new Error('Pasta especial não pode ser alterada.');
-              const all = await tx
-                .selectFrom('folders')
-                .selectAll()
-                .where('mailbox_id', '=', box.id)
-                .where('tenant_id', '=', box.tenant_id)
-                .where('is_local', '=', true)
-                .execute();
-              for (const f of all)
-                if (f.id === folder.id || f.imap_path.startsWith(folder.imap_path + '/'))
-                  await tx
-                    .updateTable('folders')
-                    .set({
-                      imap_path: p.imap_path! + f.imap_path.slice(folder.imap_path.length),
-                      ...(f.id === folder.id ? { name: p.name! } : {}),
-                    })
-                    .where('id', '=', f.id)
-                    .execute();
+              for (const { id, ...change } of changes)
+                await tx
+                  .updateTable('folders')
+                  .set(change)
+                  .where('id', '=', id)
+                  .where('tenant_id', '=', box.tenant_id)
+                  .where('mailbox_id', '=', box.id)
+                  .execute();
             }
             await tx
               .updateTable('mail_actions')
@@ -191,33 +235,27 @@ export async function handleFolderAction(
           } else {
             if (!p.imap_path || !p.name) throw Error('Destino inválido.');
             if (folder.imap_path !== p.imap_path) {
-              if (remote.some((f) => f.path === folder.imap_path))
-                await t.imap.mailboxRename(folder.imap_path, p.imap_path);
-              else if (!remote.some((f) => f.path === p.imap_path))
-                throw Error('Pasta não encontrada.');
-              const children = await r.db
-                .selectFrom('folders')
-                .selectAll()
-                .where('tenant_id', '=', box.tenant_id)
-                .where('mailbox_id', '=', box.id)
-                .where('deleted_at', 'is', null)
-                .execute();
-              await r.db.transaction().execute(async (tx) => {
-                for (const f of children) {
-                  if (
-                    f.id === folder.id ||
-                    f.imap_path.startsWith(folder.imap_path + (folder.delimiter ?? '/'))
+              if (remote.some((f) => f.path === folder.imap_path)) {
+                if (
+                  remote.some(
+                    (f) =>
+                      f.path === p.imap_path ||
+                      f.path.startsWith(p.imap_path! + (folder.delimiter ?? '/')),
                   )
-                    await tx
-                      .updateTable('folders')
-                      .set({
-                        imap_path: p.imap_path! + f.imap_path.slice(folder.imap_path.length),
-                        ...(f.id === folder.id ? { name: p.name! } : {}),
-                      })
-                      .where('id', '=', f.id)
-                      .where('tenant_id', '=', box.tenant_id)
-                      .execute();
-                }
+                )
+                  throw new UnrecoverableError('Já existe uma pasta no destino no servidor.');
+                await t.imap.mailboxRename(folder.imap_path, p.imap_path);
+              } else if (!remote.some((f) => f.path === p.imap_path))
+                throw Error('Pasta não encontrada.');
+              await r.db.transaction().execute(async (tx) => {
+                for (const { id, ...change } of changes)
+                  await tx
+                    .updateTable('folders')
+                    .set(change)
+                    .where('id', '=', id)
+                    .where('tenant_id', '=', box.tenant_id)
+                    .where('mailbox_id', '=', box.id)
+                    .execute();
               });
             }
           }
@@ -235,7 +273,9 @@ export async function handleFolderAction(
         if (isConnectionError(error)) await markMailboxError(r, box, error);
         if (lastAttempt || error instanceof UnrecoverableError) {
           const text =
-            'Não foi possível alterar a pasta. Confira se ela ainda existe e, para excluir, se está vazia.';
+            error instanceof UnrecoverableError
+              ? error.message
+              : 'Não foi possível alterar a pasta. Confira se ela e o destino ainda existem; para excluir, a pasta deve estar vazia.';
           await r.db.transaction().execute(async (tx) => {
             await tx
               .updateTable('mail_actions')

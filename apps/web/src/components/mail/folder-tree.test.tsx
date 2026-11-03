@@ -48,7 +48,7 @@ const root: Folder = {
 };
 function mount(activeId?: string, userId = 'user', mailboxId = 'box') {
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
-  client.setQueryData(['me'], { user: { id: userId }, current_tenant_id: 'tenant' });
+  client.setQueryData(['me'], { user: { id: userId }, current_tenant_id: 'tenant', tenants: [] });
   return render(
     <QueryClientProvider client={client}>
       <FolderTree mailboxId={mailboxId} folders={[root]} activeId={activeId} />
@@ -105,4 +105,34 @@ it('reveals the selected folder even when its parents were previously saved as c
     'aria-expanded',
     'true',
   );
+});
+
+it('keeps the drafts shortcut after sent mail when the personal folder order changes', () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+  });
+  client.setQueryData(['me'], { user: { id: 'user' }, current_tenant_id: 'tenant', tenants: [] });
+  client.setQueryData(['mail-navigation', 'tenant', 'user'], {
+    mailbox_order: [],
+    folder_orders: { 'box:root': ['root', 'inbox', 'sent'] },
+    favorite_folder_ids: [],
+  });
+  const inbox = { ...root, id: 'inbox', name: 'Entrada', special_use: 'inbox', children: [] };
+  const sent = { ...root, id: 'sent', name: 'Saída', special_use: 'sent', children: [] };
+  render(
+    <QueryClientProvider client={client}>
+      <FolderTree
+        mailboxId="box"
+        folders={[inbox, sent, root]}
+        draftsFallback={<span data-testid="draft-fallback">Rascunhos locais</span>}
+      />
+    </QueryClientProvider>,
+  );
+  const list = screen.getByRole('list', { name: 'Pastas da caixa' });
+  expect([...list.children].map((item) => item.textContent)).toEqual([
+    'Importados',
+    'Caixa de entrada',
+    'Enviados',
+    'Rascunhos locais',
+  ]);
 });

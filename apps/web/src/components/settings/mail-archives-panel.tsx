@@ -9,6 +9,7 @@ import {
   mailArchiveFormat,
   type MailArchiveTask,
   type TenantQuota,
+  type ArchiveFolderOrder,
 } from '@apmail/shared';
 import { api } from '@/lib/api';
 import { archiveFingerprint } from '@/lib/mail-archive-upload';
@@ -23,6 +24,13 @@ import { formatStorageBytes } from '@/lib/storage-metering';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ConfigurableTable } from '@/components/data/configurable-table';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { StatusBadge, type StatusVariant } from '@/components/common/status-badge';
@@ -65,6 +73,7 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
     [query, setQuery] = useState(() => listQuerySchema.parse({}));
   const [fingerprint, setFingerprint] = useState<string | null>(null);
   const [uploadTask, setUploadTask] = useState<MailArchiveTask | null>(null);
+  const [folderOrder, setFolderOrder] = useState<ArchiveFolderOrder>('original');
   const selection = useRef(0),
     fileInput = useRef<HTMLInputElement | null>(null);
   const [acting, setActing] = useState<string | null>(null);
@@ -137,6 +146,7 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
       if (version !== selection.current) return;
       setFingerprint(hash);
       setUploadTask(pending ?? null);
+      if (pending) setFolderOrder(pending.folder_order);
       setProgress(Math.floor((Number(pending?.uploaded_bytes ?? 0) * 100) / value.size));
       const result = await api<Admission>(
         '/mailboxes/' + mailboxId + '/archive-imports/preflight',
@@ -164,6 +174,7 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
       selectedFile,
       selectedFingerprint,
       uploadTask ?? transfer?.task ?? null,
+      transfer?.file ? transfer.folderOrder : folderOrder,
     );
     setFile(null);
     setUploadTask(null);
@@ -240,6 +251,34 @@ export function MailArchivesPanel({ mailboxId }: { mailboxId: string }) {
           disabled={busy}
           onChange={(e) => void choose(e.target.files?.[0] ?? null)}
         />
+        <div className="space-y-2">
+          <Label htmlFor={'archive-order-' + mailboxId}>Ordem das novas pastas</Label>
+          <Select
+            value={
+              uploadTask?.folder_order ?? (transfer?.file ? transfer.folderOrder : folderOrder)
+            }
+            disabled={busy || !!uploadTask || !!transfer?.file}
+            onValueChange={(value) => setFolderOrder(value as ArchiveFolderOrder)}
+          >
+            <SelectTrigger id={'archive-order-' + mailboxId} className="w-full sm:w-80">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="original">Original do arquivo / Outlook</SelectItem>
+              <SelectItem value="alphabetical">Alfabética (A–Z)</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-sm text-muted-foreground">
+            A ordem original usa a posição personalizada do Outlook quando disponível no PST/OST;
+            caso contrário, segue a sequência de pastas gravada no arquivo. Pastas já existentes
+            mantêm sua posição. As novas mensagens importadas entram como lidas.
+          </p>
+          {(uploadTask || transfer?.file) && (
+            <p className="text-sm text-muted-foreground">
+              A retomada mantém a ordem escolhida no início do envio.
+            </p>
+          )}
+        </div>
         {selectedFile && (
           <p className="break-all text-sm">
             {selectedFile.name} · {formatStorageBytes(String(selectedFile.size))}

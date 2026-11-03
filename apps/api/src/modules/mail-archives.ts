@@ -27,6 +27,8 @@ import type { Resources } from './resources.js';
 import { registerMailArchiveExports } from './mail-archive-exports.js';
 
 const taskColumns = [
+  'folder_order',
+  'mark_read',
   'id',
   'filename',
   'format',
@@ -188,6 +190,7 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
           mailbox_id: id,
           created_by: c.userId,
           filename: b.filename,
+          folder_order: b.folder_order,
           format,
           size_bytes: b.size_bytes,
           upload_fingerprint: b.upload_fingerprint ?? null,
@@ -200,7 +203,7 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
         action: 'mail.archive_created',
         entityType: 'mailbox',
         entityId: id,
-        metadata: { import_id: row.id, format, bytes: b.size_bytes },
+        metadata: { import_id: row.id, format, bytes: b.size_bytes, folder_order: b.folder_order },
         ip: c.ip,
       });
       return row;

@@ -14,6 +14,12 @@ POP3 e arquivos locais exibem **Não aplicável** para cota do provedor; não co
 
 ## Importação
 
+Desde a migration `0069_archive_order.sql`, novas importações permitem escolher **Original do arquivo / Outlook** (padrão) ou **Alfabética (A–Z)** antes do envio. A escolha e o manifesto de pastas ficam na tarefa e são mantidos nas retomadas. A posição é aplicada apenas às pastas criadas pela importação; pastas existentes mantêm sua ordem. Pastas vazias do PST/OST e entradas de diretório no ZIP também são preservadas quando há e-mails suportados no arquivo.
+
+No PST/OST, a opção original usa a propriedade binária `PR_SORT_POSITION` (`0x30200102`) quando disponível por pasta; posições empatadas mantêm a sequência do arquivo. Sem essa propriedade, preserva a enumeração da hierarquia fornecida pelo libpff, que pode diferir da organização personalizada vista no Outlook. O importador não consegue recuperar preferências que não estejam gravadas no backup. ZIP segue a sequência das entradas. Importações antigas mantêm a enumeração anterior para conservar o significado de seu checkpoint.
+
+Mensagens de novas importações entram como lidas para usuários atuais com acesso à pasta. O marcador usa a data da conversa importada, permitindo que recebimentos futuros voltem a aparecer como não lidos. Se o histórico se unir a uma conversa que já estava não lida, esse estado é preservado; duplicados e importações antigas não são marcados indiscriminadamente. A migration não altera mensagens, estados pessoais ou posições existentes.
+
 Textos extraídos com caractere nulo (`0x00`) são normalizados antes de gravar no PostgreSQL: corpo, HTML, cabeçalhos, endereços, pastas e metadados de anexos. MIME original e arquivos binários permanecem intactos. Isso evita `invalid byte sequence for encoding "UTF8": 0x00` no meio de uma importação.
 
 O botão **Retomar** aparece diretamente junto às importações com falha ou pausadas, preservando cursor, contadores, análise e origem. Não é necessário reenviar o PST. A origem só é removida após confirmar a conclusão no banco; falha na limpeza é repetida separadamente. Falha ao acessar a fila também permite tentar Retomar novamente.

@@ -97,6 +97,12 @@ export async function createArchiveFolderResolver(db: Kysely<DB>, mailbox: Mailb
         special_use: use,
         special_use_official: !!use,
         is_local: true,
+        // Append only newly created siblings. Existing layouts and reimports stay intact.
+        sort_order:
+          Math.max(
+            0,
+            ...folders.filter((f) => f.parent_id === (parent?.id ?? null)).map((f) => f.sort_order),
+          ) + 1,
       })
       .onConflict((oc) =>
         oc.columns(['mailbox_id', 'imap_path']).where('deleted_at', 'is', null).doNothing(),

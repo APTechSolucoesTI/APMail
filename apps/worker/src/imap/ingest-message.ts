@@ -15,6 +15,7 @@ import {
   applyCalendarMessage,
   registerSecurityFile,
   enqueueSecurityScan,
+  userCanReadFolder,
 } from '@apmail/db';
 import { isAutomated, type Address } from '@apmail/shared';
 import { sql, type Selectable, type Kysely } from 'kysely';
@@ -43,6 +44,7 @@ export async function ingestMessage(
     key: string;
     historical: boolean;
     measureStorage?: boolean;
+    markRead?: boolean;
     persisted?: (tx: Kysely<DB>, imported: boolean, addedStorageBytes?: bigint) => Promise<void>;
   },
 ): Promise<string> {
@@ -209,6 +211,16 @@ export async function ingestMessage(
         );
       const before = external?.measureStorage ? await usage() : 0n;
       const threadId = await resolveThread(trx, metadata, own);
+      const previousInbound =
+        external?.kind === 'archive' && external.markRead
+          ? (
+              await trx
+                .selectFrom('threads')
+                .select('last_inbound_at')
+                .where('id', '=', threadId)
+                .executeTakeFirstOrThrow()
+            ).last_inbound_at
+          : null;
       const hasMessage = await trx
         .selectFrom('messages')
         .select('id')
@@ -320,6 +332,37 @@ export async function ingestMessage(
         own.includes(from.address) ? 'outbound' : 'inbound',
         null,
       );
+      if (external?.kind === 'archive' && external.markRead) {
+        const members = await trx
+          .selectFrom('tenant_members')
+          .select('user_id')
+          .where('tenant_id', '=', box.tenant_id)
+          .where('status', '=', 'active')
+          .execute();
+        const cutoff = (
+          await trx
+            .selectFrom('threads')
+            .select('last_inbound_at')
+            .where('id', '=', threadId)
+            .executeTakeFirstOrThrow()
+        ).last_inbound_at;
+        if (cutoff)
+          for (const member of members) {
+            if (!(await userCanReadFolder(trx, box.tenant_id, box.id, member.user_id, folder.id)))
+              continue;
+            // Preserve a user's existing unread conversation, including live IMAP/POP mail.
+            // Advance only to actual imported message time, so future mail remains unread.
+            await sql`insert into thread_user_state(thread_id,user_id,tenant_id,last_read_at)
+            select ${threadId}::uuid,${member.user_id}::uuid,${box.tenant_id}::uuid,${cutoff}::timestamptz
+            where ${previousInbound}::timestamptz is null or exists (
+              select 1 from thread_user_state where thread_id=${threadId}::uuid and user_id=${member.user_id}::uuid
+              and last_read_at >= ${previousInbound}::timestamptz)
+            on conflict(thread_id,user_id) do update
+              set last_read_at=greatest(thread_user_state.last_read_at,excluded.last_read_at)`.execute(
+              trx,
+            );
+          }
+      }
       const confirmedThreads = parsed
         ? await processMdnReceipt(trx, parsed, box.tenant_id, box.id, id)
         : [];

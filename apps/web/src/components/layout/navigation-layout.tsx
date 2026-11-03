@@ -1,5 +1,4 @@
-import type { ReactNode } from 'react';
-import { useDefaultLayout } from 'react-resizable-panels';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 
@@ -16,24 +15,55 @@ export function NavigationLayout({
 }) {
   const desktop = useMediaQuery('(min-width: 1024px)');
   const showNavigation = desktop && visible;
-  const layout = useDefaultLayout({
-    id: 'apmail-navigation:' + userId,
-    panelIds: showNavigation ? ['navigation', 'workspace'] : ['workspace'],
-    storage: localStorage,
-    onlySaveAfterUserInteractions: true,
-  });
+  const key = 'apmail-navigation-width:' + userId;
+  const storedWidth = useMemo(() => {
+    try {
+      const width = Number(localStorage.getItem(key));
+      if (Number.isFinite(width) && width >= 240 && width <= 480) return width;
+      // Preserve preferences from the former percentage-based layout.
+      const legacy: unknown = JSON.parse(
+        localStorage.getItem(
+          'react-resizable-panels:apmail-navigation:' + userId + ':navigation:workspace',
+        ) ?? 'null',
+      );
+      if (
+        legacy &&
+        typeof legacy === 'object' &&
+        'navigation' in legacy &&
+        typeof legacy.navigation === 'number'
+      )
+        return Math.max(240, Math.min(480, (window.innerWidth * legacy.navigation) / 100));
+    } catch {
+      /* Local preferences must not prevent navigation. */
+    }
+    return 300;
+  }, [key, userId]);
+  const [adjusted, setAdjusted] = useState<{ key: string; width: number } | null>(null);
+  const width = adjusted?.key === key ? adjusted.width : storedWidth;
+  const navigation = useRef<HTMLDivElement | null>(null);
   return (
     <ResizablePanelGroup
       orientation="horizontal"
       className="h-dvh min-h-0 overflow-hidden"
-      defaultLayout={layout.defaultLayout}
-      onLayoutChanged={layout.onLayoutChanged}
+      onLayoutChanged={(_layout, meta) => {
+        if (!showNavigation || !meta.isUserInteraction) return;
+        const pixels = navigation.current?.getBoundingClientRect().width;
+        if (!pixels || !Number.isFinite(pixels)) return;
+        const next = Math.max(240, Math.min(480, Math.round(pixels)));
+        setAdjusted({ key, width: next });
+        try {
+          localStorage.setItem(key, String(next));
+        } catch {
+          /* Optional UI preference. */
+        }
+      }}
     >
       {showNavigation && (
         <>
           <ResizablePanel
             id="navigation"
-            defaultSize="300px"
+            elementRef={navigation}
+            defaultSize={width + 'px'}
             minSize="240px"
             maxSize="480px"
             groupResizeBehavior="preserve-pixel-size"

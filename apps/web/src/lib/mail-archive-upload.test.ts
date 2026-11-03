@@ -18,6 +18,8 @@ const task = (
   uploaded = 0,
   state: MailArchiveTask['state'] = 'uploading',
 ): MailArchiveTask => ({
+  folder_order: 'original',
+  mark_read: true,
   id: 'task',
   filename: 'backup.pst',
   format: 'pst',
