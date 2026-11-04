@@ -381,3 +381,76 @@ it('returns flags and sent replies only within the readable row scope and separa
     is_pinned_global: true,
   });
 });
+
+it('counts the readable conversation shown in detail even when replies are stored in Sent', async () => {
+  const thread = randomUUID(),
+    sentFolder = randomUUID();
+  await db
+    .insertInto('folders')
+    .values({
+      id: sentFolder,
+      tenant_id: tenant,
+      mailbox_id: box,
+      name: 'Enviados contagem',
+      imap_path: 'SentCount-' + sentFolder,
+      special_use: 'sent',
+      is_local: true,
+    })
+    .execute();
+  await db
+    .insertInto('threads')
+    .values({
+      id: thread,
+      tenant_id: tenant,
+      mailbox_id: box,
+      subject: 'Contagem completa',
+      subject_normalized: 'contagem completa',
+    })
+    .execute();
+  await db
+    .insertInto('messages')
+    .values(
+      Array.from({ length: 5 }, (_, index) => ({
+        id: randomUUID(),
+        tenant_id: tenant,
+        mailbox_id: box,
+        thread_id: thread,
+        folder_id: index < 2 || index === 4 ? a : sentFolder,
+        direction: index < 2 ? ('inbound' as const) : ('outbound' as const),
+        subject: 'Contagem completa',
+        message_id_header: '<' + randomUUID() + '@count.test>',
+        message_at: new Date(Date.now() + index * 1000),
+        source_kind: 'archive',
+        deleted_at: index === 4 ? new Date() : null,
+      })),
+    )
+    .execute();
+  const get = async (path: string, who = user) => {
+    const response = await app.inject({
+      url: '/api' + path,
+      headers: { origin, cookie: cookies.get(who)! },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    return response.json();
+  };
+  const detail = await get('/threads/' + thread);
+  expect(detail.messages).toHaveLength(4);
+  const folderPath = '/mailboxes/' + box + '/threads?folder_id=' + a;
+  expect(
+    (await get(folderPath)).items.find((item: { id: string }) => item.id === thread),
+  ).toMatchObject({ message_count: detail.messages.length });
+  const restricted = await get('/threads/' + thread, limited);
+  expect(restricted.messages).toHaveLength(2);
+  expect(
+    (await get(folderPath, limited)).items.find((item: { id: string }) => item.id === thread),
+  ).toMatchObject({ message_count: restricted.messages.length });
+  const summary = await get('/mail-summary/threads?view=search');
+  expect(summary.items.find((item: { id: string }) => item.id === thread)).toMatchObject({
+    message_count: 4,
+  });
+  const sent = await get('/mailboxes/' + box + '/threads?folder_id=' + sentFolder);
+  expect(sent.items).toHaveLength(2);
+  expect(sent.items.every((item: { message_count: number }) => item.message_count === 1)).toBe(
+    true,
+  );
+});

@@ -186,14 +186,6 @@ export function ThreadListItem({
           >
             {sender.name || thread.participants.join(', ')}
           </p>
-          {thread.message_count > 1 && (
-            <span
-              className="text-xs text-muted-foreground"
-              aria-label={thread.message_count + ' mensagens'}
-            >
-              {thread.message_count}
-            </span>
-          )}
           <time
             dateTime={thread.last_message_at ?? undefined}
             title={fullTime}
@@ -238,6 +230,14 @@ export function ThreadListItem({
         >
           {thread.subject || '(Sem assunto)'}
         </p>
+        {thread.message_count > 1 && (
+          <span
+            className="mt-1 inline-flex rounded border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+            title={thread.message_count + ' mensagens na conversa'}
+          >
+            {thread.message_count} mensagens
+          </span>
+        )}
         <p className="mt-0.5 truncate text-xs text-muted-foreground" title={thread.snippet}>
           <SearchHighlight text={thread.snippet} query={query} />
         </p>
