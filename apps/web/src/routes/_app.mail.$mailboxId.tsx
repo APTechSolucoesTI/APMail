@@ -1,6 +1,7 @@
 import { Pagination } from '@/components/data/pagination';
 import { MailContextMenu } from '@/components/mail/mail-context-menu';
 import { ThreadListItem } from '@/components/mail/thread-list-item';
+import { FolderPasteMenu } from '@/components/mail/folder-paste-menu';
 import { EmptyTrashButton } from '@/components/mail/empty-trash-button';
 import { MailboxDrafts } from '@/components/mail/mailbox-drafts';
 import { MAIL_MOVED_EVENT, selectionAfterMove, type MessageDrag } from '@/lib/mail-drag';
@@ -651,7 +652,11 @@ function MailPage() {
       />
     );
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <FolderPasteMenu
+      mailbox={box.data}
+      folder={search.view === 'folder' && !isDrafts ? folder : undefined}
+      className="flex min-h-0 flex-1 flex-col gap-4"
+    >
       <header className="flex shrink-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           {search.fromSummary && (
@@ -771,6 +776,6 @@ function MailPage() {
           setPendingCompose(null);
         }}
       />
-    </div>
+    </FolderPasteMenu>
   );
 }

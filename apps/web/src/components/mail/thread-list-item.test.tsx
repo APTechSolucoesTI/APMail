@@ -40,6 +40,7 @@ function open(mailbox: Pick<Mailbox, 'id' | 'role' | 'permissions'>, item = thre
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
   client.setQueryData(['me'], {
+    user: { id: 'person' },
     current_tenant_id: 'tenant',
     tenants: [{ id: 'tenant', role: 'owner', mail_queues_enabled: false }],
     preferences: {},

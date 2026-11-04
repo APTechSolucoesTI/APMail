@@ -6,7 +6,7 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleSlash,
-  Clipboard,
+  Scissors,
   Copy,
   Eye,
   Flag,
@@ -49,6 +49,7 @@ import {
   type ThreadDetail,
 } from '@/lib/mail';
 import { cn } from '@/lib/utils';
+import { cutMail } from '@/lib/mail-cut';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ContactAssociationDialog } from '@/components/contacts/contact-association-dialog';
 import { ContactEditorDialog } from '@/components/contacts/contact-form';
@@ -197,9 +198,6 @@ export function MailContextMenu({
         .map((item) => item.id)
     : [];
   const outbound = (message?.direction ?? thread.direction) === 'outbound';
-  const addresses = outbound
-    ? (message?.to_addresses ?? thread.latest_to ?? []).map((item) => item.address).join(', ')
-    : (message?.from_address ?? thread.latest_from.address);
   const contactAddress =
     message && !message.is_mdn
       ? outbound
@@ -242,14 +240,6 @@ export function MailContextMenu({
         }),
       'Aplicando alteração no servidor…',
     );
-  const copy = async (value: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      toast.success('Copiado.');
-    } catch {
-      toast.error('Não foi possível copiar.');
-    }
-  };
   const error = box.isError || folders.isError || detail.isError;
   const loading = !box.data || !folders.data || !detail.data;
   return (
@@ -378,20 +368,28 @@ export function MailContextMenu({
                     </Item>
                   )}
                 </Group>
-                <Group label="Copiar" icon={<Clipboard />}>
-                  <Item disabled={!thread.subject} onSelect={() => void copy(thread.subject)}>
-                    Copiar assunto
-                  </Item>
-                  <Item disabled={!addresses} onSelect={() => void copy(addresses)}>
-                    {outbound ? 'Copiar destinatários' : 'Copiar endereço do remetente'}
-                  </Item>
+                {mayMove && message && (
                   <Item
-                    disabled={!message?.body_text}
-                    onSelect={() => void copy(message?.body_text ?? '')}
+                    disabled={pending || !tenant || !userId}
+                    onSelect={() => {
+                      if (!tenant || !userId) return;
+                      cutMail({
+                        tenantId: tenant,
+                        userId,
+                        mailboxId,
+                        threadId: thread.id,
+                        messageId,
+                        messages: messages.map((item) => ({
+                          id: item.id,
+                          folderId: item.folder_id,
+                        })),
+                      });
+                      toast.success('E-mail recortado. Abra a pasta de destino e use Colar.');
+                    }}
                   >
-                    Copiar texto
+                    <Scissors /> Recortar
                   </Item>
-                </Group>
+                )}
                 {contacts &&
                   contactAddress?.address &&
                   (contact || createContact || editContact) && (

@@ -31,6 +31,7 @@ import { api } from '@/lib/api';
 import { toast } from 'sonner';
 import { resolveAddress, type ContactResolution } from '@apmail/shared';
 import { useMessageDrag } from '@/hooks/use-message-drag';
+import { useCutMail } from '@/lib/mail-cut';
 export function ThreadListItem({
   thread,
   selected,
@@ -62,11 +63,16 @@ export function ThreadListItem({
       ? thread.latest_to[0]!
       : thread.latest_from;
   const sender = resolveAddress(identity, contacts);
-  const timeZone = useQuery(meQuery).data?.preferences.timezone ?? 'America/Sao_Paulo';
+  const me = useQuery(meQuery).data;
+  const timeZone = me?.preferences.timezone ?? 'America/Sao_Paulo';
   const queuesEnabled = useMailQueues();
   const fullTime = date?.toLocaleString('pt-BR', { timeZone });
   const dragging = useMessageDrag(drag);
   const tenant = useTenantId();
+  const { cut } = useCutMail(tenant, me?.user.id);
+  const isCut =
+    cut?.threadId === thread.id &&
+    (!thread.message_id || cut.messages.some((message) => message.id === thread.message_id));
   const client = useQueryClient();
   const mayFlag =
     useAccess('mail.flag') &&
@@ -138,6 +144,7 @@ export function ThreadListItem({
         drag &&
           'cursor-grab active:cursor-grabbing transition-[opacity,background-color,box-shadow] motion-reduce:transition-none',
         dragging.dragging && 'opacity-50 bg-accent ring-2 ring-inset ring-primary',
+        isCut && 'opacity-50',
       )}
     >
       <Checkbox
