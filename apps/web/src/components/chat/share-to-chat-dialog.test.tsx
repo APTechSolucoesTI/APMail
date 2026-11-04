@@ -33,6 +33,34 @@ vi.mock('./people-picker', () => ({
   PeopleQueryState: () => null,
   PeoplePicker: () => null,
 }));
+it('opens without a trigger, blocks closure during sharing and reports successful close', async () => {
+  let finish!: () => void;
+  vi.mocked(api).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => resolve({});
+      }),
+  );
+  const onClose = vi.fn();
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ShareToChatDialog
+        threadId="20000000-0000-4000-8000-000000000001"
+        initialOpen
+        hideTrigger
+        onClose={onClose}
+      />
+    </QueryClientProvider>,
+  );
+  expect(screen.queryByRole('button', { name: 'Compartilhar no chat' })).not.toBeInTheDocument();
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Equipe' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Compartilhar e-mail' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled());
+  fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+  expect(onClose).not.toHaveBeenCalled();
+  finish();
+  await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+});
 it('compartilha cada conversa selecionada e preserva os identificadores ao repetir após falha parcial', async () => {
   const ids = ['20000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000002'];
   let attempt = 0;

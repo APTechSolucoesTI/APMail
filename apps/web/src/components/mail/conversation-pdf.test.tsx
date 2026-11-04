@@ -9,6 +9,16 @@ vi.mock('@/lib/pdf-preview', () => ({
   }),
   printPdfPages: vi.fn().mockResolvedValue(undefined),
 }));
+it('opens directly without a toolbar trigger and reports closure', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 503 })));
+  const onClose = vi.fn();
+  render(<ConversationPdf threadId="context-thread" initialOpen hideTrigger onClose={onClose} />);
+  expect(screen.getByRole('dialog')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Imprimir conversa' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Fechar' }));
+  expect(onClose).toHaveBeenCalledOnce();
+  vi.unstubAllGlobals();
+});
 
 it('previews the whole thread PDF and offers download and printing', async () => {
   const fetch = vi.fn().mockResolvedValue(
@@ -66,13 +76,11 @@ it('keeps the PDF available for download when only the preview fails', async () 
   vi.mocked(renderPdfPreview).mockRejectedValueOnce(new Error('worker unavailable'));
   vi.stubGlobal(
     'fetch',
-    vi
-      .fn()
-      .mockResolvedValue(
-        new Response(new Blob(['%PDF-1.7'], { type: 'application/pdf' }), {
-          headers: { 'Content-Type': 'application/pdf' },
-        }),
-      ),
+    vi.fn().mockResolvedValue(
+      new Response(new Blob(['%PDF-1.7'], { type: 'application/pdf' }), {
+        headers: { 'Content-Type': 'application/pdf' },
+      }),
+    ),
   );
   Object.defineProperty(URL, 'createObjectURL', {
     configurable: true,

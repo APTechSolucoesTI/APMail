@@ -30,32 +30,47 @@ export function ShareToChatDialog({
   threadId,
   threadIds,
   iconOnly = false,
+  initialOpen = false,
+  hideTrigger = false,
+  onClose,
 }: {
   threadId: string;
   threadIds?: string[];
   iconOnly?: boolean;
+  initialOpen?: boolean;
+  hideTrigger?: boolean;
+  onClose?: () => void;
 }) {
-  const [open, setOpen] = useState(false),
+  const [open, setOpen] = useState(initialOpen),
     [busy, setBusy] = useState(false);
+  const close = () => {
+    setOpen(false);
+    onClose?.();
+  };
   return (
     <Dialog
       open={open}
       onOpenChange={(value) => {
-        if (!busy) setOpen(value);
+        if (!busy) {
+          if (value) setOpen(true);
+          else close();
+        }
       }}
     >
-      <DialogTrigger asChild>
-        {iconOnly ? (
-          <MailActionButton label="Compartilhar no chat" text="Compartilhar">
-            <MessageSquare />
-          </MailActionButton>
-        ) : (
-          <Button variant="outline" size="sm" aria-label="Compartilhar no chat">
-            <MessageSquare className="size-4" aria-hidden />
-            Compartilhar
-          </Button>
-        )}
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger asChild>
+          {iconOnly ? (
+            <MailActionButton label="Compartilhar no chat" text="Compartilhar">
+              <MessageSquare />
+            </MailActionButton>
+          ) : (
+            <Button variant="outline" size="sm" aria-label="Compartilhar no chat">
+              <MessageSquare className="size-4" aria-hidden />
+              Compartilhar
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="max-h-[90dvh] overflow-y-auto" showCloseButton={!busy}>
         <DialogHeader>
           <DialogTitle>Compartilhar no chat</DialogTitle>
@@ -66,12 +81,7 @@ export function ShareToChatDialog({
           </DialogDescription>
         </DialogHeader>
         {open && (
-          <ShareForm
-            threadId={threadId}
-            threadIds={threadIds}
-            onClose={() => setOpen(false)}
-            onBusy={setBusy}
-          />
+          <ShareForm threadId={threadId} threadIds={threadIds} onClose={close} onBusy={setBusy} />
         )}
       </DialogContent>
     </Dialog>

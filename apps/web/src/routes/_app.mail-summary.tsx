@@ -13,6 +13,7 @@ import { SearchInput } from '@/components/data/search-input';
 import { Pagination } from '@/components/data/pagination';
 import { LoadingState, ErrorState, EmptyState } from '@/components/data/data-state';
 import { MailSelectionActions } from '@/components/mail/mail-selection-actions';
+import { MailContextMenu } from '@/components/mail/mail-context-menu';
 import { ThreadListItem } from '@/components/mail/thread-list-item';
 
 export const Route = createFileRoute('/_app/mail-summary')({
@@ -175,30 +176,46 @@ function SummaryPage() {
               description="Ajuste os filtros ou aguarde novas mensagens nas caixas acessíveis."
             />
           ) : (
-            items.map((thread) => (
-              <ThreadListItem
-                key={thread.id}
-                thread={thread}
-                showMailbox
-                contacts={result.data?.contacts}
-                query={search.q}
-                active={false}
-                selected={ids.includes(thread.id)}
-                onSelect={(value) =>
-                  setSelected({
-                    context,
-                    ids: value ? [...ids, thread.id] : ids.filter((id) => id !== thread.id),
-                  })
-                }
-                onOpen={() =>
-                  void navigate({
-                    to: '/mail/$mailboxId',
-                    params: { mailboxId: thread.mailbox_id! },
-                    search: { view: 'search', thread: thread.id, fromSummary: true },
-                  })
-                }
-              />
-            ))
+            items.map((thread) => {
+              const mailboxId = thread.mailbox_id!;
+              const open = () =>
+                void navigate({
+                  to: '/mail/$mailboxId',
+                  params: { mailboxId },
+                  search: { view: 'search', thread: thread.id, fromSummary: true },
+                });
+              return (
+                <MailContextMenu
+                  key={thread.id}
+                  thread={thread}
+                  mailboxId={mailboxId}
+                  onOpen={open}
+                  onCompose={(compose) =>
+                    void navigate({
+                      to: '/mail/$mailboxId',
+                      params: { mailboxId },
+                      search: { compose, composeThread: thread.id, fromSummary: true },
+                    })
+                  }
+                >
+                  <ThreadListItem
+                    thread={thread}
+                    showMailbox
+                    contacts={result.data?.contacts}
+                    query={search.q}
+                    active={false}
+                    selected={ids.includes(thread.id)}
+                    onSelect={(value) =>
+                      setSelected({
+                        context,
+                        ids: value ? [...ids, thread.id] : ids.filter((id) => id !== thread.id),
+                      })
+                    }
+                    onOpen={open}
+                  />
+                </MailContextMenu>
+              );
+            })
           )}
         </div>
         <Pagination

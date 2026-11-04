@@ -11,8 +11,20 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-export function ConversationPdf({ threadId, subject }: { threadId: string; subject?: string }) {
-  const [open, setOpen] = useState(false);
+export function ConversationPdf({
+  threadId,
+  subject,
+  initialOpen = false,
+  hideTrigger = false,
+  onClose,
+}: {
+  threadId: string;
+  subject?: string;
+  initialOpen?: boolean;
+  hideTrigger?: boolean;
+  onClose?: () => void;
+}) {
+  const [open, setOpen] = useState(initialOpen);
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{
     key: string;
@@ -76,17 +88,25 @@ export function ConversationPdf({ threadId, subject }: { threadId: string; subje
   };
   return (
     <>
-      <MailActionButton
-        label="Imprimir conversa"
-        text="Imprimir"
-        onClick={() => {
-          setAttempt((value) => value + 1);
-          setOpen(true);
+      {!hideTrigger && (
+        <MailActionButton
+          label="Imprimir conversa"
+          text="Imprimir"
+          onClick={() => {
+            setAttempt((value) => value + 1);
+            setOpen(true);
+          }}
+        >
+          <Printer />
+        </MailActionButton>
+      )}
+      <Dialog
+        open={open}
+        onOpenChange={(value) => {
+          setOpen(value);
+          if (!value) onClose?.();
         }}
       >
-        <Printer />
-      </MailActionButton>
-      <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="flex h-[90dvh] max-h-[960px] flex-col sm:max-w-5xl">
           <DialogHeader className="pr-7">
             <DialogTitle>Imprimir conversa</DialogTitle>

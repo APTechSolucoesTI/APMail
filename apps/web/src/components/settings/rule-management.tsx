@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useTenantId, meQuery, canMailbox, type Mailbox } from '@/lib/auth';
 import type { MailRule } from '@/lib/organization';
+import { createRuleDraft } from '@/lib/rule-draft';
 import { ConfigurableTable } from '@/components/data/configurable-table';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
@@ -73,22 +74,7 @@ export function RuleManagement({
     }
   };
   const create = () => {
-    setDraft({
-      id: '',
-      mailbox_id: mailboxId ?? available[0]?.id ?? '',
-      scope,
-      name: '',
-      is_active: true,
-      priority: 100,
-      match_mode: 'all',
-      conditions: [{ field: 'from', operator: 'contains', value: '' }],
-      exceptions: [],
-      active_from: null,
-      active_until: null,
-      actions: [{ type: scope === 'personal' ? 'pin' : 'mark_flagged' }],
-      stop_processing: false,
-      created_at: '',
-    });
+    setDraft(createRuleDraft(mailboxId ?? available[0]?.id ?? '', scope));
   };
   const table = (
     <ConfigurableTable

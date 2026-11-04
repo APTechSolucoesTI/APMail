@@ -33,6 +33,9 @@ export function MessageActions({
   compact = false,
   inTrash = false,
   iconOnly = true,
+  initialAction,
+  hideTrigger = false,
+  onClose,
 }: {
   mailboxId: string;
   folders: Folder[];
@@ -43,17 +46,36 @@ export function MessageActions({
   compact?: boolean;
   inTrash?: boolean;
   iconOnly?: boolean;
+  initialAction?: 'move' | 'delete';
+  hideTrigger?: boolean;
+  onClose?: () => void;
 }) {
   const mayMove = useAccess('mail.move'),
     mayDelete = useAccess('mail.delete'),
     mayRestore = useAccess('mail.restore') && inTrash,
     mayFlag = useAccess('mail.flag');
   const client = useQueryClient(),
-    [move, setMove] = useState(false),
-    [remove, setRemove] = useState(false),
+    [move, setMove] = useState(initialAction === 'move'),
+    [remove, setRemove] = useState(initialAction === 'delete'),
     [destination, setDestination] = useState<FolderDestination | null>(null);
   const moveTrigger = useRef<HTMLButtonElement>(null),
     removeTrigger = useRef<HTMLButtonElement>(null);
+  const closeNotified = useRef(false);
+  const notifyClose = () => {
+    if (closeNotified.current) return;
+    closeNotified.current = true;
+    onClose?.();
+  };
+  const changeMove = (open: boolean) => {
+    setMove(open);
+    if (open) closeNotified.current = false;
+    else notifyClose();
+  };
+  const changeRemove = (open: boolean) => {
+    setRemove(open);
+    if (open) closeNotified.current = false;
+    else notifyClose();
+  };
   const mutation = useMutation({
     mutationFn: (b: {
       type: string;
@@ -71,8 +93,10 @@ export function MessageActions({
       await client.invalidateQueries({ queryKey: ['folders'] });
       await client.invalidateQueries({ queryKey: ['queue-counts'] });
       setMove(false);
+      setRemove(false);
       setDestination(null);
       onDone?.();
+      notifyClose();
       toast.success('Aplicando alteração no servidor…');
     },
     onError: (e) => toast.error(e.message),
@@ -80,7 +104,7 @@ export function MessageActions({
   if (!mayMove && !mayDelete && !mayRestore && !(mayFlag && flagged !== undefined)) return null;
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
-      {compact ? (
+      {hideTrigger ? null : compact ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             {iconOnly ? (
@@ -112,7 +136,7 @@ export function MessageActions({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
             {mayMove && (
-              <DropdownMenuItem onSelect={() => setMove(true)}>
+              <DropdownMenuItem onSelect={() => changeMove(true)}>
                 <FolderInput /> Mover para pasta
               </DropdownMenuItem>
             )}
@@ -133,7 +157,7 @@ export function MessageActions({
                 {(mayMove || mayRestore || (mayFlag && flagged !== undefined)) && (
                   <DropdownMenuSeparator />
                 )}
-                <DropdownMenuItem variant="destructive" onSelect={() => setRemove(true)}>
+                <DropdownMenuItem variant="destructive" onSelect={() => changeRemove(true)}>
                   <Trash2 /> Excluir
                 </DropdownMenuItem>
               </>
@@ -148,7 +172,7 @@ export function MessageActions({
               text="Mover para pasta"
               ref={moveTrigger}
               disabled={mutation.isPending}
-              onClick={() => setMove(true)}
+              onClick={() => changeMove(true)}
             >
               <FolderInput />
             </MailActionButton>
@@ -158,7 +182,7 @@ export function MessageActions({
               label="Excluir"
               ref={removeTrigger}
               disabled={mutation.isPending}
-              onClick={() => setRemove(true)}
+              onClick={() => changeRemove(true)}
             >
               <Trash2 />
             </MailActionButton>
@@ -185,17 +209,18 @@ export function MessageActions({
       )}
       <ConfirmDialog
         open={remove && mayDelete}
-        onOpenChange={setRemove}
-        returnFocusRef={removeTrigger}
+        onOpenChange={changeRemove}
+        returnFocusRef={hideTrigger ? undefined : removeTrigger}
         destructive
         pending={mutation.isPending}
         title="Excluir mensagens?"
         description={`${threadIds ? threadIds.length + ' conversa(s)' : messageIds?.length + ' mensagem(ns)'} serão movidas para a Lixeira. Mensagens que já estão na Lixeira serão excluídas definitivamente.`}
         onConfirm={() => mutation.mutateAsync({ type: 'delete' })}
       />
-      <Dialog open={move && mayMove} onOpenChange={setMove}>
+      <Dialog open={move && mayMove} onOpenChange={changeMove}>
         <DialogContent
           onCloseAutoFocus={(event) => {
+            if (hideTrigger) return;
             event.preventDefault();
             moveTrigger.current?.focus();
           }}
@@ -217,7 +242,7 @@ export function MessageActions({
             />
           )}
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setMove(false)}>
+            <Button variant="outline" onClick={() => changeMove(false)}>
               Cancelar
             </Button>
             <Button

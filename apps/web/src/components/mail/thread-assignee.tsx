@@ -25,6 +25,7 @@ export function ThreadAssignee({
   showAssigned = true,
   onComplete,
   iconOnly = true,
+  permissions,
 }: {
   mailboxId: string;
   threadIds: string[];
@@ -33,23 +34,24 @@ export function ThreadAssignee({
   showAssigned?: boolean;
   onComplete?: () => void;
   iconOnly?: boolean;
+  permissions?: { self: boolean; others: boolean };
 }) {
   const tenant = useTenantId(),
     client = useQueryClient(),
     me = useQuery(meQuery),
     [open, setOpen] = useState(false),
-    [busy, setBusy] = useState(false),
-    users = useQuery({
-      queryKey: ['assignable', tenant, mailboxId],
-      queryFn: () => api<User[]>('/mailboxes/' + mailboxId + '/assignable'),
-      enabled:
-        can(role, 'assign_others') ||
-        canDelegate(
-          me.data?.tenants.find((t) => t.id === tenant)?.role ?? null,
-          me.data?.tenants.find((t) => t.id === tenant)?.capabilities,
-          'assign_others',
-        ),
-    });
+    [busy, setBusy] = useState(false);
+  const membership = me.data?.tenants.find((t) => t.id === tenant);
+  const mayAssignSelf = permissions?.self ?? can(role, 'assign_self');
+  const mayAssignOthers =
+    permissions?.others ??
+    (can(role, 'assign_others') ||
+      canDelegate(membership?.role ?? null, membership?.capabilities, 'assign_others'));
+  const users = useQuery({
+    queryKey: ['assignable', tenant, mailboxId],
+    queryFn: () => api<User[]>('/mailboxes/' + mailboxId + '/assignable'),
+    enabled: mayAssignOthers,
+  });
   const assign = async (userId: string | null) => {
     setBusy(true);
     try {
@@ -84,7 +86,8 @@ export function ThreadAssignee({
           </span>
         </span>
       )}
-      {can(role, 'assign_self') &&
+      {mayAssignSelf &&
+        me.data &&
         assigned?.id !== me.data?.user.id &&
         (iconOnly ? (
           <MailActionButton
@@ -105,12 +108,7 @@ export function ThreadAssignee({
             {busy ? 'Atribuindo…' : 'Assumir'}
           </Button>
         ))}
-      {(can(role, 'assign_others') ||
-        canDelegate(
-          me.data?.tenants.find((t) => t.id === tenant)?.role ?? null,
-          me.data?.tenants.find((t) => t.id === tenant)?.capabilities,
-          'assign_others',
-        )) && (
+      {mayAssignOthers && (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             {iconOnly ? (

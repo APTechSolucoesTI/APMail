@@ -1,4 +1,5 @@
 import { Pagination } from '@/components/data/pagination';
+import { MailContextMenu } from '@/components/mail/mail-context-menu';
 import { ThreadListItem } from '@/components/mail/thread-list-item';
 import { MailboxDrafts } from '@/components/mail/mailbox-drafts';
 import { MAIL_MOVED_EVENT, selectionAfterMove, type MessageDrag } from '@/lib/mail-drag';
@@ -150,7 +151,10 @@ function MailPage() {
   const [updating, setUpdating] = useState(false);
   const composer = useRef<ComposerHandle>(null),
     [composerSession, setComposerSession] = useState(0),
-    [pendingCompose, setPendingCompose] = useState<string | null>(null);
+    [pendingCompose, setPendingCompose] = useState<{
+      compose: string;
+      composeThread?: string;
+    } | null>(null);
   const change = (patch: Partial<typeof search>) =>
     void navigate({ search: { ...search, ...patch } });
   const close = () => change({ thread: undefined, message: undefined });
@@ -163,9 +167,15 @@ function MailPage() {
       view: search.view === 'search' ? 'folder' : search.view,
       page: 1,
     });
-  const openComposer = (mode: string) => {
-    if (search.compose) setPendingCompose(mode);
-    else if (!search.compose) change({ compose: mode });
+  const openComposer = (mode: string, sourceThreadId?: string) => {
+    const next = {
+      compose: mode,
+      composeThread: sourceThreadId,
+      toEmail: undefined,
+      toName: undefined,
+    };
+    if (search.compose) setPendingCompose(next);
+    else change(next);
   };
   const items = useMemo(
     () => (isDrafts ? [] : (threads.data?.items ?? [])),
@@ -531,53 +541,63 @@ function MailPage() {
           />
         ) : (
           items.map((t) => (
-            <ThreadListItem
-              contacts={threads.data?.contacts}
+            <MailContextMenu
               key={t.message_id ?? t.id}
               thread={t}
-              onQuickTrash={
-                box.data &&
-                mayDelete &&
-                canMailbox(box.data, 'delete') &&
-                canMailbox(box.data, 'organize') &&
-                search.view === 'folder' &&
-                folder?.special_use === 'inbox'
-                  ? () => quickTrash(t)
-                  : undefined
-              }
-              drag={
-                box.data &&
-                mayMove &&
-                canMailbox(box.data, 'move') &&
-                canMailbox(box.data, 'organize')
-                  ? {
-                      mailboxId,
-                      threadIds: individualMessages
-                        ? []
-                        : selected.includes(t.message_id ?? t.id)
-                          ? selectedThreads
-                          : [t.id],
-                      messageIds: individualMessages
-                        ? selected.includes(t.message_id ?? t.id)
-                          ? selected
-                          : [t.message_id!]
-                        : [],
-                    }
-                  : undefined
-              }
-              query={search.q}
-              selected={selected.includes(t.message_id ?? t.id)}
-              active={search.thread === t.id && (!t.message_id || search.message === t.message_id)}
-              onSelect={(v) =>
-                setSelection({
-                  context,
-                  ids: v
-                    ? [...selected, t.message_id ?? t.id]
-                    : selected.filter((id) => id !== (t.message_id ?? t.id)),
-                })
-              }
+              mailboxId={mailboxId}
+              folderId={individualMessages ? folder?.id : undefined}
               onOpen={() => change({ thread: t.id, message: t.message_id ?? undefined })}
-            />
+              onCompose={(mode) => openComposer(mode, t.id)}
+            >
+              <ThreadListItem
+                contacts={threads.data?.contacts}
+                thread={t}
+                onQuickTrash={
+                  box.data &&
+                  mayDelete &&
+                  canMailbox(box.data, 'delete') &&
+                  canMailbox(box.data, 'organize') &&
+                  search.view === 'folder' &&
+                  folder?.special_use === 'inbox'
+                    ? () => quickTrash(t)
+                    : undefined
+                }
+                drag={
+                  box.data &&
+                  mayMove &&
+                  canMailbox(box.data, 'move') &&
+                  canMailbox(box.data, 'organize')
+                    ? {
+                        mailboxId,
+                        threadIds: individualMessages
+                          ? []
+                          : selected.includes(t.message_id ?? t.id)
+                            ? selectedThreads
+                            : [t.id],
+                        messageIds: individualMessages
+                          ? selected.includes(t.message_id ?? t.id)
+                            ? selected
+                            : [t.message_id!]
+                          : [],
+                      }
+                    : undefined
+                }
+                query={search.q}
+                selected={selected.includes(t.message_id ?? t.id)}
+                active={
+                  search.thread === t.id && (!t.message_id || search.message === t.message_id)
+                }
+                onSelect={(v) =>
+                  setSelection({
+                    context,
+                    ids: v
+                      ? [...selected, t.message_id ?? t.id]
+                      : selected.filter((id) => id !== (t.message_id ?? t.id)),
+                  })
+                }
+                onOpen={() => change({ thread: t.id, message: t.message_id ?? undefined })}
+              />
+            </MailContextMenu>
           ))
         )}
       </div>
@@ -706,9 +726,16 @@ function MailPage() {
           initialRecipient={
             search.toEmail ? { address: search.toEmail, name: search.toName ?? '' } : undefined
           }
-          threadId={search.thread}
-          onClose={() => change({ compose: undefined, toEmail: undefined, toName: undefined })}
-          onReopen={(id) => change({ compose: 'draft:' + id })}
+          threadId={search.composeThread ?? search.thread}
+          onClose={() =>
+            change({
+              compose: undefined,
+              composeThread: undefined,
+              toEmail: undefined,
+              toName: undefined,
+            })
+          }
+          onReopen={(id) => change({ compose: 'draft:' + id, composeThread: undefined })}
         />
       )}
       <ConfirmDialog
@@ -721,7 +748,7 @@ function MailPage() {
         onConfirm={async () => {
           await composer.current?.saveDraft();
           setComposerSession((n) => n + 1);
-          change({ compose: pendingCompose ?? undefined });
+          if (pendingCompose) change({ ...pendingCompose, toEmail: undefined, toName: undefined });
           setPendingCompose(null);
         }}
       />

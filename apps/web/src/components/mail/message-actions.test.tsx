@@ -3,11 +3,21 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessageActions } from './message-actions';
 import { api } from '@/lib/api';
+import type { ComponentProps } from 'react';
 
 const grants = vi.hoisted(() => new Set<string>());
-vi.mock('@/lib/auth', () => ({ useAccess: (key: string) => grants.has(key) }));
+vi.mock('@/lib/auth', () => ({
+  useAccess: (key: string) => grants.has(key),
+  useTenantId: () => 'tenant',
+  canMailbox: () => false,
+}));
 vi.mock('@/lib/api', () => ({ api: vi.fn().mockResolvedValue({}) }));
-function setup(compact = false, flagged: boolean | null = false, inTrash = false) {
+function setup(
+  compact = false,
+  flagged: boolean | null = false,
+  inTrash = false,
+  props: Partial<ComponentProps<typeof MessageActions>> = {},
+) {
   return render(
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
@@ -19,6 +29,7 @@ function setup(compact = false, flagged: boolean | null = false, inTrash = false
         flagged={flagged ?? undefined}
         compact={compact}
         inTrash={inTrash}
+        {...props}
       />
     </QueryClientProvider>,
   );
@@ -28,6 +39,37 @@ beforeEach(() => {
   vi.mocked(api).mockClear();
 });
 describe('MessageActions', () => {
+  it('opens moving directly and reports user cancellation', () => {
+    grants.add('mail.move');
+    const onClose = vi.fn();
+    setup(false, false, false, { initialAction: 'move', hideTrigger: true, onClose });
+    expect(screen.getByRole('dialog', { name: 'Mover mensagens' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Mover para pasta' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+  it('opens deletion without toolbar triggers and notifies completion once', async () => {
+    grants.add('mail.delete');
+    const onClose = vi.fn(),
+      onDone = vi.fn();
+    setup(false, false, false, { initialAction: 'delete', hideTrigger: true, onClose, onDone });
+    expect(screen.getByRole('alertdialog')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Excluir' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
+  it('keeps a context deletion dialog open after failure and notifies cancellation', async () => {
+    grants.add('mail.delete');
+    const onClose = vi.fn();
+    vi.mocked(api).mockRejectedValueOnce(new Error('Tente novamente.'));
+    setup(false, false, false, { initialAction: 'delete', hideTrigger: true, onClose });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Tente novamente');
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
   it('não oferece restaurar fora da Lixeira, mesmo com a permissão concedida', () => {
     grants.add('mail.restore');
     setup();

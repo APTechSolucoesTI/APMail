@@ -67,6 +67,7 @@ export function ThreadListItem({
       />
       <button
         type="button"
+        data-mail-row-open
         onClick={onOpen}
         aria-current={active ? 'true' : undefined}
         aria-label={(thread.is_unread ? 'Não lida: ' : '') + (thread.subject || '(Sem assunto)')}
