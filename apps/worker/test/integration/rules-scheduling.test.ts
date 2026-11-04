@@ -586,22 +586,32 @@ it('não registra sinalização ou movimentação recusada pelo IMAP e retoma se
   expect(Number(result.imap_uid)).toBe(7);
   expect(result.rules_applied_at).not.toBeNull();
 });
-it('busca endereços já usados, contas e usuários sem depender de um contato', async () => {
+it('sugere destinatários enviados pelo usuário apenas nas caixas acessíveis', async () => {
   const other = await mailbox('Henrique Caixa', 'henrique.conta@qa.example');
-  await message(other);
+  const received = await message(other);
+  const sent = await message(other, 'Mensagem enviada QA');
+  await db
+    .updateTable('messages')
+    .set({
+      direction: 'outbound',
+      sent_by_user_id: owner,
+      from_address: other.email_address,
+      to_addresses: asJson([{ name: 'Henrique enviado', address: 'henrique.enviado@qa.example' }]),
+    })
+    .where('id', '=', sent.id)
+    .execute();
   const result = (await call('GET', '/mailboxes/' + box.id + '/address-suggestions?q=he')).json();
   expect(
-    result.some((item: { address: string }) => item.address === 'henrique.rufino@qa.example'),
+    result.some((item: { address: string }) => item.address === 'henrique.enviado@qa.example'),
   ).toBe(true);
-  expect(
-    result.some((item: { address: string }) => item.address === 'henrique.conta@qa.example'),
-  ).toBe(true);
-  expect(result.some((item: { source: string }) => item.source === 'user')).toBe(true);
+  expect(result.some((item: { address: string }) => item.address === received.from_address)).toBe(
+    false,
+  );
   const restricted = (
     await call('GET', '/mailboxes/' + box.id + '/address-suggestions?q=he', undefined, viewer)
   ).json();
   expect(
-    restricted.some((item: { address: string }) => item.address === 'henrique.conta@qa.example'),
+    restricted.some((item: { address: string }) => item.address === 'henrique.enviado@qa.example'),
   ).toBe(false);
   expect(
     (await call('GET', '/mailboxes/' + box.id + '/address-suggestions?q=he', undefined, foreign))

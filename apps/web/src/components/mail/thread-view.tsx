@@ -1,37 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Ellipsis, MailOpen, Pin, Tags, ShieldAlert, Copy } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft, Pin } from 'lucide-react';
 import { toast } from 'sonner';
-import { can, normalizeRuleEmail } from '@apmail/shared';
+import { can } from '@apmail/shared';
 import { api, ApiError } from '@/lib/api';
 import { useTenantId, meQuery, useMailQueues, useAccess } from '@/lib/auth';
 import { useSocketRoom } from '@/hooks/use-socket-room';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu';
 import { LoadingState, ErrorState, NoPermissionState } from '@/components/data/data-state';
 import { QueueStatusBadge, OverdueBadge } from '@/components/common/status-badge';
 import { MessageCard } from './message-card';
-import { MessageActions } from './message-actions';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import type { ThreadDetail, Folder } from '@/lib/mail';
 import { threadDetailKey } from '@/lib/mail';
-import { flattenFolders } from '@/lib/mail';
-import { ThreadLabels } from './thread-labels';
 import { LabelBadge } from './label-badge';
 import { ThreadWorkflow } from './thread-workflow';
 import { ThreadNotes } from './thread-notes';
-import { ShareToChatDialog } from '@/components/chat/share-to-chat-dialog';
-import { SpamConfirmation } from './spam-confirmation';
-import { ConversationPdf } from './conversation-pdf';
-import { ThreadTasks } from './thread-tasks';
-import { MailActionButton } from './mail-action-button';
 export function ThreadView({
   threadId,
   messageId,
@@ -51,7 +36,6 @@ export function ThreadView({
 }) {
   const tenantId = useTenantId(),
     queuesEnabled = useMailQueues(),
-    client = useQueryClient(),
     me = useQuery(meQuery);
   const q = useQuery({
     queryKey: threadDetailKey(tenantId, threadId, messageId, folderId),
@@ -67,12 +51,8 @@ export function ThreadView({
       ),
   });
   useSocketRoom('thread', threadId);
+  const mayClone = useAccess('mail.send');
   const [acting, setActing] = useState(false);
-  const [labelsOpen, setLabelsOpen] = useState(false);
-  const [spam, setSpam] = useState<{ sender: string; messageIds: string[] } | null>(null);
-  const moreTrigger = useRef<HTMLButtonElement>(null);
-  const mayMove = useAccess('mail.move'),
-    mayRule = useAccess('rules');
   const lastMessage = q.data?.messages.at(-1)?.message_at;
   useEffect(() => {
     if (!lastMessage || messageId || folderId) return;
@@ -85,21 +65,6 @@ export function ThreadView({
     );
     return () => clearTimeout(timer);
   }, [threadId, lastMessage, messageId, folderId]);
-  const action = async (type: string, scope?: 'mailbox') => {
-    setActing(true);
-    try {
-      await api('/threads/' + threadId + '/' + type, {
-        method: 'POST',
-        ...(scope ? { body: { scope } } : {}),
-      });
-      await client.invalidateQueries({ queryKey: ['thread', tenantId, threadId] });
-      if (type === 'unread') onClose();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Não foi possível atualizar a conversa.');
-    } finally {
-      setActing(false);
-    }
-  };
   if (q.isLoading) return <LoadingState />;
   if (q.error instanceof ApiError && [403, 404].includes(q.error.status))
     return (
@@ -113,26 +78,6 @@ export function ThreadView({
   if (!q.data) return <ErrorState onRetry={() => void q.refetch()} />;
   const data = q.data,
     organize = can(data.my_role, 'organize');
-  const sender = [...data.messages]
-    .reverse()
-    .find((m) => m.direction === 'inbound' && !m.is_mdn)?.from_address;
-  const excludedFolders = new Set(
-    flattenFolders(folders)
-      .filter((f) => ['junk', 'trash'].includes(f.special_use ?? ''))
-      .map((f) => f.id),
-  );
-  const spamMessageIds = sender
-    ? data.messages
-        .filter(
-          (m) =>
-            m.direction === 'inbound' &&
-            !m.is_mdn &&
-            !m.pending_action &&
-            !excludedFolders.has(m.folder_id ?? '') &&
-            normalizeRuleEmail(m.from_address) === normalizeRuleEmail(sender),
-        )
-        .map((m) => m.id)
-    : [];
   return (
     <section aria-label="Conversa" className="h-full min-w-0 space-y-4 overflow-y-auto p-3 sm:p-4">
       <div className="space-y-3 border-b pb-4">
@@ -148,106 +93,22 @@ export function ThreadView({
             <ArrowLeft />
           </Button>
           <h2 className="min-w-0 flex-1 select-text break-words text-xl font-semibold">
-            {data.thread.subject || data.messages[0]?.subject || '(Sem assunto)'}
+            {data.thread.subject || '(Sem assunto)'}
           </h2>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {queuesEnabled && <QueueStatusBadge status={data.thread.queue_status} />}
-          {queuesEnabled && data.thread.is_overdue && <OverdueBadge />}
-          {data.is_pinned_global && (
-            <Badge variant="secondary">
-              <Pin className="size-3" aria-hidden /> Fixada para a caixa
-            </Badge>
-          )}
-        </div>
-        <ThreadWorkflow thread={data.thread} mailboxId={mailboxId} role={data.my_role}>
-          <ShareToChatDialog threadId={threadId} iconOnly />
-          {organize && (
-            <MessageActions
-              mailboxId={mailboxId}
-              folders={folders}
-              inTrash={
-                data.messages.length > 0 &&
-                data.messages.every((message) =>
-                  flattenFolders(folders).some(
-                    (folder) => folder.id === message.folder_id && folder.special_use === 'trash',
-                  ),
-                )
-              }
-              {...(messageId || folderId
-                ? { messageIds: data.messages.map((message) => message.id) }
-                : { threadIds: [threadId] })}
-            />
-          )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <MailActionButton ref={moreTrigger} label="Mais ações" disabled={acting}>
-                <Ellipsis />
-              </MailActionButton>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {onCompose && data.messages.length > 0 && (
-                <DropdownMenuItem
-                  onSelect={() => onCompose('clone:' + (messageId ?? data.messages.at(-1)!.id))}
-                >
-                  <Copy />
-                  Clonar e-mail
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onSelect={() => setLabelsOpen(true)}>
-                <Tags />
-                Etiquetas
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {organize &&
-                can(data.my_role, 'rules') &&
-                mayMove &&
-                mayRule &&
-                sender &&
-                spamMessageIds.length > 0 && (
-                  <DropdownMenuItem
-                    onSelect={() => setSpam({ sender, messageIds: spamMessageIds })}
-                  >
-                    <ShieldAlert />
-                    Marcar como spam
-                  </DropdownMenuItem>
-                )}
-              <DropdownMenuItem onSelect={() => void action('unread')}>
-                <MailOpen />
-                Marcar como não lida
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void action('pin')}>
-                <Pin />
-                {data.is_pinned_personal ? 'Desafixar para mim' : 'Fixar para mim'}
-              </DropdownMenuItem>
-              {can(data.my_role, 'rules') && (
-                <DropdownMenuItem onSelect={() => void action('pin', 'mailbox')}>
-                  <Pin />
-                  {data.is_pinned_global ? 'Desafixar para a caixa' : 'Fixar para a caixa'}
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <ConversationPdf threadId={threadId} subject={data.thread.subject} />
-        </ThreadWorkflow>
-        {spam && (
-          <SpamConfirmation
-            mailboxId={mailboxId}
-            messageIds={spam.messageIds}
-            sender={spam.sender}
-            onClose={() => setSpam(null)}
-            returnFocusRef={moreTrigger}
-          />
+        {(queuesEnabled || data.is_pinned_global) && (
+          <div className="flex flex-wrap gap-2">
+            {queuesEnabled && <QueueStatusBadge status={data.thread.queue_status} />}
+            {queuesEnabled && data.thread.is_overdue && <OverdueBadge />}
+            {data.is_pinned_global && (
+              <Badge variant="secondary">
+                <Pin className="size-3" aria-hidden /> Fixada para a caixa
+              </Badge>
+            )}
+          </div>
         )}
-        {labelsOpen && (
-          <ThreadLabels
-            key={threadId}
-            threadIds={[threadId]}
-            labels={data.labels}
-            mailboxId={mailboxId}
-            presentation="dialog"
-            onClose={() => setLabelsOpen(false)}
-          />
+        {queuesEnabled && (
+          <ThreadWorkflow thread={data.thread} mailboxId={mailboxId} role={data.my_role} />
         )}
         {!!data.labels.length && (
           <div className="flex flex-wrap gap-1">
@@ -257,7 +118,6 @@ export function ThreadView({
           </div>
         )}
       </div>
-      <ThreadTasks threadId={threadId} mailboxId={mailboxId} subject={data.thread.subject} />
       {data.pending_outbox?.map((o) => (
         <div key={o.id} className="rounded-md border bg-secondary p-3 text-sm">
           <p>
@@ -322,6 +182,8 @@ export function ThreadView({
         <MessageCard
           key={m.id}
           message={m}
+          threadId={threadId}
+          onClone={mayClone && onCompose ? () => onCompose('clone:' + m.id) : undefined}
           contacts={data.contacts}
           timeZone={me.data?.preferences.timezone}
           expanded={i === 0 || !data.last_read_at || m.message_at > data.last_read_at}
@@ -333,7 +195,13 @@ export function ThreadView({
           onCompose={can(data.my_role, 'send') ? onCompose : undefined}
         />
       ))}
-      <ThreadNotes key={threadId} threadId={threadId} mailboxId={mailboxId} role={data.my_role} />
+      <ThreadNotes
+        key={threadId}
+        threadId={threadId}
+        mailboxId={mailboxId}
+        role={data.my_role}
+        subject={data.thread.subject}
+      />
     </section>
   );
 }

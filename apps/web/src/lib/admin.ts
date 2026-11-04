@@ -1,4 +1,9 @@
-import { hasAccess, type AccessIdentity, type AccessPermission } from '@apmail/shared';
+import {
+  hasAccess,
+  isTenantAdmin,
+  type AccessIdentity,
+  type AccessPermission,
+} from '@apmail/shared';
 export const adminSections: {
   path: string;
   label: string;
@@ -42,6 +47,12 @@ export const adminSections: {
     description: 'Conexões e autorizações dos seus serviços.',
   },
   {
+    path: '/admin/mail-retention',
+    label: 'E-mails em retenção',
+    permission: 'retention.manage',
+    description: 'Consultar e recuperar mensagens removidas da Lixeira.',
+  },
+  {
     path: '/admin/security/antivirus',
     label: 'Antivírus',
     permission: 'antivirus.view',
@@ -61,7 +72,11 @@ export const adminSections: {
   },
 ];
 export function administrativeSections(identity: AccessIdentity) {
-  return adminSections.filter((s) => hasAccess(identity, s.permission));
+  return adminSections.filter(
+    (s) =>
+      hasAccess(identity, s.permission) &&
+      (s.permission !== 'retention.manage' || isTenantAdmin(identity.role)),
+  );
 }
 export function canAccessAdmin(identity: AccessIdentity) {
   return administrativeSections(identity).length > 0;

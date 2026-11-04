@@ -9,7 +9,8 @@ export const outboxAttachmentSchema = z.discriminatedUnion('source', [
   z.object({ source: z.literal('upload'), upload_id: z.uuid(), inline: z.boolean().optional() }),
   z.object({ source: z.literal('message_attachment'), attachment_id: z.uuid() }),
 ]);
-// Rascunhos podem estar incompletos; destinatários são obrigatórios apenas no submit.
+export const OUTBOX_SUBJECT_REQUIRED = 'Informe o assunto para enviar o e-mail.';
+// Assunto e destinatários podem ficar em branco enquanto o e-mail é um rascunho.
 export const outboxSchema = z.object({
   priority: z.enum(['low', 'normal', 'high']).default('normal'),
   request_read_receipt: z.boolean().default(false),

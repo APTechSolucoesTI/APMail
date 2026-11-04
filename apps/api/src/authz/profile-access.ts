@@ -8,6 +8,9 @@ export function routePermission(
   method: string,
 ): AccessPermission | 'personal' | null {
   if (path === '/api/admin/overview') return 'personal';
+  if (path === '/api/mail-retention/policy') return 'company.manage';
+  if (path === '/api/mail-retention/purge') return 'retention.purge';
+  if (/^\/api\/mail-retention(?:\/|$)/.test(path)) return 'retention.manage';
   if (path === '/api/tenant/mail-policy-refresh') return 'company.manage';
   if (/^\/api\/mailbox-domains(?:\/|$)/.test(path)) return 'mailboxes.manage';
   if (/^\/api\/domains(?:\/|$)/.test(path))

@@ -55,7 +55,10 @@ const groups: { id: string; title: string; description: string; fields: FormFiel
         name: 'mail_page_size',
         label: 'E-mails por página',
         type: 'select',
-        options: [10, 25, 50, 100].map((size) => ({ value: String(size), label: String(size) })),
+        options: [50, 100, 200, 0].map((size) => ({
+          value: String(size),
+          label: size === 0 ? 'Ilimitada' : String(size),
+        })),
       },
       {
         name: 'request_read_receipt',
@@ -145,7 +148,7 @@ export function PreferencesSettings() {
                   group.fields.map((field) => [
                     field.name,
                     q.data.preferences[field.name as keyof typeof q.data.preferences] ??
-                      (field.name === 'mail_page_size' ? 10 : false),
+                      (field.name === 'mail_page_size' ? 50 : false),
                   ]),
                 )}
                 fields={group.fields}

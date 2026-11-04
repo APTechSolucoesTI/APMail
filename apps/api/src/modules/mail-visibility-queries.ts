@@ -7,6 +7,9 @@ import { threadListSchema } from './mail.js';
 import { notFound, requireTenant } from '../authz/context.js';
 import { readableFolders, folderPredicate } from '../authz/folders.js';
 import { resolveContacts } from './contact-resolution.js';
+import { mailSearchTerms } from './mail-search-date.js';
+// Keep receipt mail out of queue/SLA activity while counting it as an unread inbox item.
+export const unreadInbound = sql`m.direction='inbound' and (not m.is_automated or (m.is_mdn and m.source_kind in ('imap','pop3') and m.mdn_provider_seen is false))`;
 export async function listThreads(
   r: Resources,
   c: ReturnType<typeof requireTenant>,
@@ -62,6 +65,28 @@ export async function listThreads(
       : null;
     if (!label) throw notFound();
   }
+  const search = mailSearchTerms(q.q);
+  const timezone = search.from
+    ? ((
+        await r.db
+          .selectFrom('user_preferences')
+          .select('timezone')
+          .where('user_id', '=', c.userId)
+          .executeTakeFirst()
+      )?.timezone ?? 'America/Sao_Paulo')
+    : 'America/Sao_Paulo';
+  const matchesSearch = (alias: string) => {
+    const parts = [sql`true`];
+    if (search.text)
+      parts.push(
+        sql`${sql.ref(alias + '.search_vector')} @@ websearch_to_tsquery('pt_unaccent',${search.text})`,
+      );
+    if (search.from && search.until)
+      parts.push(
+        sql`${sql.ref(alias + '.message_at')} >= (${search.from}::date::timestamp at time zone ${timezone}) and ${sql.ref(alias + '.message_at')} < (${search.until}::date::timestamp at time zone ${timezone})`,
+      );
+    return sql`(${sql.join(parts, sql` and `)})`;
+  };
   const conditions = [
     sql`t.tenant_id=${c.tenantId}`,
     sql`t.mailbox_id in (${sql.join(boxIds)})`,
@@ -79,9 +104,9 @@ export async function listThreads(
     conditions.push(
       sql`exists(select 1 from thread_personal_labels tl where tl.thread_id=t.id and tl.label_id=${q.label_id} and tl.tenant_id=${c.tenantId} and (tl.user_id=${c.userId} or exists(select 1 from personal_labels l where l.id=tl.label_id and l.tenant_id=tl.tenant_id and l.scope='tenant')))`,
     );
-  if (q.q?.trim())
+  if (search.text || search.from)
     conditions.push(
-      sql`exists(select 1 from messages sm where sm.thread_id=t.id and sm.tenant_id=${c.tenantId} and sm.deleted_at is null and ${scope('sm.folder_id')} and sm.search_vector @@ websearch_to_tsquery('pt_unaccent',${q.q}))`,
+      sql`exists(select 1 from messages sm where sm.thread_id=t.id and sm.tenant_id=${c.tenantId} and sm.deleted_at is null and ${scope('sm.folder_id')} and ${matchesSearch('sm')} ${search.from && folderIds.length ? sql`and sm.folder_id in (${sql.join(folderIds)})` : sql``})`,
     );
   const entryId = individualMessages ? sql`m.id` : sql`m.thread_id`;
   const selectedMessage = (alias: string) =>
@@ -94,11 +119,9 @@ export async function listThreads(
           ? sql`last_inbound_at asc nulls last,id,entry_id`
           : sql`is_pinned desc,last_message_at desc nulls last,id,entry_id`;
   const messageSearch =
-    individualMessages && q.q?.trim()
-      ? sql`and m.search_vector @@ websearch_to_tsquery('pt_unaccent',${q.q})`
-      : sql``;
+    individualMessages && (search.text || search.from) ? sql`and ${matchesSearch('m')}` : sql``;
   const columns = {
-    subject: sql`latest.subject`,
+    subject: sql`title.subject`,
     latest_from: sql`concat_ws(' ',latest.from_name,latest.from_address)`,
     assigned_to: sql`u.full_name`,
     queue_status: localizedColumn(sql`e.queue_status`, QUEUE_LABELS),
@@ -127,15 +150,16 @@ export async function listThreads(
   select t.id,t.mailbox_id,t.assigned_to,t.queue_status,t.queue_excluded,t.is_pinned_global,us.last_read_at,(t.is_pinned_global or coalesce(us.is_pinned,false)) as is_pinned from threads t
   left join thread_user_state us on us.thread_id=t.id and us.tenant_id=${c.tenantId} and us.user_id=${c.userId} where ${sql.join(conditions, sql` and `)}
  ), fm as (
-  select m.thread_id,${entryId} as entry_id,count(*)::int as message_count,max(m.message_at) as last_message_at,max(m.message_at) filter(where ${inbound}) as last_inbound_at,bool_or(m.has_attachments) as has_attachments
+  select m.thread_id,${entryId} as entry_id,count(*)::int as message_count,max(m.message_at) as last_message_at,max(m.message_at) filter(where ${inbound}) as last_inbound_at,max(m.message_at) filter(where ${unreadInbound} and (m.is_mdn or coalesce(f.special_use::text,'') not in ('trash','junk'))) as last_unread_candidate_at,bool_or(m.has_attachments) as has_attachments
   from messages m join eligible e on e.id=m.thread_id join folders f on f.id=m.folder_id
   where m.tenant_id=${c.tenantId} and m.mailbox_id in (${sql.join(boxIds)}) and m.deleted_at is null and ${scope()} ${folderFilter} ${messageSearch} group by m.thread_id,${entryId}
  ), matched as (
-  select e.id,e.mailbox_id,fm.entry_id,${individualMessages ? sql`fm.entry_id` : sql`null::uuid`} as message_id,latest.subject,concat_ws(' ',latest.from_name,latest.from_address) as latest_from_sort,u.full_name as assigned_to_sort,e.queue_status,e.is_pinned,e.is_pinned_global,fm.message_count,fm.has_attachments,fm.last_message_at,fm.last_inbound_at,
-   coalesce(fm.last_inbound_at>coalesce(e.last_read_at,'-infinity'::timestamptz),false) as is_unread,coalesce(${overdue},false) as is_overdue,
+  select e.id,e.mailbox_id,fm.entry_id,${individualMessages ? sql`fm.entry_id` : sql`null::uuid`} as message_id,title.subject,concat_ws(' ',latest.from_name,latest.from_address) as latest_from_sort,u.full_name as assigned_to_sort,e.queue_status,e.is_pinned,e.is_pinned_global,fm.message_count,fm.has_attachments,fm.last_message_at,fm.last_inbound_at,
+   coalesce(fm.last_unread_candidate_at>coalesce(e.last_read_at,'-infinity'::timestamptz),false) as is_unread,coalesce(${overdue},false) as is_overdue,
    case when u.id is null then null else jsonb_build_object('id',u.id,'full_name',u.full_name,'avatar_url',case when u.avatar_path is null then null else '/api/avatars/'||u.id::text||'?v='||extract(epoch from u.updated_at)::bigint end) end as assigned_to
   from eligible e join fm on fm.thread_id=e.id join tenants tenant on tenant.id=${c.tenantId} left join users u on u.id=e.assigned_to join lateral (select m.subject,m.from_name,m.from_address from messages m where m.thread_id=e.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${scope()} ${folderFilter} ${selectedMessage('fm')} order by m.message_at desc,m.id limit 1) latest on true
-  where ${columnFilters(q, columns)} ${q.unread ? sql`and fm.last_inbound_at>coalesce(e.last_read_at,'-infinity'::timestamptz)` : sql``} ${q.queue === 'overdue' && q.view === 'queue' ? sql`and ${overdue}` : sql``}
+  join lateral (select m.subject from messages m where m.thread_id=e.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${scope()} ${selectedMessage('fm')} order by (m.direction='inbound') desc,m.message_at desc,m.id desc limit 1) title on true
+  where ${columnFilters(q, columns)} ${q.unread ? sql`and fm.last_unread_candidate_at>coalesce(e.last_read_at,'-infinity'::timestamptz)` : sql``} ${q.queue === 'overdue' && q.view === 'queue' ? sql`and ${overdue}` : sql``}
  ), paged as (select * from matched order by ${listOrder} limit ${q.page_size} offset ${(q.page - 1) * q.page_size}), detailed as (
   select p.*,
    (select count(*)::int from reminders task where task.tenant_id=${c.tenantId} and task.thread_id=p.id and task.status in ('pending','notified')) as pending_task_count,
@@ -150,7 +174,7 @@ export async function listThreads(
    exists(select 1 from outbox o where o.thread_id=p.id and o.tenant_id=${c.tenantId} and o.mdn_original_message_id is null and o.status in ('scheduled','queued','sending')) as has_scheduled
   from paged p join mailboxes box on box.id=p.mailbox_id join lateral (
    select m.id,m.subject,m.snippet,m.from_name,m.from_address,m.to_addresses,m.direction,m.request_read_receipt from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${scope()} ${folderFilter} ${selectedMessage('p')}
-   order by ${q.q?.trim() ? sql`(m.search_vector @@ websearch_to_tsquery('pt_unaccent',${q.q})) desc,` : sql``} m.message_at desc,m.id limit 1
+   order by ${search.text || search.from ? sql`${matchesSearch('m')} desc,` : sql``} m.message_at desc,m.id limit 1
   ) latest on true
  ) select coalesce((select jsonb_agg(to_jsonb(detailed) order by ${listOrder}) from detailed),'[]'::jsonb) as items,(select count(*)::int from matched) as total
  `;
@@ -195,7 +219,7 @@ export async function queueCounts(
   const result = await sql<Record<string, number>>`
  with visible as (
   select m.thread_id,max(m.message_at) filter(where m.direction='inbound' and not m.is_automated and coalesce(f.special_use::text,'') not in ('trash','junk')) as last_inbound_at,
-  max(m.message_at) filter(where m.direction='inbound' and not m.is_automated and f.special_use='inbox') as inbox_at
+  max(m.message_at) filter(where ${unreadInbound} and f.special_use='inbox') as inbox_at
   from messages m join folders f on f.id=m.folder_id where m.tenant_id=${c.tenantId} and m.mailbox_id in (${sql.join(boxIds)}) and m.deleted_at is null and ${scope()} group by m.thread_id
  ) select count(*) filter(where not t.queue_excluded and t.queue_status='to_reply')::int as to_reply,
  count(*) filter(where not t.queue_excluded and t.queue_status='in_progress')::int as in_progress,

@@ -363,6 +363,8 @@ it.each(['pending', 'infected', 'error'] as const)(
       `/attachments/${attachment}/download`,
       `/attachments/${inline}/inline`,
       `/uploads/${upload}/image`,
+      `/uploads/${upload}/preview`,
+      `/uploads/${upload}/download`,
       `/signatures/images/${signature}`,
       `/public/signature-images/${signature}`,
       `/avatars/${owner}`,
@@ -391,6 +393,8 @@ it('keeps clean downloads, previews and ranged PST downloads functional', async 
   for (const endpoint of [
     `/attachments/${inline}/inline`,
     `/uploads/${upload}/image`,
+    `/uploads/${upload}/preview`,
+    `/uploads/${upload}/download`,
     `/signatures/images/${signature}`,
     `/public/signature-images/${signature}`,
     `/avatars/${owner}`,
@@ -409,6 +413,55 @@ it('keeps clean downloads, previews and ranged PST downloads functional', async 
   );
   expect(response.statusCode).toBe(206);
   expect(response.body).toBe('QUARA');
+});
+
+it('requires a subject for immediate, scheduled and recurring sends while preserving the draft', async () => {
+  const draft = await call('POST', '/outbox', {
+    mailbox_id: box,
+    subject: '  ',
+    to_addresses: [{ address: 'recipient@av.example' }],
+    body_html: '<p>Draft body</p>',
+  });
+  expect(draft.statusCode, draft.body).toBe(201);
+  const id = draft.json().id as string;
+  const scheduled_at = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  for (const body of [
+    {},
+    { scheduled_at },
+    { scheduled_at, recurrence: { interval: 1, unit: 'day', timezone: 'America/Sao_Paulo' } },
+  ]) {
+    const result = await call('POST', `/outbox/${id}/submit`, body);
+    expect(result.statusCode, result.body).toBe(400);
+    expect(result.json().error.message).toContain('assunto');
+    expect((await call('GET', `/outbox/${id}`)).json()).toMatchObject({
+      status: 'draft',
+      subject: '  ',
+      body_html: '<p>Draft body</p>',
+      job_id: null,
+    });
+  }
+  for (const [action, status] of [
+    ['send-now', 'scheduled'],
+    ['retry', 'failed'],
+  ] as const) {
+    await db.updateTable('outbox').set({ status }).where('id', '=', id).execute();
+    const result = await call('POST', `/outbox/${id}/${action}`, {});
+    expect(result.statusCode, result.body).toBe(400);
+    expect(result.json().error.message).toContain('assunto');
+  }
+});
+
+it('keeps the preview and download of draft uploads private to the owner', async () => {
+  for (const action of ['preview', 'download']) {
+    const endpoint = `/uploads/${upload}/${action}`;
+    expect((await call('GET', endpoint, undefined, colleague)).statusCode).toBe(404);
+    const response = await call('GET', endpoint);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['x-content-type-options']).toBe('nosniff');
+    expect(response.headers['content-security-policy']).toContain('sandbox');
+    if (action === 'download')
+      expect(response.headers['content-disposition']).toMatch(/^attachment;/);
+  }
 });
 
 it('returns only authorized verdict metadata and keeps blocked CID images out of the message map', async () => {
@@ -654,6 +707,7 @@ it('blocks received attachments from being forwarded while retaining an editable
     mailbox_id: box,
     kind: 'forward',
     thread_id: thread,
+    subject: 'Encaminhamento bloqueado',
     to_addresses: [{ address: 'recipient@av.example' }],
     body_html: '<p>Forward</p>',
     attachments: [{ source: 'message_attachment', attachment_id: attachment }],

@@ -24,6 +24,7 @@ export type Outbox = OutboxInput & {
   attachment_metadata?: {
     id: string;
     filename: string;
+    content_type?: string;
     size_bytes: number;
     source: string;
     security?: AttachmentSecurity | null;

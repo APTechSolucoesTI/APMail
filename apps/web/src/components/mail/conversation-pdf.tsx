@@ -13,12 +13,14 @@ import {
 
 export function ConversationPdf({
   threadId,
+  messageId,
   subject,
   initialOpen = false,
   hideTrigger = false,
   onClose,
 }: {
   threadId: string;
+  messageId?: string;
   subject?: string;
   initialOpen?: boolean;
   hideTrigger?: boolean;
@@ -32,7 +34,10 @@ export function ConversationPdf({
     error: boolean;
     ready?: boolean;
   } | null>(null);
-  const requestKey = `${threadId}:${attempt}`;
+  const endpoint = `/api/threads/${encodeURIComponent(threadId)}${messageId ? '/messages/' + encodeURIComponent(messageId) : ''}/pdf`;
+  const documentName = messageId ? 'mensagem' : 'conversa';
+  const actionLabel = messageId ? 'Imprimir mensagem' : 'Imprimir conversa';
+  const requestKey = `${endpoint}:${attempt}`;
   const current = result?.key === requestKey ? result : null;
   const url = current?.url ?? null;
   const error = current?.error ?? false;
@@ -44,7 +49,7 @@ export function ConversationPdf({
     let objectUrl: string | undefined;
     void (async () => {
       try {
-        const response = await fetch(`/api/threads/${encodeURIComponent(threadId)}/pdf`, {
+        const response = await fetch(endpoint, {
           credentials: 'same-origin',
           signal: controller.signal,
         });
@@ -68,7 +73,7 @@ export function ConversationPdf({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [open, threadId, requestKey]);
+  }, [open, endpoint, requestKey]);
 
   const print = async () => {
     if (!preview.current || printing) return;
@@ -90,7 +95,7 @@ export function ConversationPdf({
     <>
       {!hideTrigger && (
         <MailActionButton
-          label="Imprimir conversa"
+          label={actionLabel}
           text="Imprimir"
           onClick={() => {
             setAttempt((value) => value + 1);
@@ -109,10 +114,11 @@ export function ConversationPdf({
       >
         <DialogContent className="flex h-[90dvh] max-h-[960px] flex-col sm:max-w-5xl">
           <DialogHeader className="pr-7">
-            <DialogTitle>Imprimir conversa</DialogTitle>
+            <DialogTitle>{actionLabel}</DialogTitle>
             <DialogDescription>
-              Todas as mensagens às quais você tem acesso, em ordem cronológica, com os nomes e
-              identificadores dos anexos.
+              {messageId
+                ? 'A mensagem selecionada e a relação de seus anexos.'
+                : 'Todas as mensagens às quais você tem acesso, em ordem cronológica, com os nomes e identificadores dos anexos.'}
             </DialogDescription>
           </DialogHeader>
           {!current?.ready && !error && (
@@ -121,7 +127,7 @@ export function ConversationPdf({
               className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground"
             >
               <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />
-              Preparando PDF da conversa…
+              Preparando PDF da {documentName}…
             </div>
           )}
           {error && (
@@ -153,7 +159,7 @@ export function ConversationPdf({
                 <a
                   className={buttonVariants({ size: 'sm', variant: 'outline' })}
                   href={url}
-                  download={`apmail-conversa-${threadId}.pdf`}
+                  download={`apmail-${documentName}-${messageId ?? threadId}.pdf`}
                 >
                   <Download />
                   Baixar PDF
@@ -173,7 +179,7 @@ export function ConversationPdf({
           <div
             ref={preview}
             role="region"
-            aria-label="Prévia do PDF da conversa"
+            aria-label={'Prévia do PDF da ' + documentName}
             aria-busy={!current?.ready && !error}
             hidden={error}
             className="min-h-0 flex-1 overflow-auto rounded-md border bg-muted p-3"

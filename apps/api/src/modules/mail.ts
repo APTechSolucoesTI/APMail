@@ -4,6 +4,8 @@ import { z } from 'zod';
 import {
   Storage,
   touchThreads,
+  lockStorageTenant,
+  retentionExpiry,
   asJson,
   audit,
   securityForFiles,
@@ -16,7 +18,7 @@ import { requireMailboxPerm } from '../authz/guards.js';
 import { summaryMailboxIds } from './mail-summary.js';
 import { readableFolders, folderPredicate, requireFolder } from '../authz/folders.js';
 import type { Resources } from './resources.js';
-import { listThreads, queueCounts } from './mail-visibility-queries.js';
+import { listThreads, queueCounts, unreadInbound } from './mail-visibility-queries.js';
 import { replaceLabels, validateLabelIds, labelIdsSchema } from './organization/service.js';
 import { bulkQueue } from './thread-operations/service.js';
 import { registerReadReceipts } from './read-receipts.js';
@@ -46,7 +48,7 @@ export const threadListSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   page_size: z.coerce
     .number()
-    .refine((v) => [10, 20, 25, 30, 50, 100].includes(v))
+    .refine((v) => [10, 20, 25, 30, 50, 100, 200].includes(v))
     .default(10),
 });
 export async function requireThread(
@@ -129,7 +131,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         'f.sort_order',
         'f.is_local',
         'f.delimiter',
-        sql<number>`(select count(distinct t.id)::int from messages m join threads t on t.id=m.thread_id left join thread_user_state us on us.thread_id=t.id and us.user_id=${c.userId} where m.folder_id=f.id and m.deleted_at is null and t.last_inbound_at > coalesce(us.last_read_at,'-infinity'::timestamptz))`.as(
+        sql<number>`(select count(distinct t.id)::int from messages m join threads t on t.id=m.thread_id left join thread_user_state us on us.thread_id=t.id and us.user_id=${c.userId} where m.folder_id=f.id and m.deleted_at is null and (t.last_inbound_at > coalesce(us.last_read_at,'-infinity'::timestamptz) or (m.is_mdn and ${unreadInbound} and m.message_at>coalesce(us.last_read_at,'-infinity'::timestamptz))))`.as(
           'unread_count',
         ),
       ])
@@ -332,12 +334,15 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
     const latest = messages.at(-1),
       inbound = messages.filter((m) => m.direction === 'inbound' && !m.is_automated),
       outbound = messages.filter((m) => m.direction === 'outbound' && !m.is_mdn);
+    const subject =
+      (messages.filter((message) => message.direction === 'inbound').at(-1) ?? latest)?.subject ??
+      '';
     const visibleThread =
       scope === null && !messageId && !folderId
-        ? thread
+        ? { ...thread, subject }
         : {
             ...thread,
-            subject: latest?.subject ?? '',
+            subject,
             subject_normalized: '',
             snippet: latest?.snippet ?? '',
             participants: [
@@ -546,8 +551,13 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         target_folder_id: z.uuid().optional(),
         target_mailbox_id: z.uuid().optional(),
         flagged: z.boolean().optional(),
+        trash_folder_id: z.uuid().optional(),
       })
-      .refine((b) => b.message_ids || b.thread_ids)
+      .refine((b) =>
+        b.trash_folder_id
+          ? b.type === 'delete' && !b.message_ids && !b.thread_ids
+          : !!(b.message_ids || b.thread_ids),
+      )
       .parse(req.body);
     if (b.type === 'move' && !b.target_folder_id) throw conflict('Escolha a pasta de destino.');
     if (b.type === 'move' && b.target_mailbox_id && b.target_mailbox_id !== id)
@@ -572,6 +582,25 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
     if (b.type === 'set_flag' && b.flagged === undefined)
       throw conflict('Informe o estado da sinalização.');
     const action = await r.db.transaction().execute(async (trx) => {
+      let retentionDays = 30;
+      if (b.type === 'delete') {
+        await lockStorageTenant(trx, c.tenantId);
+        const live = await trx
+          .selectFrom('mailboxes')
+          .select('id')
+          .where('tenant_id', '=', c.tenantId)
+          .where('id', '=', id)
+          .where('deleted_at', 'is', null)
+          .executeTakeFirst();
+        if (!live) throw notFound();
+        retentionDays = (
+          await trx
+            .selectFrom('tenants')
+            .select('mail_retention_days')
+            .where('id', '=', c.tenantId)
+            .executeTakeFirstOrThrow()
+        ).mail_retention_days;
+      }
       if (b.type === 'spam')
         await sql`select pg_advisory_xact_lock(hashtextextended(${`spam:${c.tenantId}:${id}`},0))`.execute(
           trx,
@@ -582,17 +611,38 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         .where('tenant_id', '=', c.tenantId)
         .where('mailbox_id', '=', id)
         .where('deleted_at', 'is', null);
-      query = b.message_ids
-        ? query.where('id', 'in', b.message_ids)
-        : query.where('thread_id', 'in', b.thread_ids!);
+      if (b.trash_folder_id) {
+        await requireFolder(c, trx, id, b.trash_folder_id);
+        const trash = await trx
+          .selectFrom('folders')
+          .select('id')
+          .where('tenant_id', '=', c.tenantId)
+          .where('mailbox_id', '=', id)
+          .where('id', '=', b.trash_folder_id)
+          .where('special_use', '=', 'trash')
+          .where('deleted_at', 'is', null)
+          .executeTakeFirst();
+        if (!trash) throw notFound();
+        query = query
+          .where('folder_id', '=', trash.id)
+          .where('pending_action', '=', false)
+          .limit(1001);
+      } else if (b.message_ids) query = query.where('id', 'in', b.message_ids);
+      else query = query.where('thread_id', 'in', b.thread_ids!);
+      const scope = await readableFolders(c, trx, id);
+      if (scope !== null) query = query.where(folderPredicate(scope));
       let messages = await query.orderBy('id').forUpdate().execute();
+      if (b.trash_folder_id && !messages.length) return null;
+      const hasMore = !!b.trash_folder_id && messages.length > 1000;
+      if (hasMore) messages = messages.slice(0, 1000);
+      if (messages.length > 1000) throw conflict('Selecione até 1.000 mensagens por operação.');
       if (!messages.length || (b.message_ids && messages.length !== b.message_ids.length))
         throw notFound();
       if (b.thread_ids && new Set(messages.map((m) => m.thread_id)).size !== b.thread_ids.length)
         throw notFound();
       const folders = await trx
         .selectFrom('folders')
-        .select(['id', 'special_use'])
+        .select(['id', 'special_use', 'uidvalidity', 'is_local'])
         .where('tenant_id', '=', c.tenantId)
         .where('mailbox_id', '=', id)
         .where('deleted_at', 'is', null)
@@ -641,8 +691,8 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
             );
       if (b.type !== 'set_flag' && !destination)
         throw conflict('A pasta de destino ainda não está disponível nesta caixa.');
+      if (destination && !b.trash_folder_id) await requireFolder(c, trx, id, destination.id);
       if (b.type === 'spam') {
-        await requireFolder(c, trx, id, destination!.id);
         await rememberSpamSenders(
           trx,
           c,
@@ -670,19 +720,22 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         })
         .returning('id')
         .executeTakeFirstOrThrow();
+      const deletedAt = new Date();
       for (const m of messages) {
-        const permanent =
-          b.type === 'delete' && folders.find((f) => f.id === m.folder_id)?.special_use === 'trash';
+        const source = folders.find((folder) => folder.id === m.folder_id);
+        const retained = b.type === 'delete' && source?.special_use === 'trash';
+        const remote = retained && m.source_kind === 'imap' && !source.is_local;
         await audit(trx, {
           tenantId: c.tenantId,
           actorId: c.userId,
           action: 'message.' + b.type + '_requested',
-          entityType: 'message',
+          entityType: retained ? 'retained_message' : 'message',
           entityId: m.id,
           metadata: {
+            mailbox_id: id,
             operation_id: row.id,
             outcome: 'requested',
-            permanent,
+            retained,
             previous_folder_id: m.folder_id,
             target_folder_id: destination?.id ?? null,
             flagged: b.flagged ?? null,
@@ -698,26 +751,46 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
             ...(b.type === 'set_flag'
               ? { is_flagged: b.flagged }
               : { folder_id: destination!.id, imap_uid: null }),
-            ...(permanent ? { deleted_at: new Date() } : {}),
+            ...(retained
+              ? {
+                  deleted_at: deletedAt,
+                  retention_expires_at: retentionExpiry(deletedAt, retentionDays),
+                  retention_deleted_by: c.userId,
+                  ...(remote
+                    ? {
+                        retention_imap_folder_id: source.id,
+                        retention_imap_uid: m.imap_uid,
+                        retention_imap_uidvalidity: source.uidvalidity,
+                      }
+                    : {}),
+                }
+              : {}),
           })
           .where('id', '=', m.id)
           .execute();
       }
       const ids = messages.map((m) => m.thread_id);
       await touchThreads(trx, ids, 'manual', c.userId);
-      return { id: row.id, ids };
+      return { id: row.id, ids, affected: messages.length, hasMore };
     });
-    await r.queues['mail-actions'].add(
-      'action',
-      { action_id: action.id },
-      {
-        jobId: toBullJobId('action:' + action.id),
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 10000 },
-      },
-    );
+    if (!action) return reply.code(202).send({ affected: 0, has_more: false });
+    await r.queues['mail-actions']
+      .add(
+        'action',
+        { action_id: action.id },
+        {
+          jobId: toBullJobId('action:' + action.id),
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 10000 },
+        },
+      )
+      .catch(() =>
+        app.log.warn({ action_id: action.id }, 'Operação persistida; o agendador retomará.'),
+      );
     mailEvents(r, id, action.ids);
-    return reply.code(202).send({ action_id: action.id });
+    return reply
+      .code(202)
+      .send({ action_id: action.id, affected: action.affected, has_more: action.hasMore });
   });
   const readableAttachment = async (ctx: RequestContext | null, id: string) => {
     const c = requireTenant(ctx);

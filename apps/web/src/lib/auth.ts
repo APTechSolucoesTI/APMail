@@ -24,7 +24,7 @@ export type Preferences = {
   load_remote_images: boolean;
   request_read_receipt?: boolean;
   mail_queues_enabled?: boolean;
-  mail_page_size?: 10 | 25 | 50 | 100;
+  mail_page_size?: 0 | 50 | 100 | 200;
   mail_summary_enabled?: boolean;
   mail_group_by_domain?: boolean;
 };

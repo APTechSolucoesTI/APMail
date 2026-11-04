@@ -19,6 +19,7 @@ function open(
   attachment = false,
   security: AttachmentSecurity = pendingSecurity,
   cachedSecurity?: AttachmentSecurity,
+  gallery = false,
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -46,7 +47,7 @@ function open(
         body_html: '',
         updated_at: new Date().toISOString(),
       };
-    if (path.endsWith('/security')) return security;
+    if (path.endsWith('/security')) return gallery ? pendingSecurity : security;
     if (path.startsWith('/threads/'))
       return {
         thread: { id },
@@ -61,12 +62,24 @@ function open(
             reply_to_addresses: [],
             attachments: attachment
               ? [
+                  ...(gallery
+                    ? [
+                        {
+                          id,
+                          filename: 'imagem.png',
+                          content_type: 'image/png',
+                          size_bytes: 50,
+                          is_inline: false,
+                          security,
+                        },
+                      ]
+                    : []),
                   {
-                    id,
+                    id: gallery ? '123e4567-e89b-42d3-a456-426614174001' : id,
                     filename: 'pendente.pdf',
                     size_bytes: 50,
                     is_inline: false,
-                    security,
+                    security: gallery ? pendingSecurity : security,
                   },
                 ]
               : [],
@@ -133,6 +146,39 @@ it('prevents forwarding an unverified attachment while preserving draft editing'
   expect(await screen.findByText('Verificação pendente')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Enviar' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Salvar' })).toBeEnabled();
+});
+
+it('focuses the missing subject and keeps the draft editable without submitting', async () => {
+  open(false);
+  const subject = await screen.findByRole('textbox', { name: 'Assunto' });
+  fireEvent.change(subject, { target: { value: '  ' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Informe o assunto');
+  await waitFor(() => expect(subject).toHaveFocus());
+  expect(screen.getByRole('button', { name: 'Salvar' })).toBeEnabled();
+  expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/submit'))).toBe(false);
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Opções de envio' }), { key: 'Enter' });
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Agendar envio…' }));
+  expect(screen.queryByRole('dialog', { name: 'Agendar envio' })).not.toBeInTheDocument();
+  await waitFor(() => expect(subject).toHaveFocus());
+});
+
+it('navigates from a verified forwarded image to a blocked attachment without exposing bytes', async () => {
+  open(false, 'forward:' + id, true, { ...pendingSecurity, status: 'clean' }, undefined, true);
+  fireEvent.click(await screen.findByRole('button', { name: 'Visualizar imagem.png' }));
+  expect(screen.getByRole('img', { name: 'imagem.png' })).toHaveAttribute(
+    'src',
+    '/api/attachments/' + id + '/inline',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Próximo anexo' }));
+  expect(screen.getByText('2 de 2')).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Baixar anexo' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Anexo anterior' }));
+  expect(screen.getByRole('link', { name: 'Baixar anexo' })).toHaveAttribute(
+    'href',
+    '/api/attachments/' + id + '/download',
+  );
 });
 
 it('uses current server security when reopening a file with an older cached verdict', async () => {

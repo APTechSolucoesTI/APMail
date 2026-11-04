@@ -72,6 +72,9 @@ it('salva endereço incompleto sem erro técnico, restaura a digitação e imped
   open('draft:' + id);
   expect(await screen.findByRole('combobox', { name: 'Para' })).toHaveValue('maria@');
   expect(screen.getByRole('button', { name: 'Remover valido@example.com' })).toBeVisible();
+  fireEvent.change(screen.getByRole('textbox', { name: 'Assunto' }), {
+    target: { value: 'Teste' },
+  });
   fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Revise os endereços incompletos ou inválidos em Para, Cc e Cco antes de enviar.',

@@ -409,7 +409,7 @@ export function MailSelectionActions({
         pending={busy}
         destructive
         title="Excluir mensagens?"
-        description={`${threads.length} conversa(s) serão movidas para a Lixeira nas caixas de origem. Mensagens já na Lixeira serão excluídas definitivamente.`}
+        description={`${threads.length} conversa(s) serão movidas para a Lixeira nas caixas de origem. Mensagens já na Lixeira vão para retenção administrativa.`}
         onConfirm={() =>
           run(async (g) => {
             await api('/mailboxes/' + g.box.id + '/messages/actions', {

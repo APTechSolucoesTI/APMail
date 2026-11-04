@@ -226,6 +226,17 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
         .executeTakeFirstOrThrow();
       if (body.confirmed_email.toLowerCase() !== box.email_address.toLowerCase())
         throw conflict('Digite exatamente o endereço da caixa para confirmar a exclusão.');
+      const retained = await tx
+        .selectFrom('messages')
+        .select('id')
+        .where('tenant_id', '=', c.tenantId)
+        .where('mailbox_id', '=', id)
+        .where('retention_expires_at', 'is not', null)
+        .executeTakeFirst();
+      if (retained)
+        throw conflict(
+          'Esta caixa tem mensagens em retenção. Consulte o painel de retenção antes de excluí-la.',
+        );
       const deliveries = await tx
         .selectFrom('outbox')
         .select(['id', 'status'])

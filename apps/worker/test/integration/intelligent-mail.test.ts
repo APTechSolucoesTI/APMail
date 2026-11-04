@@ -702,6 +702,43 @@ it('processa MDN de Message-ID e destinatário corretos com idempotência; não 
       .read_receipts.some((v: { disposition: string }) => v.disposition === 'displayed'),
   ).toBe(true);
 });
+it('exibe confirmação recebida não lida no POP3 e respeita Seen do IMAP', async () => {
+  const raw = () =>
+    buildMdn({
+      to: box.email_address,
+      recipient: 'reader@qa.example',
+      original_message_id: '<' + randomUUID() + '@qa.example>',
+      return_path_matches: true,
+    }).raw;
+  const pop = await ingest(raw());
+  const imap = async (seen: boolean) => {
+    const source = raw();
+    return ingestMessage(r, box, inbox, {
+      uid: ++uid,
+      seq: uid,
+      source,
+      size: source.length,
+      flags: new Set(seen ? ['\\Seen'] : []),
+    });
+  };
+  const seen = await imap(true),
+    unseen = await imap(false);
+  const list = async () => {
+    const response = await call(
+      'GET',
+      '/api/mailboxes/' + box.id + '/threads?view=folder&page_size=200',
+    );
+    expect(response.statusCode, response.body).toBe(200);
+    return response.json().items as { id: string; is_unread: boolean }[];
+  };
+  let rows = await list();
+  expect(rows.find((row) => row.id === pop.thread_id)?.is_unread).toBe(true);
+  expect(rows.find((row) => row.id === unseen)?.is_unread).toBe(true);
+  expect(rows.find((row) => row.id === seen)?.is_unread).toBe(false);
+  expect((await call('POST', '/api/threads/' + pop.thread_id + '/read')).statusCode).toBe(200);
+  rows = await list();
+  expect(rows.find((row) => row.id === pop.thread_id)?.is_unread).toBe(false);
+});
 it('recuperação nunca repete uma MDN cujo resultado SMTP ficou incerto', async () => {
   const message = await ingest(incoming('uncertain@qa.example', true));
   const confirmation = await call('POST', '/api/messages/' + message.id + '/read-receipt', {

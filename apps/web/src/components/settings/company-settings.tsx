@@ -1,4 +1,5 @@
 import { MailPolicyProgress } from './mail-policy-progress';
+import { MailRetentionPolicy } from './mail-retention-policy';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Building2, Mail, HardDrive } from 'lucide-react';
@@ -244,6 +245,7 @@ export function CompanySettings() {
                   />
                 </section>
               ))}
+              <MailRetentionPolicy />
             </div>
           </TabsContent>
           <TabsContent value="storage">

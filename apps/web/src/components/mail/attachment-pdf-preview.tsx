@@ -9,13 +9,19 @@ import { LoadingState } from '@/components/data/data-state';
 export function AttachmentPdfPreview({
   attachmentId,
   filename,
+  source,
 }: {
   attachmentId: string;
   filename: string;
+  source?: { inlineUrl: string; downloadUrl: string };
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [attempt, setAttempt] = useState({ number: 0, password: undefined as string | undefined });
   const key = attachmentId + ':' + attempt.number;
+  const inlineUrl =
+    source?.inlineUrl ?? '/api/attachments/' + encodeURIComponent(attachmentId) + '/inline';
+  const downloadUrl =
+    source?.downloadUrl ?? '/api/attachments/' + encodeURIComponent(attachmentId) + '/download';
   const [result, setResult] = useState<{
     key: string;
     mode: 'ready' | 'password' | 'error';
@@ -26,10 +32,10 @@ export function AttachmentPdfPreview({
     const controller = new AbortController();
     void (async () => {
       try {
-        const response = await fetch(
-          '/api/attachments/' + encodeURIComponent(attachmentId) + '/inline',
-          { credentials: 'same-origin', signal: controller.signal },
-        );
+        const response = await fetch(inlineUrl, {
+          credentials: 'same-origin',
+          signal: controller.signal,
+        });
         if (!response.ok || !response.headers.get('content-type')?.includes('application/pdf'))
           throw Error('attachment_unavailable');
         const data = await response.arrayBuffer();
@@ -48,7 +54,7 @@ export function AttachmentPdfPreview({
       }
     })();
     return () => controller.abort();
-  }, [attachmentId, attempt.password, key]);
+  }, [inlineUrl, attempt.password, key]);
   return (
     <div className="min-h-0 space-y-3">
       <div className="flex items-center justify-between gap-2">
@@ -59,7 +65,7 @@ export function AttachmentPdfPreview({
         </p>
         <a
           className={buttonVariants({ variant: 'outline', size: 'sm' })}
-          href={'/api/attachments/' + attachmentId + '/download'}
+          href={downloadUrl}
           download={filename}
         >
           <Download />

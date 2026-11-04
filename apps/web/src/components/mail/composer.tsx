@@ -1,4 +1,5 @@
 import { AttachmentSafetyBadge } from './attachment-safety';
+import { ComposerAttachmentPreview } from './composer-attachment-preview';
 import {
   attachmentCanOpen,
   attachmentSecurityQuery,
@@ -14,6 +15,7 @@ import {
   resolveCompositionFormat,
   type CompositionPreferences,
   outboxSchema,
+  OUTBOX_SUBJECT_REQUIRED,
   replySubject,
   replyRecipients,
   quoteHtml,
@@ -35,6 +37,7 @@ import {
   Signature as SignatureIcon,
   Save,
   ChevronDown,
+  Eye,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -80,6 +83,7 @@ import { LoadingState, ErrorState } from '@/components/data/data-state';
 type Attached = {
   ref: OutboxAttachment;
   filename: string;
+  content_type?: string;
   size_bytes: number;
   security?: AttachmentSecurity | null;
 };
@@ -167,7 +171,9 @@ export function Composer({
     [savedAt, setSavedAt] = useState(''),
     [error, setError] = useState(''),
     [schedule, setSchedule] = useState(false),
-    [confirm, setConfirm] = useState<'discard' | 'subject' | null>(null),
+    [confirm, setConfirm] = useState(false),
+    [subjectError, setSubjectError] = useState(false),
+    [previewIndex, setPreviewIndex] = useState<number | null>(null),
     [uploads, setUploads] = useState<{ id: string; name: string; progress: number }[]>([]);
   const [pendingRecipients, setPendingRecipients] = useState({ to: '', cc: '', bcc: '' });
   const securityQueries = useQueries({
@@ -190,7 +196,8 @@ export function Composer({
     savedJson = useRef(''),
     savePromise = useRef<Promise<Outbox> | null>(null),
     fileInput = useRef<HTMLInputElement>(null),
-    pendingSchedule = useRef<SendSchedule | undefined>(undefined);
+    subjectInput = useRef<HTMLInputElement>(null),
+    previewTrigger = useRef<HTMLButtonElement>(null);
   useComposingPresence(
     data.source_thread_id ?? data.thread_id,
     ready &&
@@ -256,6 +263,7 @@ export function Composer({
             return {
               ref,
               filename: meta?.filename ?? 'Anexo indisponível',
+              content_type: meta?.content_type,
               size_bytes: meta?.size_bytes ?? 0,
               security: meta?.security,
             };
@@ -318,6 +326,7 @@ export function Composer({
               .map((a) => ({
                 ref: { source: 'message_attachment', attachment_id: a.id },
                 filename: a.filename,
+                content_type: a.content_type,
                 size_bytes: a.size_bytes,
                 security: a.security,
               })),
@@ -429,9 +438,18 @@ export function Composer({
       setBusy(false);
     }
   };
-  const submit = async (schedule?: SendSchedule, subjectConfirmed = false) => {
+  const requireSubject = () => {
+    if (current.current.subject.trim()) return true;
+    setError('');
+    setSubjectError(true);
+    setSchedule(false);
+    requestAnimationFrame(() => subjectInput.current?.focus());
+    return false;
+  };
+  const submit = async (schedule?: SendSchedule) => {
     const scheduled_at = schedule?.scheduled_at;
     if (!ready || busy || uploads.length) return;
+    if (!requireSubject()) return;
     if (unsafeAttachments) {
       setError(
         'Aguarde a verificação dos anexos ou remova os arquivos bloqueados para enviar. Seu rascunho pode ser salvo.',
@@ -449,11 +467,6 @@ export function Composer({
         );
       if (![...value.to_addresses, ...value.cc_addresses, ...value.bcc_addresses].length)
         throw Error('Informe ao menos um destinatário.');
-      if (!value.subject.trim() && !subjectConfirmed) {
-        pendingSchedule.current = schedule;
-        setConfirm('subject');
-        return;
-      }
       setBusy(true);
       const row = await save();
       await api('/outbox/' + row.id + '/submit', {
@@ -504,6 +517,7 @@ export function Composer({
       const response = await new Promise<{
         id: string;
         filename: string;
+        content_type?: string;
         size_bytes: number;
         security?: AttachmentSecurity | null;
       }>((resolve, reject) => {
@@ -542,6 +556,7 @@ export function Composer({
         {
           ref: { source: 'upload', upload_id: response.id, ...(inline ? { inline: true } : {}) },
           filename: response.filename,
+          content_type: response.content_type,
           size_bytes: response.size_bytes,
           security: response.security,
         },
@@ -709,7 +724,11 @@ export function Composer({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
-                      <DropdownMenuItem onSelect={() => setSchedule(true)}>
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          if (requireSubject()) setSchedule(true);
+                        }}
+                      >
                         <Clock />
                         Agendar envio…
                       </DropdownMenuItem>
@@ -972,15 +991,25 @@ export function Composer({
                 </Label>
                 <Input
                   id="compose-subject"
+                  ref={subjectInput}
+                  aria-required
+                  aria-invalid={subjectError || undefined}
+                  aria-describedby={subjectError ? 'compose-subject-error' : undefined}
                   className="h-11 rounded-none border-0 shadow-none font-medium"
                   value={data.subject}
                   onChange={(e) => {
                     const subject = e.target.value;
+                    if (subject.trim()) setSubjectError(false);
                     setEdited(true);
                     setData((d) => ({ ...d, subject }));
                   }}
                 />
               </div>
+              {subjectError && (
+                <p id="compose-subject-error" role="alert" className="text-sm text-destructive">
+                  {OUTBOX_SUBJECT_REQUIRED}
+                </p>
+              )}
               <label className="flex min-h-9 cursor-pointer items-center gap-2 text-xs text-muted-foreground">
                 <Checkbox
                   checked={data.request_read_receipt}
@@ -1051,7 +1080,21 @@ export function Composer({
                     className="flex min-h-11 items-center gap-2 rounded-md border px-3 text-sm"
                   >
                     <span className="min-w-0 flex-1 break-all">
-                      {f.filename} ({Math.ceil(f.size_bytes / 1024)} KB)
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-auto min-h-11 max-w-full justify-start px-1 text-left whitespace-normal"
+                        aria-label={'Visualizar ' + f.filename}
+                        onClick={(event) => {
+                          previewTrigger.current = event.currentTarget;
+                          setPreviewIndex(i);
+                        }}
+                      >
+                        <Eye aria-hidden />
+                        <span className="min-w-0 break-all">
+                          {f.filename} ({Math.ceil(f.size_bytes / 1024)} KB)
+                        </span>
+                      </Button>
                       <span className="mt-1 block">
                         <AttachmentSafetyBadge security={fileSecurity[i]} />
                       </span>
@@ -1125,63 +1168,64 @@ export function Composer({
               <Button
                 variant="ghost"
                 disabled={busy || !!uploads.length}
-                onClick={() => setConfirm('discard')}
+                onClick={() => setConfirm(true)}
               >
                 <Trash2 />
                 Descartar
               </Button>
             </div>
           )}
-          <AlertDialog
-            open={!!confirm}
-            onOpenChange={(v) => {
-              if (!v) setConfirm(null);
-            }}
-          >
+          <AlertDialog open={confirm} onOpenChange={setConfirm}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>
-                  {confirm === 'subject' ? 'Enviar sem assunto?' : 'Descartar rascunho?'}
-                </AlertDialogTitle>
+                <AlertDialogTitle>Descartar rascunho?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  {confirm === 'subject'
-                    ? 'A mensagem será enviada com o assunto vazio.'
-                    : 'O texto e os anexos deste rascunho serão removidos.'}
+                  O texto e os anexos deste rascunho serão removidos.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Voltar</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={() => {
-                    const action = confirm;
-                    setConfirm(null);
-                    if (action === 'subject') void submit(pendingSchedule.current, true);
-                    else {
-                      setBusy(true);
-                      void (async () => {
-                        if (savePromise.current) await savePromise.current;
-                        if (idRef.current)
-                          await api('/outbox/' + idRef.current, { method: 'DELETE' });
-                        else
-                          for (const f of files)
-                            if (f.ref.source === 'upload')
-                              await api('/uploads/' + f.ref.upload_id, { method: 'DELETE' });
-                        await client.invalidateQueries({ queryKey: ['outbox', tenant] });
-                        onClose();
-                      })().catch((e) => {
-                        setError(e.message);
-                        setBusy(false);
-                      });
-                    }
+                    setConfirm(false);
+                    setBusy(true);
+                    void (async () => {
+                      if (savePromise.current) await savePromise.current;
+                      if (idRef.current)
+                        await api('/outbox/' + idRef.current, { method: 'DELETE' });
+                      else
+                        for (const f of files)
+                          if (f.ref.source === 'upload')
+                            await api('/uploads/' + f.ref.upload_id, { method: 'DELETE' });
+                      await client.invalidateQueries({ queryKey: ['outbox', tenant] });
+                      onClose();
+                    })().catch((e) => {
+                      setError(e.message);
+                      setBusy(false);
+                    });
                   }}
                 >
-                  {confirm === 'subject' ? 'Enviar sem assunto' : 'Descartar'}
+                  Descartar
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
         </DialogContent>
       </Dialog>
+      {previewIndex !== null && files[previewIndex] && (
+        <ComposerAttachmentPreview
+          file={files[previewIndex]}
+          security={fileSecurity[previewIndex]}
+          index={previewIndex}
+          count={files.length}
+          onNavigate={setPreviewIndex}
+          onClose={() => setPreviewIndex(null)}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            previewTrigger.current?.focus();
+          }}
+        />
+      )}
       <ScheduleDialog
         open={schedule}
         onClose={() => setSchedule(false)}

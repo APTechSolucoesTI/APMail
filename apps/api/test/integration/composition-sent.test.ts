@@ -208,11 +208,42 @@ it('opens exactly the selected sent message and keeps normal inbox conversations
   expect(result.statusCode, result.body).toBe(200);
   expect(result.json().messages.map((message: { id: string }) => message.id)).toEqual([first]);
   expect(result.json().thread.subject).toBe('Enviado 1');
-  expect((await call('GET', `/threads/${thread}`)).json().messages).toHaveLength(3);
+  const full = (await call('GET', `/threads/${thread}`)).json();
+  expect(full.messages).toHaveLength(3);
+  expect(full.thread.subject).toBe('Mensagem recebida');
   expect((await call('GET', `/threads/${thread}?message_id=${randomUUID()}`)).statusCode).toBe(404);
   expect((await call('GET', `/threads/${thread}?message_id=${first}`, stranger)).statusCode).toBe(
     404,
   );
+});
+it('busca texto com data no fuso do usuário e usa o último assunto recebido na listagem', async () => {
+  await db
+    .updateTable('user_preferences')
+    .set({ timezone: 'America/Sao_Paulo' })
+    .where('user_id', '=', owner)
+    .execute();
+  await db
+    .updateTable('messages')
+    .set({ message_at: new Date('2026-10-21T01:30:00Z') })
+    .where('id', '=', incoming)
+    .execute();
+  const search = (q: string, user = owner) =>
+    call(
+      'GET',
+      `/mailboxes/${box}/threads?` + new URLSearchParams({ view: 'search', q, page_size: '200' }),
+      user,
+    );
+  const matched = await search('Mensagem 20/10/2026');
+  expect(matched.statusCode, matched.body).toBe(200);
+  expect(matched.json()).toMatchObject({
+    total: 1,
+    page_size: 200,
+    items: [{ id: thread, subject: 'Mensagem recebida' }],
+  });
+  expect((await search('Mensagem 2026-10-21')).json().total).toBe(0);
+  expect((await search('Mensagem 10/2026')).json().total).toBe(1);
+  expect((await search('Mensagem 2026')).json().total).toBe(1);
+  expect((await search('Mensagem 20/10/2026', stranger)).statusCode).toBe(404);
 });
 it('searches only the matching sent message and resolves legacy links independently of pagination', async () => {
   const result = await call(

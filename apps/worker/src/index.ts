@@ -12,6 +12,7 @@ import { handleMailArchive } from './handlers/mail-archive.js';
 import { handlePstExport, cleanupPstExports } from './handlers/pst-export.js';
 import { cleanupMailArchiveFiles } from './handlers/mail-archive-maintenance.js';
 import { purgeMailboxes } from './handlers/mailbox-purge.js';
+import { purgeRetainedMail } from './handlers/mail-retention.js';
 import { handleMailAction } from './handlers/mail-actions.js';
 import { handleOutboxSend } from './handlers/outbox-send.js';
 import { handleRulesApply } from './handlers/rules-apply.js';
@@ -118,6 +119,8 @@ const workers = QUEUE_NAMES.map(
           return;
         }
         if (name === 'maintenance' && job.name === 'purge-mailboxes') return purgeMailboxes(r);
+        if (name === 'maintenance' && job.name === 'purge-retained-mail')
+          return purgeRetainedMail(r);
         if (name === 'maintenance' && job.name === 'cleanup-uploads') {
           await cleanupPstExports(r);
           await cleanupMailArchiveFiles(r);
@@ -300,6 +303,7 @@ async function registerMaintenance() {
     ['sweep-outbox', 60000],
     ['ensure-schedulers', 300000],
     ['cleanup-uploads', 3600000],
+    ['purge-retained-mail', 300000],
     ['cleanup-auth', 86400000],
   ] as const) {
     if (!(await resources.queues.maintenance.getJobScheduler(name)))

@@ -1,5 +1,7 @@
 import { useEffect, useId, useState } from 'react';
-import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMailPages } from '@/hooks/use-mail-pages';
+import { MailPageContinuation } from './mail-page-continuation';
 import { FilePenLine, Paperclip, RefreshCw, Trash2 } from 'lucide-react';
 import type { Address } from '@apmail/shared';
 import { toast } from 'sonner';
@@ -41,22 +43,23 @@ export function MailboxDrafts({
     client = useQueryClient(),
     me = useQuery(meQuery);
   const pageSizeId = useId();
-  const pageSize = search.pageSize ?? me.data?.preferences.mail_page_size ?? 10;
+  const pageSize = search.pageSize ?? me.data?.preferences.mail_page_size ?? 50;
   const [removing, setRemoving] = useState<Draft | null>(null);
   const params = new URLSearchParams({
     page: String(search.page),
     page_size: String(pageSize),
   });
   if (search.q) params.set('q', search.q);
-  const drafts = useQuery({
-    queryKey: ['outbox', tenant, 'mailbox-drafts', mailboxId, params.toString()],
-    queryFn: () =>
-      api<{ items: Draft[]; total: number }>('/mailboxes/' + mailboxId + '/drafts?' + params),
-    placeholderData: keepPreviousData,
+  const drafts = useMailPages<Draft>({
+    path: '/mailboxes/' + mailboxId + '/drafts',
+    key: ['outbox', tenant, 'mailbox-drafts', mailboxId],
+    params,
+    page: search.page,
+    size: pageSize,
   });
   useEffect(() => {
     if (!drafts.data || drafts.isFetching || drafts.isPlaceholderData) return;
-    const last = Math.max(1, Math.ceil(drafts.data.total / pageSize));
+    const last = pageSize === 0 ? 1 : Math.max(1, Math.ceil(drafts.data.total / pageSize));
     if (search.page > last) onChange({ page: last });
   }, [drafts.data, drafts.isFetching, drafts.isPlaceholderData, search.page, pageSize, onChange]);
   const pagination = (
@@ -101,9 +104,14 @@ export function MailboxDrafts({
             onChange({ pageSize: Number(e.target.value) as Search['pageSize'], page: 1 })
           }
         >
-          {[10, 20, 25, 30, 50, 100].map((size) => (
+          {![50, 100, 200, 0].includes(pageSize) && (
+            <option value={pageSize} hidden>
+              {pageSize}
+            </option>
+          )}
+          {[50, 100, 200, 0].map((size) => (
             <option key={size} value={size}>
-              {size}
+              {size === 0 ? 'Ilimitada' : size}
             </option>
           ))}
         </select>
@@ -112,9 +120,9 @@ export function MailboxDrafts({
       <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={drafts.isFetching}>
         {drafts.isPending ? (
           <LoadingState />
-        ) : drafts.isError ? (
+        ) : drafts.isError && !drafts.isFetchNextPageError ? (
           <ErrorState onRetry={() => void drafts.refetch()} />
-        ) : !drafts.data.items.length ? (
+        ) : !drafts.data?.items.length ? (
           <EmptyState
             icon={FilePenLine}
             title={search.q ? 'Nenhum rascunho encontrado' : 'Nenhum rascunho nesta caixa'}
@@ -186,6 +194,7 @@ export function MailboxDrafts({
             </div>
           ))
         )}
+        <MailPageContinuation {...drafts} />
       </div>
       {pagination}
       <ConfirmDialog

@@ -40,3 +40,4 @@ export * from './domain/thread-identities.js';
 
 export * from './domain/mail-policy.js';
 export * from './domain/domains.js';
+export * from './domain/mail-retention.js';

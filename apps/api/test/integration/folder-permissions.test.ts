@@ -464,6 +464,17 @@ it('PDF inclui a conversa legível completa sem revelar assunto ou anexos de pas
   expect(complete.statusCode).toBe(200);
   expect(pdfText(complete.rawPayload)).toContain('Segredo interno');
   expect(pdfText(complete.rawPayload)).toContain('segredo.pdf');
+  const individual = await call('GET', `/threads/${mixed}/messages/${allowedMessage}/pdf`, owner);
+  expect(individual.statusCode, individual.body).toBe(200);
+  expect(individual.headers['content-disposition']).toContain('apmail-mensagem-' + allowedMessage);
+  expect(pdfText(individual.rawPayload)).toContain('Atendimento permitido');
+  expect(pdfText(individual.rawPayload)).not.toContain('segredo.pdf');
+  expect((await call('GET', `/threads/${mixed}/messages/${secretMessage}/pdf`)).statusCode).toBe(
+    404,
+  );
+  expect(
+    (await call('GET', `/threads/${visible}/messages/${allowedMessage}/pdf`, owner)).statusCode,
+  ).toBe(404);
   expect(complete.rawPayload.length).toBeGreaterThan(restricted.rawPayload.length);
 });
 it('árvore herdada, listagem e busca calculam somente mensagens legíveis', async () => {
@@ -502,7 +513,7 @@ it('árvore herdada, listagem e busca calculam somente mensagens legíveis', asy
   ).toEqual([]);
   expect(
     (await call('GET', '/mailboxes/' + box + '/address-suggestions?q=cliente')).json(),
-  ).toHaveLength(1);
+  ).toEqual([]); // Incoming senders are not part of recipient history.
 });
 it('URL direta, anexos, resposta, compartilhamento e dashboard negam acesso indevido', async () => {
   const detail = (await call('GET', '/threads/' + mixed)).json();

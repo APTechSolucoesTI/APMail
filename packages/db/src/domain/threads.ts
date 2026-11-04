@@ -51,6 +51,7 @@ export async function refreshThreadAggregates(db: Database, threadId: string): P
     .where('m.thread_id', '=', threadId)
     .where('m.deleted_at', 'is', null)
     .orderBy('m.message_at', 'asc')
+    .orderBy('m.id', 'asc')
     .execute();
   const messages = all.filter((m) => m.special_use !== 'trash' && m.special_use !== 'junk');
   const inbound = messages.filter((m) => m.direction === 'inbound' && !m.is_automated);
@@ -77,7 +78,9 @@ export async function refreshThreadAggregates(db: Database, threadId: string): P
   await db
     .updateTable('threads')
     .set({
-      subject: messages[0]?.subject ?? '',
+      subject:
+        (all.filter((message) => message.direction === 'inbound').at(-1) ?? all.at(-1))?.subject ??
+        '',
       snippet: last?.snippet ?? '',
       message_count: messages.length,
       has_attachments: messages.some((m) => m.has_attachments),

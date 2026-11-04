@@ -49,7 +49,7 @@ it('reopens a composer draft and views provider drafts without sending either', 
       <TenantContext.Provider value="tenant">
         <MailboxDrafts
           mailboxId="box"
-          search={{ page: 1, pageSize: 10 }}
+          search={{ page: 1, pageSize: 50 }}
           onChange={onChange}
           onOpenDraft={onOpenDraft}
           onOpenMessage={onOpenMessage}
@@ -62,12 +62,60 @@ it('reopens a composer draft and views provider drafts without sending either', 
   fireEvent.click(screen.getByRole('button', { name: /Abrir rascunho: Outro rascunho/ }));
   expect(onOpenMessage).toHaveBeenCalledWith('thread', 'imported');
   fireEvent.change(screen.getByRole('combobox', { name: 'Rascunhos por página' }), {
-    target: { value: '30' },
+    target: { value: '200' },
   });
-  expect(onChange).toHaveBeenCalledWith({ pageSize: 30, page: 1 });
+  expect(onChange).toHaveBeenCalledWith({ pageSize: 200, page: 1 });
   expect(screen.getAllByRole('button', { name: /Excluir rascunho/ })).toHaveLength(1);
   await waitFor(() =>
-    expect(api).toHaveBeenCalledWith('/mailboxes/box/drafts?page=1&page_size=10'),
+    expect(api).toHaveBeenCalledWith('/mailboxes/box/drafts?page=1&page_size=50'),
   );
   expect(vi.mocked(api).mock.calls.every(([, options]) => !options)).toBe(true);
+});
+it('carrega rascunhos em lotes limitados na preferência Ilimitada', async () => {
+  const item = (id: string) => ({
+    id,
+    source: 'draft',
+    subject: 'Rascunho ' + id,
+    to_addresses: [],
+    snippet: '',
+    updated_at: '2026-10-23T12:00:00Z',
+    can_edit: true,
+  });
+  vi.mocked(api).mockImplementation(async (path) => ({
+    total: 201,
+    items: path.includes('page=2')
+      ? [item('201')]
+      : Array.from({ length: 200 }, (_, index) => item(String(index + 1))),
+  }));
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  client.setQueryData(['me'], {
+    user: { id: 'user' },
+    preferences: { timezone: 'America/Sao_Paulo', mail_page_size: 0 },
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <TenantContext.Provider value="tenant">
+        <MailboxDrafts
+          mailboxId="box"
+          search={{ page: 1 }}
+          onChange={vi.fn()}
+          onOpenDraft={vi.fn()}
+          onOpenMessage={vi.fn()}
+        />
+      </TenantContext.Provider>
+    </QueryClientProvider>,
+  );
+  expect(
+    await screen.findByRole('button', { name: 'Editar rascunho: Rascunho 200' }),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Carregar mais e-mails' }));
+  expect(
+    await screen.findByRole('button', { name: 'Editar rascunho: Rascunho 201' }),
+  ).toBeVisible();
+  expect(vi.mocked(api).mock.calls.map(([path]) => path)).toEqual([
+    '/mailboxes/box/drafts?page=1&page_size=200',
+    '/mailboxes/box/drafts?page=2&page_size=200',
+  ]);
 });

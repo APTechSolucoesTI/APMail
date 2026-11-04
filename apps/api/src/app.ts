@@ -61,6 +61,7 @@ import { registerContacts } from './modules/contacts.js';
 import { registerGlobalSearch } from './modules/global-search.js';
 import { registerStorageQuotas } from './modules/storage-quotas.js';
 import { registerMailArchives } from './modules/mail-archives.js';
+import { registerMailRetention } from './modules/mail-retention.js';
 import { registerCalendar } from './modules/calendar.js';
 import { registerGoogleIntegrations } from './modules/google/routes.js';
 import { registerMeetManagement } from './modules/google/management.js';
@@ -307,6 +308,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await registerGlobalSearch(app, resources);
   await registerStorageQuotas(app, resources);
   await registerMailArchives(app, resources);
+  await registerMailRetention(app, resources);
   await registerCalendar(app, resources);
   await registerGoogleIntegrations(app, resources);
   await registerMeetManagement(app, resources);

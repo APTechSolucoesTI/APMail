@@ -206,6 +206,26 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
                   .returning('thread_id')
                   .execute();
                 changed.forEach((m) => affected.add(m.thread_id));
+                if (m.flags) {
+                  const seen = m.flags.has('\\Seen');
+                  const receipts = await r.db
+                    .updateTable('messages')
+                    .set({ mdn_provider_seen: seen })
+                    .where('folder_id', '=', folder.id)
+                    .where('imap_uid', '=', String(m.uid))
+                    .where('deleted_at', 'is', null)
+                    .where('is_mdn', '=', true)
+                    .where('pending_action', '=', false)
+                    .where((eb) =>
+                      eb.or([
+                        eb('mdn_provider_seen', 'is', null),
+                        eb('mdn_provider_seen', '!=', seen),
+                      ]),
+                    )
+                    .returning('thread_id')
+                    .execute();
+                  receipts.forEach((receipt) => affected.add(receipt.thread_id));
+                }
               }
           }
         } finally {

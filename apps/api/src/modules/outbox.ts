@@ -27,6 +27,7 @@ import {
 } from '@apmail/db';
 import {
   outboxSchema,
+  OUTBOX_SUBJECT_REQUIRED,
   signatureSchema,
   validateSchedule,
   recurrenceSchema,
@@ -53,6 +54,8 @@ import { resolveContacts } from './contact-resolution.js';
 import { uniqueAddresses, type Address } from '@apmail/shared';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 const validation = (message: string) => new ApiError(400, 'validation_error', message);
+const subjectFailure = (row: OutboxRow) =>
+  row.status === 'failed' && row.last_error === OUTBOX_SUBJECT_REQUIRED && !row.subject.trim();
 export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
   await registerRecurringSchedules(app, r);
   const storage = new Storage(r.env.STORAGE_DIR, r.db);
@@ -77,7 +80,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       can_edit:
         !row.calendar_payload &&
         row.created_by === c.userId &&
-        ['draft', 'queued', 'scheduled'].includes(row.status) &&
+        (['draft', 'queued', 'scheduled'].includes(row.status) || subjectFailure(row)) &&
         !!role &&
         can(role, 'send'),
     };
@@ -306,27 +309,45 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     await r.db.deleteFrom('uploads').where('id', '=', id).execute();
     return { ok: true };
   });
-  app.get('/api/uploads/:id/image', async (req, reply) => {
-    const c = requireTenant(req.ctx),
-      id = idOf(req.params);
-    const file = await r.db
-      .selectFrom('uploads')
-      .select(['storage_path', 'content_type', 'mailbox_id'])
-      .where('id', '=', id)
-      .where('tenant_id', '=', c.tenantId)
-      .where('user_id', '=', c.userId)
-      .where('consumed_at', 'is', null)
-      .executeTakeFirst();
-    if (!file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.content_type))
-      throw notFound();
-    if (file.mailbox_id) await requireMailboxPerm(c, r.db, file.mailbox_id, 'send');
-    await assertFilesClean(r.db, [file.storage_path], storage);
-    return reply
-      .type(file.content_type)
-      .header('Cache-Control', 'private, no-store')
-      .header('X-Content-Type-Options', 'nosniff')
-      .send(await storage.openReadStream(file.storage_path));
-  });
+  for (const kind of ['image', 'preview', 'download'] as const)
+    app.get('/api/uploads/:id/' + kind, async (req, reply) => {
+      const c = requireTenant(req.ctx),
+        id = idOf(req.params);
+      const file = await r.db
+        .selectFrom('uploads')
+        .select(['storage_path', 'content_type', 'mailbox_id', 'filename'])
+        .where('id', '=', id)
+        .where('tenant_id', '=', c.tenantId)
+        .where('user_id', '=', c.userId)
+        .where('consumed_at', 'is', null)
+        .executeTakeFirst();
+      if (!file) throw notFound();
+      if (
+        kind === 'image' &&
+        !['image/png', 'image/jpeg', 'image/webp'].includes(file.content_type)
+      )
+        throw notFound();
+      if (
+        kind === 'preview' &&
+        !/^(image\/(png|jpeg|gif|webp)|application\/pdf)$/.test(file.content_type)
+      )
+        throw notFound();
+      if (file.mailbox_id) await requireMailboxPerm(c, r.db, file.mailbox_id, 'send');
+      await assertFilesClean(r.db, [file.storage_path], storage);
+      if (kind === 'download') {
+        const filename = file.filename.replace(/[\r\n"\\]/g, '_');
+        reply.header(
+          'Content-Disposition',
+          `attachment; filename*=UTF-8''${encodeURIComponent(filename).replace(/['()*]/g, (c) => '%' + c.charCodeAt(0).toString(16))}`,
+        );
+      }
+      return reply
+        .type(kind === 'download' ? 'application/octet-stream' : file.content_type)
+        .header('Cache-Control', 'private, no-store')
+        .header('X-Content-Type-Options', 'nosniff')
+        .header('Content-Security-Policy', "default-src 'none'; sandbox")
+        .send(await storage.openReadStream(file.storage_path));
+    });
   app.get('/api/uploads/:id/security', async (req, reply) => {
     const c = requireTenant(req.ctx),
       id = idOf(req.params);
@@ -622,7 +643,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
           await requireMailboxPerm(c, r.db, row.mailbox_id, 'cancel_any');
           if (row.status !== 'scheduled') throw forbidden();
         }
-        if (!['queued', 'scheduled'].includes(row.status))
+        if (!['queued', 'scheduled'].includes(row.status) && !(own && subjectFailure(row)))
           throw conflict('O envio já começou ou não pode ser cancelado.');
         const result = await r.db.transaction().execute(async (tx) => {
           await lockStorageTenant(tx, c.tenantId);
@@ -644,7 +665,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
               recurrence_sequence: null,
             })
             .where('id', '=', row.id)
-            .where('status', 'in', ['queued', 'scheduled'])
+            .where('status', '=', row.status)
             .where('job_id', '=', row.job_id)
             .returningAll()
             .executeTakeFirst();
@@ -670,6 +691,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         action === 'submit' ? 'draft' : action === 'send-now' ? 'scheduled' : 'failed';
       if (row.status !== expected) throw conflict('Este envio não está disponível para esta ação.');
       const parsed = outboxSchema.parse(row);
+      if (!parsed.subject.trim()) throw validation(OUTBOX_SUBJECT_REQUIRED);
       if (
         parsed.recipient_inputs &&
         Object.values(parsed.recipient_inputs).some((input) => input.trim())

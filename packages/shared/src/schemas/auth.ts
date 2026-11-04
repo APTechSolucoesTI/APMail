@@ -66,7 +66,7 @@ export const preferencesSchema = z
     request_read_receipt: z.boolean(),
     mail_page_size: z.coerce
       .number()
-      .pipe(z.union([z.literal(10), z.literal(25), z.literal(50), z.literal(100)])),
+      .pipe(z.union([z.literal(0), z.literal(50), z.literal(100), z.literal(200)])),
     mail_summary_enabled: z.boolean(),
     mail_group_by_domain: z.boolean(),
   })

@@ -556,6 +556,7 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
       .where('tenant_id', '=', c.tenantId)
       .where('mailbox_id', '=', id)
       .where('source_kind', '!=', 'imap')
+      .where('retention_expires_at', 'is', null)
       .where('deleted_at', 'is not', null)
       .where('pending_action', '=', false)
       .where('raw_storage_path', 'is not', null)
@@ -571,6 +572,7 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
           .where('tenant_id', '=', c.tenantId)
           .where('mailbox_id', '=', id)
           .where('deleted_at', 'is not', null)
+          .where('retention_expires_at', 'is', null)
           .where('pending_action', '=', false)
           .forUpdate()
           .executeTakeFirst();

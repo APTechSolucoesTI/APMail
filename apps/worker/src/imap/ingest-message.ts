@@ -88,6 +88,29 @@ export async function ingestMessage(
   const header = mailText(
     parsed?.messageId ?? env?.messageId ?? `<apmail-${randomUUID()}@apmail.local>`,
   );
+  if (!external) {
+    const retained = await r.db
+      .selectFrom('messages')
+      .select('thread_id')
+      .where('tenant_id', '=', box.tenant_id)
+      .where('mailbox_id', '=', box.id)
+      .where('retention_imap_folder_id', '=', folder.id)
+      .where((eb) =>
+        eb.or([
+          ...(folder.uidvalidity
+            ? [
+                eb.and([
+                  eb('retention_imap_uidvalidity', '=', folder.uidvalidity),
+                  eb('retention_imap_uid', '=', String(msg.uid)),
+                ]),
+              ]
+            : []),
+          ...(parsed?.messageId || env?.messageId ? [eb('message_id_header', '=', header)] : []),
+        ]),
+      )
+      .executeTakeFirst();
+    if (retained) return retained.thread_id;
+  }
   if (external?.kind === 'archive' && parsed?.messageId) {
     const existing = await r.db
       .selectFrom('messages')
@@ -258,6 +281,14 @@ export async function ingestMessage(
           from_name: from.name,
           mdn_request: parsed ? asJson(readMdnRequest(parsed, box)) : null,
           is_mdn: parsed ? isMdnReport(parsed) : false,
+          mdn_provider_seen:
+            parsed && isMdnReport(parsed)
+              ? external?.kind === 'pop3'
+                ? false
+                : !external && msg.flags
+                  ? msg.flags.has('\\Seen')
+                  : null
+              : null,
           calendar_invite: parsed ? asJson(readCalendarInvite(parsed, from.address, own)) : null,
           bcc_addresses: asJson(addresses(parsed?.bcc)),
           reply_to_addresses: asJson(addresses(parsed?.replyTo)),

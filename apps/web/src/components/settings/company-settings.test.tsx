@@ -4,7 +4,11 @@ import { expect, it, vi } from 'vitest';
 import { CompanySettings } from './company-settings';
 import { api } from '@/lib/api';
 vi.mock('@/lib/api', () => ({ api: vi.fn(), ApiError: class extends Error {} }));
-vi.mock('@/lib/auth', () => ({ useTenantId: () => 'tenant', useAccess: () => true }));
+vi.mock('@/lib/auth', () => ({
+  useTenantId: () => 'tenant',
+  useAccess: () => true,
+  meQuery: { queryKey: ['me'], queryFn: async () => ({ tenants: [] }) },
+}));
 vi.mock('@/components/storage/storage-quotas', () => ({
   TenantStorage: () => <p>Armazenamento da empresa</p>,
 }));

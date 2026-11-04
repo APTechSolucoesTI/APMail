@@ -35,7 +35,7 @@ vi.mock('../src/lib/mailbox-lock.js', () => ({
     work: () => Promise<unknown>,
   ) => work(),
 }));
-function resources() {
+function resources(subject = 'Mensagem') {
   const updates: { table: string; values: Record<string, unknown> }[] = [];
   const copied: string[] = [];
   const row = {
@@ -51,7 +51,7 @@ function resources() {
     cc_addresses: [],
     bcc_addresses: [],
     body_html: '',
-    subject: 'Mensagem',
+    subject,
     submit_count: 1,
   };
   const box = {
@@ -121,6 +121,21 @@ beforeEach(() => {
     smtp: { sendMail: async () => undefined },
     close: async () => undefined,
   });
+});
+it('stops a legacy blank-subject send before rendering MIME or opening SMTP', async () => {
+  const { r, updates } = resources('  ');
+  await expect(
+    handleOutboxSend(r, 'outbox', { id: 'job', attemptsMade: 0, opts: { attempts: 3 } }),
+  ).rejects.toMatchObject({
+    name: 'UnrecoverableError',
+    message: expect.stringContaining('assunto'),
+  });
+  expect(updates).toContainEqual({
+    table: 'outbox',
+    values: { status: 'failed', last_error: expect.stringContaining('assunto') },
+  });
+  expect(boundaries.buildMime).not.toHaveBeenCalled();
+  expect(boundaries.transports).not.toHaveBeenCalled();
 });
 it.each(['file_pending', 'file_scan_error'])(
   'preserva motivo de segurança legível e tenta novamente para %s',

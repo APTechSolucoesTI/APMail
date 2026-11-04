@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createFileRoute, Navigate } from '@tanstack/react-router';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Layers, RefreshCw } from 'lucide-react';
-import { QUEUE_LABELS, type ContactResolution } from '@apmail/shared';
-import { api } from '@/lib/api';
+import { QUEUE_LABELS } from '@apmail/shared';
+import { MAIL_BULK_LIMIT, useMailPages } from '@/hooks/use-mail-pages';
+import { toast } from 'sonner';
+import { MailPageContinuation } from '@/components/mail/mail-page-continuation';
 import { meQuery, useMailQueues, useTenantId } from '@/lib/auth';
 import { mailSearchSchema } from '@/lib/search-params/mail';
 import type { Thread } from '@/lib/mail';
@@ -26,7 +28,7 @@ function SummaryPage() {
     tenant = useTenantId();
   const me = useQuery(meQuery),
     queues = useMailQueues();
-  const pageSize = search.pageSize ?? me.data?.preferences.mail_page_size ?? 10;
+  const pageSize = search.pageSize ?? me.data?.preferences.mail_page_size ?? 50;
   const view = search.view === 'queue' && queues ? 'queue' : search.q ? 'search' : 'folder';
   const query = new URLSearchParams({
     view,
@@ -38,13 +40,12 @@ function SummaryPage() {
   });
   if (search.q) query.set('q', search.q);
   if (search.queue && view === 'queue') query.set('queue', search.queue);
-  const result = useQuery({
-    queryKey: ['threads', tenant, 'summary', query.toString()],
-    queryFn: () =>
-      api<{ items: Thread[]; total: number; contacts?: ContactResolution }>(
-        '/mail-summary/threads?' + query,
-      ),
-    placeholderData: keepPreviousData,
+  const result = useMailPages<Thread>({
+    path: '/mail-summary/threads',
+    key: ['threads', tenant, 'summary'],
+    params: query,
+    page: search.page,
+    size: pageSize,
     refetchInterval: 30000,
     enabled: !!me.data?.preferences.mail_summary_enabled,
   });
@@ -59,7 +60,7 @@ function SummaryPage() {
     void navigate({ search: { ...search, ...patch } });
   useEffect(() => {
     if (!result.data || result.isFetching || result.isPlaceholderData) return;
-    const last = Math.max(1, Math.ceil(result.data.total / pageSize));
+    const last = pageSize === 0 ? 1 : Math.max(1, Math.ceil(result.data.total / pageSize));
     if (search.page > last) void navigate({ search: { ...search, page: last }, replace: true });
   }, [result.data, result.isFetching, result.isPlaceholderData, pageSize, search, navigate]);
   if (me.data && !me.data.preferences.mail_summary_enabled)
@@ -87,7 +88,7 @@ function SummaryPage() {
         <div className="flex flex-wrap items-end gap-3 border-b p-3">
           <SearchInput
             value={search.q ?? ''}
-            placeholder="Buscar assunto, remetente, conteúdo…"
+            placeholder="Buscar texto ou data…"
             debounce={350}
             onChange={(q) => change({ q: q || undefined, page: 1 })}
           />
@@ -168,7 +169,7 @@ function SummaryPage() {
         <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={result.isFetching}>
           {result.isPending ? (
             <LoadingState />
-          ) : result.error ? (
+          ) : result.error && !result.isFetchNextPageError ? (
             <ErrorState onRetry={() => void result.refetch()} />
           ) : !items.length ? (
             <EmptyState
@@ -205,18 +206,23 @@ function SummaryPage() {
                     query={search.q}
                     active={false}
                     selected={ids.includes(thread.id)}
-                    onSelect={(value) =>
+                    onSelect={(value) => {
+                      if (value && ids.length >= MAIL_BULK_LIMIT) {
+                        toast.info('Selecione até 100 e-mails por operação.');
+                        return;
+                      }
                       setSelected({
                         context,
                         ids: value ? [...ids, thread.id] : ids.filter((id) => id !== thread.id),
-                      })
-                    }
+                      });
+                    }}
                     onOpen={open}
                   />
                 </MailContextMenu>
               );
             })
           )}
+          <MailPageContinuation {...result} />
         </div>
         <Pagination
           page={search.page}

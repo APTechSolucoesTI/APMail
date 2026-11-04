@@ -515,7 +515,7 @@ export function MailContextMenu({
                         className="text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive"
                         onSelect={() => setDialog('delete')}
                       >
-                        <Trash2 /> {inTrash ? 'Excluir definitivamente' : 'Excluir'}
+                        <Trash2 /> {inTrash ? 'Remover da lixeira' : 'Excluir'}
                       </Item>
                     )}
                   </>

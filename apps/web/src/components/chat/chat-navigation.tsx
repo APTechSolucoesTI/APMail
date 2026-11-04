@@ -1,26 +1,36 @@
 import { Link } from '@tanstack/react-router';
 import { MessageSquare } from 'lucide-react';
 import { useChatConversations } from '@/hooks/use-chat';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 export function ChatNavigation({ onNavigate }: { onNavigate: () => void }) {
   const list = useChatConversations(),
     count = list.data?.reduce((total, conversation) => total + conversation.unread_count, 0) ?? 0;
   return (
-    <Link
-      to="/chat"
-      activeProps={{ className: 'bg-accent text-accent-foreground' }}
-      onClick={onNavigate}
-      className="flex min-h-11 sm:min-h-8 min-w-0 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-    >
-      <MessageSquare className="size-4 shrink-0" aria-hidden />
-      <span className="min-w-0 flex-1">Chat</span>
-      {count > 0 && (
-        <span
-          className="shrink-0 rounded-sm bg-primary px-2 text-xs font-semibold text-primary-foreground"
-          aria-label={`${count} mensagens não lidas no chat`}
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Link
+          to="/chat"
+          activeProps={{ className: 'bg-accent text-accent-foreground' }}
+          onClick={onNavigate}
+          aria-label={
+            count > 0
+              ? `Chat, ${count} ${count === 1 ? 'mensagem não lida' : 'mensagens não lidas'}`
+              : 'Chat'
+          }
+          className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-9"
         >
-          {count}
-        </span>
-      )}
-    </Link>
+          <MessageSquare className="size-4 shrink-0" aria-hidden />
+          {count > 0 && (
+            <span
+              className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[10px] font-semibold leading-4 text-primary-foreground"
+              aria-hidden="true"
+            >
+              {count > 99 ? '99+' : count}
+            </span>
+          )}
+        </Link>
+      </TooltipTrigger>
+      <TooltipContent sideOffset={6}>Chat</TooltipContent>
+    </Tooltip>
   );
 }

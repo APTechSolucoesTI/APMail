@@ -11,7 +11,7 @@ const original = {
   timezone: 'America/Sao_Paulo',
   mail_queues_enabled: true,
   mail_summary_enabled: false,
-  mail_page_size: 10,
+  mail_page_size: 50,
   request_read_receipt: false,
   load_remote_images: false,
   notify_chat: true,
@@ -54,7 +54,7 @@ it('prioriza tema e fuso; salvar uma aba não sobrescreve preferências das dema
   await user.click(screen.getByRole('tab', { name: 'E-mail' }));
   expect(screen.queryByRole('checkbox', { name: /Usar filas/ })).not.toBeInTheDocument();
   await user.click(screen.getByRole('checkbox', { name: /Deseja utilizar o Resumo/ }));
-  await user.selectOptions(screen.getByLabelText('E-mails por página'), '25');
+  await user.selectOptions(screen.getByLabelText('E-mails por página'), '0');
   await user.click(screen.getByRole('checkbox', { name: /Solicitar confirmação/ }));
   await user.click(screen.getByRole('button', { name: 'Salvar' }));
   await waitFor(() =>
@@ -63,7 +63,7 @@ it('prioriza tema e fuso; salvar uma aba não sobrescreve preferências das dema
       body: {
         mail_summary_enabled: true,
         mail_group_by_domain: false,
-        mail_page_size: 25,
+        mail_page_size: 0,
         request_read_receipt: true,
         load_remote_images: false,
         density: 'compact',
@@ -79,7 +79,7 @@ it('prioriza tema e fuso; salvar uma aba não sobrescreve preferências das dema
     timezone: 'America/Sao_Paulo',
     mail_queues_enabled: true,
     mail_summary_enabled: true,
-    mail_page_size: 25,
+    mail_page_size: 0,
     request_read_receipt: true,
   });
 });

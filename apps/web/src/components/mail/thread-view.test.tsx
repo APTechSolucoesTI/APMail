@@ -73,14 +73,21 @@ function open(lastRead = '2026-10-26T12:00:00Z', admin = false) {
   });
   client.setQueryData(threadDetailKey('tenant', 'thread'), data);
   client.setQueryData(['calendar', 'tenant', 'thread-tasks', 'thread'], []);
+  const onCompose = vi.fn();
   render(
     <QueryClientProvider client={client}>
       <TenantContext.Provider value="tenant">
-        <ThreadView threadId="thread" mailboxId="box" folders={[]} onClose={() => undefined} />
+        <ThreadView
+          threadId="thread"
+          mailboxId="box"
+          folders={[]}
+          onClose={() => undefined}
+          onCompose={onCompose}
+        />
       </TenantContext.Provider>
     </QueryClientProvider>,
   );
-  return { client, messages };
+  return { client, messages, onCompose };
 }
 
 it('mostra o mais recente primeiro e aberto, sem alterar o histórico usado pelas respostas', () => {
@@ -101,26 +108,18 @@ it('mostra o mais recente primeiro e aberto, sem alterar o histórico usado pela
   expect(messages[0]!.id).toBe('Antigo');
 });
 
-it('oferece spam em Mais ações superior, com mover e excluir visíveis', async () => {
-  open(undefined, true);
-  const cards = screen.getAllByRole('article');
-  for (const card of cards)
-    expect(within(card).queryByRole('button', { name: /Mais ações/ })).not.toBeInTheDocument();
-  const more = screen.getByRole('button', { name: /^Mais ações$/ });
-  expect(more.parentElement).toContainElement(
-    within(more.parentElement!).getByRole('button', { name: 'Mover' }),
-  );
-  expect(more.parentElement).toContainElement(
-    within(more.parentElement!).getByRole('button', { name: 'Excluir' }),
-  );
-  expect(screen.queryByRole('button', { name: 'Organizar' })).not.toBeInTheDocument();
-  const toolbar = screen.getByRole('group', { name: 'Ações da conversa' });
-  const buttons = within(toolbar).getAllByRole('button');
-  expect(buttons.at(-1)).toHaveAccessibleName('Imprimir conversa');
-  expect(more).toHaveTextContent('Mais ações');
-  fireEvent.keyDown(more, { key: 'Enter' });
-  fireEvent.click(await screen.findByRole('menuitem', { name: 'Marcar como spam' }));
-  expect(await screen.findByRole('alertdialog')).toHaveTextContent('recente@example.com');
+it('mantém organização e clonagem por mensagem, sem repetir ações no topo', () => {
+  const { onCompose } = open(undefined, true);
+  const newest = screen.getAllByRole('article')[0]!;
+  expect(screen.queryByRole('group', { name: 'Ações da conversa' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Mais ações' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Imprimir conversa' })).not.toBeInTheDocument();
+  expect(within(newest).getByRole('button', { name: 'Mover' })).toBeVisible();
+  expect(within(newest).getByRole('button', { name: 'Excluir' })).toBeVisible();
+  expect(within(newest).getByRole('button', { name: 'Sinalizar' })).toBeVisible();
+  expect(within(newest).getByRole('button', { name: 'Imprimir mensagem' })).toBeVisible();
+  fireEvent.click(within(newest).getByRole('button', { name: 'Clonar e-mail' }));
+  expect(onCompose).toHaveBeenCalledWith('clone:Recente');
 });
 
 it('preserva a abertura das mensagens não lidas mesmo abaixo da mais recente', () => {

@@ -167,6 +167,19 @@ export const ACCESS_PERMISSIONS = [
       'Autorizar automaticamente os anexos de remetentes, definir validade e revogar confiança.',
   },
   {
+    key: 'retention.manage',
+    group: 'Segurança',
+    label: 'Consultar e restaurar e-mails em retenção',
+    description: 'Acesso administrativo aos e-mails removidos da Lixeira.',
+  },
+  {
+    key: 'retention.purge',
+    parent: 'retention.manage',
+    group: 'Segurança',
+    label: 'Excluir definitivamente e-mails em retenção',
+    description: 'Autorizar a exclusão definitiva antes da expiração do prazo.',
+  },
+  {
     key: 'audit.content',
     parent: 'audit.view',
     group: 'Auditoria',
@@ -275,12 +288,15 @@ export function hasAccess(
     'antivirus.view',
     'antivirus.release',
     'antivirus.trust',
+    'retention.manage',
+    'retention.purge',
   ].includes(permission);
 }
 export const permissionDependencies: Partial<Record<AccessPermission, AccessPermission[]>> = {
   'domains.manage': ['domains.view'],
   'antivirus.release': ['antivirus.view'],
   'antivirus.trust': ['antivirus.view'],
+  'retention.purge': ['retention.manage'],
   'profiles.manage': ['users.view'],
   schedules: ['mail'],
   reports: ['mail'],
@@ -315,6 +331,7 @@ export function screenPermission(path: string): AccessPermission | null {
     ['/admin/access-profiles', 'profiles.manage'],
     ['/admin/users', 'users.view'],
     ['/admin/company', 'company.manage'],
+    ['/admin/mail-retention', 'retention.manage'],
     ['/admin/integrations', 'integrations'],
     ['/admin/audit', 'audit.view'],
     ['/admin/security/antivirus', 'antivirus.view'],

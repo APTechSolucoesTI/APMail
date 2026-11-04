@@ -117,9 +117,10 @@ function FolderBranches({
             >
               <div
                 className={cn(
-                  'flex min-w-0 items-center rounded-md pr-1 hover:bg-muted',
+                  'flex min-w-0 items-center rounded-md pr-1 hover:bg-primary/10',
                   ['pl-1', 'pl-4', 'pl-7', 'pl-10'][Math.min(depth, 3)],
-                  activeId === folder.id && 'bg-secondary text-secondary-foreground',
+                  activeId === folder.id &&
+                    'bg-primary/20 text-secondary-foreground hover:bg-primary/25',
                 )}
               >
                 {hasChildren ? (

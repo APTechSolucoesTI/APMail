@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { ThreadTasks } from './thread-tasks';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/data/data-state';
@@ -78,10 +79,12 @@ export function ThreadNotes({
   threadId,
   mailboxId,
   role,
+  subject = '',
 }: {
   threadId: string;
   mailboxId: string;
   role: MailboxRole;
+  subject?: string;
 }) {
   const tenant = useTenantId(),
     client = useQueryClient(),
@@ -156,17 +159,18 @@ export function ThreadNotes({
   });
   const field = form.register('body');
   return (
-    <section className="rounded-lg border bg-card" aria-label="Notas e histórico">
+    <section className="rounded-lg border bg-card" aria-label="Notas, histórico e tarefas">
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="m-3">
+        <TabsList className="m-2 max-w-[calc(100%-1rem)] group-data-[orientation=horizontal]/tabs:h-11 sm:m-3 sm:max-w-[calc(100%-1.5rem)] sm:group-data-[orientation=horizontal]/tabs:h-9">
           <TabsTrigger value="notes">
-            <MessageSquare className="size-4" />
+            <MessageSquare className="hidden size-4 sm:block" />
             Notas internas ({notes.data?.length ?? 0})
           </TabsTrigger>
           <TabsTrigger value="history">
-            <History className="size-4" />
+            <History className="hidden size-4 sm:block" />
             Histórico
           </TabsTrigger>
+          <TabsTrigger value="tasks">Tarefas</TabsTrigger>
         </TabsList>
         <TabsContent value="notes" className="space-y-4 p-4 pt-0">
           <p className="text-xs text-muted-foreground">
@@ -414,6 +418,9 @@ export function ThreadNotes({
               ))}
             </ol>
           )}
+        </TabsContent>
+        <TabsContent value="tasks" className="p-3 pt-0">
+          <ThreadTasks threadId={threadId} mailboxId={mailboxId} subject={subject} />
         </TabsContent>
       </Tabs>
     </section>

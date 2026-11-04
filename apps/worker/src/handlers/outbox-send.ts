@@ -20,7 +20,7 @@ import {
   inheritFileSecurity,
   FileSecurityError,
 } from '@apmail/db';
-import { can, type Address } from '@apmail/shared';
+import { can, OUTBOX_SUBJECT_REQUIRED, type Address } from '@apmail/shared';
 import { UnrecoverableError, type Job } from 'bullmq';
 import type { WorkerResources } from '../resources.js';
 import { transports } from '../imap/connect.js';
@@ -48,6 +48,8 @@ export async function handleOutboxSend(
   let transport: Awaited<ReturnType<typeof transports>> | undefined;
   let delivered = false;
   try {
+    if (!row.created_by_rule_id && !row.mdn_original_message_id && !row.subject.trim())
+      throw new Error(OUTBOX_SUBJECT_REQUIRED);
     const tenant = await r.db
       .selectFrom('tenants')
       .select('id')
@@ -396,25 +398,30 @@ export async function handleOutboxSend(
         'tenant_unavailable',
         'auto_forward_disabled',
         'rule_unavailable',
+        OUTBOX_SUBJECT_REQUIRED,
       ].includes((error as Error).message);
     const message =
       error instanceof FileSecurityError
         ? error.message
-        : isStorageQuotaError(error)
-          ? quotaErrors[(error as Error).message]!
-          : delivered
-            ? 'O SMTP aceitou o envio, mas a confirmação local falhou. Verifique Enviados antes de tentar novamente.'
-            : (error as Error).message === 'tenant_unavailable'
-              ? 'A empresa está suspensa ou indisponível. Retome o acesso antes de tentar novamente.'
-              : (error as Error).message === 'mailbox_unavailable'
-                ? 'A caixa está indisponível.'
-                : (error as Error).message === 'send_permission_revoked'
-                  ? 'O acesso de envio foi removido.'
-                  : ['auto_forward_disabled', 'rule_unavailable'].includes((error as Error).message)
-                    ? row.is_auto_reply
-                      ? 'A resposta automática foi interrompida porque a regra foi desativada ou está fora do período de ativação.'
-                      : 'O encaminhamento automático foi interrompido porque a regra ou a permissão da empresa foi desativada.'
-                    : connectionError(error, 'SMTP', 0);
+        : error instanceof Error && error.message === OUTBOX_SUBJECT_REQUIRED
+          ? OUTBOX_SUBJECT_REQUIRED
+          : isStorageQuotaError(error)
+            ? quotaErrors[(error as Error).message]!
+            : delivered
+              ? 'O SMTP aceitou o envio, mas a confirmação local falhou. Verifique Enviados antes de tentar novamente.'
+              : (error as Error).message === 'tenant_unavailable'
+                ? 'A empresa está suspensa ou indisponível. Retome o acesso antes de tentar novamente.'
+                : (error as Error).message === 'mailbox_unavailable'
+                  ? 'A caixa está indisponível.'
+                  : (error as Error).message === 'send_permission_revoked'
+                    ? 'O acesso de envio foi removido.'
+                    : ['auto_forward_disabled', 'rule_unavailable'].includes(
+                          (error as Error).message,
+                        )
+                      ? row.is_auto_reply
+                        ? 'A resposta automática foi interrompida porque a regra foi desativada ou está fora do período de ativação.'
+                        : 'O encaminhamento automático foi interrompido porque a regra ou a permissão da empresa foi desativada.'
+                      : connectionError(error, 'SMTP', 0);
     await r.db.transaction().execute(async (tx) => {
       if (last)
         await audit(tx, {

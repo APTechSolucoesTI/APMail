@@ -35,6 +35,7 @@ import { Route as AppAdminAuditRouteImport } from './routes/_app.admin.audit'
 import { Route as AppAdminCompanyRouteImport } from './routes/_app.admin.company'
 import { Route as AppAdminDomainsRouteImport } from './routes/_app.admin.domains'
 import { Route as AppAdminIntegrationsRouteImport } from './routes/_app.admin.integrations'
+import { Route as AppAdminMailRetentionRouteImport } from './routes/_app.admin.mail-retention'
 import { Route as AppAdminMailboxesRouteImport } from './routes/_app.admin.mailboxes'
 import { Route as AppAdminReportsRouteImport } from './routes/_app.admin.reports'
 import { Route as AppAdminUserPermissionsRouteImport } from './routes/_app.admin.user-permissions'
@@ -191,6 +192,11 @@ const AppAdminDomainsRoute = AppAdminDomainsRouteImport.update({
 const AppAdminIntegrationsRoute = AppAdminIntegrationsRouteImport.update({
   id: '/integrations',
   path: '/integrations',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminMailRetentionRoute = AppAdminMailRetentionRouteImport.update({
+  id: '/mail-retention',
+  path: '/mail-retention',
   getParentRoute: () => AppAdminRoute,
 } as any)
 const AppAdminMailboxesRoute = AppAdminMailboxesRouteImport.update({
@@ -365,6 +371,7 @@ export interface FileRoutesByFullPath {
   '/admin/company': typeof AppAdminCompanyRoute
   '/admin/domains': typeof AppAdminDomainsRoute
   '/admin/integrations': typeof AppAdminIntegrationsRoute
+  '/admin/mail-retention': typeof AppAdminMailRetentionRoute
   '/admin/mailboxes': typeof AppAdminMailboxesRoute
   '/admin/reports': typeof AppAdminReportsRoute
   '/admin/user-permissions': typeof AppAdminUserPermissionsRoute
@@ -418,6 +425,7 @@ export interface FileRoutesByTo {
   '/admin/company': typeof AppAdminCompanyRoute
   '/admin/domains': typeof AppAdminDomainsRoute
   '/admin/integrations': typeof AppAdminIntegrationsRoute
+  '/admin/mail-retention': typeof AppAdminMailRetentionRoute
   '/admin/mailboxes': typeof AppAdminMailboxesRoute
   '/admin/reports': typeof AppAdminReportsRoute
   '/admin/user-permissions': typeof AppAdminUserPermissionsRoute
@@ -475,6 +483,7 @@ export interface FileRoutesById {
   '/_app/admin/company': typeof AppAdminCompanyRoute
   '/_app/admin/domains': typeof AppAdminDomainsRoute
   '/_app/admin/integrations': typeof AppAdminIntegrationsRoute
+  '/_app/admin/mail-retention': typeof AppAdminMailRetentionRoute
   '/_app/admin/mailboxes': typeof AppAdminMailboxesRoute
   '/_app/admin/reports': typeof AppAdminReportsRoute
   '/_app/admin/user-permissions': typeof AppAdminUserPermissionsRoute
@@ -532,6 +541,7 @@ export interface FileRouteTypes {
     | '/admin/company'
     | '/admin/domains'
     | '/admin/integrations'
+    | '/admin/mail-retention'
     | '/admin/mailboxes'
     | '/admin/reports'
     | '/admin/user-permissions'
@@ -585,6 +595,7 @@ export interface FileRouteTypes {
     | '/admin/company'
     | '/admin/domains'
     | '/admin/integrations'
+    | '/admin/mail-retention'
     | '/admin/mailboxes'
     | '/admin/reports'
     | '/admin/user-permissions'
@@ -641,6 +652,7 @@ export interface FileRouteTypes {
     | '/_app/admin/company'
     | '/_app/admin/domains'
     | '/_app/admin/integrations'
+    | '/_app/admin/mail-retention'
     | '/_app/admin/mailboxes'
     | '/_app/admin/reports'
     | '/_app/admin/user-permissions'
@@ -868,6 +880,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminIntegrationsRouteImport
       parentRoute: typeof AppAdminRoute
     }
+    '/_app/admin/mail-retention': {
+      id: '/_app/admin/mail-retention'
+      path: '/mail-retention'
+      fullPath: '/admin/mail-retention'
+      preLoaderRoute: typeof AppAdminMailRetentionRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
     '/_app/admin/mailboxes': {
       id: '/_app/admin/mailboxes'
       path: '/mailboxes'
@@ -1073,6 +1092,7 @@ interface AppAdminRouteChildren {
   AppAdminCompanyRoute: typeof AppAdminCompanyRoute
   AppAdminDomainsRoute: typeof AppAdminDomainsRoute
   AppAdminIntegrationsRoute: typeof AppAdminIntegrationsRoute
+  AppAdminMailRetentionRoute: typeof AppAdminMailRetentionRoute
   AppAdminMailboxesRoute: typeof AppAdminMailboxesRoute
   AppAdminReportsRoute: typeof AppAdminReportsRoute
   AppAdminUserPermissionsRoute: typeof AppAdminUserPermissionsRoute
@@ -1091,6 +1111,7 @@ const AppAdminRouteChildren: AppAdminRouteChildren = {
   AppAdminCompanyRoute: AppAdminCompanyRoute,
   AppAdminDomainsRoute: AppAdminDomainsRoute,
   AppAdminIntegrationsRoute: AppAdminIntegrationsRoute,
+  AppAdminMailRetentionRoute: AppAdminMailRetentionRoute,
   AppAdminMailboxesRoute: AppAdminMailboxesRoute,
   AppAdminReportsRoute: AppAdminReportsRoute,
   AppAdminUserPermissionsRoute: AppAdminUserPermissionsRoute,

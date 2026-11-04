@@ -214,7 +214,7 @@ export function MessageActions({
         destructive
         pending={mutation.isPending}
         title="Excluir mensagens?"
-        description={`${threadIds ? threadIds.length + ' conversa(s)' : messageIds?.length + ' mensagem(ns)'} serão movidas para a Lixeira. Mensagens que já estão na Lixeira serão excluídas definitivamente.`}
+        description={`${threadIds ? threadIds.length + ' conversa(s)' : messageIds?.length + ' mensagem(ns)'} serão movidas para a Lixeira. Mensagens que já estão na Lixeira vão para retenção administrativa.`}
         onConfirm={() => mutation.mutateAsync({ type: 'delete' })}
       />
       <Dialog open={move && mayMove} onOpenChange={changeMove}>

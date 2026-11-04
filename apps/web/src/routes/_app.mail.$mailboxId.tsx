@@ -1,13 +1,16 @@
 import { Pagination } from '@/components/data/pagination';
 import { MailContextMenu } from '@/components/mail/mail-context-menu';
 import { ThreadListItem } from '@/components/mail/thread-list-item';
+import { EmptyTrashButton } from '@/components/mail/empty-trash-button';
 import { MailboxDrafts } from '@/components/mail/mailbox-drafts';
 import { MAIL_MOVED_EVENT, selectionAfterMove, type MessageDrag } from '@/lib/mail-drag';
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, MailOpen, Mail, FolderOpen, CheckCircle2, RotateCcw } from 'lucide-react';
-import { can, QUEUE_LABELS, type ContactResolution } from '@apmail/shared';
+import { can, QUEUE_LABELS } from '@apmail/shared';
+import { MAIL_BULK_LIMIT, useMailPages } from '@/hooks/use-mail-pages';
+import { MailPageContinuation } from '@/components/mail/mail-page-continuation';
 import { toast } from 'sonner';
 import type { PersonalLabel } from '@/lib/organization';
 import { api } from '@/lib/api';
@@ -55,7 +58,7 @@ function MailPage() {
   const { mailboxId } = Route.useParams(),
     rawSearch = Route.useSearch(),
     queuesEnabled = useMailQueues(),
-    preferredPageSize = useQuery(meQuery).data?.preferences.mail_page_size ?? 10,
+    preferredPageSize = useQuery(meQuery).data?.preferences.mail_page_size ?? 50,
     search = useMemo(
       () =>
         queuesEnabled
@@ -118,18 +121,18 @@ function MailPage() {
   if (search.q) query.set('q', search.q);
   if (search.queue) query.set('queue', search.queue);
   if (search.labelId) query.set('label_id', search.labelId);
-  const threads = useQuery({
-    queryKey: ['threads', tenantId, mailboxId, query.toString()],
-    queryFn: () =>
-      api<{ items: Thread[]; total: number; contacts?: ContactResolution }>(
-        '/mailboxes/' + mailboxId + '/threads?' + query,
-      ),
-    placeholderData: keepPreviousData,
+  const threads = useMailPages<Thread>({
+    path: '/mailboxes/' + mailboxId + '/threads',
+    key: ['threads', tenantId, mailboxId],
+    params: query,
+    page: search.page,
+    size: search.pageSize,
     enabled: !isDrafts,
   });
   useEffect(() => {
     if (isDrafts || !threads.data || threads.isFetching || threads.isPlaceholderData) return;
-    const lastPage = Math.max(1, Math.ceil(threads.data.total / search.pageSize));
+    const lastPage =
+      search.pageSize === 0 ? 1 : Math.max(1, Math.ceil(threads.data.total / search.pageSize));
     if (search.page > lastPage)
       void navigate({ search: (previous) => ({ ...previous, page: lastPage }) });
   }, [
@@ -337,7 +340,7 @@ function MailPage() {
           <SearchInput
             className="min-w-0"
             value={search.q ?? ''}
-            placeholder="Buscar assunto, remetente, conteúdo…"
+            placeholder="Buscar texto ou data…"
             debounce={300}
             onChange={(q) =>
               change({
@@ -405,7 +408,7 @@ function MailPage() {
           <label className="flex min-h-11 items-center gap-2 text-xs sm:min-h-8">
             <Checkbox
               checked={
-                selected.length === items.length && items.length > 0
+                selected.length === Math.min(items.length, MAIL_BULK_LIMIT) && items.length > 0
                   ? true
                   : selected.length > 0
                     ? 'indeterminate'
@@ -416,11 +419,14 @@ function MailPage() {
               onCheckedChange={(v) =>
                 setSelection({
                   context,
-                  ids: v === true ? items.map((t) => t.message_id ?? t.id) : [],
+                  ids:
+                    v === true
+                      ? items.slice(0, MAIL_BULK_LIMIT).map((t) => t.message_id ?? t.id)
+                      : [],
                 })
               }
             />
-            Selecionar página
+            {items.length > MAIL_BULK_LIMIT ? 'Selecionar as primeiras 100' : 'Selecionar página'}
           </label>
           <label className="flex min-h-11 items-center gap-2 text-xs sm:min-h-8">
             <Checkbox
@@ -509,7 +515,7 @@ function MailPage() {
       >
         {threads.isLoading ? (
           <LoadingState />
-        ) : threads.error ? (
+        ) : threads.error && !threads.isFetchNextPageError ? (
           <ErrorState onRetry={() => void threads.refetch()} />
         ) : !items.length ? (
           <EmptyState
@@ -587,19 +593,24 @@ function MailPage() {
                 active={
                   search.thread === t.id && (!t.message_id || search.message === t.message_id)
                 }
-                onSelect={(v) =>
+                onSelect={(v) => {
+                  if (v && selected.length >= MAIL_BULK_LIMIT) {
+                    toast.info('Selecione até 100 e-mails por operação.');
+                    return;
+                  }
                   setSelection({
                     context,
                     ids: v
                       ? [...selected, t.message_id ?? t.id]
                       : selected.filter((id) => id !== (t.message_id ?? t.id)),
-                  })
-                }
+                  });
+                }}
                 onOpen={() => change({ thread: t.id, message: t.message_id ?? undefined })}
               />
             </MailContextMenu>
           ))
         )}
+        <MailPageContinuation {...threads} />
       </div>
       <Pagination
         page={search.page}
@@ -668,6 +679,13 @@ function MailPage() {
         </div>
         <div className="flex items-center gap-2">
           <MailboxStatusBadge status={box.data.status} recovering={mailboxRecovering(box.data)} />
+          {search.view === 'folder' &&
+            folder?.special_use === 'trash' &&
+            mayDelete &&
+            canMailbox(box.data, 'delete') &&
+            canMailbox(box.data, 'organize') && (
+              <EmptyTrashButton mailboxId={mailboxId} folderId={folder.id} />
+            )}
           {canMailbox(box.data, 'send') && (
             <Button disabled={box.data.status !== 'active'} onClick={() => openComposer('new')}>
               Novo e-mail

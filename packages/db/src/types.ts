@@ -827,6 +827,7 @@ export interface Messages {
   is_flagged: Generated<boolean>;
   is_historical: Generated<boolean>;
   is_mdn: Generated<boolean>;
+  mdn_provider_seen: boolean | null;
   mailbox_id: string;
   mdn_request: Json | null;
   message_at: Timestamp;
@@ -837,6 +838,15 @@ export interface Messages {
   references_headers: Generated<string[]>;
   reply_to_addresses: Generated<Json>;
   request_read_receipt: Generated<boolean>;
+  retention_deleted_by: string | null;
+  retention_expires_at: Timestamp | null;
+  retention_imap_folder_id: string | null;
+  retention_imap_uid: Int8 | null;
+  retention_imap_uidvalidity: Int8 | null;
+  retention_last_error: string | null;
+  retention_purge_requested_at: Timestamp | null;
+  retention_purge_requested_by: string | null;
+  retention_retry_at: Timestamp | null;
   rules_applied_at: Timestamp | null;
   rules_inbox: Generated<boolean>;
   search_vector: string | null;
@@ -1208,6 +1218,7 @@ export interface TenantMembers {
 }
 
 export interface Tenants {
+  mail_retention_days: Generated<number>;
   /**
    * Company registration, address and contact data. Validated at API boundaries; no credentials.
    */

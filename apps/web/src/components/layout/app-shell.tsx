@@ -37,6 +37,7 @@ import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { NotificationBell } from './notification-bell';
 import { KeyboardHelp } from './keyboard-help';
@@ -301,191 +302,173 @@ export function AppShell() {
   const tenant = me.data.tenants.find((t) => t.id === me.data!.current_tenant_id);
   const admin = isTenantAdmin(tenant?.role);
   const allowed = (permission: AccessPermission) => hasAccess(tenant, permission);
+  const utilities = [
+    {
+      to: '/dashboard',
+      label: 'Dashboard',
+      icon: LayoutDashboard,
+      show: !!tenant && allowed('reports'),
+    },
+    { to: '/calendar', label: 'Calendário', icon: CalendarDays, show: allowed('calendar') },
+    { to: '/scheduled', label: 'Envios e agendamentos', icon: Mail, show: allowed('schedules') },
+    { to: '/reminders', label: 'Lembretes e tarefas', icon: BellRing, show: allowed('reminders') },
+    { to: '/contacts', label: 'Contatos', icon: ContactRound, show: allowed('contacts') },
+  ] as const;
+  const visibleUtilities = utilities.filter((item) => item.show);
   const sidebar = pathname.startsWith('/admin') ? (
     <AdminNavigation onNavigate={() => setOpen(false)} />
   ) : (
-    <ScrollArea
-      type="hover"
-      className="h-full min-w-0 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-scrollbar]]:w-2 [&_[data-slot=scroll-area-thumb]]:bg-muted-foreground/80 [&_[data-slot=scroll-area-thumb]:hover]:bg-muted-foreground"
-    >
-      <nav
-        aria-label="Navegação principal"
-        className="flex min-h-full w-full min-w-0 flex-col gap-2 p-4"
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <ScrollArea
+        type="hover"
+        className="min-h-0 min-w-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-scrollbar]]:w-2 [&_[data-slot=scroll-area-thumb]]:bg-muted-foreground/80 [&_[data-slot=scroll-area-thumb]:hover]:bg-muted-foreground"
       >
-        <Link
-          to="/"
-          className="mb-3 flex items-center gap-2 text-xl font-semibold text-primary"
-          onClick={() => setOpen(false)}
+        <nav
+          aria-label="Navegação principal"
+          className="flex min-h-full w-full min-w-0 flex-col gap-2 p-4"
         >
-          <Mail aria-hidden />
-          APMail
-        </Link>
-        <NavigationGroup
-          id="productivity"
-          label="Produtividade"
-          visible={
-            allowed('reports') ||
-            allowed('calendar') ||
-            allowed('schedules') ||
-            allowed('reminders')
-          }
-        >
-          {tenant && allowed('reports') && (
-            <Link
-              to="/dashboard"
-              onClick={() => setOpen(false)}
-              activeProps={{ className: 'bg-accent text-accent-foreground' }}
-              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-accent hover:text-accent-foreground"
-            >
-              <LayoutDashboard aria-hidden className="size-4" />
-              Dashboard
-            </Link>
-          )}
-          {allowed('calendar') && (
-            <Link
-              to="/calendar"
-              onClick={() => setOpen(false)}
-              activeProps={{ className: 'bg-accent text-accent-foreground' }}
-              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-            >
-              <CalendarDays aria-hidden className="size-4" />
-              Calendário
-            </Link>
-          )}
-          {allowed('schedules') && (
-            <Link
-              to="/scheduled"
-              onClick={() => setOpen(false)}
-              activeProps={{ className: 'bg-accent text-accent-foreground' }}
-              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-            >
-              <Mail aria-hidden className="size-4" />
-              Envios e agendamentos
-            </Link>
-          )}
-          {allowed('reminders') && (
-            <Link
-              to="/reminders"
-              onClick={() => setOpen(false)}
-              activeProps={{ className: 'bg-accent text-accent-foreground' }}
-              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-            >
-              <BellRing aria-hidden className="size-4" />
-              Lembretes e tarefas
-            </Link>
-          )}
-        </NavigationGroup>
-        <NavigationGroup
-          id="communication"
-          label="Comunicação"
-          visible={allowed('mail') || allowed('contacts') || allowed('chat')}
-        >
-          <NavigationGroup
-            id="mailboxes"
-            visible={allowed('mail')}
-            indentContent
-            label="Caixas de e-mail"
-            icon={<Mail className="size-4" />}
+          <Link
+            to="/"
+            className="mb-3 flex items-center gap-2 text-xl font-semibold text-primary"
+            onClick={() => setOpen(false)}
           >
-            {me.data?.preferences.mail_summary_enabled && (
-              <SummaryNavigation onNavigate={() => setOpen(false)} />
-            )}
-            <DomainMailboxNavigation boxes={boxes.data ?? []} onNavigate={() => setOpen(false)} />
-            {!boxes.data?.length && (
-              <p className="px-2 py-3 text-xs text-muted-foreground">Sem caixas disponíveis</p>
-            )}
-          </NavigationGroup>
-          {allowed('contacts') && (
-            <Link
-              to="/contacts"
-              activeProps={{ className: 'bg-accent text-accent-foreground' }}
-              className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-              onClick={() => setOpen(false)}
-            >
-              <ContactRound aria-hidden className="size-4 shrink-0" />
-              Contatos
-            </Link>
-          )}
-          {allowed('chat') && <ChatNavigation onNavigate={() => setOpen(false)} />}
-        </NavigationGroup>
-        <div className="mt-auto border-t pt-4">
-          <NavigationGroup
-            id="settings"
-            defaultOpen={pathname.startsWith('/settings')}
-            label="Configurações"
-            icon={<Settings aria-hidden className="size-4 shrink-0" />}
-          >
-            {[
-              ['/settings/profile', 'Meu perfil'],
-              ['/settings/preferences', 'Preferências'],
-              ['/settings/integrations', 'Integrações'],
-              ['/settings/signatures', 'Assinaturas'],
-              ['/settings/labels', 'Etiquetas'],
-              ['/settings/rules', 'Regras'],
-              ...(!admin &&
-              (canDelegate(tenant?.role ?? null, tenant?.capabilities, 'members') ||
-                (tenant?.access_permissions != null &&
-                  (allowed('users.view') || allowed('profiles.manage'))))
-                ? [
-                    [
-                      allowed('users.view') ? '/settings/users' : '/settings/access-profiles',
-                      'Equipe e acesso',
-                    ],
-                  ]
-                : []),
-              ...(!admin &&
-              (canDelegate(tenant?.role ?? null, tenant?.capabilities, 'audit') ||
-                (tenant?.access_permissions != null && allowed('audit.view')))
-                ? [['/settings/audit', 'Auditoria']]
-                : []),
-              ...(admin
-                ? [
-                    ['/settings/users', 'Equipe e acesso'],
-                    ['/settings/mailboxes', 'Caixas de e-mail'],
-                    ['/settings/tenant', 'Empresa'],
-                    ['/settings/audit', 'Auditoria'],
-                  ]
-                : []),
-            ]
-              .filter(([to]) =>
-                [
-                  '/settings/preferences',
-                  '/settings/signatures',
-                  '/settings/labels',
-                  '/settings/rules',
-                ].includes(to!),
-              )
-              .filter(([to]) => {
-                const permission = screenPermission(to!);
-                return tenant?.access_permissions == null || !permission || allowed(permission);
-              })
-              .map(([to, label]) => {
-                const Icon = settingsIcons[to!] ?? Settings;
-                return (
-                  <Link
-                    key={to}
-                    to={to}
-                    activeProps={{ className: 'bg-accent text-accent-foreground' }}
-                    className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-                    onClick={() => setOpen(false)}
+            <Mail aria-hidden />
+            APMail
+          </Link>
+          {allowed('mail') && (
+            <>
+              {me.data.preferences.mail_summary_enabled && (
+                <SummaryNavigation onNavigate={() => setOpen(false)} />
+              )}
+              <DomainMailboxNavigation boxes={boxes.data ?? []} onNavigate={() => setOpen(false)} />
+              {boxes.isPending ? (
+                <p role="status" className="px-2 py-3 text-xs text-muted-foreground">
+                  Carregando caixas…
+                </p>
+              ) : boxes.isError ? (
+                <p role="alert" className="px-2 py-3 text-xs text-muted-foreground">
+                  Não foi possível carregar as caixas.{' '}
+                  <button
+                    type="button"
+                    className="text-primary underline"
+                    onClick={() => void boxes.refetch()}
                   >
-                    <Icon aria-hidden className="size-4 shrink-0" />
-                    {label}
-                  </Link>
-                );
-              })}
-          </NavigationGroup>
-          {me.data.platform_admin && (
-            <Link
-              to="/superadmin"
-              className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
-            >
-              Gestão da plataforma
-            </Link>
+                    Tentar novamente
+                  </button>
+                </p>
+              ) : (
+                !boxes.data?.length && (
+                  <p className="px-2 py-3 text-xs text-muted-foreground">Sem caixas disponíveis</p>
+                )
+              )}
+            </>
           )}
-        </div>
-      </nav>
-    </ScrollArea>
+          <div className="mt-auto border-t pt-4">
+            <NavigationGroup
+              id="settings"
+              defaultOpen={pathname.startsWith('/settings')}
+              label="Configurações"
+              icon={<Settings aria-hidden className="size-4 shrink-0" />}
+            >
+              {[
+                ['/settings/profile', 'Meu perfil'],
+                ['/settings/preferences', 'Preferências'],
+                ['/settings/integrations', 'Integrações'],
+                ['/settings/signatures', 'Assinaturas'],
+                ['/settings/labels', 'Etiquetas'],
+                ['/settings/rules', 'Regras'],
+                ...(!admin &&
+                (canDelegate(tenant?.role ?? null, tenant?.capabilities, 'members') ||
+                  (tenant?.access_permissions != null &&
+                    (allowed('users.view') || allowed('profiles.manage'))))
+                  ? [
+                      [
+                        allowed('users.view') ? '/settings/users' : '/settings/access-profiles',
+                        'Equipe e acesso',
+                      ],
+                    ]
+                  : []),
+                ...(!admin &&
+                (canDelegate(tenant?.role ?? null, tenant?.capabilities, 'audit') ||
+                  (tenant?.access_permissions != null && allowed('audit.view')))
+                  ? [['/settings/audit', 'Auditoria']]
+                  : []),
+                ...(admin
+                  ? [
+                      ['/settings/users', 'Equipe e acesso'],
+                      ['/settings/mailboxes', 'Caixas de e-mail'],
+                      ['/settings/tenant', 'Empresa'],
+                      ['/settings/audit', 'Auditoria'],
+                    ]
+                  : []),
+              ]
+                .filter(([to]) =>
+                  [
+                    '/settings/preferences',
+                    '/settings/signatures',
+                    '/settings/labels',
+                    '/settings/rules',
+                  ].includes(to!),
+                )
+                .filter(([to]) => {
+                  const permission = screenPermission(to!);
+                  return tenant?.access_permissions == null || !permission || allowed(permission);
+                })
+                .map(([to, label]) => {
+                  const Icon = settingsIcons[to!] ?? Settings;
+                  return (
+                    <Link
+                      key={to}
+                      to={to}
+                      activeProps={{ className: 'bg-accent text-accent-foreground' }}
+                      className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
+                      onClick={() => setOpen(false)}
+                    >
+                      <Icon aria-hidden className="size-4 shrink-0" />
+                      {label}
+                    </Link>
+                  );
+                })}
+            </NavigationGroup>
+            {me.data.platform_admin && (
+              <Link
+                to="/superadmin"
+                className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
+              >
+                Gestão da plataforma
+              </Link>
+            )}
+          </div>
+        </nav>
+      </ScrollArea>
+      {!!visibleUtilities.length && (
+        <nav
+          aria-label="Utilitários"
+          className="flex shrink-0 items-center justify-around gap-1 border-t bg-sidebar p-2"
+        >
+          {visibleUtilities.map(({ to, label, icon: Icon }) => (
+            <Tooltip key={to}>
+              <TooltipTrigger asChild>
+                <Link
+                  to={to}
+                  onClick={() => setOpen(false)}
+                  aria-label={label}
+                  activeProps={{
+                    className: 'bg-accent text-accent-foreground ring-1 ring-inset ring-primary/30',
+                  }}
+                  className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-sidebar-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:size-9"
+                >
+                  <Icon aria-hidden className="size-4" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="top" sideOffset={5}>
+                {label}
+              </TooltipContent>
+            </Tooltip>
+          ))}
+        </nav>
+      )}
+    </div>
   );
   return (
     <SocketContext.Provider value={socket}>
@@ -560,6 +543,7 @@ export function AppShell() {
                   {allowed('mail') && <GlobalSearch key={me.data.current_tenant_id} />}
                   <div className="flex items-center gap-0 sm:gap-2">
                     <KeyboardHelp mailboxes={boxes.data ?? []} />
+                    {allowed('chat') && <ChatNavigation onNavigate={() => setOpen(false)} />}
                     <NotificationBell />
                     <ProfileMenu />
                     <Button

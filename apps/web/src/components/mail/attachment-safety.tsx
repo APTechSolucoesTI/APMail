@@ -109,8 +109,23 @@ export function ReceivedAttachment({
   );
   const security = resolvedAttachmentSecurity(attachment.security, query.data);
   const clean = attachmentCanOpen(security);
+  const extension = /\.([a-z0-9]{1,8})$/i.exec(attachment.filename)?.[1]?.toUpperCase();
+  const type =
+    extension ??
+    (attachment.content_type === 'application/pdf'
+      ? 'PDF'
+      : attachment.content_type.startsWith('image/')
+        ? 'Imagem'
+        : 'Arquivo');
+  const bytes = attachment.size_bytes;
+  const size =
+    bytes < 1024
+      ? `${bytes} B`
+      : bytes < 1024 ** 2
+        ? `${Math.ceil(bytes / 1024)} KB`
+        : `${(bytes / 1024 ** 2).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} MB`;
   return (
-    <li className="flex min-w-0 max-w-full flex-wrap items-center gap-2 rounded-md border bg-muted/50 p-2">
+    <li className="flex min-w-0 max-w-full flex-wrap items-center gap-2 rounded-md border bg-muted/40 p-2">
       <Paperclip className="size-4 shrink-0" aria-hidden />
       <div className="min-w-0 flex-1 basis-40 space-y-1">
         <p className="truncate text-xs font-medium" title={attachment.filename}>
@@ -118,7 +133,7 @@ export function ReceivedAttachment({
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-muted-foreground">
-            {Math.ceil(attachment.size_bytes / 1024)} KB
+            {type} · {size}
           </span>
           <AttachmentSafetyBadge security={security} />
           {security.false_positive && (

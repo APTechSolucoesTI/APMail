@@ -11,6 +11,10 @@ export function Pagination({
   total: number;
   onPageChange: (page: number) => void;
 }) {
+  if (pageSize === 0)
+    return (
+      <div className="px-3 py-2 text-xs tabular-nums">{total} registros · Paginação ilimitada</div>
+    );
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
   return (

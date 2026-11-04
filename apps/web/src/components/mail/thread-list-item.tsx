@@ -51,9 +51,10 @@ export function ThreadListItem({
     <article
       {...dragging.handlers}
       className={cn(
-        'relative flex items-start gap-2 border-b p-3 hover:bg-muted/50',
-        active && 'bg-secondary',
-        selected && 'bg-muted',
+        'relative flex items-start gap-2 border-b p-3 hover:bg-primary/10',
+        thread.is_unread && 'bg-primary/5',
+        selected && 'bg-primary/15 hover:bg-primary/20',
+        active && 'bg-primary/20 hover:bg-primary/25',
         drag &&
           'cursor-grab active:cursor-grabbing transition-[opacity,background-color,box-shadow] motion-reduce:transition-none',
         dragging.dragging && 'opacity-50 bg-accent ring-2 ring-inset ring-primary',

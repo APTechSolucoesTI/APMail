@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowDown, RefreshCw } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, ArrowDown, CheckCheck, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { meQuery, useTenantId } from '@/lib/auth';
@@ -56,7 +56,7 @@ export function ConversationPanel({ id }: { id: string }) {
     content = useRef<HTMLDivElement>(null),
     previous = useRef<{ height: number; top: number } | null>(null),
     bottom = useRef(true),
-    seen = useRef(''),
+    opened = useRef(''),
     [atBottom, setAtBottom] = useState(true),
     [visible, setVisible] = useState(document.visibilityState === 'visible'),
     [now, setNow] = useState(() => Date.now());
@@ -67,6 +67,13 @@ export function ConversationPanel({ id }: { id: string }) {
     count = messages.length,
     user = me.data?.user,
     timezone = me.data?.preferences.timezone ?? 'America/Sao_Paulo';
+  const unread = conversations.data?.find((conversation) => conversation.id === id)?.unread_count;
+  const { mutate: markRead, isPending: markingRead } = useMutation({
+    mutationFn: (conversationId: string) =>
+      api('/chat/conversations/' + conversationId + '/read', { method: 'POST' }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['chat-conversations', tenant] }),
+    onError: (error: Error) => toast.error(error.message),
+  });
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000),
       changed = () => setVisible(document.visibilityState === 'visible');
@@ -95,22 +102,11 @@ export function ConversationPanel({ id }: { id: string }) {
     return () => observer.disconnect();
   }, [query.isLoading]);
   useEffect(() => {
-    if (
-      !newest ||
-      newest.startsWith('local-') ||
-      !atBottom ||
-      !visible ||
-      seen.current === newest ||
-      query.error
-    )
+    if (opened.current === id || !visible || query.isLoading || query.error || unread === undefined)
       return;
-    seen.current = newest;
-    void api('/chat/conversations/' + id + '/read', { method: 'POST' })
-      .then(() => client.invalidateQueries({ queryKey: ['chat-conversations', tenant] }))
-      .catch(() => {
-        seen.current = '';
-      });
-  }, [newest, atBottom, visible, id, tenant, client, query.error]);
+    opened.current = id;
+    if (unread > 0) markRead(id);
+  }, [visible, id, query.isLoading, query.error, unread, markRead]);
   const send = async (body: string, clientId: string = crypto.randomUUID()) => {
     if (!user) return;
     const key = ['chat-messages', tenant, id, user.id],
@@ -207,7 +203,20 @@ export function ConversationPanel({ id }: { id: string }) {
             </p>
           </div>
         </div>
-        {conversation.type === 'group' && <GroupParticipants conversation={conversation} />}
+        <div className="flex flex-wrap items-center gap-2">
+          {conversation.unread_count > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={markingRead || !!query.error}
+              onClick={() => markRead(id)}
+            >
+              <CheckCheck aria-hidden />
+              Marcar como lidas
+            </Button>
+          )}
+          {conversation.type === 'group' && <GroupParticipants conversation={conversation} />}
+        </div>
       </header>
       <div
         ref={area}
