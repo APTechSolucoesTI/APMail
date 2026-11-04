@@ -21,8 +21,7 @@ export function useMailDrop(mailboxId: string, folderId: string, enabled: boolea
           !mayMove ||
           busy ||
           !event.dataTransfer.types.includes(MAIL_DRAG_TYPE) ||
-          drag?.kind !== 'messages' ||
-          drag.mailboxId !== mailboxId
+          drag?.kind !== 'messages'
         )
           return;
         event.preventDefault();
@@ -39,18 +38,15 @@ export function useMailDrop(mailboxId: string, folderId: string, enabled: boolea
         event.preventDefault();
         event.stopPropagation();
         if (!enabled || !mayMove || lock.current) return;
-        if (payload.mailboxId !== mailboxId) {
-          toast.error('Escolha uma pasta da mesma caixa para mover estes e-mails.');
-          return;
-        }
         lock.current = true;
         setBusy(true);
         try {
-          await api('/mailboxes/' + mailboxId + '/messages/actions', {
+          await api('/mailboxes/' + payload.mailboxId + '/messages/actions', {
             method: 'POST',
             body: {
               type: 'move',
               target_folder_id: folderId,
+              target_mailbox_id: mailboxId,
               ...(payload.messageIds.length
                 ? { message_ids: payload.messageIds }
                 : { thread_ids: payload.threadIds }),
@@ -63,7 +59,7 @@ export function useMailDrop(mailboxId: string, folderId: string, enabled: boolea
             ),
           );
           toast.success(
-            'E-mails movidos. A sincronização com o servidor continuará em segundo plano.',
+            'Movimentação solicitada. Os e-mails aparecerão no destino após a sincronização.',
           );
         } catch (error) {
           toast.error(

@@ -25,6 +25,7 @@ import {
 import { SchemaForm } from '@/components/forms/schema-form';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
+import { FolderDestinationPicker } from './folder-destination-picker';
 const nameSchema = z.object({
   name: z
     .string()
@@ -319,7 +320,14 @@ function FolderMoveForm({
       }
   }
   const source = rows.find((f) => f.id === folder.id);
-  const pathLabel = (f: Folder) => f.imap_path ?? folderLabel(f);
+  const targetParts: string[] = [];
+  const seenParents = new Set<string>();
+  let targetFolder = rows.find((f) => f.id === target);
+  while (targetFolder && !seenParents.has(targetFolder.id)) {
+    seenParents.add(targetFolder.id);
+    targetParts.unshift(folderLabel(targetFolder));
+    targetFolder = rows.find((f) => f.id === targetFolder!.parent_id);
+  }
   return q.isLoading ? (
     <LoadingState />
   ) : q.error ? (
@@ -348,34 +356,24 @@ function FolderMoveForm({
       <p className="text-sm text-muted-foreground">
         A pasta e suas subpastas serão movidas juntas. Os e-mails serão preservados.
       </p>
-      <div className="space-y-2">
-        <label htmlFor="folder-move-target" className="text-sm font-medium">
-          Pasta de destino
-        </label>
-        <select
-          id="folder-move-target"
-          value={target}
-          onChange={(event) => setTarget(event.target.value)}
-          disabled={busy}
-          className="h-11 w-full min-w-0 rounded-md border border-input bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-        >
-          <option value="">Raiz da caixa</option>
-          {rows
-            .filter(
-              (f) =>
-                !blocked.has(f.id) &&
-                (f.id === folder.parent_id ||
-                  source?.is_local === undefined ||
-                  f.is_local === source.is_local),
-            )
-            .sort((a, b) => pathLabel(a).localeCompare(pathLabel(b), 'pt-BR', { numeric: true }))
-            .map((f) => (
-              <option key={f.id} value={f.id}>
-                {pathLabel(f)}
-              </option>
-            ))}
-        </select>
-      </div>
+      <FolderDestinationPicker
+        mailboxId={mailboxId}
+        folders={q.data ?? []}
+        value={{
+          mailboxId,
+          folderId: target || null,
+          path: target ? targetParts.join(' / ') || 'Pasta atual' : 'Raiz da caixa',
+        }}
+        onChange={(destination) => setTarget(destination.folderId ?? '')}
+        allowRoot
+        excludeIds={blocked}
+        canSelectFolder={(f) =>
+          f.id === folder.parent_id ||
+          source?.is_local === undefined ||
+          f.is_local === source.is_local
+        }
+        disabled={busy}
+      />
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}

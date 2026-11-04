@@ -9,6 +9,7 @@ import { markMailboxError } from './mailbox-health.js';
 import { isConnectionError } from '../lib/errors.js';
 import { handleFolderAction } from './folder-actions.js';
 import { userCanMailbox } from '../lib/mailbox-permissions.js';
+import { handleMailboxTransfer } from './mail-transfer.js';
 export const actionPayloadSchema = z.object({
   message_ids: z.array(z.uuid()).max(1000),
   target_folder_id: z.uuid().optional(),
@@ -38,6 +39,11 @@ export async function handleMailAction(
     .where('suspended_at', 'is', null)
     .executeTakeFirst();
   if (!tenant) return;
+  if (
+    initial.type === 'move' &&
+    z.object({ cross_mailbox: z.literal(true) }).safeParse(initial.payload).success
+  )
+    return handleMailboxTransfer(r, initial, jobId, lastAttempt);
   if (['create_folder', 'rename_folder', 'delete_folder'].includes(initial.type))
     return handleFolderAction(r, initial, jobId, lastAttempt);
   const result = await withMailboxLock(

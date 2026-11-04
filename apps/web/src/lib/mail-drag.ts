@@ -3,6 +3,7 @@ export const MAIL_DRAG_TYPE = 'application/x-apmail';
 export const MAIL_MOVED_EVENT = 'apmail:messages-moved';
 const identifier = z.string().min(1).max(100);
 const schema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('domain'), id: z.string().min(1).max(253) }),
   z.object({
     kind: z.literal('folder'),
     mailboxId: identifier,

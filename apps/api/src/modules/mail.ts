@@ -24,6 +24,7 @@ import { resolveContacts } from './contact-resolution.js';
 import { registerMailboxDrafts } from './mailbox-drafts.js';
 import { rememberSpamSenders } from './spam-rules.js';
 import { registerMailNavigation } from './mail-navigation.js';
+import { queueMailboxTransfer } from './mail-transfer.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 export const threadListSchema = z.object({
   columns: z.string().max(16000).optional(),
@@ -543,11 +544,24 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         message_ids: z.array(z.uuid()).min(1).max(1000).optional(),
         thread_ids: z.array(z.uuid()).min(1).max(100).optional(),
         target_folder_id: z.uuid().optional(),
+        target_mailbox_id: z.uuid().optional(),
         flagged: z.boolean().optional(),
       })
       .refine((b) => b.message_ids || b.thread_ids)
       .parse(req.body);
     if (b.type === 'move' && !b.target_folder_id) throw conflict('Escolha a pasta de destino.');
+    if (b.type === 'move' && b.target_mailbox_id && b.target_mailbox_id !== id)
+      return reply
+        .code(202)
+        .send(
+          await queueMailboxTransfer(
+            r,
+            req.ctx,
+            id,
+            { ...b, target_folder_id: b.target_folder_id!, target_mailbox_id: b.target_mailbox_id },
+            req.id,
+          ),
+        );
     await requireMailboxPerm(
       c,
       r.db,

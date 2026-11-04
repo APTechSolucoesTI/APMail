@@ -10,12 +10,18 @@ const ids = z
   .array(z.uuid())
   .max(10000)
   .refine((v) => new Set(v).size === v.length);
+const domains = z
+  .array(z.string().min(1).max(253))
+  .max(10000)
+  .refine((values) => new Set(values).size === values.length);
 const configSchema = z.object({
+  domain_order: domains.default([]),
   mailbox_order: ids.default([]),
   folder_orders: z.record(z.string().max(100), ids).default({}),
   favorite_folder_ids: ids.default([]),
 });
 const actionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('domains'), ids: domains }),
   z.object({ type: z.literal('mailboxes'), ids }),
   z.object({
     type: z.literal('folders'),
@@ -44,7 +50,20 @@ export async function registerMailNavigation(app: FastifyInstance, r: Resources)
   app.patch('/api/preferences/mail-navigation', async (req) => {
     const c = requireTenant(req.ctx),
       action = actionSchema.parse(req.body);
-    if (action.type === 'mailboxes') {
+    if (action.type === 'domains') {
+      const mailboxes = await r.db
+        .selectFrom('mailboxes')
+        .select(['id', 'email_address'])
+        .where('tenant_id', '=', c.tenantId)
+        .where('deleted_at', 'is', null)
+        .execute();
+      const allowed = new Set<string>();
+      for (const mailbox of mailboxes) {
+        if (await getMailboxRole(c, r.db, mailbox.id))
+          allowed.add(mailbox.email_address.split('@')[1]?.toLowerCase() ?? 'Outras caixas');
+      }
+      if (action.ids.some((domain) => !allowed.has(domain))) throw notFound();
+    } else if (action.type === 'mailboxes') {
       for (const id of action.ids) if (!(await getMailboxRole(c, r.db, id))) throw notFound();
     } else {
       await requireMailboxPerm(c, r.db, action.mailbox_id, 'read');
@@ -91,7 +110,8 @@ export async function registerMailNavigation(app: FastifyInstance, r: Resources)
         .forUpdate()
         .executeTakeFirstOrThrow();
       const config = configSchema.parse(row.config);
-      if (action.type === 'mailboxes') config.mailbox_order = action.ids;
+      if (action.type === 'domains') config.domain_order = action.ids;
+      else if (action.type === 'mailboxes') config.mailbox_order = action.ids;
       else if (action.type === 'folders')
         config.folder_orders[action.mailbox_id + ':' + (action.parent_id ?? 'root')] = action.ids;
       else

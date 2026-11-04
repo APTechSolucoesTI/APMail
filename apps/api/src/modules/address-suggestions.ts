@@ -48,22 +48,17 @@ export async function addressSuggestions(
     ),
   );
   const visible = scopes.length ? sql.join(scopes, sql` or `) : sql`false`;
-  const history =
-    await sql<Address>`select distinct on(lower(address)) lower(address) as address,name from (
-    select m.from_address as address,m.from_name as name,m.message_at from messages m
-      where m.tenant_id=${c.tenantId} and m.deleted_at is null and (${visible})
-      and (unaccent(m.from_address) ilike unaccent(${pattern}) or unaccent(m.from_name) ilike unaccent(${pattern}))
-    union all select a->>'address',coalesce(a->>'name',''),m.message_at from messages m
+  const history = await sql<Address>`select address,name from (
+    select distinct on(lower(a->>'address')) lower(a->>'address') as address,
+      coalesce(a->>'name','') as name,m.message_at from messages m
       cross join lateral jsonb_array_elements(m.to_addresses||m.cc_addresses||m.bcc_addresses) a
       where m.tenant_id=${c.tenantId} and m.deleted_at is null and (${visible})
+      and m.direction='outbound' and m.sent_by_user_id=${c.userId}
+      and coalesce(a->>'address','')<>''
       and (unaccent(a->>'address') ilike unaccent(${pattern}) or unaccent(a->>'name') ilike unaccent(${pattern}))
-    ) entries where address<>'' order by lower(address),message_at desc limit 20`.execute(r.db);
-  const users =
-    await sql<Address>`select u.email as address,u.full_name as name from users u join tenant_members tm on tm.user_id=u.id
-    where tm.tenant_id=${c.tenantId} and tm.status='active' and not exists(select 1 from platform_admins p where p.user_id=u.id)
-    and (unaccent(u.email) ilike unaccent(${pattern}) or unaccent(u.full_name) ilike unaccent(${pattern})) order by u.full_name,u.id limit 20`.execute(
-      r.db,
-    );
+      order by lower(a->>'address'),m.message_at desc,m.id desc
+    ) entries order by (address ilike ${q.replace(/[\\%_]/g, '\\$&') + '%'}) desc,
+      message_at desc,address limit 20`.execute(r.db);
   const contacts = await sql<
     Address & { nickname: string; company_name: string }
   >`select e.email as address,contacts.name,${contactNickname(c)} as nickname,contacts.company as company_name
@@ -73,14 +68,6 @@ export async function addressSuggestions(
   );
   const candidates: Suggestion[] = [
     ...contacts.rows.map((row) => ({ ...row, source: 'contact' as const })),
-    ...boxes.flatMap((box) =>
-      [box.email_address, ...box.aliases].map((address) => ({
-        address,
-        name: box.name,
-        source: 'mailbox' as const,
-      })),
-    ),
-    ...users.rows.map((row) => ({ ...row, source: 'user' as const })),
     ...history.rows.map((row) => ({ ...row, source: 'history' as const })),
   ];
   const normalized = (text: string) =>

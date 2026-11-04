@@ -8,6 +8,33 @@ import { useLocation } from '@tanstack/react-router';
 import { useMailNavigation } from '@/hooks/use-mail-navigation';
 import { orderedItems } from '@/lib/mail-drag';
 import { MailboxReorder } from './mailbox-reorder';
+import { useDomainReorder } from './domain-reorder';
+import type { ReactNode } from 'react';
+function DomainGroup({
+  domain,
+  siblings,
+  defaultOpen,
+  children,
+}: {
+  domain: string;
+  siblings: string[];
+  defaultOpen: boolean;
+  children: ReactNode;
+}) {
+  const headerProps = useDomainReorder(domain, siblings);
+  return (
+    <NavigationGroup
+      id={'domain-' + domain}
+      label={domain}
+      icon={<Globe2 className="size-4" />}
+      defaultOpen={defaultOpen}
+      indentContent
+      headerProps={headerProps}
+    >
+      {children}
+    </NavigationGroup>
+  );
+}
 export function DomainMailboxNavigation({
   boxes,
   onNavigate,
@@ -43,17 +70,19 @@ export function DomainMailboxNavigation({
         {ordered.map((box) => renderBox(box))}
       </>
     );
+  const groups = orderedItems(
+    groupMailboxesByDomain(ordered).map((group) => ({ ...group, id: group.domain })),
+    navigation.config.domain_order,
+  );
   return (
     <>
       {warning}
-      {groupMailboxesByDomain(ordered).map((group) => (
-        <NavigationGroup
+      {groups.map((group) => (
+        <DomainGroup
           key={group.domain}
-          id={'domain-' + group.domain}
-          label={group.domain}
-          icon={<Globe2 className="size-4" />}
+          domain={group.domain}
+          siblings={groups.map((group) => group.domain)}
           defaultOpen={group.mailboxes.some((b) => location.pathname === '/mail/' + b.id)}
-          indentContent
         >
           {ordered
             .filter((box) => group.mailboxes.some((member) => member.id === box.id))
@@ -65,7 +94,7 @@ export function DomainMailboxNavigation({
                 ),
               ),
             )}
-        </NavigationGroup>
+        </DomainGroup>
       ))}
     </>
   );

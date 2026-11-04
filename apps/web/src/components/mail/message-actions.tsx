@@ -4,7 +4,8 @@ import { FolderInput, Trash2, Undo2, Flag, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useAccess } from '@/lib/auth';
-import { flattenFolders, folderLabel, type Folder } from '@/lib/mail';
+import { type Folder } from '@/lib/mail';
+import { FolderDestinationPicker, type FolderDestination } from './folder-destination-picker';
 import { Button } from '@/components/ui/button';
 import { MailActionButton } from './mail-action-button';
 import {
@@ -50,11 +51,16 @@ export function MessageActions({
   const client = useQueryClient(),
     [move, setMove] = useState(false),
     [remove, setRemove] = useState(false),
-    [folderId, setFolderId] = useState('');
+    [destination, setDestination] = useState<FolderDestination | null>(null);
   const moveTrigger = useRef<HTMLButtonElement>(null),
     removeTrigger = useRef<HTMLButtonElement>(null);
   const mutation = useMutation({
-    mutationFn: (b: { type: string; target_folder_id?: string; flagged?: boolean }) =>
+    mutationFn: (b: {
+      type: string;
+      target_folder_id?: string;
+      target_mailbox_id?: string;
+      flagged?: boolean;
+    }) =>
       api('/mailboxes/' + mailboxId + '/messages/actions', {
         method: 'POST',
         body: { message_ids: messageIds, thread_ids: threadIds, ...b },
@@ -62,7 +68,10 @@ export function MessageActions({
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ['threads'] });
       await client.invalidateQueries({ queryKey: ['thread'] });
+      await client.invalidateQueries({ queryKey: ['folders'] });
+      await client.invalidateQueries({ queryKey: ['queue-counts'] });
       setMove(false);
+      setDestination(null);
       onDone?.();
       toast.success('Aplicando alteração no servidor…');
     },
@@ -193,31 +202,36 @@ export function MessageActions({
         >
           <DialogHeader>
             <DialogTitle>Mover mensagens</DialogTitle>
-            <DialogDescription>Escolha uma pasta desta caixa.</DialogDescription>
+            <DialogDescription>
+              Navegue pelas pastas ou escolha outra caixa com acesso para mover.
+            </DialogDescription>
           </DialogHeader>
-          <label htmlFor="target-folder" className="text-sm font-medium">
-            Pasta de destino
-          </label>
-          <select
-            id="target-folder"
-            value={folderId}
-            onChange={(e) => setFolderId(e.target.value)}
-            className="h-11 rounded-md border border-input bg-card px-3 text-sm"
-          >
-            <option value="">Selecione uma pasta</option>
-            {flattenFolders(folders).map((f) => (
-              <option value={f.id} key={f.id}>
-                {folderLabel(f)}
-              </option>
-            ))}
-          </select>
+          {move && (
+            <FolderDestinationPicker
+              mailboxId={mailboxId}
+              folders={folders}
+              value={destination}
+              onChange={setDestination}
+              allowMailboxChange
+              disabled={mutation.isPending}
+            />
+          )}
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setMove(false)}>
               Cancelar
             </Button>
             <Button
-              disabled={!folderId || mutation.isPending}
-              onClick={() => mutation.mutate({ type: 'move', target_folder_id: folderId })}
+              disabled={!destination?.folderId || mutation.isPending}
+              onClick={() =>
+                destination?.folderId &&
+                mutation.mutate({
+                  type: 'move',
+                  target_folder_id: destination.folderId,
+                  ...(destination.mailboxId !== mailboxId
+                    ? { target_mailbox_id: destination.mailboxId }
+                    : {}),
+                })
+              }
             >
               {mutation.isPending ? 'Aplicando…' : 'Mover'}
             </Button>

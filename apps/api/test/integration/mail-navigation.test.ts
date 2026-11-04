@@ -251,3 +251,32 @@ it('denies hidden favorite identifiers and moves outside readable source or dest
     ).folder_id,
   ).toBe(b);
 });
+it('persists domain order per person and rejects labels outside current accessible mailbox domains', async () => {
+  await db
+    .updateTable('mailboxes')
+    .set({ email_address: 'finance@finance.test' })
+    .where('id', '=', second)
+    .execute();
+  expect((await call('GET', undefined, other)).json().domain_order).toEqual([]);
+  const response = await call('PATCH', {
+    type: 'domains',
+    ids: ['finance.test', 'navigation.test'],
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  expect((await call('GET')).json().domain_order).toEqual(['finance.test', 'navigation.test']);
+  expect((await call('GET', undefined, other)).json().domain_order).toEqual([]);
+  expect(
+    (await call('PATCH', { type: 'domains', ids: ['finance.test', 'navigation.test'] }, limited))
+      .statusCode,
+  ).toBe(404);
+  expect(
+    (await call('PATCH', { type: 'domains', ids: ['navigation.test'] }, limited)).statusCode,
+  ).toBe(200);
+  expect(
+    (await call('PATCH', { type: 'domains', ids: ['arbitrary-private.test'] })).statusCode,
+  ).toBe(404);
+  expect(
+    (await call('PATCH', { type: 'domains', ids: ['finance.test', 'finance.test'] })).statusCode,
+  ).toBe(400);
+  expect((await call('GET')).json().domain_order).toEqual(['finance.test', 'navigation.test']);
+});

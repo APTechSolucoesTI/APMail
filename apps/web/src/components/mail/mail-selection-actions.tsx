@@ -33,7 +33,6 @@ import {
 } from '@/lib/auth';
 import {
   flattenFolders,
-  folderLabel,
   threadDetailKey,
   type Folder,
   type Thread,
@@ -60,12 +59,13 @@ import { ThreadLabels } from './thread-labels';
 import { ConversationPdf } from './conversation-pdf';
 import { ShareToChatDialog } from '@/components/chat/share-to-chat-dialog';
 import { ThreadTasks } from './thread-tasks';
+import { FolderDestinationPicker, type FolderDestination } from './folder-destination-picker';
 
 type Group = { box: Mailbox; threads: Thread[] };
 type Assignee = { id: string; full_name: string };
 type SpamTarget = { box: Mailbox; threadIds: string[]; messageIds: string[]; senders: string[] };
 
-/** Uses the existing mailbox endpoints; folders and permissions never cross mailbox boundaries. */
+/** Each source group is authorized separately, including a shared destination. */
 export function MailSelectionActions({
   threads,
   onProcessed,
@@ -99,18 +99,11 @@ export function MailSelectionActions({
   const [dialog, setDialog] = useState<
     'move' | 'delete' | 'assign' | 'labels' | 'tasks' | 'print' | null
   >(null);
-  const [destinations, setDestinations] = useState<Record<string, string>>({}),
+  const [destination, setDestination] = useState<FolderDestination | null>(null),
     [userId, setUserId] = useState('');
   const [spam, setSpam] = useState<SpamTarget[] | null>(null);
   const [activeId, setActiveId] = useState('');
   const activeThread = threads.find((t) => t.id === activeId) ?? threads[0];
-  const folders = useQueries({
-    queries: groups.map((g) => ({
-      queryKey: ['folders', tenant, g.box.id],
-      queryFn: () => api<Folder[]>('/mailboxes/' + g.box.id + '/folders'),
-      enabled: dialog === 'move',
-    })),
-  });
   const assignees = useQueries({
     queries: groups.map((g) => ({
       queryKey: ['assignable', tenant, g.box.id],
@@ -461,33 +454,21 @@ export function MailSelectionActions({
             </DialogTitle>
             <DialogDescription>
               {dialog === 'move'
-                ? 'Escolha o destino em cada caixa de origem.'
+                ? 'Escolha a pasta de destino para todas as mensagens selecionadas. Você pode escolher outra caixa com acesso para mover.'
                 : dialog === 'assign'
                   ? 'Somente pessoas disponíveis em todas as caixas selecionadas são exibidas.'
                   : 'As alterações respeitam a conversa e a caixa de origem.'}
             </DialogDescription>
           </DialogHeader>
-          {dialog === 'move' &&
-            groups.map((g, i) => (
-              <label key={g.box.id} className="space-y-1 text-sm">
-                {g.box.name} · {g.box.email_address}
-                <select
-                  className="block h-11 w-full rounded-md border bg-card px-2"
-                  value={destinations[g.box.id] ?? ''}
-                  onChange={(e) => setDestinations({ ...destinations, [g.box.id]: e.target.value })}
-                >
-                  <option value="">Selecione uma pasta</option>
-                  {flattenFolders(folders[i]?.data ?? []).map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {folderLabel(f)}
-                    </option>
-                  ))}
-                </select>
-                {folders[i]?.isError && (
-                  <span role="alert">Não foi possível carregar as pastas.</span>
-                )}
-              </label>
-            ))}
+          {dialog === 'move' && groups[0] && (
+            <FolderDestinationPicker
+              mailboxId={groups[0].box.id}
+              value={destination}
+              onChange={setDestination}
+              allowMailboxChange
+              disabled={busy}
+            />
+          )}
           {dialog === 'assign' && (
             <label className="space-y-1 text-sm">
               Responsável
@@ -564,7 +545,7 @@ export function MailSelectionActions({
                 disabled={
                   busy ||
                   (dialog === 'move'
-                    ? groups.some((g, i) => !destinations[g.box.id] || folders[i]?.isError)
+                    ? !destination?.folderId
                     : assignees.some((q) => q.isPending || q.isError))
                 }
                 onClick={() =>
@@ -575,7 +556,10 @@ export function MailSelectionActions({
                           body: {
                             thread_ids: g.threads.map((t) => t.id),
                             type: 'move',
-                            target_folder_id: destinations[g.box.id],
+                            target_folder_id: destination!.folderId,
+                            ...(destination!.mailboxId !== g.box.id
+                              ? { target_mailbox_id: destination!.mailboxId }
+                              : {}),
                           },
                         }),
                       )

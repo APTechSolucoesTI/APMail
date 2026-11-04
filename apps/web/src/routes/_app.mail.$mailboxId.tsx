@@ -318,7 +318,10 @@ function MailPage() {
       onOpenMessage={(thread, message) => change({ thread, message })}
     />
   ) : (
-    <section aria-label="Lista de conversas" className="flex h-full min-w-0 flex-col bg-card">
+    <section
+      aria-label="Lista de conversas"
+      className="flex h-full min-w-0 flex-col overflow-y-auto bg-card lg:overflow-hidden"
+    >
       <div aria-label="Filtros da caixa" className="shrink-0 space-y-3 border-b p-3">
         <div className="flex min-w-0 items-center gap-2">
           <SearchInput
@@ -426,7 +429,7 @@ function MailPage() {
         )}
       </div>
       {!!selected.length && (
-        <div className="space-y-2 border-b bg-muted p-3">
+        <div className="shrink-0 space-y-2 border-b bg-muted p-3">
           <p className="text-xs font-semibold">{selected.length} selecionada(s) nesta página</p>
           <div className="flex flex-wrap items-center gap-2">
             <ThreadLabels
@@ -490,7 +493,10 @@ function MailPage() {
         total={threads.data?.total ?? 0}
         onPageChange={(page) => change({ page })}
       />
-      <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={threads.isFetching}>
+      <div
+        className="min-h-48 shrink-0 lg:min-h-0 lg:flex-1 lg:shrink lg:overflow-y-auto"
+        aria-busy={threads.isFetching}
+      >
         {threads.isLoading ? (
           <LoadingState />
         ) : threads.error ? (

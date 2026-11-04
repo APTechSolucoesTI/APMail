@@ -47,7 +47,7 @@ import { useComposerPosition } from '@/hooks/use-composer-position';
 import { useComposingPresence } from '@/hooks/use-thread-presence';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
-import { replaceComposerSignature } from '@/lib/composer-content';
+import { cloneComposerBody, replaceComposerSignature } from '@/lib/composer-content';
 import { draftRecipientValue } from '@/lib/recipient-input';
 import { meQuery, useTenantId, canMailbox, type Mailbox } from '@/lib/auth';
 import type { Outbox, Signature } from '@/lib/outbox';
@@ -129,7 +129,8 @@ export function Composer({
   });
   const draftId = mode.startsWith('draft:') ? mode.slice(6) : null;
   const [openedSavedDraft] = useState(!!draftId);
-  const replyId = /^(reply|reply_all|forward):/.test(mode) ? mode.split(':')[1] : null;
+  const clone = mode.startsWith('clone:');
+  const replyId = /^(reply|reply_all|forward|clone):/.test(mode) ? mode.split(':')[1] : null;
   const boxes = useQuery({
     queryKey: ['mailboxes', tenant],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
@@ -269,6 +270,21 @@ export function Composer({
             minute: '2-digit',
           }).format(new Date(draft.data.updated_at)),
         );
+      } else if (clone && conversation.data) {
+        const source = conversation.data.messages.find((message) => message.id === replyId);
+        if (!source) {
+          setError('A mensagem original não está disponível.');
+          return;
+        }
+        value = {
+          ...value,
+          subject: source.subject,
+          to_addresses: source.to_addresses,
+          cc_addresses: source.cc_addresses,
+          bcc_addresses: source.bcc_addresses ?? [],
+        };
+        content = cloneComposerBody(source);
+        setEdited(true);
       } else {
         const s =
           signatures.data.find((s) => s.is_default && s.mailbox_id === mailboxId) ??
@@ -329,6 +345,7 @@ export function Composer({
     mode,
     me.data,
     composition.isPending,
+    clone,
   ]);
   const save = async (): Promise<Outbox> => {
     if (savePromise.current) {
@@ -565,9 +582,10 @@ export function Composer({
         }}
       >
         <DialogContent
+          showCloseButton={false}
           style={floating ? { left: position.style.left, top: position.style.top } : undefined}
           className={cn(
-            'flex flex-col gap-0 overflow-hidden bg-card p-0',
+            'flex flex-col gap-0 overflow-hidden bg-card p-0 sm:p-0',
             desktop && !maximized
               ? 'fixed h-[760px] max-h-[calc(100dvh-2rem)] w-[960px] max-w-[calc(100vw-2rem)] translate-x-0 translate-y-0 sm:max-w-[960px]'
               : 'fixed left-0 top-0 h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 rounded-none sm:max-w-none',
@@ -593,9 +611,8 @@ export function Composer({
         >
           <DialogHeader
             className={cn(
-              'relative shrink-0 border-b bg-muted/40 px-4 py-3 text-left',
-              floating && 'touch-none select-none cursor-grab',
-              position.dragging && 'cursor-grabbing bg-accent/50',
+              'relative shrink-0 border-b border-primary bg-primary px-4 py-3 text-left text-primary-foreground cursor-default',
+              floating && 'touch-none select-none',
             )}
             onPointerDown={position.onPointerDown}
             onPointerMove={position.onPointerMove}
@@ -608,6 +625,7 @@ export function Composer({
                   variant="ghost"
                   size="icon"
                   aria-label="Minimizar compositor"
+                  className="text-primary-foreground hover:bg-primary-foreground/15 hover:text-primary-foreground focus-visible:ring-primary-foreground"
                   disabled={busy}
                   onClick={() => setMinimized(true)}
                 >
@@ -619,12 +637,23 @@ export function Composer({
                   aria-label={
                     maximized ? 'Restaurar tamanho do compositor' : 'Maximizar compositor'
                   }
+                  className="text-primary-foreground hover:bg-primary-foreground/15 hover:text-primary-foreground focus-visible:ring-primary-foreground"
                   onClick={() => setMaximized((v) => !v)}
                 >
                   {maximized ? <Minimize2 /> : <Maximize2 />}
                 </Button>
               </div>
             )}
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Fechar"
+              disabled={busy || !!uploads.length}
+              className="absolute right-1 top-1 text-primary-foreground hover:bg-primary-foreground/15 hover:text-primary-foreground focus-visible:ring-primary-foreground"
+              onClick={() => void close()}
+            >
+              <X />
+            </Button>
             <DialogTitle
               className="truncate pr-28 text-sm leading-6 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               tabIndex={floating ? 0 : undefined}
@@ -638,7 +667,7 @@ export function Composer({
             >
               {draftId
                 ? 'Editar rascunho'
-                : mode === 'new'
+                : mode === 'new' || clone
                   ? 'Novo e-mail'
                   : mode.startsWith('forward')
                     ? 'Encaminhar e-mail'
@@ -777,7 +806,11 @@ export function Composer({
             </>
           )}
           {!ready ? (
-            draft.error || conversation.error || boxes.error || signatures.error ? (
+            error ? (
+              <p role="alert" className="p-4 text-sm text-destructive">
+                {error}
+              </p>
+            ) : draft.error || conversation.error || boxes.error || signatures.error ? (
               <ErrorState
                 onRetry={() => {
                   void draft.refetch();

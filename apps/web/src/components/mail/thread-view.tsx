@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Ellipsis, MailOpen, Pin, Tags, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Ellipsis, MailOpen, Pin, Tags, ShieldAlert, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { can, normalizeRuleEmail } from '@apmail/shared';
 import { api, ApiError } from '@/lib/api';
@@ -31,8 +31,6 @@ import { ShareToChatDialog } from '@/components/chat/share-to-chat-dialog';
 import { SpamConfirmation } from './spam-confirmation';
 import { ConversationPdf } from './conversation-pdf';
 import { ThreadTasks } from './thread-tasks';
-import { useMessageDrag } from '@/hooks/use-message-drag';
-import { cn } from '@/lib/utils';
 import { MailActionButton } from './mail-action-button';
 export function ThreadView({
   threadId,
@@ -76,15 +74,6 @@ export function ThreadView({
   const mayMove = useAccess('mail.move'),
     mayRule = useAccess('rules');
   const lastMessage = q.data?.messages.at(-1)?.message_at;
-  const dragging = useMessageDrag(
-    q.data && mayMove && can(q.data.my_role, 'organize') && can(q.data.my_role, 'move')
-      ? {
-          mailboxId,
-          threadIds: messageId || folderId ? [] : [threadId],
-          messageIds: messageId || folderId ? q.data.messages.map((message) => message.id) : [],
-        }
-      : undefined,
-  );
   useEffect(() => {
     if (!lastMessage || messageId || folderId) return;
     const timer = setTimeout(
@@ -147,19 +136,7 @@ export function ThreadView({
   return (
     <section aria-label="Conversa" className="h-full min-w-0 space-y-4 overflow-y-auto p-3 sm:p-4">
       <div className="space-y-3 border-b pb-4">
-        <div
-          {...dragging.handlers}
-          className={cn(
-            'flex items-start gap-2 rounded-md transition-[opacity,background-color,box-shadow] motion-reduce:transition-none',
-            dragging.handlers.draggable && 'cursor-grab active:cursor-grabbing',
-            dragging.dragging && 'bg-accent opacity-50 ring-2 ring-primary',
-          )}
-          title={
-            dragging.handlers.draggable
-              ? 'Arraste o assunto para uma pasta da mesma caixa'
-              : undefined
-          }
-        >
+        <div className="flex items-start gap-2">
           <Button
             variant="ghost"
             size="icon-sm"
@@ -170,7 +147,7 @@ export function ThreadView({
           >
             <ArrowLeft />
           </Button>
-          <h2 className="min-w-0 flex-1 break-words text-xl font-semibold">
+          <h2 className="min-w-0 flex-1 select-text break-words text-xl font-semibold">
             {data.thread.subject || data.messages[0]?.subject || '(Sem assunto)'}
           </h2>
         </div>
@@ -209,6 +186,14 @@ export function ThreadView({
               </MailActionButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
+              {onCompose && data.messages.length > 0 && (
+                <DropdownMenuItem
+                  onSelect={() => onCompose('clone:' + (messageId ?? data.messages.at(-1)!.id))}
+                >
+                  <Copy />
+                  Clonar e-mail
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onSelect={() => setLabelsOpen(true)}>
                 <Tags />
                 Etiquetas

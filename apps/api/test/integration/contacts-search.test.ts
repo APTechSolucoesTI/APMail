@@ -802,6 +802,112 @@ it('agenda também é acessível a membros sem caixas', async () => {
   }
 });
 
+it('sugere apenas destinatários enviados pelo usuário em todas as caixas legíveis e preserva escopos dos contatos', async () => {
+  const second = randomUUID(),
+    secondFolder = randomUUID();
+  await db
+    .insertInto('mailboxes')
+    .values({
+      id: second,
+      tenant_id: tenant,
+      name: 'Outra caixa',
+      email_address: second + '@qa.local',
+      username: 'qa',
+      imap_host: 'localhost',
+      smtp_host: 'localhost',
+    })
+    .execute();
+  await db
+    .insertInto('mailbox_members')
+    .values({ tenant_id: tenant, mailbox_id: second, user_id: member, role: 'editor' })
+    .execute();
+  await db
+    .insertInto('folders')
+    .values({
+      id: secondFolder,
+      tenant_id: tenant,
+      mailbox_id: second,
+      name: 'Sent',
+      imap_path: 'Sent',
+      special_use: 'sent',
+    })
+    .execute();
+  const add = async (
+    targetBox: string,
+    targetFolder: string | null,
+    sender: string | null,
+    direction: 'outbound' | 'inbound',
+    address: string,
+  ) => {
+    const tid = randomUUID();
+    await db
+      .insertInto('threads')
+      .values({ id: tid, tenant_id: tenant, mailbox_id: targetBox })
+      .execute();
+    await db
+      .insertInto('messages')
+      .values({
+        tenant_id: tenant,
+        mailbox_id: targetBox,
+        thread_id: tid,
+        folder_id: targetFolder,
+        direction,
+        sent_by_user_id: sender,
+        message_id_header: '<' + tid + '@qa>',
+        message_at: new Date(),
+        from_address: 'hist-needle-sender@example.com',
+        to_addresses: sql`${JSON.stringify([{ address, name: 'Hist Needle' }])}::jsonb`,
+      })
+      .execute();
+  };
+  await add(box, folder, member, 'outbound', 'hist-needle-own@example.com');
+  await add(second, secondFolder, member, 'outbound', 'hist-needle-second@example.com');
+  await add(second, secondFolder, member, 'outbound', 'HIST-NEEDLE-OWN@example.com');
+  await add(box, folder, owner, 'outbound', 'hist-needle-other@example.com');
+  await add(box, folder, null, 'inbound', 'hist-needle-received@example.com');
+  await add(box, hiddenFolder, member, 'outbound', 'hist-needle-hidden@example.com');
+  await add(privateBox, null, member, 'outbound', 'hist-needle-private@example.com');
+  for (const [scope, person, address] of [
+    ['tenant', owner, 'hist-needle-global@example.com'],
+    ['personal', member, 'hist-needle-personal@example.com'],
+    ['personal', owner, 'hist-needle-secret@example.com'],
+  ] as const) {
+    const cid = randomUUID();
+    await db
+      .insertInto('contacts')
+      .values({
+        id: cid,
+        tenant_id: tenant,
+        created_by: person,
+        scope,
+        owner_user_id: scope === 'personal' ? person : null,
+        name: 'Hist Needle ' + cid,
+      })
+      .execute();
+    await db
+      .insertInto('contact_emails')
+      .values({
+        tenant_id: tenant,
+        contact_id: cid,
+        email: address,
+        agenda_user_id: scope === 'personal' ? person : null,
+      })
+      .execute();
+  }
+  const result = await call(
+    'GET',
+    '/api/mailboxes/' + box + '/address-suggestions?q=hist-needle',
+    member,
+  );
+  expect(result.statusCode, result.body).toBe(200);
+  const addresses = result.json().map((item: { address: string }) => item.address);
+  expect(addresses.sort()).toEqual([
+    'hist-needle-global@example.com',
+    'hist-needle-own@example.com',
+    'hist-needle-personal@example.com',
+    'hist-needle-second@example.com',
+  ]);
+});
 it('apelidos são privados por usuário, inclusive em busca e sugestões', async () => {
   const request = (user: string, value: string) =>
     app.inject({

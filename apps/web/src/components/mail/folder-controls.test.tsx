@@ -7,6 +7,15 @@ const mocks = vi.hoisted(() => ({ api: vi.fn(), success: vi.fn() }));
 vi.mock('@/lib/api', () => ({ api: mocks.api }));
 vi.mock('sonner', () => ({ toast: { success: mocks.success } }));
 vi.mock('@/lib/auth', () => ({ useTenantId: () => 'tenant' }));
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+);
+Element.prototype.scrollIntoView = vi.fn();
 const child: Folder = {
   id: 'child',
   name: 'Filha',
@@ -59,13 +68,18 @@ async function openMove() {
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Mover para…' }));
   await screen.findByLabelText('Pasta de destino');
 }
+function chooseDestination() {
+  fireEvent.click(screen.getByRole('combobox', { name: 'Pasta de destino' }));
+  fireEvent.click(screen.getByRole('option', { name: 'Destino' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Selecionar esta pasta' }));
+}
 it('offers explicit hierarchy change with descendants excluded and same-parent move disabled', async () => {
   mount();
   await openMove();
   expect(screen.queryByRole('option', { name: 'Filha' })).not.toBeInTheDocument();
   expect(screen.queryByRole('option', { name: 'Origem' })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Mover pasta' })).toBeDisabled();
-  fireEvent.change(screen.getByLabelText('Pasta de destino'), { target: { value: 'destination' } });
+  chooseDestination();
   fireEvent.click(screen.getByRole('button', { name: 'Mover pasta' }));
   await waitFor(() =>
     expect(mocks.api).toHaveBeenCalledWith(
@@ -93,16 +107,19 @@ it('shows the current remote parent for an imported local folder but excludes ne
   const localTarget = { ...destination, id: 'local', name: 'Local', is_local: true };
   mount(imported, [inbox, otherRemote, localTarget]);
   await openMove();
-  expect(screen.getByLabelText('Pasta de destino')).toHaveValue('inbox');
-  expect(screen.getByRole('option', { name: 'Inbox' })).toBeInTheDocument();
-  expect(screen.queryByRole('option', { name: 'Remote' })).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Pasta de destino')).toHaveTextContent('Inbox');
+  fireEvent.click(screen.getByRole('combobox', { name: 'Pasta de destino' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Raiz' }));
   expect(screen.getByRole('option', { name: 'Local' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('option', { name: 'Remote' }));
+  expect(screen.getByRole('button', { name: 'Selecionar esta pasta' })).toBeDisabled();
+  fireEvent.keyDown(screen.getByPlaceholderText('Buscar em todas as pastas…'), { key: 'Escape' });
   expect(screen.getByRole('button', { name: 'Mover pasta' })).toBeDisabled();
 });
 it('waits for the target parent instead of falsely completing when the name is unchanged', async () => {
   mount();
   await openMove();
-  fireEvent.change(screen.getByLabelText('Pasta de destino'), { target: { value: 'destination' } });
+  chooseDestination();
   fireEvent.click(screen.getByRole('button', { name: 'Mover pasta' }));
   await screen.findByRole('status');
   await act(async () => {
@@ -117,7 +134,7 @@ it('keeps the dialog and shows a retryable server error when enqueueing fails', 
   mount();
   await openMove();
   mocks.api.mockRejectedValueOnce(Error('Destino indisponível.'));
-  fireEvent.change(screen.getByLabelText('Pasta de destino'), { target: { value: 'destination' } });
+  chooseDestination();
   fireEvent.click(screen.getByRole('button', { name: 'Mover pasta' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Destino indisponível');
   expect(screen.getByRole('dialog')).toBeVisible();
@@ -133,7 +150,7 @@ it('recovers asynchronous failure from polling when the socket event was missed'
         ? { status: 'failed', error: 'A pasta de destino mudou. Tente novamente.' }
         : [source, destination],
   );
-  fireEvent.change(screen.getByLabelText('Pasta de destino'), { target: { value: 'destination' } });
+  chooseDestination();
   fireEvent.click(screen.getByRole('button', { name: 'Mover pasta' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('destino mudou');
   expect(screen.getByRole('button', { name: 'Opções da pasta Origem' })).toBeEnabled();
@@ -150,7 +167,7 @@ it('polls completion and invalidates the folder cache after a successful operati
         ? { status: 'done' }
         : [source, destination],
   );
-  fireEvent.change(screen.getByLabelText('Pasta de destino'), { target: { value: 'destination' } });
+  chooseDestination();
   fireEvent.click(screen.getByRole('button', { name: 'Mover pasta' }));
   await waitFor(() => expect(mocks.success).toHaveBeenCalledOnce());
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['folders'] });

@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode, type HTMLAttributes } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { meQuery } from '@/lib/auth';
@@ -10,6 +10,7 @@ export function NavigationGroup({
   icon,
   indentContent = false,
   visible = true,
+  headerProps,
 }: {
   id: string;
   label: string;
@@ -18,6 +19,7 @@ export function NavigationGroup({
   icon?: ReactNode;
   indentContent?: boolean;
   visible?: boolean;
+  headerProps?: Omit<HTMLAttributes<HTMLButtonElement>, 'onClick'>;
 }) {
   const me = useQuery(meQuery).data;
   const controlsId = useId();
@@ -29,8 +31,12 @@ export function NavigationGroup({
   return (
     <section className="min-w-0">
       <button
+        {...headerProps}
         type="button"
-        className="flex min-h-11 sm:min-h-8 w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 text-xs font-semibold text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className={
+          'flex min-h-11 sm:min-h-8 w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 text-xs font-semibold text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ' +
+          (headerProps?.className ?? '')
+        }
         aria-expanded={open}
         aria-controls={controlsId}
         onClick={() => {
