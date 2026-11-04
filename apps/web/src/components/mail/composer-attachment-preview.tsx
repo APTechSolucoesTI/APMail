@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { AttachmentPdfPreview } from './attachment-pdf-preview';
+import { AttachmentOfficePreview, attachmentOfficeFormat } from './attachment-office-preview';
 import { AttachmentSafetyBadge } from './attachment-safety';
 import type { OutboxAttachment } from '@apmail/shared';
 
@@ -38,6 +39,7 @@ export function ComposerAttachmentPreview({
   const downloadUrl = base + '/download';
   const pdf = file.content_type === 'application/pdf';
   const image = /^image\/(png|jpeg|gif|webp)$/.test(file.content_type ?? '');
+  const office = attachmentOfficeFormat(file.filename, file.content_type);
   const allowed = attachmentCanOpen(security);
   return (
     <Dialog
@@ -90,6 +92,13 @@ export function ComposerAttachmentPreview({
             attachmentId={id}
             filename={file.filename}
             source={{ inlineUrl, downloadUrl }}
+          />
+        ) : office ? (
+          <AttachmentOfficePreview
+            key={base}
+            filename={file.filename}
+            format={office}
+            downloadUrl={downloadUrl}
           />
         ) : (
           <>

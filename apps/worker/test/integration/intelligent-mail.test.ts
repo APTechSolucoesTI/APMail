@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, it, expect, vi } from 'vitest';
-import { randomUUID, randomBytes } from 'node:crypto';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { createServer, type Socket } from 'node:net';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -1258,6 +1258,83 @@ it('revalidates permissions before a queued folder action', async () => {
       .execute();
   }
 });
+it('reabre e envia uma cópia independente com a imagem CID da assinatura original', async () => {
+  const cid = `signature-${randomUUID()}@apmail.local`;
+  const logo = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jPv8AAAAASUVORK5CYII=',
+    'base64',
+  );
+  const source = await ingest(
+    await new MailComposer({
+      from: 'original@qa.example',
+      to: box.email_address,
+      subject: 'Clonar assinatura CID',
+      html: `<div data-apmail-signature="${randomUUID()}"><p>Assinatura original</p><img src="cid:${cid}"></div>`,
+      attachments: [
+        { filename: 'logo.png', content: logo, contentType: 'image/png', cid },
+        { filename: 'normal.txt', content: 'Anexo normal', contentType: 'text/plain' },
+      ],
+    })
+      .compile()
+      .build(),
+  );
+  const file = await db
+    .selectFrom('attachments')
+    .selectAll()
+    .where('message_id', '=', source.id)
+    .where('content_id', '=', cid)
+    .executeTakeFirstOrThrow();
+  await db.updateTable('attachments').set({ is_inline: false }).where('id', '=', file.id).execute();
+  await db
+    .updateTable('file_security')
+    .set({
+      status: 'clean',
+      sha256: createHash('sha256').update(logo).digest('hex'),
+      scanned_at: new Date(),
+    })
+    .where('storage_key', '=', file.storage_path)
+    .execute();
+  const draft = await call('POST', '/api/outbox', {
+    mailbox_id: boxId,
+    kind: 'new',
+    subject: source.subject,
+    to_addresses: [{ address: 'clone@qa.example' }],
+    body_html: `<div data-apmail-signature="${randomUUID()}"><p>Assinatura original</p><img data-apmail-cid="${cid}"></div>`,
+    attachments: [{ source: 'message_attachment', attachment_id: file.id, inline: true }],
+  });
+  expect(draft.statusCode, draft.body).toBe(201);
+  const id = draft.json().id;
+  const reopened = await call('GET', '/api/outbox/' + id);
+  expect(reopened.json().attachment_metadata).toMatchObject([{ id: file.id, content_id: cid }]);
+  expect(reopened.json().body_html).toContain(`src="cid:${cid}"`);
+  expect(reopened.json().signature_id).toBeNull();
+  expect(reopened.json().thread_id).toBeNull();
+  const submitted = await call('POST', '/api/outbox/' + id + '/submit', {});
+  expect(submitted.statusCode, submitted.body).toBe(200);
+  await db
+    .updateTable('outbox')
+    .set({ send_after: new Date(0) })
+    .where('id', '=', id)
+    .execute();
+  await handleOutboxSend(r, id, {
+    id: submitted.json().job_id,
+    attemptsMade: 0,
+    opts: { attempts: 1 },
+  });
+  const raw = deliveries.at(-1)!.raw;
+  const mime = await simpleParser(raw, { skipImageLinks: true });
+  expect(mime.html).toContain('Assinatura original');
+  expect(mime.html).toContain(`src="cid:${cid}"`);
+  expect(mime.attachments).toHaveLength(1);
+  expect(mime.attachments[0]).toMatchObject({
+    cid,
+    filename: 'logo.png',
+    contentDisposition: 'inline',
+    content: logo,
+  });
+  expect(raw.toString()).toContain('multipart/related');
+});
+
 it('preserva fonte e assinatura editada no rascunho, no MIME e na cópia enviada sem alterar o modelo', async () => {
   const signature = await db
     .insertInto('signatures')

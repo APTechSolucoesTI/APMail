@@ -1,9 +1,21 @@
 import { ReceivedAttachment, SecuredEmailBody } from './attachment-safety';
 import { AttachmentPdfPreview } from './attachment-pdf-preview';
+import { AttachmentOfficePreview, attachmentOfficeFormat } from './attachment-office-preview';
 import { useId, useState } from 'react';
-import { Flag, Plus, Minus, Reply, ReplyAll, Forward, Copy } from 'lucide-react';
+import {
+  Flag,
+  Plus,
+  Minus,
+  Reply,
+  ReplyAll,
+  Forward,
+  Copy,
+  ChevronDown,
+  Paperclip,
+} from 'lucide-react';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { MailActionButton } from './mail-action-button';
 import {
   Dialog,
@@ -51,6 +63,7 @@ export function MessageCard({
   const [open, setOpen] = useState(expanded),
     [preview, setPreview] = useState<Attachment | null>(null);
   const bodyId = useId();
+  const officeFormat = preview && attachmentOfficeFormat(preview.filename, preview.content_type);
   const date = new Date(message.message_at).toLocaleString('pt-BR', { timeZone });
   const sender = resolveAddress(
     { name: message.from_name, address: message.from_address },
@@ -218,7 +231,7 @@ export function MessageCard({
                     mailboxId={mailboxId}
                     folders={folders}
                     messageIds={[message.id]}
-                    flagged={message.is_flagged}
+                    showDelete={false}
                     inTrash={flattenFolders(folders).some(
                       (folder) => folder.id === message.folder_id && folder.special_use === 'trash',
                     )}
@@ -253,11 +266,30 @@ export function MessageCard({
             </p>
           )}
           {!!visibleAttachments.length && (
-            <ul aria-label="Anexos da mensagem" className="grid gap-2 @lg/message:grid-cols-2">
-              {visibleAttachments.map((a) => (
-                <ReceivedAttachment key={a.id} attachment={a} onPreview={setPreview} />
-              ))}
-            </ul>
+            <Collapsible defaultOpen className="space-y-2">
+              <CollapsibleTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="group min-h-11 gap-2 sm:min-h-8"
+                >
+                  <Paperclip aria-hidden />
+                  Anexos ({visibleAttachments.length})
+                  <ChevronDown
+                    aria-hidden
+                    className="motion-safe:transition-transform group-data-[state=closed]:-rotate-90"
+                  />
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <ul aria-label="Anexos da mensagem" className="grid gap-2 @lg/message:grid-cols-2">
+                  {visibleAttachments.map((a) => (
+                    <ReceivedAttachment key={a.id} attachment={a} onPreview={setPreview} />
+                  ))}
+                </ul>
+              </CollapsibleContent>
+            </Collapsible>
           )}
           {message.attachments.some((attachment) => attachment.is_inline) ? (
             <SecuredEmailBody
@@ -290,7 +322,14 @@ export function MessageCard({
             <DialogTitle>{preview?.filename}</DialogTitle>
             <DialogDescription>Pré-visualização do anexo recebido.</DialogDescription>
           </DialogHeader>
-          {preview?.content_type.startsWith('image/') ? (
+          {preview && officeFormat ? (
+            <AttachmentOfficePreview
+              key={preview.id}
+              filename={preview.filename}
+              format={officeFormat}
+              downloadUrl={'/api/attachments/' + encodeURIComponent(preview.id) + '/download'}
+            />
+          ) : preview?.content_type.startsWith('image/') ? (
             <img
               src={'/api/attachments/' + preview.id + '/inline'}
               alt={preview.filename}

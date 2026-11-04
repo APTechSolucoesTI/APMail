@@ -452,14 +452,17 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     }
     const attachment_metadata = await resolveOutboxAttachments(r.db, row)
       .then((files) =>
-        files.map(({ id, filename, content_type, size_bytes, upload_id, security }) => ({
-          id,
-          filename,
-          content_type,
-          size_bytes,
-          source: upload_id ? 'upload' : 'message_attachment',
-          security,
-        })),
+        files.map(
+          ({ id, filename, content_type, content_id, size_bytes, upload_id, security }) => ({
+            id,
+            filename,
+            content_type,
+            content_id,
+            size_bytes,
+            source: upload_id ? 'upload' : 'message_attachment',
+            security,
+          }),
+        ),
       )
       .catch(() => []);
     return { ...row, ...(await flags(c, row)), attachment_metadata };

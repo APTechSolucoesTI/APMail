@@ -7,7 +7,11 @@ export const addressSchema = z.object({
 });
 export const outboxAttachmentSchema = z.discriminatedUnion('source', [
   z.object({ source: z.literal('upload'), upload_id: z.uuid(), inline: z.boolean().optional() }),
-  z.object({ source: z.literal('message_attachment'), attachment_id: z.uuid() }),
+  z.object({
+    source: z.literal('message_attachment'),
+    attachment_id: z.uuid(),
+    inline: z.literal(true).optional(),
+  }),
 ]);
 export const OUTBOX_SUBJECT_REQUIRED = 'Informe o assunto para enviar o e-mail.';
 // Assunto e destinatários podem ficar em branco enquanto o e-mail é um rascunho.

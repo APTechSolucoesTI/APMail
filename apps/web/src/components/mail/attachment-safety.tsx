@@ -26,6 +26,7 @@ import { StatusBadge } from '@/components/common/status-badge';
 import { Button } from '@/components/ui/button';
 import type { Attachment } from '@/lib/mail';
 import { EmailBodyFrame } from './email-body-frame';
+import { attachmentOfficeFormat } from '@/lib/office-preview';
 
 export function SecuredEmailBody({
   attachments,
@@ -172,16 +173,18 @@ export function ReceivedAttachment({
           onClose={() => setReleaseOpen(false)}
         />
       )}
-      {clean && /^(image\/(png|jpeg|gif|webp)|application\/pdf)$/.test(attachment.content_type) && (
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label={'Visualizar ' + attachment.filename}
-          onClick={() => onPreview({ ...attachment, security })}
-        >
-          <Eye />
-        </Button>
-      )}
+      {clean &&
+        (/^(image\/(png|jpeg|gif|webp)|application\/pdf)$/.test(attachment.content_type) ||
+          attachmentOfficeFormat(attachment.filename, attachment.content_type)) && (
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={'Visualizar ' + attachment.filename}
+            onClick={() => onPreview({ ...attachment, security })}
+          >
+            <Eye />
+          </Button>
+        )}
       {clean && (
         <Button variant="ghost" size="icon-sm" asChild>
           <a

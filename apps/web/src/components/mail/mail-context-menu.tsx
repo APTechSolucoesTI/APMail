@@ -175,7 +175,7 @@ export function MailContextMenu({
   const inTrash =
     messages.length > 0 && messages.every((item) => specialUse(item.folder_id) === 'trash');
   const pending = messages.some((item) => item.pending_action);
-  const flagged = messages.length > 0 && messages.every((item) => item.is_flagged);
+  const flagged = messages.some((item) => item.is_flagged);
   // Use only the visible messages returned for this row, including individually listed sent mail.
   const messageIds = messages.map((item) => item.id);
   const trashIds = messages

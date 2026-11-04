@@ -52,16 +52,25 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { secureEditorImage } from '@/lib/secure-editor-image';
-const EmailImage = Node.create({
+import { composerCid } from '@/lib/composer-content';
+const EmailImage = Node.create<{ resolveAttachment: (cid: string) => string | undefined }>({
   name: 'image',
   group: 'block',
   atom: true,
+  addOptions() {
+    return { resolveAttachment: () => undefined };
+  },
   addAttributes() {
     return {
       src: { default: null },
       alt: { default: '' },
       width: { default: null },
       height: { default: null },
+      cid: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('data-apmail-cid'),
+        renderHTML: (attributes) => (attributes.cid ? { 'data-apmail-cid': attributes.cid } : {}),
+      },
       signatureImageId: {
         default: null,
         parseHTML: (element) => element.getAttribute('data-apmail-signature-image'),
@@ -79,13 +88,19 @@ const EmailImage = Node.create({
     };
   },
   parseHTML() {
-    return [{ tag: 'img[src]' }];
+    return [{ tag: 'img[src], img[data-apmail-cid]' }];
   },
   renderHTML({ HTMLAttributes }) {
     return ['img', HTMLAttributes];
   },
   addNodeView() {
-    return ({ node }) => secureEditorImage(node.attrs);
+    return ({ node }) => {
+      const cid = node.attrs.cid ?? node.attrs.src?.match(/^cid:(.+)$/i)?.[1];
+      return secureEditorImage({
+        ...node.attrs,
+        attachmentId: cid ? this.options.resolveAttachment(composerCid(cid)) : undefined,
+      });
+    };
   },
 });
 const EmailSignature = Node.create({
@@ -120,6 +135,7 @@ export function RichTextEditor({
   ribbon = false,
   compact = false,
   defaultFormat,
+  attachmentIdsByCid,
 }: {
   value: string;
   onChange: (html: string) => void;
@@ -130,6 +146,7 @@ export function RichTextEditor({
   ribbon?: boolean;
   compact?: boolean;
   defaultFormat?: CompositionFormat;
+  attachmentIdsByCid?: Record<string, string>;
 }) {
   const [dialog, setDialog] = useState<'link' | 'image' | null>(null),
     [url, setUrl] = useState('');
@@ -166,7 +183,7 @@ export function RichTextEditor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false } }),
       Placeholder.configure({ placeholder: 'Escreva sua mensagem…' }),
-      EmailImage,
+      EmailImage.configure({ resolveAttachment: (cid) => attachmentIdsByCid?.[cid] }),
       EmailSignature,
       ParagraphLayout,
       TextStyleKit,

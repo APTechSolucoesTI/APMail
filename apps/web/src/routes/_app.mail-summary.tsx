@@ -6,7 +6,8 @@ import { QUEUE_LABELS } from '@apmail/shared';
 import { MAIL_BULK_LIMIT, useMailPages } from '@/hooks/use-mail-pages';
 import { toast } from 'sonner';
 import { MailPageContinuation } from '@/components/mail/mail-page-continuation';
-import { meQuery, useMailQueues, useTenantId } from '@/lib/auth';
+import { meQuery, useMailQueues, useTenantId, type Mailbox } from '@/lib/auth';
+import { api } from '@/lib/api';
 import { mailSearchSchema } from '@/lib/search-params/mail';
 import type { Thread } from '@/lib/mail';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,11 @@ function SummaryPage() {
     tenant = useTenantId();
   const me = useQuery(meQuery),
     queues = useMailQueues();
+  const mailboxes = useQuery({
+    queryKey: ['mailboxes', tenant],
+    queryFn: () => api<Mailbox[]>('/mailboxes'),
+    enabled: !!tenant && !!me.data?.preferences.mail_summary_enabled,
+  });
   const pageSize = search.pageSize ?? me.data?.preferences.mail_page_size ?? 50;
   const view = search.view === 'queue' && queues ? 'queue' : search.q ? 'search' : 'folder';
   const query = new URLSearchParams({
@@ -201,6 +207,7 @@ function SummaryPage() {
                 >
                   <ThreadListItem
                     thread={thread}
+                    mailbox={mailboxes.data?.find((box) => box.id === mailboxId)}
                     showMailbox
                     contacts={result.data?.contacts}
                     query={search.q}

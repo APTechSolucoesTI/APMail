@@ -33,6 +33,7 @@ export function MessageActions({
   compact = false,
   inTrash = false,
   iconOnly = true,
+  showDelete = true,
   initialAction,
   hideTrigger = false,
   onClose,
@@ -46,12 +47,13 @@ export function MessageActions({
   compact?: boolean;
   inTrash?: boolean;
   iconOnly?: boolean;
+  showDelete?: boolean;
   initialAction?: 'move' | 'delete';
   hideTrigger?: boolean;
   onClose?: () => void;
 }) {
   const mayMove = useAccess('mail.move'),
-    mayDelete = useAccess('mail.delete'),
+    mayDelete = useAccess('mail.delete') && showDelete,
     mayRestore = useAccess('mail.restore') && inTrash,
     mayFlag = useAccess('mail.flag');
   const client = useQueryClient(),

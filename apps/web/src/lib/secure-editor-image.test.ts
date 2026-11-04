@@ -38,6 +38,20 @@ it('never loads an infected image, including an internal src without metadata at
   expect(view.dom.textContent).toContain('Ameaça detectada');
   view.destroy();
 });
+it('uses the original attachment authorization for a cloned signature CID', async () => {
+  vi.mocked(api).mockResolvedValue({ ...pendingSecurity, status: 'clean' });
+  const view = secureEditorImage({
+    attachmentId: 'source',
+    signatureImageId: 'someone-elses-template',
+    src: 'cid:original',
+  });
+  const image = view.dom.querySelector('img')!;
+  expect(image.getAttribute('src')).toBeNull();
+  await Promise.resolve();
+  expect(api).toHaveBeenCalledWith('/attachments/source/security', expect.any(Object));
+  expect(image.getAttribute('src')).toBe('/api/attachments/source/inline');
+  view.destroy();
+});
 it('keeps a failed scan blocked and retries while the editor is open', async () => {
   vi.useFakeTimers();
   vi.mocked(api).mockRejectedValue(new Error('offline'));

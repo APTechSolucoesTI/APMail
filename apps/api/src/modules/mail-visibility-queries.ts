@@ -147,21 +147,26 @@ export async function listThreads(
   );
   const query = sql<{ items: Record<string, unknown>[]; total: number }>`
  with eligible as materialized (
-  select t.id,t.mailbox_id,t.assigned_to,t.queue_status,t.queue_excluded,t.is_pinned_global,us.last_read_at,(t.is_pinned_global or coalesce(us.is_pinned,false)) as is_pinned from threads t
+  select t.id,t.mailbox_id,t.assigned_to,t.queue_status,t.queue_excluded,t.is_pinned_global,us.last_read_at,coalesce(us.is_pinned,false) as is_pinned_personal,(t.is_pinned_global or coalesce(us.is_pinned,false)) as is_pinned from threads t
   left join thread_user_state us on us.thread_id=t.id and us.tenant_id=${c.tenantId} and us.user_id=${c.userId} where ${sql.join(conditions, sql` and `)}
  ), fm as (
   select m.thread_id,${entryId} as entry_id,count(*)::int as message_count,max(m.message_at) as last_message_at,max(m.message_at) filter(where ${inbound}) as last_inbound_at,max(m.message_at) filter(where ${unreadInbound} and (m.is_mdn or coalesce(f.special_use::text,'') not in ('trash','junk'))) as last_unread_candidate_at,bool_or(m.has_attachments) as has_attachments
   from messages m join eligible e on e.id=m.thread_id join folders f on f.id=m.folder_id
   where m.tenant_id=${c.tenantId} and m.mailbox_id in (${sql.join(boxIds)}) and m.deleted_at is null and ${scope()} ${folderFilter} ${messageSearch} group by m.thread_id,${entryId}
  ), matched as (
-  select e.id,e.mailbox_id,fm.entry_id,${individualMessages ? sql`fm.entry_id` : sql`null::uuid`} as message_id,title.subject,concat_ws(' ',latest.from_name,latest.from_address) as latest_from_sort,u.full_name as assigned_to_sort,e.queue_status,e.is_pinned,e.is_pinned_global,fm.message_count,fm.has_attachments,fm.last_message_at,fm.last_inbound_at,
+  select e.id,e.mailbox_id,fm.entry_id,${individualMessages ? sql`fm.entry_id` : sql`null::uuid`} as message_id,title.subject,concat_ws(' ',latest.from_name,latest.from_address) as latest_from_sort,u.full_name as assigned_to_sort,e.queue_status,e.is_pinned,e.is_pinned_global,e.is_pinned_personal,fm.message_count,fm.has_attachments,fm.last_message_at,fm.last_inbound_at,
    coalesce(fm.last_unread_candidate_at>coalesce(e.last_read_at,'-infinity'::timestamptz),false) as is_unread,coalesce(${overdue},false) as is_overdue,
    case when u.id is null then null else jsonb_build_object('id',u.id,'full_name',u.full_name,'avatar_url',case when u.avatar_path is null then null else '/api/avatars/'||u.id::text||'?v='||extract(epoch from u.updated_at)::bigint end) end as assigned_to
   from eligible e join fm on fm.thread_id=e.id join tenants tenant on tenant.id=${c.tenantId} left join users u on u.id=e.assigned_to join lateral (select m.subject,m.from_name,m.from_address from messages m where m.thread_id=e.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${scope()} ${folderFilter} ${selectedMessage('fm')} order by m.message_at desc,m.id limit 1) latest on true
   join lateral (select m.subject from messages m where m.thread_id=e.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${scope()} ${selectedMessage('fm')} order by (m.direction='inbound') desc,m.message_at desc,m.id desc limit 1) title on true
   where ${columnFilters(q, columns)} ${q.unread ? sql`and fm.last_unread_candidate_at>coalesce(e.last_read_at,'-infinity'::timestamptz)` : sql``} ${q.queue === 'overdue' && q.view === 'queue' ? sql`and ${overdue}` : sql``}
  ), paged as (select * from matched order by ${listOrder} limit ${q.page_size} offset ${(q.page - 1) * q.page_size}), detailed as (
-  select p.*,
+  select p.*,message_state.is_flagged,message_state.has_pending_message_action,
+   exists(select 1 from messages m
+     join messages original on original.thread_id=m.thread_id and original.tenant_id=m.tenant_id and original.mailbox_id=m.mailbox_id and original.message_id_header=m.in_reply_to
+     where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.mailbox_id=p.mailbox_id and m.deleted_at is null and original.deleted_at is null
+       and m.direction='outbound' and not m.is_mdn and not m.is_auto_reply and ${scope()} and ${scope('original.folder_id')}
+       ${individualMessages ? sql`and original.id=p.entry_id` : sql``}) as has_reply,
    (select count(*)::int from reminders task where task.tenant_id=${c.tenantId} and task.thread_id=p.id and task.status in ('pending','notified')) as pending_task_count,
    (select count(*)::int from reminders task where task.tenant_id=${c.tenantId} and task.thread_id=p.id and task.status='completed') as completed_task_count,
    box.name as mailbox_name,box.email_address as mailbox_email,latest.snippet,jsonb_build_object('name',latest.from_name,'address',latest.from_address) as latest_from,latest.to_addresses as latest_to,latest.direction,
@@ -173,6 +178,9 @@ export async function listThreads(
    coalesce((select jsonb_agg(jsonb_build_object('id',l.id,'name',l.name,'color',l.color,'scope',l.scope) order by (l.scope='tenant') desc,l.name) from thread_personal_labels tl join personal_labels l on l.id=tl.label_id where tl.thread_id=p.id and tl.tenant_id=${c.tenantId} and (l.scope='tenant' or l.user_id=${c.userId}) and (l.mailbox_mode='all' or exists(select 1 from label_mailboxes lm where lm.label_id=l.id and lm.mailbox_id in (${sql.join(boxIds)}) and lm.tenant_id=l.tenant_id))),'[]'::jsonb) as labels,
    exists(select 1 from outbox o where o.thread_id=p.id and o.tenant_id=${c.tenantId} and o.mdn_original_message_id is null and o.status in ('scheduled','queued','sending')) as has_scheduled
   from paged p join mailboxes box on box.id=p.mailbox_id join lateral (
+   select coalesce(bool_or(m.is_flagged),false) as is_flagged,coalesce(bool_or(m.pending_action),false) as has_pending_message_action
+   from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.mailbox_id=p.mailbox_id and m.deleted_at is null and ${scope()} ${selectedMessage('p')}
+  ) message_state on true join lateral (
    select m.id,m.subject,m.snippet,m.from_name,m.from_address,m.to_addresses,m.direction,m.request_read_receipt from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${scope()} ${folderFilter} ${selectedMessage('p')}
    order by ${search.text || search.from ? sql`${matchesSearch('m')} desc,` : sql``} m.message_at desc,m.id limit 1
   ) latest on true

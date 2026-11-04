@@ -1,15 +1,34 @@
-import { Paperclip, Pin, ListTodo, CheckCheck, Mail, Trash2, Loader2 } from 'lucide-react';
+import {
+  Paperclip,
+  Pin,
+  ListTodo,
+  CheckCheck,
+  Mail,
+  Trash2,
+  Loader2,
+  Flag,
+  Reply,
+} from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { QueueStatusBadge, OverdueBadge } from '@/components/common/status-badge';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { cn } from '@/lib/utils';
-import type { Thread } from '@/lib/mail';
+import { threadDetailKey, type Thread, type ThreadDetail } from '@/lib/mail';
 import { LabelBadge } from './label-badge';
 import { SearchHighlight } from './search-highlight';
-import { useQuery } from '@tanstack/react-query';
-import { meQuery, useMailQueues } from '@/lib/auth';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  canMailbox,
+  meQuery,
+  useAccess,
+  useMailQueues,
+  useTenantId,
+  type Mailbox,
+} from '@/lib/auth';
+import { api } from '@/lib/api';
+import { toast } from 'sonner';
 import { resolveAddress, type ContactResolution } from '@apmail/shared';
 import { useMessageDrag } from '@/hooks/use-message-drag';
 export function ThreadListItem({
@@ -23,6 +42,7 @@ export function ThreadListItem({
   showMailbox = false,
   drag,
   onQuickTrash,
+  mailbox,
 }: {
   thread: Thread;
   selected: boolean;
@@ -34,6 +54,7 @@ export function ThreadListItem({
   showMailbox?: boolean;
   drag?: { mailboxId: string; threadIds: string[]; messageIds: string[] };
   onQuickTrash?: () => Promise<void>;
+  mailbox?: Mailbox;
 }) {
   const date = thread.last_message_at ? new Date(thread.last_message_at) : null;
   const identity =
@@ -45,11 +66,70 @@ export function ThreadListItem({
   const queuesEnabled = useMailQueues();
   const fullTime = date?.toLocaleString('pt-BR', { timeZone });
   const dragging = useMessageDrag(drag);
-  const [trashing, setTrashing] = useState(false),
-    trashLock = useRef(false);
+  const tenant = useTenantId();
+  const client = useQueryClient();
+  const mayFlag =
+    useAccess('mail.flag') &&
+    !!mailbox &&
+    canMailbox(mailbox, 'organize') &&
+    canMailbox(mailbox, 'flag');
+  const mayPin = !!mailbox && canMailbox(mailbox, 'read');
+  const [pending, setPending] = useState<'trash' | 'flag' | 'pin' | null>(null);
+  const actionLock = useRef(false);
+  const run = async (action: NonNullable<typeof pending>, work: () => Promise<void>) => {
+    if (actionLock.current) return;
+    actionLock.current = true;
+    setPending(action);
+    try {
+      await work();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Não foi possível atualizar o e-mail.');
+    } finally {
+      actionLock.current = false;
+      setPending(null);
+    }
+  };
+  const refresh = async () => {
+    await Promise.all(
+      ['threads', 'thread'].map((key) => client.invalidateQueries({ queryKey: [key, tenant] })),
+    );
+  };
+  const flag = async () => {
+    if (!mailbox) return;
+    const detail = thread.message_id
+      ? undefined
+      : await client.fetchQuery({
+          queryKey: threadDetailKey(tenant, thread.id),
+          queryFn: () => api<ThreadDetail>('/threads/' + thread.id),
+        });
+    const messageIds = thread.message_id
+      ? [thread.message_id]
+      : (detail?.messages.map((message) => message.id) ?? []);
+    if (!messageIds.length) throw new Error('Não há mensagens disponíveis para sinalizar.');
+    const flagged = detail
+      ? detail.messages.some((message) => message.is_flagged)
+      : thread.is_flagged;
+    await api('/mailboxes/' + mailbox.id + '/messages/actions', {
+      method: 'POST',
+      body: { type: 'set_flag', message_ids: messageIds, flagged: !flagged },
+    });
+    await refresh();
+  };
+  const pin = async () => {
+    await api('/threads/' + thread.id + '/pin', { method: 'POST', body: { scope: 'personal' } });
+    await refresh();
+  };
+  const hasActions = onQuickTrash || mayFlag || mayPin;
+  const pinLabel = thread.is_pinned_personal
+    ? 'Desafixar conversa para mim'
+    : 'Fixar conversa para mim';
+  const flagLabel = thread.is_flagged ? 'Remover sinalização' : 'Sinalizar';
+  const actionClass =
+    'size-11 bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:text-foreground lg:size-8';
   return (
     <article
       {...dragging.handlers}
+      data-flagged={thread.is_flagged || undefined}
       className={cn(
         'relative flex items-start gap-2 border-b p-3 hover:bg-primary/10',
         thread.is_unread && 'bg-primary/5',
@@ -74,13 +154,23 @@ export function ThreadListItem({
         aria-label={(thread.is_unread ? 'Não lida: ' : '') + (thread.subject || '(Sem assunto)')}
         className={cn(
           'min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-          onQuickTrash && 'pr-8',
+          thread.is_flagged && 'text-danger-fg [&_.text-muted-foreground]:text-danger-fg',
         )}
       >
         <div className="flex items-center gap-2">
           {thread.is_unread && (
             <span className="size-2 shrink-0 rounded-full bg-primary">
               <span className="sr-only">Não lida</span>
+            </span>
+          )}
+          {thread.has_reply && (
+            <span
+              className="shrink-0"
+              role="img"
+              aria-label="Resposta enviada"
+              title="Resposta enviada"
+            >
+              <Reply className="size-4" aria-hidden />
             </span>
           )}
           <p
@@ -189,7 +279,7 @@ export function ThreadListItem({
           {thread.has_attachments && (
             <Paperclip className="size-3 text-muted-foreground" aria-label="Com anexos" />
           )}
-          {thread.is_pinned && (
+          {thread.is_pinned && (!mayPin || thread.is_pinned_global) && (
             <Pin
               className="size-3 text-muted-foreground"
               aria-label={thread.is_pinned_global ? 'Fixada para a caixa' : 'Fixada para mim'}
@@ -215,32 +305,90 @@ export function ThreadListItem({
           </div>
         )}
       </button>
-      {onQuickTrash && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          data-mail-drag-ignore
-          draggable={false}
-          className="absolute right-1 top-1 size-11 bg-transparent text-muted-foreground/40 hover:bg-destructive/10 hover:text-destructive focus-visible:text-destructive lg:right-2 lg:top-2 lg:size-8"
-          aria-label={'Mover para a lixeira: ' + (thread.subject || 'conversa sem assunto')}
-          title="Mover para a lixeira"
-          disabled={trashing}
-          onClick={async (event) => {
-            event.stopPropagation();
-            if (trashLock.current) return;
-            trashLock.current = true;
-            setTrashing(true);
-            try {
-              await onQuickTrash();
-            } finally {
-              trashLock.current = false;
-              setTrashing(false);
-            }
-          }}
+      {hasActions && (
+        <div
+          className="-my-2 -mr-2 flex shrink-0 flex-col"
+          role="group"
+          aria-label={'Ações rápidas de ' + (thread.subject || 'conversa sem assunto')}
         >
-          {trashing ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <Trash2 />}
-        </Button>
+          {onQuickTrash && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              data-mail-drag-ignore
+              draggable={false}
+              className={cn(
+                actionClass,
+                'hover:bg-destructive/10 hover:text-destructive focus-visible:text-destructive',
+              )}
+              aria-label={'Mover para a lixeira: ' + (thread.subject || 'conversa sem assunto')}
+              title="Mover para a lixeira"
+              disabled={!!pending}
+              onClick={(event) => {
+                event.stopPropagation();
+                void run('trash', onQuickTrash);
+              }}
+            >
+              {pending === 'trash' ? (
+                <Loader2 className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <Trash2 />
+              )}
+            </Button>
+          )}
+          {mayFlag && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              data-mail-drag-ignore
+              draggable={false}
+              className={cn(
+                actionClass,
+                thread.is_flagged && 'text-danger-fg hover:text-danger-fg',
+              )}
+              aria-label={flagLabel}
+              title={flagLabel}
+              aria-pressed={!!thread.is_flagged}
+              disabled={!!pending || thread.has_pending_message_action}
+              onClick={(event) => {
+                event.stopPropagation();
+                void run('flag', flag);
+              }}
+            >
+              {pending === 'flag' ? (
+                <Loader2 className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <Flag className={thread.is_flagged ? 'fill-current' : undefined} />
+              )}
+            </Button>
+          )}
+          {mayPin && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              data-mail-drag-ignore
+              draggable={false}
+              className={actionClass}
+              aria-label={pinLabel}
+              title={pinLabel}
+              aria-pressed={!!thread.is_pinned_personal}
+              disabled={!!pending}
+              onClick={(event) => {
+                event.stopPropagation();
+                void run('pin', pin);
+              }}
+            >
+              {pending === 'pin' ? (
+                <Loader2 className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <Pin className={thread.is_pinned_personal ? 'fill-current' : undefined} />
+              )}
+            </Button>
+          )}
+        </div>
       )}
     </article>
   );

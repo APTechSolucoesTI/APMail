@@ -50,7 +50,7 @@ import { useComposerPosition } from '@/hooks/use-composer-position';
 import { useComposingPresence } from '@/hooks/use-thread-presence';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
-import { cloneComposerBody, replaceComposerSignature } from '@/lib/composer-content';
+import { cloneComposerBody, composerCid, replaceComposerSignature } from '@/lib/composer-content';
 import { draftRecipientValue } from '@/lib/recipient-input';
 import { meQuery, useTenantId, canMailbox, type Mailbox } from '@/lib/auth';
 import type { Outbox, Signature } from '@/lib/outbox';
@@ -84,6 +84,7 @@ type Attached = {
   ref: OutboxAttachment;
   filename: string;
   content_type?: string;
+  content_id?: string | null;
   size_bytes: number;
   security?: AttachmentSecurity | null;
 };
@@ -264,6 +265,7 @@ export function Composer({
               ref,
               filename: meta?.filename ?? 'Anexo indisponível',
               content_type: meta?.content_type,
+              content_id: meta?.content_id,
               size_bytes: meta?.size_bytes ?? 0,
               security: meta?.security,
             };
@@ -291,7 +293,18 @@ export function Composer({
           cc_addresses: source.cc_addresses,
           bcc_addresses: source.bcc_addresses ?? [],
         };
-        content = cloneComposerBody(source);
+        const cloned = cloneComposerBody(source);
+        content = cloned.html;
+        setFiles(
+          cloned.files.map((file) => ({
+            ref: { source: 'message_attachment', attachment_id: file.id, inline: true },
+            filename: file.filename,
+            content_type: file.content_type,
+            content_id: file.content_id,
+            size_bytes: file.size_bytes,
+            security: file.security,
+          })),
+        );
         setEdited(true);
       } else {
         const s =
@@ -327,6 +340,7 @@ export function Composer({
                 ref: { source: 'message_attachment', attachment_id: a.id },
                 filename: a.filename,
                 content_type: a.content_type,
+                content_id: a.content_id,
                 size_bytes: a.size_bytes,
                 security: a.security,
               })),
@@ -382,6 +396,8 @@ export function Composer({
         attachment_metadata: files.map((file) => ({
           id: file.ref.source === 'upload' ? file.ref.upload_id : file.ref.attachment_id,
           filename: file.filename,
+          content_type: file.content_type,
+          content_id: file.content_id,
           size_bytes: file.size_bytes,
           source: file.ref.source,
           security: file.security,
@@ -1026,6 +1042,13 @@ export function Composer({
                 ribbon
                 toolbarContainer={ribbonContainer}
                 value={body}
+                attachmentIdsByCid={Object.fromEntries(
+                  files.flatMap((file) =>
+                    file.ref.source === 'message_attachment' && file.content_id
+                      ? [[composerCid(file.content_id), file.ref.attachment_id]]
+                      : [],
+                  ),
+                )}
                 defaultFormat={
                   !openedSavedDraft
                     ? resolveCompositionFormat(composition.data, data.mailbox_id)
@@ -1112,6 +1135,15 @@ export function Composer({
                           const document = new DOMParser().parseFromString(body, 'text/html');
                           document.querySelectorAll('img').forEach((image) => {
                             if (image.getAttribute('data-apmail-upload') === uploadId)
+                              image.remove();
+                          });
+                          setBody(document.body.innerHTML);
+                        }
+                        if (f.ref.source === 'message_attachment' && f.ref.inline && f.content_id) {
+                          const cid = composerCid(f.content_id);
+                          const document = new DOMParser().parseFromString(body, 'text/html');
+                          document.querySelectorAll('img[data-apmail-cid]').forEach((image) => {
+                            if (composerCid(image.getAttribute('data-apmail-cid') ?? '') === cid)
                               image.remove();
                           });
                           setBody(document.body.innerHTML);

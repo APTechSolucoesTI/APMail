@@ -60,7 +60,12 @@ export async function resolveOutboxAttachments(
         .where('messages.deleted_at', 'is', null)
         .executeTakeFirst();
       if (!file) throw new Error('Um dos anexos não pertence a esta caixa.');
-      files.push({ ...file, upload_id: null });
+      if (
+        ref.inline &&
+        (!file.content_id || !/^image\/(png|jpeg|gif|webp)$/.test(file.content_type))
+      )
+        throw new Error('A imagem incorporada não está disponível.');
+      files.push({ ...file, is_inline: file.is_inline || !!ref.inline, upload_id: null });
     }
   }
   const security = await securityForFiles(

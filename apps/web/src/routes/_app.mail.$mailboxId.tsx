@@ -558,6 +558,7 @@ function MailPage() {
               <ThreadListItem
                 contacts={threads.data?.contacts}
                 thread={t}
+                mailbox={box.data}
                 onQuickTrash={
                   box.data &&
                   mayDelete &&

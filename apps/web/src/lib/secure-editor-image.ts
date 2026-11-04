@@ -1,5 +1,10 @@
 import { api } from './api';
-import { antivirusStatusLabel, pendingSecurity, type AttachmentSecurity } from './antivirus';
+import {
+  attachmentCanOpen,
+  antivirusStatusLabel,
+  pendingSecurity,
+  type AttachmentSecurity,
+} from './antivirus';
 
 /** Editor-only view: pending placeholders never become part of the outgoing HTML. */
 export function secureEditorImage(attributes: Record<string, unknown>) {
@@ -16,27 +21,40 @@ export function secureEditorImage(attributes: Record<string, unknown>) {
   const signature =
     typeof attributes.signatureImageId === 'string' ? attributes.signatureImageId : null;
   const upload = typeof attributes.uploadId === 'string' ? attributes.uploadId : null;
+  const attachment = typeof attributes.attachmentId === 'string' ? attributes.attachmentId : null;
   const source = typeof attributes.src === 'string' ? attributes.src : '';
-  const internal = signature
-    ? `/signatures/images/${encodeURIComponent(signature)}`
-    : upload
-      ? `/uploads/${encodeURIComponent(upload)}`
-      : source.match(
-          /^\/api(\/(?:signatures\/images|uploads)\/[\da-f-]+)(?:\/image)?(?:\?.*)?$/i,
-        )?.[1];
+  const internal = attachment
+    ? `/attachments/${encodeURIComponent(attachment)}`
+    : signature
+      ? `/signatures/images/${encodeURIComponent(signature)}`
+      : upload
+        ? `/uploads/${encodeURIComponent(upload)}`
+        : source.match(
+            /^\/api(\/(?:signatures\/images|uploads)\/[\da-f-]+)(?:\/image)?(?:\?.*)?$/i,
+          )?.[1];
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   const controller = new AbortController();
   image.hidden = !!internal;
   status.hidden = !internal;
-  if (!internal) image.src = source;
-  else {
+  if (!internal) {
+    if (source && !/^cid:/i.test(source)) image.src = source;
+    else {
+      image.hidden = true;
+      status.hidden = false;
+      status.textContent = 'Imagem incorporada indisponível.';
+    }
+  } else {
     const show = (security: AttachmentSecurity) => {
       status.textContent = antivirusStatusLabel(security);
-      image.hidden = security.status !== 'clean';
-      status.hidden = security.status === 'clean';
-      if (security.status === 'clean')
-        image.src = '/api' + internal + (internal.startsWith('/uploads/') ? '/image' : '');
+      const allowed = attachment ? attachmentCanOpen(security) : security.status === 'clean';
+      image.hidden = !allowed;
+      status.hidden = allowed;
+      if (allowed)
+        image.src =
+          '/api' +
+          internal +
+          (attachment ? '/inline' : internal.startsWith('/uploads/') ? '/image' : '');
     };
     show(pendingSecurity);
     const check = async () => {

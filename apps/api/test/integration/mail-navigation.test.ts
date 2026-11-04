@@ -280,3 +280,104 @@ it('persists domain order per person and rejects labels outside current accessib
   ).toBe(400);
   expect((await call('GET')).json().domain_order).toEqual(['finance.test', 'navigation.test']);
 });
+
+it('returns flags and sent replies only within the readable row scope and separates personal pin state', async () => {
+  const sent = randomUUID(),
+    reply = randomUUID(),
+    followup = randomUUID(),
+    unrelated = randomUUID();
+  const header = (message: string) => `<${message}@qa.test>`;
+  const list = async (path: string, who = user) => {
+    const response = await app.inject({
+      url: '/api' + path,
+      headers: { origin, cookie: cookies.get(who)! },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    return response.json().items as {
+      id: string;
+      message_id: string | null;
+      has_reply: boolean;
+      is_flagged: boolean;
+      is_pinned_personal: boolean;
+      is_pinned_global: boolean;
+    }[];
+  };
+  await db
+    .insertInto('folders')
+    .values({
+      id: sent,
+      tenant_id: tenant,
+      mailbox_id: box,
+      name: 'Enviados',
+      imap_path: 'Sent',
+      special_use: 'sent',
+      is_local: true,
+    })
+    .execute();
+  await db
+    .updateTable('threads')
+    .set({ is_pinned_global: true })
+    .where('id', '=', visibleThread)
+    .execute();
+  const insertSent = (id: string, in_reply_to: string | null, is_flagged: boolean) =>
+    db
+      .insertInto('messages')
+      .values({
+        id,
+        tenant_id: tenant,
+        mailbox_id: box,
+        thread_id: visibleThread,
+        folder_id: sent,
+        direction: 'outbound',
+        message_id_header: header(id),
+        in_reply_to,
+        is_flagged,
+        message_at: new Date(),
+        source_kind: 'archive',
+        from_address: 'owner@navigation.test',
+        subject: 'Saída de teste',
+      })
+      .execute();
+  const search = '/mail-summary/threads?view=search';
+  await insertSent(unrelated, null, false);
+  expect((await list(search)).find((row) => row.id === visibleThread)).toMatchObject({
+    has_reply: false,
+    is_flagged: false,
+    is_pinned_personal: false,
+    is_pinned_global: true,
+  });
+  await insertSent(reply, header(visibleMessage), true);
+  await insertSent(followup, header(reply), false);
+  expect((await list(search)).find((row) => row.id === visibleThread)).toMatchObject({
+    has_reply: true,
+    is_flagged: true,
+  });
+  expect((await list(search, limited)).find((row) => row.id === visibleThread)).toMatchObject({
+    has_reply: false,
+    is_flagged: false,
+  });
+  const rows = await list('/mailboxes/' + box + '/threads?view=folder&folder_id=' + sent);
+  expect(rows.find((row) => row.message_id === reply)).toMatchObject({
+    has_reply: true,
+    is_flagged: true,
+  });
+  expect(rows.find((row) => row.message_id === unrelated)).toMatchObject({
+    has_reply: false,
+    is_flagged: false,
+  });
+  const pin = await app.inject({
+    method: 'POST',
+    url: '/api/threads/' + visibleThread + '/pin',
+    headers: { origin, cookie: cookies.get(user)! },
+    payload: { scope: 'personal' },
+  });
+  expect(pin.statusCode, pin.body).toBe(200);
+  expect((await list(search)).find((row) => row.id === visibleThread)).toMatchObject({
+    is_pinned_personal: true,
+    is_pinned_global: true,
+  });
+  expect((await list(search, other)).find((row) => row.id === visibleThread)).toMatchObject({
+    is_pinned_personal: false,
+    is_pinned_global: true,
+  });
+});

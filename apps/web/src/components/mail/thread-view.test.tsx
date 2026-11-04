@@ -115,9 +115,9 @@ it('mantém organização e clonagem por mensagem, sem repetir ações no topo',
   expect(screen.queryByRole('button', { name: 'Mais ações' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Imprimir conversa' })).not.toBeInTheDocument();
   expect(within(newest).getByRole('button', { name: 'Mover' })).toBeVisible();
-  expect(within(newest).getByRole('button', { name: 'Excluir' })).toBeVisible();
-  expect(within(newest).getByRole('button', { name: 'Sinalizar' })).toBeVisible();
-  expect(within(newest).getByRole('button', { name: 'Imprimir mensagem' })).toBeVisible();
+  expect(within(newest).queryByRole('button', { name: 'Excluir' })).not.toBeInTheDocument();
+  expect(within(newest).queryByRole('button', { name: 'Sinalizar' })).not.toBeInTheDocument();
+  expect(within(newest).getByRole('button', { name: /^Imprimir(?: mensagem)?$/ })).toBeVisible();
   fireEvent.click(within(newest).getByRole('button', { name: 'Clonar e-mail' }));
   expect(onCompose).toHaveBeenCalledWith('clone:Recente');
 });
