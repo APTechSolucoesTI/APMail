@@ -2,9 +2,6 @@ import { AdminNavigation } from '@/components/admin/admin-navigation';
 import { ProfileMenu } from '@/components/admin/profile-menu';
 import { DomainMailboxNavigation } from '@/components/mail/domain-mailbox-navigation';
 import { hasAccess, screenPermission, type AccessPermission } from '@apmail/shared';
-import { isTenantAdmin } from '@apmail/shared';
-import { canDelegate } from '@apmail/shared';
-import { NavigationGroup } from './navigation-group';
 import { useEffect, useState, useRef } from 'react';
 import { Link, Outlet, useNavigate, useLocation } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -19,24 +16,27 @@ import {
   Menu,
   LogOut,
   LayoutDashboard,
-  Building2,
   ContactRound,
   Settings,
-  UserRound,
   SlidersHorizontal,
   Signature,
   Tags,
   ListFilter,
-  UsersRound,
-  ClipboardList,
   CalendarDays,
   BellRing,
-  Plug,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { NotificationBell } from './notification-bell';
@@ -49,18 +49,14 @@ import { stopArchiveTransfersForUser } from '@/lib/mail-archive-transfers';
 import { NavigationLayout } from './navigation-layout';
 import { PostSendContacts } from '@/components/contacts/post-send-contacts';
 import { ReminderCenter } from '@/components/calendar/reminder-center';
-const settingsIcons: Record<string, typeof Mail> = {
-  '/settings/profile': UserRound,
-  '/settings/preferences': SlidersHorizontal,
-  '/settings/integrations': Plug,
-  '/settings/signatures': Signature,
-  '/settings/labels': Tags,
-  '/settings/rules': ListFilter,
-  '/settings/users': UsersRound,
-  '/settings/mailboxes': Mail,
-  '/settings/tenant': Building2,
-  '/settings/audit': ClipboardList,
-};
+const settingsLinks = [
+  { to: '/settings/preferences', label: 'Preferências', icon: SlidersHorizontal },
+  { to: '/settings/signatures', label: 'Assinaturas', icon: Signature },
+  { to: '/settings/labels', label: 'Etiquetas', icon: Tags },
+  { to: '/settings/rules', label: 'Regras', icon: ListFilter },
+] as const;
+const utilityClassName =
+  'inline-flex size-11 shrink-0 items-center justify-center rounded-md text-sidebar-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:size-9';
 export function AppShell() {
   const me = useQuery({ ...meQuery, refetchInterval: 30000, refetchIntervalInBackground: true });
   const transferUser = me.data?.user.id;
@@ -300,7 +296,6 @@ export function AppShell() {
       </div>
     );
   const tenant = me.data.tenants.find((t) => t.id === me.data!.current_tenant_id);
-  const admin = isTenantAdmin(tenant?.role);
   const allowed = (permission: AccessPermission) => hasAccess(tenant, permission);
   const utilities = [
     {
@@ -315,6 +310,11 @@ export function AppShell() {
     { to: '/contacts', label: 'Contatos', icon: ContactRound, show: allowed('contacts') },
   ] as const;
   const visibleUtilities = utilities.filter((item) => item.show);
+  const visibleSettings = settingsLinks.filter(({ to }) => {
+    const permission = screenPermission(to);
+    return tenant?.access_permissions == null || !permission || allowed(permission);
+  });
+  const showSettings = visibleSettings.length > 0 || me.data.platform_admin;
   const sidebar = pathname.startsWith('/admin') ? (
     <AdminNavigation onNavigate={() => setOpen(false)} />
   ) : (
@@ -363,88 +363,12 @@ export function AppShell() {
               )}
             </>
           )}
-          <div className="mt-auto border-t pt-4">
-            <NavigationGroup
-              id="settings"
-              defaultOpen={pathname.startsWith('/settings')}
-              label="Configurações"
-              icon={<Settings aria-hidden className="size-4 shrink-0" />}
-            >
-              {[
-                ['/settings/profile', 'Meu perfil'],
-                ['/settings/preferences', 'Preferências'],
-                ['/settings/integrations', 'Integrações'],
-                ['/settings/signatures', 'Assinaturas'],
-                ['/settings/labels', 'Etiquetas'],
-                ['/settings/rules', 'Regras'],
-                ...(!admin &&
-                (canDelegate(tenant?.role ?? null, tenant?.capabilities, 'members') ||
-                  (tenant?.access_permissions != null &&
-                    (allowed('users.view') || allowed('profiles.manage'))))
-                  ? [
-                      [
-                        allowed('users.view') ? '/settings/users' : '/settings/access-profiles',
-                        'Equipe e acesso',
-                      ],
-                    ]
-                  : []),
-                ...(!admin &&
-                (canDelegate(tenant?.role ?? null, tenant?.capabilities, 'audit') ||
-                  (tenant?.access_permissions != null && allowed('audit.view')))
-                  ? [['/settings/audit', 'Auditoria']]
-                  : []),
-                ...(admin
-                  ? [
-                      ['/settings/users', 'Equipe e acesso'],
-                      ['/settings/mailboxes', 'Caixas de e-mail'],
-                      ['/settings/tenant', 'Empresa'],
-                      ['/settings/audit', 'Auditoria'],
-                    ]
-                  : []),
-              ]
-                .filter(([to]) =>
-                  [
-                    '/settings/preferences',
-                    '/settings/signatures',
-                    '/settings/labels',
-                    '/settings/rules',
-                  ].includes(to!),
-                )
-                .filter(([to]) => {
-                  const permission = screenPermission(to!);
-                  return tenant?.access_permissions == null || !permission || allowed(permission);
-                })
-                .map(([to, label]) => {
-                  const Icon = settingsIcons[to!] ?? Settings;
-                  return (
-                    <Link
-                      key={to}
-                      to={to}
-                      activeProps={{ className: 'bg-accent text-accent-foreground' }}
-                      className="flex min-h-11 sm:min-h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted"
-                      onClick={() => setOpen(false)}
-                    >
-                      <Icon aria-hidden className="size-4 shrink-0" />
-                      {label}
-                    </Link>
-                  );
-                })}
-            </NavigationGroup>
-            {me.data.platform_admin && (
-              <Link
-                to="/superadmin"
-                className="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-muted"
-              >
-                Gestão da plataforma
-              </Link>
-            )}
-          </div>
         </nav>
       </ScrollArea>
-      {!!visibleUtilities.length && (
+      {(visibleUtilities.length > 0 || showSettings) && (
         <nav
           aria-label="Utilitários"
-          className="flex shrink-0 items-center justify-around gap-1 border-t bg-sidebar p-2"
+          className="flex shrink-0 flex-wrap items-center justify-around border-t bg-sidebar px-1 py-2"
         >
           {visibleUtilities.map(({ to, label, icon: Icon }) => (
             <Tooltip key={to}>
@@ -456,7 +380,7 @@ export function AppShell() {
                   activeProps={{
                     className: 'bg-accent text-accent-foreground ring-1 ring-inset ring-primary/30',
                   }}
-                  className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-sidebar-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:size-9"
+                  className={utilityClassName}
                 >
                   <Icon aria-hidden className="size-4" />
                 </Link>
@@ -466,6 +390,53 @@ export function AppShell() {
               </TooltipContent>
             </Tooltip>
           ))}
+          {showSettings && (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Configurações"
+                      data-active={pathname.startsWith('/settings/')}
+                      className={
+                        utilityClassName +
+                        ' data-[active=true]:bg-accent data-[active=true]:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground'
+                      }
+                    >
+                      <Settings aria-hidden className="size-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={5}>
+                  Configurações
+                </TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent side="top" align="end" sideOffset={8} className="w-52">
+                <DropdownMenuLabel>Configurações</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {visibleSettings.map(({ to, label, icon: Icon }) => (
+                  <DropdownMenuItem key={to} asChild className="min-h-11 lg:min-h-8">
+                    <Link
+                      to={to}
+                      activeProps={{ className: 'bg-accent text-accent-foreground' }}
+                      onClick={() => setOpen(false)}
+                    >
+                      <Icon aria-hidden />
+                      {label}
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+                {me.data.platform_admin && (
+                  <DropdownMenuItem asChild className="min-h-11 lg:min-h-8">
+                    <Link to="/superadmin" onClick={() => setOpen(false)}>
+                      Gestão da plataforma
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </nav>
       )}
     </div>
