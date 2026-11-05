@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { mailboxSchema } from '@apmail/shared';
 import { api } from '@/lib/api';
-import type { Mailbox } from '@/lib/auth';
+import type { MailboxConfiguration as Mailbox } from '@/lib/auth';
 import { requireSettingsPermission } from '@/lib/settings';
 import { PageHeader } from '@/components/layout/page-header';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -32,8 +32,8 @@ function MailboxSettings() {
   const navigate = Route.useNavigate();
   const client = useQueryClient();
   const q = useQuery({
-    queryKey: ['mailbox', useTenantId(), mailboxId],
-    queryFn: () => api<Mailbox>('/mailboxes/' + mailboxId),
+    queryKey: ['mailbox', useTenantId(), mailboxId, 'configuration'],
+    queryFn: () => api<Mailbox>('/mailboxes/' + mailboxId + '?configuration=true'),
     refetchInterval: (query) =>
       ['pending', 'error'].includes(query.state.data?.status ?? '') ? 15000 : false,
   });

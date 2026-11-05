@@ -1,11 +1,9 @@
-import { isTenantAdmin } from '@apmail/shared';
 import { useState } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { listQuerySchema, ROLE_LABELS, type MailboxRole, type TenantRole } from '@apmail/shared';
 import { api } from '@/lib/api';
 import { useTenantId } from '@/lib/auth';
 import { ConfigurableTable } from '@/components/data/configurable-table';
-import { RoleBadge } from '@/components/common/status-badge';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -72,10 +70,7 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
     .map((m) => ({
       ...m,
       id: m.user_id,
-      implicit: isTenantAdmin(m.role),
-      mailbox_role: isTenantAdmin(m.role)
-        ? 'mailbox_admin'
-        : (access.data?.find((a) => a.user_id === m.user_id)?.role ?? 'none'),
+      mailbox_role: access.data?.find((a) => a.user_id === m.user_id)?.role ?? 'none',
       folder_access: access.data?.find((a) => a.user_id === m.user_id) ?? {
         restrict_to_folders: false,
         folder_ids: [],
@@ -84,8 +79,8 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Administradores da empresa acessam todas as caixas. Os demais usuários seguem o papel
-        definido abaixo.
+        Todos os usuários, inclusive administradores e proprietários, seguem o acesso definido
+        abaixo. Sem acesso oculta a caixa e suas mensagens.
       </p>
       <ConfigurableTable
         listKey="mailbox-members"
@@ -110,35 +105,32 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
           {
             id: 'mailbox_role',
             header: 'Papel na caixa',
-            cell: (m) =>
-              m.implicit ? (
-                <RoleBadge role="mailbox_admin" />
-              ) : (
-                <select
-                  aria-label={'Papel de ' + m.full_name}
-                  className="h-11 rounded-md border border-input bg-card px-2 text-sm sm:h-8"
-                  value={m.mailbox_role}
-                  disabled={change.isPending}
-                  onChange={(e) =>
-                    change.mutate({
-                      userId: m.user_id,
-                      role: e.target.value === 'none' ? null : e.target.value,
-                    })
-                  }
-                >
-                  {['none', 'viewer', 'editor', 'mailbox_admin'].map((role) => (
-                    <option key={role} value={role}>
-                      {role === 'none' ? 'Sem acesso' : ROLE_LABELS[role as MailboxRole]}
-                    </option>
-                  ))}
-                </select>
-              ),
+            cell: (m) => (
+              <select
+                aria-label={'Papel de ' + m.full_name}
+                className="h-11 rounded-md border border-input bg-card px-2 text-sm sm:h-8"
+                value={m.mailbox_role}
+                disabled={change.isPending}
+                onChange={(e) =>
+                  change.mutate({
+                    userId: m.user_id,
+                    role: e.target.value === 'none' ? null : e.target.value,
+                  })
+                }
+              >
+                {['none', 'viewer', 'editor', 'mailbox_admin'].map((role) => (
+                  <option key={role} value={role}>
+                    {role === 'none' ? 'Sem acesso' : ROLE_LABELS[role as MailboxRole]}
+                  </option>
+                ))}
+              </select>
+            ),
           },
           {
             id: 'folder_access',
             header: 'Pastas',
             cell: (m) =>
-              !m.implicit && ['editor', 'viewer'].includes(m.mailbox_role) ? (
+              ['editor', 'viewer'].includes(m.mailbox_role) ? (
                 <Button
                   variant="outline"
                   size="sm"
@@ -156,7 +148,9 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
                     : 'Todas as pastas'}
                 </Button>
               ) : (
-                <span className="text-muted-foreground">Todas as pastas</span>
+                <span className="text-muted-foreground">
+                  {m.mailbox_role === 'none' ? 'Sem acesso' : 'Todas as pastas'}
+                </span>
               ),
           },
         ]}
@@ -167,7 +161,7 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
           void access.refetch();
         }}
         rowActions={(m) =>
-          !m.implicit && m.mailbox_role !== 'none' ? (
+          m.mailbox_role !== 'none' ? (
             <Button
               variant="ghost"
               size="sm"

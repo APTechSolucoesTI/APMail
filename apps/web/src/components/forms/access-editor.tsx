@@ -1,5 +1,4 @@
 import { hasAccess, type AccessProfile } from '@apmail/shared';
-import { isTenantAdmin } from '@apmail/shared';
 import { SUPERVISOR_CAPABILITIES, CAPABILITY_LABELS } from '@apmail/shared';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useTenantId } from '@/lib/auth';
@@ -9,7 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { emailSchema, ROLE_LABELS, type MailboxRole, type TenantRole } from '@apmail/shared';
 import { SchemaForm } from './schema-form';
 import { api } from '@/lib/api';
-import { meQuery, type Mailbox } from '@/lib/auth';
+import { meQuery, type MailboxConfiguration as Mailbox } from '@/lib/auth';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { LoadingState, ErrorState, EmptyState } from '@/components/data/data-state';
@@ -79,10 +78,12 @@ function AccessForm({
   });
   const boxes = useQuery({
     enabled: !customActor || hasAccess(actor, 'mail'),
-    queryKey: ['mailboxes', platformTenantId ?? tenantId, !!platformTenantId],
+    queryKey: ['mailboxes', platformTenantId ?? tenantId, 'configuration', !!platformTenantId],
     queryFn: () =>
       api<Mailbox[]>(
-        platformTenantId ? '/superadmin/tenants/' + platformTenantId + '/mailboxes' : '/mailboxes',
+        platformTenantId
+          ? '/superadmin/tenants/' + platformTenantId + '/mailboxes'
+          : '/mailboxes?configuration=true',
       ),
   });
   const [roles, setRoles] = useState(initial.mailbox_roles);
@@ -182,9 +183,7 @@ function AccessForm({
           mailbox_id: box.id,
           role: roles.find((r) => r.mailbox_id === box.id)?.role ?? null,
           restrict_to_folders:
-            (!isTenantAdmin(tenantRole) &&
-              roles.find((r) => r.mailbox_id === box.id)?.restrict_to_folders) ||
-            false,
+            roles.find((r) => r.mailbox_id === box.id)?.restrict_to_folders || false,
           folder_ids: roles.find((r) => r.mailbox_id === box.id)?.folder_ids ?? [],
         }));
         await api(
@@ -260,20 +259,18 @@ function AccessForm({
                     </div>
                   ))}
                 </RadioGroup>
-                {userId &&
-                  !isTenantAdmin(profileFor(values.tenant_role)?.system_role) &&
-                  (role === 'editor' || role === 'viewer') && (
-                    <FolderAccessPicker
-                      platformTenantId={platformTenantId}
-                      mailboxId={box.id}
-                      value={current ?? { restrict_to_folders: false, folder_ids: [] }}
-                      onChange={(access) =>
-                        setRoles((prev) =>
-                          prev.map((r) => (r.mailbox_id === box.id ? { ...r, ...access } : r)),
-                        )
-                      }
-                    />
-                  )}
+                {userId && (role === 'editor' || role === 'viewer') && (
+                  <FolderAccessPicker
+                    platformTenantId={platformTenantId}
+                    mailboxId={box.id}
+                    value={current ?? { restrict_to_folders: false, folder_ids: [] }}
+                    onChange={(access) =>
+                      setRoles((prev) =>
+                        prev.map((r) => (r.mailbox_id === box.id ? { ...r, ...access } : r)),
+                      )
+                    }
+                  />
+                )}
               </fieldset>
             );
           })}
@@ -288,7 +285,7 @@ function AccessForm({
       ) : (
         <>
           <p className="text-sm text-muted-foreground">
-            Administradores e proprietários acessam todas as caixas como Admin da caixa.
+            O acesso às caixas é definido abaixo, inclusive para administradores e proprietários.
           </p>
           <p className="text-xs text-muted-foreground">
             Somente leitura: ler. Editor: ler, responder, criar notas e assumir conversas. Admin da

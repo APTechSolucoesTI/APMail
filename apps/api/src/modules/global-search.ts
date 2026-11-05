@@ -38,9 +38,9 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
       // Permissions are applied before matching, ranking and limiting, including
       // recursive folder grants. Restricted messages never supply result metadata.
       const scope = sql`with recursive boxes as (
-      select b.id,b.name,b.email_address,(${isTenantAdmin(c.tenantRole)} or mm.role='mailbox_admin' or not mm.restrict_to_folders) as full_access
+      select b.id,b.name,b.email_address,(mm.role='mailbox_admin' or not mm.restrict_to_folders) as full_access
       from mailboxes b left join mailbox_members mm on mm.mailbox_id=b.id and mm.tenant_id=b.tenant_id and mm.user_id=${c.userId}
-      where b.tenant_id=${c.tenantId} and b.deleted_at is null and (${isTenantAdmin(c.tenantRole)} or mm.user_id is not null)
+      where b.tenant_id=${c.tenantId} and b.deleted_at is null and mm.user_id is not null
     ), allowed_folders as (
       select f.id,f.mailbox_id from folders f join boxes b on b.id=f.mailbox_id where f.tenant_id=${c.tenantId} and f.deleted_at is null
       and (b.full_access or exists(select 1 from folder_permissions p where p.tenant_id=f.tenant_id and p.mailbox_id=f.mailbox_id and p.folder_id=f.id and p.user_id=${c.userId}))

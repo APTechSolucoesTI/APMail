@@ -27,7 +27,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { api } from '@/lib/api';
-import { type Mailbox } from '@/lib/auth';
+import { type MailboxConfiguration as Mailbox } from '@/lib/auth';
 import { requireSettingsPermission } from '@/lib/settings';
 import { Plus, Settings, RefreshCw, HardDrive, Ellipsis, Trash2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -46,8 +46,8 @@ function Mailboxes() {
   const navigate = useNavigate();
   const tenantId = useTenantId();
   const q = useQuery({
-    queryKey: ['mailboxes', tenantId],
-    queryFn: () => api<Mailbox[]>('/mailboxes'),
+    queryKey: ['mailboxes', tenantId, 'configuration'],
+    queryFn: () => api<Mailbox[]>('/mailboxes?configuration=true'),
   });
   const deletions = useQuery({
     queryKey: ['mailbox-deletions', tenantId],

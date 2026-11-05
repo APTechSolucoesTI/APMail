@@ -1,4 +1,3 @@
-import { isTenantAdmin } from '@apmail/shared';
 import { randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
 import {
@@ -113,11 +112,7 @@ export async function handleOutboxSend(
       .where('user_id', '=', row.created_by)
       .where('mailbox_id', '=', box.id)
       .executeTakeFirst();
-    if (
-      !membership ||
-      membership.status !== 'active' ||
-      (!isTenantAdmin(membership.role) && (!access || !can(access.role, 'send')))
-    )
+    if (!membership || membership.status !== 'active' || !access || !can(access.role, 'send'))
       throw new Error('send_permission_revoked');
     if (
       (row.source_thread_id ?? row.thread_id) &&

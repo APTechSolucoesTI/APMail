@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sql } from 'kysely';
-import { isTenantAdmin } from '@apmail/shared';
 import { lockStorageTenant, audit } from '@apmail/db';
 import { requireTenant, notFound } from '../authz/context.js';
 import { requireMailboxPerm } from '../authz/guards.js';
@@ -16,7 +15,9 @@ export async function registerRecurringSchedules(app: FastifyInstance, r: Resour
       (select count(*)::int from outbox sent where sent.recurrence_id=s.id and sent.status='sent') as sent_count
       from mail_schedule_series s join lateral(select subject,to_addresses,status,last_error,send_after from outbox
         where recurrence_id=s.id order by recurrence_sequence desc limit 1) o on true
-      where s.tenant_id=${c.tenantId} and s.state='active' and (s.created_by=${c.userId} or ${isTenantAdmin(c.tenantRole)}
+      where s.tenant_id=${c.tenantId} and s.state='active'
+      and exists(select 1 from mailbox_members mm join mailboxes b on b.id=mm.mailbox_id and b.tenant_id=mm.tenant_id where mm.mailbox_id=s.mailbox_id and mm.tenant_id=s.tenant_id and mm.user_id=${c.userId} and b.deleted_at is null)
+      and (s.created_by=${c.userId}
         or exists(select 1 from mailbox_members mm where mm.mailbox_id=s.mailbox_id and mm.tenant_id=s.tenant_id and mm.user_id=${c.userId} and mm.role='mailbox_admin'))
       order by s.created_at desc,s.id limit 20`.execute(r.db)
     ).rows;
@@ -31,6 +32,7 @@ export async function registerRecurringSchedules(app: FastifyInstance, r: Resour
       .where('tenant_id', '=', c.tenantId)
       .executeTakeFirst();
     if (!series) throw notFound();
+    await requireMailboxPerm(c, r.db, series.mailbox_id, 'read');
     if (series.created_by !== c.userId)
       await requireMailboxPerm(c, r.db, series.mailbox_id, 'cancel_any');
     const pending = await r.db.transaction().execute(async (tx) => {

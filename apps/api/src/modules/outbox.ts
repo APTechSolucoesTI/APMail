@@ -1,5 +1,5 @@
 import { columnFilters, columnOrder, localizedColumn } from './list-columns.js';
-import { isTenantAdmin, hasAccess } from '@apmail/shared';
+import { hasAccess } from '@apmail/shared';
 import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import { z } from 'zod';
@@ -539,9 +539,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       .select('mailboxes.id')
       .where('mailboxes.tenant_id', '=', c.tenantId)
       .where('mailboxes.deleted_at', 'is', null)
-      .$if(!isTenantAdmin(c.tenantRole), (query) =>
-        query.where('mailbox_members.user_id', '=', c.userId),
-      )
+      .where('mailbox_members.user_id', '=', c.userId)
       .execute();
     let query = r.db
       .selectFrom('outbox as o')

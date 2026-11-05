@@ -4,7 +4,7 @@ import { sql } from 'kysely';
 import { audit } from '@apmail/db';
 import { invitationSchema, fullNameSchema, passwordSchema } from '@apmail/shared';
 import { requireTenantAdmin, forbidden, notFound, ApiError } from '../authz/context.js';
-import { requireMailboxPerm } from '../authz/guards.js';
+import { requireMailboxExists } from '../authz/guards.js';
 import { hashToken, newToken, createSession } from '../plugins/auth.js';
 import { hashPassword } from './auth.js';
 import type { Resources } from './resources.js';
@@ -42,7 +42,7 @@ export async function registerInvitationRoutes(app: FastifyInstance, r: Resource
     await assertProfileGrant(r.db, c, b.access_profile_id, b.tenant_role);
     if ((c.accessRestricted ?? !!c.accessProfileId) && b.mailbox_roles.length) throw forbidden();
     if (b.tenant_role === 'admin' && c.tenantRole !== 'owner') throw forbidden();
-    for (const box of b.mailbox_roles) await requireMailboxPerm(c, r.db, box.mailbox_id, 'read');
+    for (const box of b.mailbox_roles) await requireMailboxExists(c, r.db, box.mailbox_id);
     const settings = await r.db
       .selectFrom('tenants')
       .select('settings')

@@ -1,5 +1,5 @@
 import { ensureMailboxDomain } from '@apmail/db';
-import { isTenantAdmin } from '@apmail/shared';
+import { isTenantAdmin, hasAccess } from '@apmail/shared';
 import { MAILBOX_PERMS, can, canDelegate, profileAllowsMailbox } from '@apmail/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -21,7 +21,7 @@ import {
   conflict,
   type RequestContext,
 } from '../authz/context.js';
-import { getMailboxRole, requireMailboxPerm } from '../authz/guards.js';
+import { getMailboxRole, requireMailboxPerm, requireMailboxExists } from '../authz/guards.js';
 import { requireMember, setMailboxMember } from './tenants.js';
 import type { Resources } from './resources.js';
 // Lista explícita: nenhuma query deste módulo lê mailbox_credentials.
@@ -56,9 +56,29 @@ const serverColumns = [
   'smtp_secure',
   'username',
 ] as const;
-async function details(ctx: RequestContext, r: Resources, id: string) {
+async function configurationAccess(ctx: RequestContext, r: Resources, id: string) {
+  const c = requireConfiguration(ctx);
+  await requireMailboxExists(c, r.db, id);
+  if (c.accessRestricted ?? !!c.accessProfileId) await requireMailboxPerm(c, r.db, id, 'read');
+}
+function requireConfiguration(ctx: RequestContext) {
+  return requireTenantAdmin(
+    ctx,
+    hasAccess(
+      { role: ctx.tenantRole, access_permissions: ctx.accessPermissions },
+      'mailboxes.manage',
+    )
+      ? 'mailboxes.manage'
+      : 'users.manage',
+  );
+}
+const configurationQuery = z.object({ configuration: z.enum(['true', 'false']).optional() });
+async function details(ctx: RequestContext, r: Resources, id: string, configuration = false) {
   const c = requireTenant(ctx);
-  const role = await requireMailboxPerm(c, r.db, id, 'read');
+  if (configuration) await configurationAccess(c, r, id);
+  const role = configuration
+    ? await getMailboxRole(c, r.db, id)
+    : await requireMailboxPerm(c, r.db, id, 'read');
   let q = r.db
     .selectFrom('mailboxes')
     .select(publicColumns)
@@ -72,6 +92,7 @@ async function details(ctx: RequestContext, r: Resources, id: string) {
     role,
     permissions: MAILBOX_PERMS.filter(
       (p) =>
+        !!role &&
         (row.receiving_protocol !== 'local' || p !== 'send') &&
         (can(role, p) || canDelegate(c.tenantRole, c.capabilities, p)) &&
         (!(c.accessRestricted ?? !!c.accessProfileId) ||
@@ -90,6 +111,8 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
   );
   app.get('/api/mailboxes', async (req) => {
     const c = requireTenant(req.ctx);
+    const configuration = configurationQuery.parse(req.query).configuration === 'true';
+    if (configuration) requireConfiguration(c);
     const boxes = await r.db
       .selectFrom('mailboxes')
       .select(publicColumns)
@@ -100,13 +123,14 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
     const result = [];
     for (const box of boxes) {
       const role = await getMailboxRole(c, r.db, box.id);
-      if (role)
+      if (role || (configuration && !(c.accessRestricted ?? !!c.accessProfileId)))
         result.push({
           ...box,
           last_error: !isTenantAdmin(c.tenantRole) ? null : box.last_error,
           role,
           permissions: MAILBOX_PERMS.filter(
             (p) =>
+              !!role &&
               (box.receiving_protocol !== 'local' || p !== 'send') &&
               (can(role, p) || canDelegate(c.tenantRole, c.capabilities, p)) &&
               (!(c.accessRestricted ?? !!c.accessProfileId) ||
@@ -120,7 +144,12 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
     return result;
   });
   app.get('/api/mailboxes/:id', async (req) =>
-    details(requireTenant(req.ctx), r, z.object({ id: z.uuid() }).parse(req.params).id),
+    details(
+      requireTenant(req.ctx),
+      r,
+      z.object({ id: z.uuid() }).parse(req.params).id,
+      configurationQuery.parse(req.query).configuration === 'true',
+    ),
   );
   app.post('/api/mailboxes', async (req, reply) => {
     const c = requireTenantAdmin(req.ctx, 'mailboxes.manage');
@@ -188,7 +217,7 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
     if (data.receiving_protocol !== 'local')
       await r.queues['mailbox-connection'].add('connect', { mailbox_id: box.id });
     r.io.to('tenant:' + c.tenantId).emit('mailboxes:changed', {});
-    return reply.code(201).send(await details(c, r, box.id));
+    return reply.code(201).send(await details(c, r, box.id, true));
   });
   app.get('/api/mailbox-deletions', async (req) => {
     const c = requireTenantAdmin(req.ctx, 'mailboxes.manage');
@@ -213,7 +242,7 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
     const c = requireTenantAdmin(req.ctx, 'mailboxes.manage');
     const { id } = z.object({ id: z.uuid() }).parse(req.params);
     const body = z.object({ confirm: z.literal(true), confirmed_email: z.email() }).parse(req.body);
-    await requireMailboxPerm(c, r.db, id, 'read');
+    await configurationAccess(c, r, id);
     await r.db.transaction().execute(async (tx) => {
       await lockStorageTenant(tx, c.tenantId);
       const box = await tx
@@ -307,7 +336,7 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
   app.patch('/api/mailboxes/:id', async (req) => {
     const c = requireTenantAdmin(req.ctx, 'mailboxes.manage');
     const { id } = z.object({ id: z.uuid() }).parse(req.params);
-    await requireMailboxPerm(c, r.db, id, 'read');
+    await configurationAccess(c, r, id);
     const b = mailboxSchema
       .partial()
       .omit({ members: true, receiving_protocol: true })
@@ -403,13 +432,13 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
     if (changed && previous.receiving_protocol !== 'local' && previous.status !== 'disabled')
       await r.queues['mailbox-connection'].add('connect', { mailbox_id: id });
     r.io.to('tenant:' + c.tenantId).emit('mailboxes:changed', {});
-    return details(c, r, id);
+    return details(c, r, id, true);
   });
   for (const action of ['reconnect', 'disable', 'enable'] as const)
     app.post('/api/mailboxes/:id/' + action, async (req) => {
       const c = requireTenantAdmin(req.ctx, 'mailboxes.manage');
       const { id } = z.object({ id: z.uuid() }).parse(req.params);
-      await requireMailboxPerm(c, r.db, id, 'read');
+      await configurationAccess(c, r, id);
       const box = await r.db
         .selectFrom('mailboxes')
         .select('receiving_protocol')
@@ -458,7 +487,7 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
   app.get('/api/mailboxes/:id/members', async (req) => {
     const c = requireTenantAdmin(req.ctx, 'mailboxes.manage');
     const { id } = z.object({ id: z.uuid() }).parse(req.params);
-    await requireMailboxPerm(c, r.db, id, 'read');
+    await configurationAccess(c, r, id);
     return r.db
       .selectFrom('mailbox_members as m')
       .innerJoin('users as u', 'u.id', 'm.user_id')

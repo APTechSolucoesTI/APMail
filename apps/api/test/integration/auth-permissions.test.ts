@@ -94,7 +94,7 @@ beforeAll(async () => {
     smtp_secure: false,
     username: 'demo',
     password: 'Segredo@123',
-    members: [],
+    members: [{ user_id: ownerA, role: 'mailbox_admin' }],
   });
   expect(box.statusCode).toBe(201);
   mailboxA = box.json().id;

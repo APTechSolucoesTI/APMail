@@ -1,11 +1,5 @@
 import { sql } from 'kysely';
-import {
-  can,
-  canDelegate,
-  isTenantAdmin,
-  profileAllowsMailbox,
-  type MailboxPerm,
-} from '@apmail/shared';
+import { can, canDelegate, profileAllowsMailbox, type MailboxPerm } from '@apmail/shared';
 import type { WorkerResources } from '../resources.js';
 import type { Mailbox } from '../imap/connect.js';
 export async function userCanMailbox(
@@ -49,8 +43,7 @@ export async function userCanMailbox(
     return false;
   return (
     !!access &&
-    (isTenantAdmin(access.role) ||
-      can(access.mailbox_role, perm) ||
+    (can(access.mailbox_role, perm) ||
       (!!access.mailbox_role && canDelegate(access.role, access.capabilities, perm)))
   );
 }

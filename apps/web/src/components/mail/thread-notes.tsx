@@ -11,7 +11,7 @@ import {
 } from '@apmail/shared';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Pencil, Trash2, MessageSquare, History } from 'lucide-react';
+import { Pencil, Trash2, MessageSquare, History, ListTodo } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { meQuery, useTenantId } from '@/lib/auth';
@@ -170,7 +170,10 @@ export function ThreadNotes({
             <History className="hidden size-4 sm:block" />
             Histórico
           </TabsTrigger>
-          <TabsTrigger value="tasks">Tarefas</TabsTrigger>
+          <TabsTrigger value="tasks">
+            <ListTodo className="hidden size-4 sm:block" aria-hidden="true" />
+            Tarefas
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="notes" className="space-y-4 p-4 pt-0">
           <p className="text-xs text-muted-foreground">

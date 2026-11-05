@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { z } from 'zod';
-import { isTenantAdmin, type Address } from '@apmail/shared';
+import { type Address } from '@apmail/shared';
 import type { Resources } from './resources.js';
 import type { RequestContext } from '../authz/context.js';
 import { requireTenant } from '../authz/context.js';
@@ -28,7 +28,7 @@ export async function addressSuggestions(
     .select(['b.id', 'b.name', 'b.email_address', 'b.aliases'])
     .where('b.tenant_id', '=', c.tenantId)
     .where('b.deleted_at', 'is', null)
-    .$if(!isTenantAdmin(c.tenantRole), (qb) =>
+    .$call((qb) =>
       qb.where((eb) =>
         eb.exists(
           eb

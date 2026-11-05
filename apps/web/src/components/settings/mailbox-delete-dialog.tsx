@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import { Download, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import type { Mailbox } from '@/lib/auth';
+import type { MailboxConfiguration as Mailbox } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';

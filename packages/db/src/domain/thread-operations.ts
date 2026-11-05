@@ -1,5 +1,5 @@
 import { tenantQueuesEnabled } from './mail-policy.js';
-import { isTenantAdmin, profileAllowsMailbox } from '@apmail/shared';
+import { profileAllowsMailbox } from '@apmail/shared';
 import { sql } from 'kysely';
 import { can, type MailboxPerm, type QueueReason } from '@apmail/shared';
 import type { Database } from './threads.js';
@@ -38,7 +38,6 @@ export async function mailboxUserCan(
     !profileAllowsMailbox({ role: member.role, access_permissions: member.permissions ?? [] }, perm)
   )
     return false;
-  if (isTenantAdmin(member.role)) return true;
   const boxMember = await db
     .selectFrom('mailbox_members')
     .select('role')

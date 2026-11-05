@@ -1,4 +1,3 @@
-import { isTenantAdmin } from '@apmail/shared';
 import { hasAccess, profileAllowsMailbox } from '@apmail/shared';
 import type { Kysely } from 'kysely';
 import type { DB } from '@apmail/db';
@@ -26,21 +25,31 @@ export async function getMailboxRole(
     .executeTakeFirst();
   let role: MailboxRole | null = null;
   if (mailbox) {
-    if (isTenantAdmin(c.tenantRole)) role = 'mailbox_admin';
-    else
-      role =
-        (
-          await db
-            .selectFrom('mailbox_members')
-            .select('role')
-            .where('tenant_id', '=', c.tenantId)
-            .where('mailbox_id', '=', id)
-            .where('user_id', '=', c.userId)
-            .executeTakeFirst()
-        )?.role ?? null;
+    role =
+      (
+        await db
+          .selectFrom('mailbox_members')
+          .select('role')
+          .where('tenant_id', '=', c.tenantId)
+          .where('mailbox_id', '=', id)
+          .where('user_id', '=', c.userId)
+          .executeTakeFirst()
+      )?.role ?? null;
   }
   c.mailboxRoles.set(id, role);
   return role;
+}
+/** Configuration metadata is distinct from permission to read a mailbox's messages. */
+export async function requireMailboxExists(ctx: RequestContext, db: Kysely<DB>, id: string) {
+  const c = requireTenant(ctx);
+  const box = await db
+    .selectFrom('mailboxes')
+    .select('id')
+    .where('tenant_id', '=', c.tenantId)
+    .where('id', '=', id)
+    .where('deleted_at', 'is', null)
+    .executeTakeFirst();
+  if (!box) throw notFound();
 }
 export async function requireMailboxPerm(
   ctx: RequestContext,

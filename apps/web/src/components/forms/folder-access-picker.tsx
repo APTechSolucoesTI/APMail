@@ -23,12 +23,18 @@ export function FolderAccessPicker({
   const id = useId(),
     tenant = useTenantId(),
     folders = useQuery({
-      queryKey: ['folders', platformTenantId ?? tenant, mailboxId, !!platformTenantId],
+      queryKey: [
+        'folders',
+        platformTenantId ?? tenant,
+        mailboxId,
+        'configuration',
+        !!platformTenantId,
+      ],
       queryFn: ({ signal }) =>
         api<Folder[]>(
           platformTenantId
             ? '/superadmin/tenants/' + platformTenantId + '/folders/' + mailboxId
-            : '/mailboxes/' + mailboxId + '/folders',
+            : '/mailboxes/' + mailboxId + '/folders?configuration=true',
           { signal },
         ),
       enabled: value.restrict_to_folders,

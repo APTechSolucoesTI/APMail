@@ -11,7 +11,6 @@ import { isConnectionError } from '../lib/errors.js';
 import { markMailboxError } from './mailbox-connection.js';
 import { userCanMailbox } from '../lib/mailbox-permissions.js';
 import { planFolderRelocation } from '@apmail/shared/folder-relocation';
-import { isTenantAdmin } from '@apmail/shared';
 import { sql } from 'kysely';
 export async function handleFolderAction(
   r: WorkerResources,
@@ -118,11 +117,7 @@ export async function handleFolderAction(
           .where('tm.tenant_id', '=', box.tenant_id)
           .where('tm.user_id', '=', action.requested_by)
           .executeTakeFirstOrThrow();
-        if (
-          !isTenantAdmin(access.role) &&
-          access.mailbox_role !== 'mailbox_admin' &&
-          access.restrict_to_folders
-        ) {
+        if (access.mailbox_role !== 'mailbox_admin' && access.restrict_to_folders) {
           const allowed = await sql<{ id: string }>`with recursive allowed as (
             select f.id from folders f join folder_permissions p on p.folder_id=f.id and p.tenant_id=f.tenant_id and p.mailbox_id=f.mailbox_id
             where p.tenant_id=${box.tenant_id} and p.mailbox_id=${box.id} and p.user_id=${action.requested_by} and f.deleted_at is null

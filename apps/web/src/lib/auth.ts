@@ -73,6 +73,7 @@ export type Mailbox = {
   from_name_template: string;
   append_sent_copy: boolean;
 };
+export type MailboxConfiguration = Omit<Mailbox, 'role'> & { role: MailboxRole | null };
 export const canMailbox = (
   box: Pick<Mailbox, 'role' | 'permissions' | 'receiving_protocol'>,
   permission: MailboxPerm,

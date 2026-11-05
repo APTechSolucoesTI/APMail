@@ -24,7 +24,7 @@ import {
   ApiError,
   type RequestContext,
 } from '../authz/context.js';
-import { getMailboxRole, requireMailboxPerm } from '../authz/guards.js';
+import { getMailboxRole, requireMailboxPerm, requireMailboxExists } from '../authz/guards.js';
 import { readableFolders } from '../authz/folders.js';
 
 import { avatarUrl } from './auth.js';
@@ -131,9 +131,10 @@ export async function setMailboxMember(
   folderIds: string[] = [],
 ) {
   const c = requireTenantAdmin(ctx, 'users.manage');
-  const currentRole = await requireMailboxPerm(c, r.db, mailboxId, 'read');
+  await requireMailboxExists(c, r.db, mailboxId);
   const member = await requireMember(c, r, userId);
   if (c.accessRestricted ?? !!c.accessProfileId) {
+    const currentRole = await requireMailboxPerm(c, r.db, mailboxId, 'read');
     if (
       userId === c.userId ||
       isTenantAdmin(member.role) ||
@@ -327,7 +328,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
           'access_schedule_enabled',
         ),
         'm.created_at',
-        sql<number>`case when m.role in ('owner','admin') then (select count(*)::int from mailboxes b where b.tenant_id=${c.tenantId} and b.deleted_at is null) else (select count(*)::int from mailbox_members mm join mailboxes b on b.id=mm.mailbox_id where mm.user_id=m.user_id and mm.tenant_id=${c.tenantId} and b.tenant_id=${c.tenantId} and b.deleted_at is null) end`.as(
+        sql<number>`(select count(*)::int from mailbox_members mm join mailboxes b on b.id=mm.mailbox_id where mm.user_id=m.user_id and mm.tenant_id=${c.tenantId} and b.tenant_id=${c.tenantId} and b.deleted_at is null)`.as(
           'mailbox_count',
         ),
       ])
@@ -428,11 +429,15 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
     )
       throw forbidden();
     for (const box of b.mailbox_roles) {
-      const role = await requireMailboxPerm(c, r.db, box.mailbox_id, 'read');
+      await requireMailboxExists(c, r.db, box.mailbox_id);
+      const role =
+        (c.accessRestricted ?? !!c.accessProfileId)
+          ? await requireMailboxPerm(c, r.db, box.mailbox_id, 'read')
+          : null;
       if (
         (c.accessRestricted ?? !!c.accessProfileId) &&
         box.role &&
-        ROLE_PERMS[box.role].some((p) => !ROLE_PERMS[role].includes(p))
+        ROLE_PERMS[box.role].some((p) => !role || !ROLE_PERMS[role].includes(p))
       )
         throw forbidden();
       if ((c.accessRestricted ?? !!c.accessProfileId) && box.role) {

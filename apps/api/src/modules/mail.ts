@@ -13,8 +13,14 @@ import {
   assertFilesClean,
 } from '@apmail/db';
 import { toBullJobId, externalParticipants, type Address, type MailboxPerm } from '@apmail/shared';
-import { requireTenant, notFound, conflict, type RequestContext } from '../authz/context.js';
-import { requireMailboxPerm } from '../authz/guards.js';
+import {
+  requireTenant,
+  requireTenantAdmin,
+  notFound,
+  conflict,
+  type RequestContext,
+} from '../authz/context.js';
+import { requireMailboxPerm, requireMailboxExists } from '../authz/guards.js';
 import { summaryMailboxIds } from './mail-summary.js';
 import { readableFolders, folderPredicate, requireFolder } from '../authz/folders.js';
 import type { Resources } from './resources.js';
@@ -117,8 +123,17 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
   app.get('/api/mailboxes/:id/folders', async (req) => {
     const id = idOf(req.params),
       c = requireTenant(req.ctx);
-    await requireMailboxPerm(c, r.db, id, 'read');
-    const scope = await readableFolders(c, r.db, id);
+    const configuration =
+      z.object({ configuration: z.enum(['true', 'false']).optional() }).parse(req.query)
+        .configuration === 'true';
+    if (configuration) {
+      requireTenantAdmin(c, 'users.manage');
+      await requireMailboxExists(c, r.db, id);
+    }
+    const scope =
+      configuration && !(c.accessRestricted ?? !!c.accessProfileId)
+        ? null
+        : await readableFolders(c, r.db, id);
     const rows = await r.db
       .selectFrom('folders as f')
       .select([
@@ -131,9 +146,10 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         'f.sort_order',
         'f.is_local',
         'f.delimiter',
-        sql<number>`(select count(distinct t.id)::int from messages m join threads t on t.id=m.thread_id left join thread_user_state us on us.thread_id=t.id and us.user_id=${c.userId} where m.folder_id=f.id and m.deleted_at is null and (t.last_inbound_at > coalesce(us.last_read_at,'-infinity'::timestamptz) or (m.is_mdn and ${unreadInbound} and m.message_at>coalesce(us.last_read_at,'-infinity'::timestamptz))))`.as(
-          'unread_count',
-        ),
+        (configuration
+          ? sql<number>`0`
+          : sql<number>`(select count(distinct t.id)::int from messages m join threads t on t.id=m.thread_id left join thread_user_state us on us.thread_id=t.id and us.user_id=${c.userId} where m.folder_id=f.id and m.deleted_at is null and (t.last_inbound_at > coalesce(us.last_read_at,'-infinity'::timestamptz) or (m.is_mdn and ${unreadInbound} and m.message_at>coalesce(us.last_read_at,'-infinity'::timestamptz))))`
+        ).as('unread_count'),
       ])
       .where('f.tenant_id', '=', c.tenantId)
       .where('f.mailbox_id', '=', id)

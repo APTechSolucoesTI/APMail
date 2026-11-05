@@ -52,7 +52,7 @@ function setup(customPermissions: string[] | null = null, userId?: string) {
   });
   vi.mocked(api).mockImplementation(async (path) => {
     if (path === '/access-profiles') return [supervisor, custom, admin, owner, member] as never;
-    if (path === '/mailboxes') return [box] as never;
+    if (path === '/mailboxes?configuration=true') return [box] as never;
     if (path === '/tenant') return { settings: { default_invitation_mailbox_id: box.id } } as never;
     if (path === '/members/user/access')
       return { tenant_role: 'member', access_profile_id: null, mailbox_roles: [] } as never;

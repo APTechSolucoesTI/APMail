@@ -1,6 +1,5 @@
 import { planFolderRelocation } from '@apmail/shared/folder-relocation';
 import { labelsService, validateLabelIds } from './labels.js';
-import { isTenantAdmin } from '@apmail/shared';
 export { replaceLabels, validateLabelIds, labelIdsSchema } from './labels.js';
 import { z } from 'zod';
 import { asJson, lockStorageTenant } from '@apmail/db';
@@ -91,7 +90,7 @@ export function organizationService(r: Resources) {
           .where('tm.tenant_id', '=', c.tenantId)
           .where('tm.status', '=', 'active')
           .executeTakeFirst();
-        if (!target || (!isTenantAdmin(target.role) && !can(target.mailbox_role, 'send')))
+        if (!target || !can(target.mailbox_role, 'send'))
           throw conflict('O responsável precisa poder enviar nesta caixa.');
       } else if (a.type === 'auto_reply') {
         await requireMailboxPerm(c, r.db, b.mailbox_id, 'send');

@@ -2,7 +2,15 @@ import { beforeAll, afterAll, it, expect, vi } from 'vitest';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
 import { io, type Socket } from 'socket.io-client';
-import { createDb, migrate, touchThreads, createArchiveFolderResolver } from '@apmail/db';
+import {
+  createDb,
+  migrate,
+  touchThreads,
+  createArchiveFolderResolver,
+  userCanReadFolder,
+  userCanReadThread,
+  mailboxUserCan,
+} from '@apmail/db';
 import { buildApp } from '../../src/app.js';
 import { envSchema } from '../../src/env.js';
 import { hashToken } from '../../src/plugins/auth.js';
@@ -112,15 +120,15 @@ beforeAll(async () => {
       status: 'disabled',
     })
     .execute();
-  for (const id of [editor, viewer, admin])
+  for (const id of [owner, editor, viewer, admin])
     await db
       .insertInto('mailbox_members')
       .values({
         tenant_id: tenant,
         mailbox_id: box,
         user_id: id,
-        role: id === admin ? 'mailbox_admin' : id === viewer ? 'viewer' : 'editor',
-        restrict_to_folders: id !== admin,
+        role: id === admin || id === owner ? 'mailbox_admin' : id === viewer ? 'viewer' : 'editor',
+        restrict_to_folders: id !== admin && id !== owner,
       })
       .execute();
   await db
@@ -212,6 +220,86 @@ afterAll(async () => {
   await app.close();
   await db.destroy();
 });
+it('administradores da empresa respeitam Sem acesso, papel e pastas, inclusive em buscas e jobs', async () => {
+  for (const tenantRole of ['admin', 'owner'] as const) {
+    await db
+      .updateTable('tenant_members')
+      .set({ role: tenantRole })
+      .where('tenant_id', '=', tenant)
+      .where('user_id', '=', viewer)
+      .execute();
+    try {
+      await db
+        .deleteFrom('mailbox_members')
+        .where('mailbox_id', '=', box)
+        .where('user_id', '=', viewer)
+        .execute();
+      expect((await call('GET', '/mailboxes', viewer)).json()).toEqual([]);
+      for (const path of [
+        '/mailboxes/' + box,
+        '/mailboxes/' + box + '/folders',
+        '/threads/' + mixed,
+        '/attachments/' + attachment + '/download',
+      ])
+        expect((await call('GET', path, viewer)).statusCode, path).toBe(404);
+      expect((await call('GET', '/mail-summary/threads?view=search', viewer)).json().total).toBe(0);
+      expect((await call('GET', '/search?q=Segredo', viewer)).body).not.toContain(hidden);
+      expect(await userCanReadFolder(db, tenant, box, viewer, secret)).toBe(false);
+      expect(await userCanReadThread(db, tenant, box, viewer, hidden)).toBe(false);
+      expect(await mailboxUserCan(db, tenant, box, viewer, 'send')).toBe(false);
+      const config = await call('GET', '/mailboxes/' + box + '?configuration=true', viewer);
+      expect(config.statusCode, config.body).toBe(200);
+      expect(config.json()).toMatchObject({ id: box, role: null, permissions: [] });
+      expect((await call('GET', '/mailboxes?configuration=true', viewer)).json()).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: box })]),
+      );
+      const grant = await call('PUT', '/mailboxes/' + box + '/members/' + viewer, owner, {
+        role: 'viewer',
+        restrict_to_folders: true,
+        folder_ids: [clients],
+      });
+      expect(grant.statusCode, grant.body).toBe(200);
+      expect((await call('GET', '/mailboxes/' + box, viewer)).json()).toMatchObject({
+        role: 'viewer',
+        permissions: ['read'],
+      });
+      expect((await call('GET', '/threads/' + mixed, viewer)).json().messages).toHaveLength(1);
+      expect((await call('GET', '/threads/' + hidden, viewer)).statusCode).toBe(404);
+      expect((await call('GET', '/search?q=Segredo', viewer)).body).not.toContain(hidden);
+      expect(
+        (await call('GET', '/mailboxes/' + box + '/address-suggestions?q=cliente', viewer))
+          .statusCode,
+      ).toBe(200);
+      expect(await userCanReadFolder(db, tenant, box, viewer, secret)).toBe(false);
+      expect(await userCanReadThread(db, tenant, box, viewer, hidden)).toBe(false);
+      expect(await mailboxUserCan(db, tenant, box, viewer, 'send')).toBe(false);
+      const promote = await call('PUT', '/mailboxes/' + box + '/members/' + viewer, owner, {
+        role: 'mailbox_admin',
+      });
+      expect(promote.statusCode, promote.body).toBe(200);
+      expect((await call('GET', '/threads/' + hidden, viewer)).statusCode).toBe(200);
+      expect(await userCanReadFolder(db, tenant, box, viewer, secret)).toBe(true);
+    } finally {
+      await db
+        .updateTable('tenant_members')
+        .set({ role: 'member' })
+        .where('tenant_id', '=', tenant)
+        .where('user_id', '=', viewer)
+        .execute();
+      await db
+        .updateTable('mailbox_members')
+        .set({ role: 'viewer', restrict_to_folders: true })
+        .where('mailbox_id', '=', box)
+        .where('user_id', '=', viewer)
+        .execute();
+      await db
+        .insertInto('folder_permissions')
+        .values({ tenant_id: tenant, mailbox_id: box, user_id: viewer, folder_id: clients })
+        .onConflict((oc) => oc.doNothing())
+        .execute();
+    }
+  }
+});
 it('Resumo agrega somente caixas e pastas autorizadas, com total, origem e paginação SQL', async () => {
   const secondBox = randomUUID(),
     inaccessibleBox = randomUUID(),
@@ -260,6 +348,15 @@ it('Resumo agrega somente caixas e pastas autorizadas, com total, origem e pagin
   await db
     .insertInto('mailbox_members')
     .values({ tenant_id: tenant, mailbox_id: secondBox, user_id: editor, role: 'viewer' })
+    .execute();
+  await db
+    .insertInto('mailbox_members')
+    .values({
+      tenant_id: foreignTenant,
+      mailbox_id: foreignBox,
+      user_id: foreign,
+      role: 'mailbox_admin',
+    })
     .execute();
   await db
     .insertInto('folders')
@@ -596,7 +693,7 @@ it('URL direta, anexos, resposta, compartilhamento e dashboard negam acesso inde
     snippet: 'Atendimento permitido',
   });
 });
-it('admins não são restritos e permissões de outra empresa/pasta são rejeitadas atomicamente', async () => {
+it('admins da caixa têm acesso integral e permissões de outra empresa/pasta são rejeitadas atomicamente', async () => {
   expect((await call('GET', '/health/queues', editor)).statusCode).toBe(403);
   const health = await call('GET', '/health/queues', owner);
   expect(health.statusCode, health.body).toBe(200);

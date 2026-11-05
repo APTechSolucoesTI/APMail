@@ -1,4 +1,4 @@
-import { isTenantAdmin, hasAccess } from '@apmail/shared';
+import { hasAccess } from '@apmail/shared';
 import { sql } from 'kysely';
 import type { Database } from './threads.js';
 /** Revalidates the destination of queued folder actions against current membership. */
@@ -49,7 +49,7 @@ export async function userCanReadFolder(
     !hasAccess({ role: member.role, access_permissions: member.permissions ?? [] }, 'mail')
   )
     return false;
-  if (isTenantAdmin(member.role) || member.mailbox_role === 'mailbox_admin') return true;
+  if (member.mailbox_role === 'mailbox_admin') return true;
   if (!member.mailbox_role) return false;
   if (!member.restrict_to_folders) return true;
   const result = await sql<{ allowed: boolean }>`with recursive allowed as (
@@ -104,7 +104,6 @@ export async function userCanReadThread(
     !hasAccess({ role: member.role, access_permissions: member.permissions ?? [] }, 'mail')
   )
     return false;
-  if (isTenantAdmin(member.role)) return true;
   const access = await db
     .selectFrom('mailbox_members')
     .select(['role', 'restrict_to_folders'])

@@ -1,4 +1,3 @@
-import { isTenantAdmin } from '@apmail/shared';
 import { readableFolders } from '../../authz/folders.js';
 import { z } from 'zod';
 import { dashboardQuerySchema } from '@apmail/shared';
@@ -38,17 +37,16 @@ export async function dashboardScope(
     .where('b.tenant_id', '=', c.tenantId)
     .where('b.deleted_at', 'is', null);
   if (q.mailbox_id) boxes = boxes.where('b.id', '=', q.mailbox_id);
-  else if (!isTenantAdmin(c.tenantRole))
-    boxes = boxes.where((eb) =>
-      eb.exists(
-        eb
-          .selectFrom('mailbox_members as mm')
-          .select('mm.id')
-          .whereRef('mm.mailbox_id', '=', 'b.id')
-          .where('mm.tenant_id', '=', c.tenantId)
-          .where('mm.user_id', '=', c.userId),
-      ),
-    );
+  boxes = boxes.where((eb) =>
+    eb.exists(
+      eb
+        .selectFrom('mailbox_members as mm')
+        .select('mm.id')
+        .whereRef('mm.mailbox_id', '=', 'b.id')
+        .where('mm.tenant_id', '=', c.tenantId)
+        .where('mm.user_id', '=', c.userId),
+    ),
+  );
   const ids = (await boxes.execute()).map((b) => b.id);
   if (q.user_id && !personal) {
     const member = await r.db

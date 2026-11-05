@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { mailboxSchema, PROVIDER_PRESETS, renderFromName, type MailboxRole } from '@apmail/shared';
 import { SchemaForm, type FormField } from './schema-form';
 import { api } from '@/lib/api';
-import { meQuery, type Mailbox } from '@/lib/auth';
+import { meQuery, type MailboxConfiguration as Mailbox } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -58,8 +58,8 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
     queryFn: () => api<{ id: string; full_name: string; email: string }[]>('/members/directory'),
   });
   const box = useQuery({
-    queryKey: ['mailbox', tenantId, boxId],
-    queryFn: () => api<Mailbox>('/mailboxes/' + boxId),
+    queryKey: ['mailbox', tenantId, boxId, 'configuration'],
+    queryFn: () => api<Mailbox>('/mailboxes/' + boxId + '?configuration=true'),
     enabled: !!boxId,
     refetchInterval: boxId ? 5000 : false,
   });

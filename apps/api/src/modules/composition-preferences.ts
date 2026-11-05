@@ -5,7 +5,6 @@ import {
   compositionFormatSchema,
   compositionPreferenceSchema,
   DEFAULT_COMPOSITION_FORMAT,
-  isTenantAdmin,
   profileAllowsMailbox,
 } from '@apmail/shared';
 import { requireTenant } from '../authz/context.js';
@@ -32,7 +31,7 @@ export async function registerCompositionPreferences(app: FastifyInstance, r: Re
           .where('p.user_id', '=', c.userId)
           .where('m.deleted_at', 'is', null)
           .where(
-            sql<boolean>`${isTenantAdmin(c.tenantRole)} or exists(select 1 from mailbox_members mm where mm.tenant_id=p.tenant_id and mm.mailbox_id=p.mailbox_id and mm.user_id=p.user_id)`,
+            sql<boolean>`exists(select 1 from mailbox_members mm where mm.tenant_id=p.tenant_id and mm.mailbox_id=p.mailbox_id and mm.user_id=p.user_id)`,
           )
           .execute()
       : [];
