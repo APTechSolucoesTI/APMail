@@ -24,6 +24,10 @@ function reviewableBlocks(doc: ProseMirrorNode): TextBlock[] {
 
     let text = '';
     node.forEach((child) => {
+      if (child.type.name === 'hardBreak') {
+        text += '\n';
+        return;
+      }
       const reviewable = child.isText && !child.marks.some((mark) => mark.type.name === 'link');
       text += reviewable ? child.text! : ' '.repeat(child.nodeSize);
     });
@@ -36,9 +40,9 @@ function reviewableBlocks(doc: ProseMirrorNode): TextBlock[] {
 function rangeAt(view: EditorView, pos: number): SpellingRange | undefined {
   const match = spellingKey.getState(view.state)?.find(pos, pos)[0];
   if (!match) return;
-  const word = match.spec.word as string;
+  const { word, replacement } = match.spec as Pick<SpellingRange, 'word' | 'replacement'>;
   if (view.state.doc.textBetween(match.from, match.to) === word) {
-    return { from: match.from, to: match.to, word };
+    return { from: match.from, to: match.to, word, replacement };
   }
 }
 
@@ -81,7 +85,7 @@ export function ComposerSpellcheck({ editor }: { editor: Editor }) {
       } else if (pending?.id === data.id && pending.doc === editor.state.doc) {
         const marks = data.ranges
           .filter(({ word }) => !ignored.current.has(word))
-          .map(({ from, to, word }) =>
+          .map(({ from, to, word, replacement }) =>
             Decoration.inline(
               from,
               to,
@@ -89,7 +93,7 @@ export function ComposerSpellcheck({ editor }: { editor: Editor }) {
                 class: 'underline decoration-wavy decoration-destructive underline-offset-2',
                 'data-apmail-spelling': 'true',
               },
-              { word },
+              { word, replacement },
             ),
           );
         updateMarks(DecorationSet.create(editor.state.doc, marks));
@@ -140,8 +144,8 @@ export function ComposerSpellcheck({ editor }: { editor: Editor }) {
       }
       if (!element) return false;
       anchor.current = element;
-      setReview({ id: ++id, range });
-      send({ type: 'suggest', id, word: range.word });
+      setReview({ id: ++id, range, items: range.replacement ? [range.replacement] : undefined });
+      if (!range.replacement) send({ type: 'suggest', id, word: range.word });
       return true;
     }
 

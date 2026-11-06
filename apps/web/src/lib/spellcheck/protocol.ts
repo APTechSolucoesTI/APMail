@@ -1,5 +1,5 @@
 export type TextBlock = { from: number; text: string };
-export type SpellingRange = { from: number; to: number; word: string };
+export type SpellingRange = { from: number; to: number; word: string; replacement?: string };
 
 export type SpellcheckRequest =
   | { type: 'check'; id: number; blocks: TextBlock[] }

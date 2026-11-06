@@ -4,7 +4,7 @@ import wasmUrl from 'hunspell-wasm/wasm/hunspell.wasm?url';
 import affixUrl from './dictionary/pt_BR.aff?url';
 import dictionaryUrl from './dictionary/pt_BR.dic?url';
 import type { SpellcheckRequest, SpellcheckResponse, SpellingRange } from './protocol';
-import { spellingWords } from './spelling-words';
+import { prioritizeSuggestions, spellingWords } from './spelling-words';
 
 // The generated loader supports Emscripten's locateFile option, omitted by its declarations.
 const initialize = initializeHunspell as (options: {
@@ -40,7 +40,8 @@ self.addEventListener('message', async ({ data }: MessageEvent<SpellcheckRequest
     dictionary ??= loadDictionary();
     const spell = await dictionary;
     if (data.type === 'suggest') {
-      const items = spell.getSpellingSuggestions(data.word.normalize('NFC')).slice(0, 6);
+      const word = data.word.normalize('NFC');
+      const items = prioritizeSuggestions(word, spell.getSpellingSuggestions(word)).slice(0, 6);
       respond({ type: 'suggestions', id: data.id, items });
       return;
     }
@@ -50,6 +51,10 @@ self.addEventListener('message', async ({ data }: MessageEvent<SpellcheckRequest
     const ranges: SpellingRange[] = [];
     for (const block of data.blocks) {
       for (const range of spellingWords(block)) {
+        if (range.replacement) {
+          ranges.push(range);
+          continue;
+        }
         const word = range.word.normalize('NFC');
         let correct = knownWords.get(word);
         if (correct === undefined) {
