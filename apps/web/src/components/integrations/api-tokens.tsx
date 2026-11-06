@@ -26,7 +26,7 @@ type Token = {
   permissions: string[];
   user_ids: string[];
   created_at: string;
-  expires_at: string;
+  expires_at: string | null;
   revoked_at: string | null;
   expired: boolean;
 };
@@ -40,10 +40,11 @@ type IssuedToken = {
   id: string;
   token: string;
   name: string;
-  expires_at: string;
+  expires_at: string | null;
   permissions: string[];
 };
-const date = (value: string) => new Date(value).toLocaleDateString('pt-BR');
+const validity = (value: string | null) =>
+  value ? 'Validade até ' + new Date(value).toLocaleDateString('pt-BR') : 'Validade ilimitada';
 
 export function ApiTokens() {
   const tenant = useTenantId();
@@ -75,7 +76,7 @@ function ApiTokensForTenant() {
     try {
       const result = await api<IssuedToken>('/integrations/api-tokens', {
         method: 'POST',
-        body: { name, expires_in_days: days },
+        body: { name, expires_in_days: days === 0 ? null : days },
       });
       setCreate(false);
       setIssued(result);
@@ -171,7 +172,7 @@ function ApiTokensForTenant() {
                     <p className="text-xs text-muted-foreground">
                       {token.user_ids.length}{' '}
                       {token.user_ids.length === 1 ? 'usuário autorizado' : 'usuários autorizados'}{' '}
-                      · Validade até {date(token.expires_at)}
+                      · {validity(token.expires_at)}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {token.permissions.length
@@ -253,6 +254,7 @@ function ApiTokensForTenant() {
                     {value} dias
                   </option>
                 ))}
+                <option value={0}>Ilimitada</option>
               </select>
             </div>
             {error && (
@@ -291,9 +293,7 @@ function ApiTokensForTenant() {
             className="font-mono"
             onFocus={(event) => event.target.select()}
           />
-          <p className="text-sm text-muted-foreground">
-            Validade até {issued && date(issued.expires_at)}.
-          </p>
+          <p className="text-sm text-muted-foreground">{issued && validity(issued.expires_at)}.</p>
           {!issued?.permissions.length && (
             <p className="text-sm text-muted-foreground">
               Configure os acessos para liberar as rotas desta chave.
@@ -356,7 +356,9 @@ function ApiTokensForTenant() {
         title={action?.kind === 'rotate' ? 'Renovar token?' : 'Revogar token?'}
         description={
           action?.kind === 'rotate'
-            ? 'O token anterior perde o acesso imediatamente. O novo token terá validade de 90 dias. Atualize-o no sistema integrado.'
+            ? 'O token anterior perde o acesso imediatamente. O novo token terá validade ' +
+              (action.token.expires_at === null ? 'ilimitada' : 'de 90 dias') +
+              '. Atualize-o no sistema integrado.'
             : 'O sistema integrado perderá imediatamente o acesso às notificações por este token.'
         }
         destructive

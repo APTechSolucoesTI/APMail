@@ -2,7 +2,7 @@
 
 Depois do deploy, a consulta é `GET https://app.apmail.com.br/api/integrations/notifications?email=usuario%40empresa.com.br`.
 
-No painel administrativo, abra Integrações e a aba Tokens de API. Crie uma chave com um nome e validade de 30, 90 ou 365 dias. O segredo aparece uma única vez. Depois, clique em Configurar acessos ou Acessos, autorize a rota GET /api/integrations/notifications e selecione os usuários que ela poderá consultar. Chaves novas começam sem rotas autorizadas. Guarde o segredo em uma variável de ambiente no backend do sistema integrado. Renovar invalida o segredo anterior imediatamente e gera outro válido por 90 dias, preservando os acessos configurados. Revogar encerra o acesso.
+No painel administrativo, abra Integrações e a aba Tokens de API. Crie uma chave com um nome e validade de 30, 90 ou 365 dias, ou ilimitada. O segredo aparece uma única vez. Depois, clique em Configurar acessos ou Acessos, autorize a rota GET /api/integrations/notifications e selecione os usuários que ela poderá consultar. Chaves novas começam sem rotas autorizadas. Guarde o segredo em uma variável de ambiente no backend do sistema integrado. Renovar invalida o segredo anterior imediatamente e preserva os acessos configurados. Chaves ilimitadas continuam sem vencimento. As demais recebem validade de 90 dias. Revogar encerra o acesso.
 
 O catálogo de rotas para integrações fica em `apps/api/src/modules/integration-api-routes.ts`. Cada rota publicada tem método, endereço, descrição e permissão próprios. O helper `integrationApiAccess` valida o token e a permissão exigida no backend. Adicionar uma rota ao catálogo não concede acesso automático às chaves existentes. A migration 0076 preserva os acessos de notificações das chaves criadas anteriormente.
 

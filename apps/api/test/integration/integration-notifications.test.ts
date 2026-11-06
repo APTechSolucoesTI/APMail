@@ -250,6 +250,35 @@ it('cria a chave sem acesso e aplica concessão e remoção de rotas imediatamen
   expect((await configure(['notifications:read'], [u.id])).statusCode).toBe(404);
 });
 
+it('cria e renova chave ilimitada e continua permitindo revogá-la', async () => {
+  const u = await user();
+  const result = await admin('POST', '', { name: 'Sem vencimento', expires_in_days: null });
+  expect(result.statusCode, result.body).toBe(201);
+  const key = result.json<{ id: string; token: string; expires_at: string | null }>();
+  expect(key.expires_at).toBeNull();
+  expect(
+    (
+      await admin('PUT', '/' + key.id + '/access', {
+        permissions: ['notifications:read'],
+        user_ids: [u.id],
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect((await notify(key.token, u.email)).statusCode).toBe(200);
+  const listed = (await admin('GET', ''))
+    .json()
+    .tokens.find((item: { id: string }) => item.id === key.id);
+  expect(listed).toMatchObject({ expires_at: null, expired: false });
+  const renewed = await admin('POST', '/' + key.id + '/rotate', {});
+  expect(renewed.statusCode, renewed.body).toBe(200);
+  const rotated = renewed.json<{ token: string; expires_at: string | null }>();
+  expect(rotated.expires_at).toBeNull();
+  expect((await notify(key.token, u.email)).statusCode).toBe(401);
+  expect((await notify(rotated.token, u.email)).statusCode).toBe(200);
+  expect((await admin('DELETE', '/' + key.id)).statusCode).toBe(200);
+  expect((await notify(rotated.token, u.email)).statusCode).toBe(401);
+});
+
 it('conta mensagens por usuário, reflete leitura e novos recebimentos sem alterar dados', async () => {
   const u = await user(),
     key = await token([u]),

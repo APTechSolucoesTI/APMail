@@ -28,7 +28,9 @@ export function integrationApiAccess(app: FastifyInstance, r: Resources) {
             .select(['i.id', 'i.tenant_id', 'i.permissions'])
             .where('i.token_hash', '=', hashToken(match[1]!))
             .where('i.revoked_at', 'is', null)
-            .where('i.expires_at', '>', new Date())
+            .where((eb) =>
+              eb.or([eb('i.expires_at', 'is', null), eb('i.expires_at', '>', new Date())]),
+            )
             .where('t.deleted_at', 'is', null)
             .where('t.suspended_at', 'is', null)
             .executeTakeFirst()

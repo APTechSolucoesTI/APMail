@@ -12,7 +12,10 @@ import { integrationApiRoutes } from './integration-api-routes.js';
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(100),
-  expires_in_days: z.union([z.literal(30), z.literal(90), z.literal(365)]).default(90),
+  expires_in_days: z
+    .union([z.literal(30), z.literal(90), z.literal(365)])
+    .nullable()
+    .default(90),
 });
 const accessSchema = z
   .object({
@@ -50,7 +53,8 @@ const unavailableUser = () =>
     'Consulta indisponível para o escopo desta integração.',
   );
 const issueToken = () => 'apmail_api_' + newToken();
-const expiresIn = (days: number) => new Date(Date.now() + days * 86_400_000);
+const expiresIn = (days: number | null) =>
+  days === null ? null : new Date(Date.now() + days * 86_400_000);
 
 export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
   app.get('/api/integrations/api-tokens', async (req, reply) => {
@@ -66,7 +70,7 @@ export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
           't.created_at',
           't.expires_at',
           't.revoked_at',
-          sql<boolean>`t.expires_at<=now()`.as('expired'),
+          sql<boolean>`coalesce(t.expires_at<=now(),false)`.as('expired'),
           sql<
             string[]
           >`array(select s.user_id::text from integration_api_token_users s where s.tenant_id=t.tenant_id and s.token_id=t.id order by s.user_id)`.as(
@@ -135,7 +139,10 @@ export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
     const saved = await r.db.transaction().execute(async (tx) => {
       const row = await tx
         .updateTable('integration_api_tokens')
-        .set({ token_hash: hashToken(token), expires_at: expiresIn(90) })
+        .set({
+          token_hash: hashToken(token),
+          expires_at: sql<Date | null>`case when expires_at is null then null else ${expiresIn(90)}::timestamptz end`,
+        })
         .where('tenant_id', '=', c.tenantId)
         .where('id', '=', id)
         .where('revoked_at', 'is', null)

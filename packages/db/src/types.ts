@@ -535,7 +535,10 @@ export interface GoogleMeetTranscriptEntries {
 export interface IntegrationApiTokens {
   created_at: Generated<Timestamp>;
   created_by: string;
-  expires_at: Timestamp;
+  /**
+   * NULL indicates an integration key without expiration.
+   */
+  expires_at: Timestamp | null;
   id: Generated<string>;
   name: string;
   permissions: Generated<string[]>;
