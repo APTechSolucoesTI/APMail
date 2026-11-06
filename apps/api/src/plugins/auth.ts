@@ -97,6 +97,7 @@ export async function contextForToken(
 export async function installAuth(app: FastifyInstance, db: Kysely<DB>, redis: Redis, env: ApiEnv) {
   app.decorateRequest('ctx', null);
   app.addHook('onRequest', async (req, reply) => {
+    if (req.routeOptions.url === '/api/integrations/notifications') return;
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
       let origin = req.headers.origin;
       try {

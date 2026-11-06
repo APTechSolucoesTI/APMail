@@ -532,6 +532,24 @@ export interface GoogleMeetTranscriptEntries {
   tenant_id: string;
 }
 
+export interface IntegrationApiTokens {
+  created_at: Generated<Timestamp>;
+  created_by: string;
+  expires_at: Timestamp;
+  id: Generated<string>;
+  name: string;
+  permission: Generated<string>;
+  revoked_at: Timestamp | null;
+  tenant_id: string;
+  token_hash: string;
+}
+
+export interface IntegrationApiTokenUsers {
+  tenant_id: string;
+  token_id: string;
+  user_id: string;
+}
+
 export interface Invitations {
   accepted_at: Timestamp | null;
   access_profile_id: string | null;
@@ -1442,6 +1460,8 @@ export interface DB {
   google_meet_spaces: GoogleMeetSpaces;
   google_meet_transcript_entries: GoogleMeetTranscriptEntries;
   google_meeting_requests: GoogleMeetingRequests;
+  integration_api_token_users: IntegrationApiTokenUsers;
+  integration_api_tokens: IntegrationApiTokens;
   invitations: Invitations;
   label_mailboxes: LabelMailboxes;
   mail_actions: MailActions;
