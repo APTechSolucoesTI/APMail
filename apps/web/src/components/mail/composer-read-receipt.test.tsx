@@ -20,6 +20,7 @@ function open(
   security: AttachmentSecurity = pendingSecurity,
   cachedSecurity?: AttachmentSecurity,
   gallery = false,
+  delegated = false,
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -34,9 +35,9 @@ function open(
     if (path === '/preferences/composition')
       return { default_format: DEFAULT_COMPOSITION_FORMAT, overrides: [] };
     if (path === '/mailboxes')
-      return [
-        { id, email_address: 'box@example.com', aliases: [], role: 'editor', status: 'active' },
-      ];
+      return delegated
+        ? []
+        : [{ id, email_address: 'box@example.com', aliases: [], role: 'editor', status: 'active' }];
     if (path === '/signatures') return [];
     if (path.startsWith('/outbox/'))
       return {
@@ -50,6 +51,16 @@ function open(
     if (path.endsWith('/security')) return gallery ? pendingSecurity : security;
     if (path.startsWith('/threads/'))
       return {
+        delegated,
+        my_role: 'editor',
+        mailbox: {
+          id,
+          name: 'Caixa convidada',
+          email_address: 'box@example.com',
+          aliases: [],
+          role: 'editor',
+          status: 'active',
+        },
         thread: { id },
         messages: [
           {
@@ -191,4 +202,12 @@ it('uses current server security when reopening a file with an older cached verd
   );
   await screen.findByText('pendente.pdf (1 KB)');
   expect(screen.getByRole('button', { name: 'Enviar' })).toBeEnabled();
+});
+
+it('resposta de convidado usa a caixa da conversa sem acesso à listagem da caixa', async () => {
+  open(false, 'reply:' + id, false, pendingSecurity, undefined, false, true);
+  expect(await screen.findByLabelText('Assunto')).toHaveValue('Re: Original');
+  expect(screen.getByRole('button', { name: 'Remover sender@example.com' })).toBeVisible();
+  expect(screen.getByRole('option', { name: /Caixa convidada/ })).toBeInTheDocument();
+  expect(screen.queryByText('A mensagem original não está disponível.')).not.toBeInTheDocument();
 });

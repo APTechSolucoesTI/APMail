@@ -111,7 +111,7 @@ export function CompanySettings() {
       description: 'Configure o prazo de resposta e o período de importação de novas caixas.',
       submitLabel: 'Salvar atendimento',
       schema: tenantSettingsSchema
-        .pick({ sla_first_response_hours: true, mail_queues_enabled: true })
+        .pick({ sla_first_response_hours: true, restrict_operators_to_assigned: true })
         .extend({
           default_sync_days: z.coerce
             .number()
@@ -120,10 +120,10 @@ export function CompanySettings() {
         }),
       fields: [
         {
-          name: 'settings.mail_queues_enabled',
-          label: 'Exibir filas de atendimento',
+          name: 'settings.restrict_operators_to_assigned',
+          label: 'Restringir operadores aos atendimentos atribuídos',
           type: 'checkbox',
-          help: 'Exibir filas, responsáveis e SLA para toda a equipe. O cálculo interno continua ativo quando as filas estão ocultas.',
+          help: 'Operadores acessam somente conversas atribuídas a eles ou com convite ativo. Supervisores e administradores mantêm sua visão de supervisão.',
         },
         {
           name: 'settings.sla_first_response_hours',
@@ -230,7 +230,7 @@ export function CompanySettings() {
                     defaults={{
                       settings: {
                         contact_mode: 'tenant',
-                        mail_queues_enabled: true,
+                        restrict_operators_to_assigned: false,
                         sla_first_response_hours: 24,
                         default_sync_days: 90,
                         max_attachment_mb: 25,

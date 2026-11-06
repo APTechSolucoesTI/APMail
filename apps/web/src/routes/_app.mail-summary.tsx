@@ -17,18 +17,19 @@ import { Pagination } from '@/components/data/pagination';
 import { LoadingState, ErrorState, EmptyState } from '@/components/data/data-state';
 import { MailSelectionActions } from '@/components/mail/mail-selection-actions';
 import { MailContextMenu } from '@/components/mail/mail-context-menu';
+import { AssigneeFilter } from '@/components/mail/assignee-filter';
 import { ThreadListItem } from '@/components/mail/thread-list-item';
 
 export const Route = createFileRoute('/_app/mail-summary')({
   validateSearch: mailSearchSchema,
   component: SummaryPage,
 });
-function SummaryPage() {
+export function SummaryPage() {
   const search = Route.useSearch(),
     navigate = Route.useNavigate(),
     tenant = useTenantId();
   const me = useQuery(meQuery),
-    queues = useMailQueues();
+    queues = useMailQueues(search.mailboxId);
   const mailboxes = useQuery({
     queryKey: ['mailboxes', tenant],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
@@ -41,10 +42,14 @@ function SummaryPage() {
     page: String(search.page),
     page_size: String(pageSize),
     sort: search.sort,
-    assigned: queues ? search.assigned : 'any',
+    assigned: search.assigned ?? 'any',
     unread: String(!!search.unread),
   });
   if (search.q) query.set('q', search.q);
+  if (search.mailboxId) query.set('mailbox_id', search.mailboxId);
+  if (search.status) query.set('status', search.status);
+  if (search.from) query.set('from', search.from);
+  if (search.until) query.set('until', search.until);
   if (search.queue && view === 'queue') query.set('queue', search.queue);
   const result = useMailPages<Thread>({
     path: '/mail-summary/threads',
@@ -110,22 +115,70 @@ function SummaryPage() {
               {queues && <option value="waiting_longest">Maior espera</option>}
             </select>
           </label>
-          {queues && (
-            <label className="space-y-1 text-xs">
-              Responsável
-              <select
-                className="block h-11 rounded-md border bg-card px-2 sm:h-8"
-                value={search.assigned}
-                onChange={(e) =>
-                  change({ assigned: e.target.value as typeof search.assigned, page: 1 })
-                }
-              >
-                <option value="any">Todos</option>
-                <option value="me">Minhas conversas</option>
-                <option value="unassigned">Sem responsável</option>
-              </select>
-            </label>
-          )}
+          <label className="space-y-1 text-xs">
+            Caixa
+            <select
+              aria-label="Filtrar caixa"
+              className="block h-11 max-w-64 rounded-md border bg-card px-2 sm:h-8"
+              value={search.mailboxId ?? ''}
+              onChange={(e) => change({ mailboxId: e.target.value || undefined, page: 1 })}
+            >
+              <option value="">Todas as caixas</option>
+              {mailboxes.data?.map((box) => (
+                <option key={box.id} value={box.id}>
+                  {box.name} ({box.email_address})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1 text-xs">
+            Status
+            <select
+              aria-label="Filtrar status"
+              className="block h-11 rounded-md border bg-card px-2 sm:h-8"
+              value={search.status ?? ''}
+              onChange={(e) =>
+                change({ status: (e.target.value as typeof search.status) || undefined, page: 1 })
+              }
+            >
+              <option value="">Todos os status</option>
+              {(
+                ['none', 'to_reply', 'in_progress', 'awaiting_reply', 'scheduled', 'done'] as const
+              ).map((status) => (
+                <option key={status} value={status}>
+                  {QUEUE_LABELS[status]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <AssigneeFilter
+            mailboxes={(mailboxes.data ?? []).filter(
+              (box) => !search.mailboxId || box.id === search.mailboxId,
+            )}
+            value={search.assigned}
+            onChange={(assigned) => change({ assigned, page: 1 })}
+            id="summary-assigned"
+          />
+          <label className="space-y-1 text-xs">
+            De
+            <input
+              type="date"
+              className="block h-11 rounded-md border bg-card px-2 sm:h-8"
+              value={search.from ?? ''}
+              max={search.until}
+              onChange={(e) => change({ from: e.target.value || undefined, page: 1 })}
+            />
+          </label>
+          <label className="space-y-1 text-xs">
+            Até
+            <input
+              type="date"
+              className="block h-11 rounded-md border bg-card px-2 sm:h-8"
+              value={search.until ?? ''}
+              min={search.from}
+              onChange={(e) => change({ until: e.target.value || undefined, page: 1 })}
+            />
+          </label>
           <label className="flex min-h-11 items-center gap-2 text-xs sm:min-h-8">
             <Checkbox
               checked={!!search.unread}
@@ -144,11 +197,28 @@ function SummaryPage() {
               className={result.isFetching ? 'animate-spin motion-reduce:animate-none' : ''}
             />
           </Button>
-          {(search.q || search.unread || search.assigned !== 'any' || search.sort !== 'recent') && (
+          {(search.q ||
+            search.unread ||
+            (search.assigned && search.assigned !== 'any') ||
+            search.sort !== 'recent' ||
+            search.mailboxId ||
+            search.status ||
+            search.from ||
+            search.until) && (
             <Button
               variant="ghost"
               onClick={() =>
-                change({ q: undefined, unread: false, assigned: 'any', sort: 'recent', page: 1 })
+                change({
+                  q: undefined,
+                  unread: false,
+                  assigned: 'any',
+                  sort: 'recent',
+                  mailboxId: undefined,
+                  status: undefined,
+                  from: undefined,
+                  until: undefined,
+                  page: 1,
+                })
               }
             >
               Limpar filtros

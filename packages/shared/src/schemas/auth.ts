@@ -41,6 +41,7 @@ export const timezoneSchema = z.string().refine((v) => {
 export const tenantSettingsSchema = z
   .object({
     mail_queues_enabled: z.boolean().optional(),
+    restrict_operators_to_assigned: z.boolean().optional(),
     contact_mode: z.enum(['tenant', 'personal']).optional(),
     max_attachment_mb: z.number().int().min(1).max(25),
     sla_first_response_hours: z.number().int().min(1).max(720),
@@ -76,7 +77,7 @@ export const tableConfigSchema = z.object({
   order: z.array(z.string().min(1).max(80)).min(1).max(100),
   pageSize: z.union([z.literal(10), z.literal(20), z.literal(30), z.literal(50), z.literal(100)]),
 });
-export const mailboxRoleSchema = z.enum(['mailbox_admin', 'editor', 'viewer']);
+export const mailboxRoleSchema = z.enum(['mailbox_admin', 'supervisor', 'editor', 'viewer']);
 export const mailboxAccessSchema = z.object({
   mailbox_id: z.uuid(),
   role: mailboxRoleSchema.nullable(),
@@ -98,6 +99,9 @@ export const invitationSchema = z.object({
   mailbox_roles: z.array(z.object({ mailbox_id: z.uuid(), role: mailboxRoleSchema })).max(100),
 });
 export const mailboxSchema = z.object({
+  box_type: z.enum(['individual', 'global']).default('global'),
+  queues_enabled: z.boolean().default(true),
+  owner_user_id: z.uuid().nullable().default(null),
   receiving_protocol: z.enum(['imap', 'pop3', 'local']).default('imap'),
   name: z.string().trim().min(2).max(80),
   email_address: emailSchema,

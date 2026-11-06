@@ -1,12 +1,14 @@
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { type Address } from '@apmail/shared';
+import { operatorThreadPredicate } from '@apmail/db';
 import type { Resources } from './resources.js';
 import type { RequestContext } from '../authz/context.js';
-import { requireTenant } from '../authz/context.js';
+import { requireTenant, notFound } from '../authz/context.js';
 import { requireMailboxPerm } from '../authz/guards.js';
 import { readableFolders, folderPredicate } from '../authz/folders.js';
 import { contactSearch, contactNickname, contactVisible } from './contact-directory.js';
+import { requireThread } from './mail.js';
 type Suggestion = Address & {
   source: 'mailbox' | 'user' | 'history' | 'contact';
   nickname?: string;
@@ -19,7 +21,11 @@ export async function addressSuggestions(
   query: unknown,
 ) {
   const c = requireTenant(context);
-  await requireMailboxPerm(c, r.db, mailboxId, 'read');
+  const { thread_id } = z.object({ thread_id: z.uuid().optional() }).parse(query);
+  if (thread_id) {
+    const access = await requireThread(c, r, thread_id);
+    if (access.thread.mailbox_id !== mailboxId) throw notFound();
+  } else await requireMailboxPerm(c, r.db, mailboxId, 'read');
   const { q } = z.object({ q: z.string().trim().max(100).default('') }).parse(query);
   if (q.length < 2) return [];
   const pattern = '%' + q.replace(/[\\%_]/g, '\\$&') + '%';
@@ -52,7 +58,7 @@ export async function addressSuggestions(
     select distinct on(lower(a->>'address')) lower(a->>'address') as address,
       coalesce(a->>'name','') as name,m.message_at from messages m
       cross join lateral jsonb_array_elements(m.to_addresses||m.cc_addresses||m.bcc_addresses) a
-      where m.tenant_id=${c.tenantId} and m.deleted_at is null and (${visible})
+      where m.tenant_id=${c.tenantId} and m.deleted_at is null and (${visible}) and ${operatorThreadPredicate(c.tenantId, c.userId, sql`m.thread_id`, sql`m.mailbox_id`)}
       and m.direction='outbound' and m.sent_by_user_id=${c.userId}
       and coalesce(a->>'address','')<>''
       and (unaccent(a->>'address') ilike unaccent(${pattern}) or unaccent(a->>'name') ilike unaccent(${pattern}))

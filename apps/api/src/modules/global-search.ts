@@ -15,6 +15,7 @@ import { requireTenant } from '../authz/context.js';
 import { contactVisible, contactSearch, contactNickname } from './contacts.js';
 import type { Resources } from './resources.js';
 import { contactIdentitySql } from './contact-resolution.js';
+import { operatorThreadPredicate } from '@apmail/db';
 
 type Row = {
   id: string;
@@ -38,7 +39,7 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
       // Permissions are applied before matching, ranking and limiting, including
       // recursive folder grants. Restricted messages never supply result metadata.
       const scope = sql`with recursive boxes as (
-      select b.id,b.name,b.email_address,(mm.role='mailbox_admin' or not mm.restrict_to_folders) as full_access
+      select b.id,b.name,b.email_address,(mm.role in ('mailbox_admin','supervisor') or not mm.restrict_to_folders) as full_access
       from mailboxes b left join mailbox_members mm on mm.mailbox_id=b.id and mm.tenant_id=b.tenant_id and mm.user_id=${c.userId}
       where b.tenant_id=${c.tenantId} and b.deleted_at is null and mm.user_id is not null
     ), allowed_folders as (
@@ -46,7 +47,7 @@ export async function registerGlobalSearch(app: FastifyInstance, r: Resources) {
       and (b.full_access or exists(select 1 from folder_permissions p where p.tenant_id=f.tenant_id and p.mailbox_id=f.mailbox_id and p.folder_id=f.id and p.user_id=${c.userId}))
       union select f.id,f.mailbox_id from folders f join allowed_folders a on a.id=f.parent_id and a.mailbox_id=f.mailbox_id where f.tenant_id=${c.tenantId} and f.deleted_at is null
     )`;
-      const readableMessage = sql<boolean>`(b.full_access or exists(select 1 from allowed_folders f where f.id=m.folder_id and f.mailbox_id=m.mailbox_id))`;
+      const readableMessage = sql<boolean>`(b.full_access or exists(select 1 from allowed_folders f where f.id=m.folder_id and f.mailbox_id=m.mailbox_id)) and ${operatorThreadPredicate(c.tenantId, c.userId, sql`m.thread_id`, sql`m.mailbox_id`)}`;
       const queries: [SearchCategory, RawBuilder<Row>][] = [
         [
           'contact',

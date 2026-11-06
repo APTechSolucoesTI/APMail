@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { listQuerySchema, ROLE_LABELS, type MailboxRole, type TenantRole } from '@apmail/shared';
+import {
+  can,
+  listQuerySchema,
+  ROLE_LABELS,
+  type MailboxRole,
+  type TenantRole,
+} from '@apmail/shared';
 import { api } from '@/lib/api';
 import { useTenantId } from '@/lib/auth';
 import { ConfigurableTable } from '@/components/data/configurable-table';
@@ -23,7 +29,15 @@ type Member = {
   role: TenantRole;
   status: string;
 };
-export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
+export function MailboxMembersPanel({
+  mailboxId,
+  ownerUserId,
+  boxType,
+}: {
+  mailboxId: string;
+  ownerUserId?: string | null;
+  boxType?: 'individual' | 'global';
+}) {
   const tenantId = useTenantId();
   const client = useQueryClient();
   const [query, setQuery] = useState(() => listQuerySchema.parse({}));
@@ -65,6 +79,15 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
     },
     onError: (e) => toast.error(e.message),
   });
+  const transfer = useMutation({
+    mutationFn: (userId: string) =>
+      api('/mailboxes/' + mailboxId, { method: 'PATCH', body: { owner_user_id: userId } }),
+    onSuccess: async () => {
+      await client.invalidateQueries();
+      toast.success('Dono da caixa atualizado.');
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const rows = (users.data?.members ?? [])
     .filter((m) => m.status === 'active')
     .map((m) => ({
@@ -80,10 +103,11 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         Todos os usuários, inclusive administradores e proprietários, seguem o acesso definido
-        abaixo. Sem acesso oculta a caixa e suas mensagens.
+        abaixo. Sem acesso oculta a caixa e suas mensagens. Transfira o dono de uma caixa individual
+        antes de remover seu acesso.
       </p>
       <ConfigurableTable
-        listKey="mailbox-members"
+        listKey={'mailbox-members-' + mailboxId}
         mode="client"
         data={rows}
         query={query}
@@ -103,6 +127,27 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
           },
           { id: 'email', header: 'E-mail', sortable: true },
           {
+            id: 'owner',
+            header: 'Dono',
+            cell: (m) =>
+              m.user_id === ownerUserId ? (
+                <span className="font-semibold text-primary">Dono</span>
+              ) : boxType === 'individual' &&
+                m.mailbox_role !== 'none' &&
+                can(m.mailbox_role as MailboxRole, 'send') ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={transfer.isPending}
+                  onClick={() => transfer.mutate(m.user_id)}
+                >
+                  Definir como dono
+                </Button>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              ),
+          },
+          {
             id: 'mailbox_role',
             header: 'Papel na caixa',
             cell: (m) => (
@@ -110,7 +155,7 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
                 aria-label={'Papel de ' + m.full_name}
                 className="h-11 rounded-md border border-input bg-card px-2 text-sm sm:h-8"
                 value={m.mailbox_role}
-                disabled={change.isPending}
+                disabled={change.isPending || m.user_id === ownerUserId}
                 onChange={(e) =>
                   change.mutate({
                     userId: m.user_id,
@@ -118,7 +163,7 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
                   })
                 }
               >
-                {['none', 'viewer', 'editor', 'mailbox_admin'].map((role) => (
+                {['none', 'viewer', 'editor', 'supervisor', 'mailbox_admin'].map((role) => (
                   <option key={role} value={role}>
                     {role === 'none' ? 'Sem acesso' : ROLE_LABELS[role as MailboxRole]}
                   </option>
@@ -161,7 +206,7 @@ export function MailboxMembersPanel({ mailboxId }: { mailboxId: string }) {
           void access.refetch();
         }}
         rowActions={(m) =>
-          m.mailbox_role !== 'none' ? (
+          m.mailbox_role !== 'none' && m.user_id !== ownerUserId ? (
             <Button
               variant="ghost"
               size="sm"

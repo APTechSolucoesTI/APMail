@@ -1,68 +1,80 @@
 import { expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ThreadWorkflow } from './thread-workflow';
 import type { Thread } from '@/lib/mail';
 import { api } from '@/lib/api';
-vi.mock('@/lib/api', () => ({ api: vi.fn() }));
+vi.mock('@/lib/api', () => ({ api: vi.fn(async () => ({})) }));
 vi.mock('@/hooks/use-thread-presence', () => ({ useThreadPresence: () => [] }));
-vi.mock('./thread-assignee', () => ({ ThreadAssignee: () => <button>Assumir</button> }));
+vi.mock('./thread-assignee', () => ({ ThreadAssignee: () => <button>Atribuir</button> }));
+vi.mock('./thread-invitations', () => ({ ThreadInvitations: () => <button>Convidar</button> }));
 const thread = {
   id: 'thread',
-  queue_status: 'in_progress',
-  queue_excluded: true,
+  queue_status: 'to_reply',
   assigned_to: { id: 'user', full_name: 'Responsável QA' },
 } as Thread;
-function open(enabled?: boolean) {
+function open(
+  patch: Partial<Thread> = {},
+  delegated = false,
+  role: 'editor' | 'viewer' = 'editor',
+) {
+  vi.mocked(api).mockClear();
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
   client.setQueryData(['me'], {
     user: { id: 'user' },
     current_tenant_id: 'tenant',
-    tenants: [{ id: 'tenant', mail_queues_enabled: enabled }],
-    preferences: { mail_queues_enabled: !enabled },
+    tenants: [{ id: 'tenant', mail_queues_enabled: false }],
+    preferences: {},
   });
   return render(
     <QueryClientProvider client={client}>
-      <ThreadWorkflow thread={thread} mailboxId="box" role="editor">
-        <button>Organizar</button>
-      </ThreadWorkflow>
+      <ThreadWorkflow
+        thread={{ ...thread, ...patch }}
+        mailboxId="box"
+        role={role}
+        delegated={delegated}
+      />
     </QueryClientProvider>,
   );
 }
-it.each([true, undefined])(
-  'preserva controles de atendimento quando a política da empresa é %s',
-  (enabled) => {
-    open(enabled);
-    expect(screen.getByRole('button', { name: 'Assumir' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Status' })).toBeVisible();
-    expect(screen.getByText('Responsável QA')).toBeVisible();
-  },
-);
-it('desativar filas remove controles sem afetar ações de organização nem mudar a conversa', () => {
-  vi.mocked(api).mockClear();
-  open(false);
-  expect(screen.queryByRole('button', { name: 'Assumir' })).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Status' })).not.toBeInTheDocument();
-  expect(screen.queryByText('Responsável QA')).not.toBeInTheDocument();
-  expect(
-    screen.queryByText('Esta conversa está fora das filas operacionais.'),
-  ).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Organizar' }));
-  expect(api).not.toHaveBeenCalled();
-});
-it('explica que tarefas pendentes impedem concluir o e-mail', () => {
-  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
-  client.setQueryData(['me'], {
-    user: { id: 'user' },
-    current_tenant_id: 'tenant',
-    tenants: [{ id: 'tenant', mail_queues_enabled: true }],
-    preferences: {},
-  });
-  render(
-    <QueryClientProvider client={client}>
-      <ThreadWorkflow thread={{ ...thread, pending_task_count: 2 }} mailboxId="box" role="editor" />
-    </QueryClientProvider>,
+it('mantém iniciar, concluir e responsável mesmo com filas ocultas', async () => {
+  open({ queues_enabled: false });
+  expect(screen.getByRole('button', { name: 'Atribuir' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Concluir' })).toBeVisible();
+  expect(screen.getByText('Responsável QA')).toBeVisible();
+  expect(screen.queryByText('Excluir das filas')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Iniciar atendimento' }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith('/threads/thread/start', { method: 'POST' }),
   );
+});
+it('conversa concluída oferece somente reabrir', async () => {
+  open({ queue_status: 'done' });
+  expect(screen.queryByRole('button', { name: 'Concluir' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Iniciar atendimento' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Reabrir' }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith('/threads/thread/reopen', { method: 'POST' }),
+  );
+});
+it('não oferece iniciar para atendimento já iniciado', () => {
+  open({ service_started_at: '2026-11-06T12:00:00Z' });
+  expect(screen.queryByRole('button', { name: 'Iniciar atendimento' })).not.toBeInTheDocument();
+});
+it('convidado atende sem atribuir ou convidar outras pessoas', () => {
+  open({}, true);
+  expect(screen.getByRole('button', { name: 'Concluir' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Atribuir' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Convidar' })).not.toBeInTheDocument();
+});
+it('visualizador não recebe controles de atendimento', () => {
+  open({}, false, 'viewer');
+  expect(screen.queryByRole('button', { name: 'Concluir' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Iniciar atendimento' })).not.toBeInTheDocument();
+});
+it('tarefas pendentes bloqueiam concluir com explicação', () => {
+  open({ pending_task_count: 2 });
+  expect(screen.getByRole('button', { name: 'Concluir' })).toBeDisabled();
   expect(
     screen.getByText('Conclua ou dispense as 2 tarefas pendentes antes de concluir a conversa.'),
   ).toBeVisible();

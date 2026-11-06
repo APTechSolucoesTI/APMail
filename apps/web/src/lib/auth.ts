@@ -48,6 +48,9 @@ export type Me = {
   preferences: Preferences;
 };
 export type Mailbox = {
+  box_type?: 'individual' | 'global';
+  owner_user_id?: string | null;
+  queues_enabled?: boolean;
   receiving_protocol?: 'imap' | 'pop3' | 'local';
   id: string;
   name: string;
@@ -81,11 +84,16 @@ export const canMailbox = (
   (permission !== 'send' || box.receiving_protocol !== 'local') &&
   (box.permissions?.includes(permission) ?? can(box.role, permission));
 export const meQuery = { queryKey: ['me'], queryFn: () => api<Me>('/auth/me'), retry: false };
-export const useMailQueues = () => {
-  const me = useQuery(meQuery).data;
-  return (
-    !!me && me.tenants.find((t) => t.id === me.current_tenant_id)?.mail_queues_enabled !== false
-  );
+export const useMailQueues = (mailboxId?: string) => {
+  const tenant = useTenantId();
+  const boxes = useQuery({
+    queryKey: ['mailboxes', tenant],
+    queryFn: () => api<Mailbox[]>('/mailboxes'),
+    enabled: !!tenant,
+  }).data;
+  return mailboxId
+    ? boxes?.find((box) => box.id === mailboxId)?.queues_enabled !== false
+    : !!boxes?.some((box) => box.queues_enabled !== false);
 };
 export const useUserId = () => useQuery(meQuery).data?.user.id;
 export const useAccess = (permission: AccessPermission) => {

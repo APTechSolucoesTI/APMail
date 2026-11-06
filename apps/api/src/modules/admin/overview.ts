@@ -126,12 +126,13 @@ export function registerAdminOverview(app: FastifyInstance, r: Resources) {
       }),
       block('mail_policy', 'company.manage', async () => {
         const row = await r.db
-          .selectFrom('tenants')
-          .select('settings')
-          .where('id', '=', c.tenantId)
-          .executeTakeFirstOrThrow();
-        const settings = row.settings as { mail_queues_enabled?: boolean };
-        return { enabled: settings.mail_queues_enabled !== false };
+          .selectFrom('mailboxes')
+          .select('id')
+          .where('tenant_id', '=', c.tenantId)
+          .where('deleted_at', 'is', null)
+          .where('queues_enabled', '=', true)
+          .executeTakeFirst();
+        return { enabled: !!row };
       }),
       block('integrations', 'integrations', async () => [
         { href: '/admin/integrations', label: 'Gerenciar minhas integrações' },

@@ -1,7 +1,6 @@
-import { requestTenantQueueRefresh } from '@apmail/db';
-import { queuesEnabled } from '@apmail/shared';
+import { mailboxOwnerEligible } from '@apmail/db';
 import { isTenantAdmin } from '@apmail/shared';
-import { ROLE_PERMS } from '@apmail/shared';
+import { ROLE_PERMS, can } from '@apmail/shared';
 import { companyDetailsSchema, cnpjSchema } from '@apmail/shared';
 import { lookupCompany } from '../lib/company-lookup.js';
 import type { FastifyInstance } from 'fastify';
@@ -22,6 +21,7 @@ import {
   forbidden,
   notFound,
   ApiError,
+  conflict,
   type RequestContext,
 } from '../authz/context.js';
 import { getMailboxRole, requireMailboxPerm, requireMailboxExists } from '../authz/guards.js';
@@ -66,9 +66,32 @@ export async function saveMailboxAccess(
   restrict = false,
   folderIds: string[] = [],
 ) {
+  await db
+    .selectFrom('tenants')
+    .select('id')
+    .where('id', '=', tenantId)
+    .forUpdate()
+    .executeTakeFirstOrThrow();
+  const owned = await db
+    .selectFrom('mailboxes')
+    .select('id')
+    .where('tenant_id', '=', tenantId)
+    .where('id', '=', mailboxId)
+    .where('box_type', '=', 'individual')
+    .where('owner_user_id', '=', userId)
+    .where('deleted_at', 'is', null)
+    .executeTakeFirst();
+  if (owned && (!role || !can(role, 'send')))
+    throw conflict(
+      'Transfira a propriedade da caixa individual antes de remover a permissão de envio.',
+    );
   const ids = [...new Set(folderIds)];
   if (restrict && (!role || role === 'mailbox_admin'))
-    throw new ApiError(400, 'validation_error', 'A restrição exige Editor ou Somente leitura.');
+    throw new ApiError(
+      400,
+      'validation_error',
+      'A restrição exige Operador, Supervisor ou Visualizador.',
+    );
   if (restrict && ids.length) {
     const found = await db
       .selectFrom('folders')
@@ -168,6 +191,26 @@ export async function setMailboxMember(
   });
   await emitAccessChanged(r, userId);
 }
+async function assertNotIndividualOwner(db: Kysely<DB>, tenantId: string, userId: string) {
+  await db
+    .selectFrom('tenants')
+    .select('id')
+    .where('id', '=', tenantId)
+    .forUpdate()
+    .executeTakeFirstOrThrow();
+  const owned = await db
+    .selectFrom('mailboxes')
+    .select('id')
+    .where('tenant_id', '=', tenantId)
+    .where('box_type', '=', 'individual')
+    .where('owner_user_id', '=', userId)
+    .where('deleted_at', 'is', null)
+    .executeTakeFirst();
+  if (owned)
+    throw conflict(
+      'Transfira a propriedade das caixas individuais antes de desativar ou remover este usuário.',
+    );
+}
 export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
   app.get(
     '/api/tenant/company-lookup/:cnpj',
@@ -219,7 +262,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       if (!sender)
         throw new ApiError(400, 'validation_error', 'Escolha uma caixa ativa da empresa.');
     }
-    const { old, next, generation } = await r.db.transaction().execute(async (tx) => {
+    const { old, next } = await r.db.transaction().execute(async (tx) => {
       const old = await tx
         .selectFrom('tenants')
         .selectAll()
@@ -242,18 +285,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
         .where('id', '=', c.tenantId)
         .returningAll()
         .executeTakeFirstOrThrow();
-      let generation: string | null = null;
-      if (b.settings?.mail_queues_enabled !== undefined) {
-        if (queuesEnabled(next.settings) && !queuesEnabled(old.settings))
-          generation = await requestTenantQueueRefresh(tx, c.tenantId);
-        else if (!queuesEnabled(next.settings))
-          await tx
-            .updateTable('tenant_mail_policy_runs')
-            .set({ state: 'superseded', updated_at: new Date() })
-            .where('tenant_id', '=', c.tenantId)
-            .execute();
-      }
-      return { old, next, generation };
+      return { old, next };
     });
     await audit(r.db, {
       tenantId: c.tenantId,
@@ -269,17 +301,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       }),
       ip: c.ip,
     });
-    if (b.settings?.mail_queues_enabled !== undefined) {
-      if (generation)
-        await r.queues.maintenance
-          .add(
-            'refresh-tenant-queues',
-            { tenant_id: c.tenantId, generation },
-            { attempts: 3, backoff: { type: 'exponential', delay: 1000 } },
-          )
-          .catch(() => app.log.warn('Atualização de filas persistida; o agendador retomará.'));
-      r.io.to('tenant:' + c.tenantId).emit('tenant:settings-changed', {});
-    }
+    if (b.settings) r.io.to('tenant:' + c.tenantId).emit('tenant:settings-changed', {});
     return next;
   });
   app.get('/api/members/directory', async (req) => {
@@ -482,6 +504,19 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
           box.folder_ids,
         );
       }
+      const ownedBoxes = await tx
+        .selectFrom('mailboxes')
+        .select('id')
+        .where('tenant_id', '=', c.tenantId)
+        .where('box_type', '=', 'individual')
+        .where('owner_user_id', '=', userId)
+        .where('deleted_at', 'is', null)
+        .execute();
+      for (const owned of ownedBoxes)
+        if (!(await mailboxOwnerEligible(tx, c.tenantId, owned.id, userId)))
+          throw conflict(
+            'Transfira a propriedade das caixas individuais antes de retirar o acesso ou a permissão de envio.',
+          );
       await audit(tx, {
         tenantId: c.tenantId,
         actorId: c.userId,
@@ -511,6 +546,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       if ((c.accessRestricted ?? !!c.accessProfileId) && isTenantAdmin(member.role))
         throw forbidden();
       if (member.role === 'owner' && c.tenantRole !== 'owner') throw forbidden();
+      await assertNotIndividualOwner(tx, c.tenantId, userId);
       await tx
         .updateTable('tenant_members')
         .set({ status: 'removed' })
@@ -573,6 +609,7 @@ export async function registerTenantRoutes(app: FastifyInstance, r: Resources) {
       throw new ApiError(409, 'conflict', 'Você não pode desativar sua própria conta.');
     if (member.role === 'owner' && c.tenantRole !== 'owner') throw forbidden();
     await r.db.transaction().execute(async (tx) => {
+      if (b.status === 'disabled') await assertNotIndividualOwner(tx, c.tenantId, userId);
       await tx
         .updateTable('tenant_members')
         .set({ status: b.status })

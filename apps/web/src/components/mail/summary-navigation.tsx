@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Inbox, Layers } from 'lucide-react';
+import { Inbox, Layers, UserCheck, Hourglass, Clock, CheckCircle2, AlarmClock } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useTenantId, useMailQueues } from '@/lib/auth';
 import { NavigationGroup } from '@/components/layout/navigation-group';
@@ -38,6 +38,19 @@ export function SummaryNavigation({ onNavigate }: { onNavigate: () => void }) {
             activeProps={{ className: 'bg-secondary text-secondary-foreground' }}
             className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted sm:min-h-8"
           >
+            {queue === 'to_reply' ? (
+              <Inbox className="size-4 shrink-0" aria-hidden />
+            ) : queue === 'in_progress' ? (
+              <UserCheck className="size-4 shrink-0" aria-hidden />
+            ) : queue === 'awaiting_reply' ? (
+              <Hourglass className="size-4 shrink-0" aria-hidden />
+            ) : queue === 'scheduled' ? (
+              <Clock className="size-4 shrink-0" aria-hidden />
+            ) : queue === 'done' ? (
+              <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+            ) : (
+              <AlarmClock className="size-4 shrink-0" aria-hidden />
+            )}
             <span className="min-w-0 flex-1">
               {queue === 'overdue' ? 'Fora do SLA' : QUEUE_LABELS[queue]}
             </span>

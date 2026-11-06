@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { folderPredicate, readableFolders } from '../authz/folders.js';
+import { folderPredicate, readableThreadFolders } from '../authz/folders.js';
 import { notFound } from '../authz/context.js';
 import { requireThread } from './mail.js';
 import type { Resources } from './resources.js';
@@ -13,7 +13,7 @@ export async function registerThreadPdf(app: FastifyInstance, resources: Resourc
       .object({ id: z.uuid(), messageId: z.uuid().optional() })
       .parse(request.params);
     const { thread, c } = await requireThread(request.ctx, resources, id);
-    const scope = await readableFolders(c, resources.db, thread.mailbox_id);
+    const scope = await readableThreadFolders(c, resources.db, thread.mailbox_id, id);
     // The conversation route retains its original scope. The message route narrows it after authorization.
     const messages = await resources.db
       .selectFrom('messages as m')

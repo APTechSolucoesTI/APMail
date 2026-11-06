@@ -6,7 +6,7 @@ import {
   resolvedAttachmentSecurity,
   type AttachmentSecurity,
 } from '@/lib/antivirus';
-import { useEffect, useRef, useState, useImperativeHandle, type Ref } from 'react';
+import { useEffect, useRef, useState, useImperativeHandle, useMemo, type Ref } from 'react';
 import { useQuery, useQueryClient, useQueries } from '@tanstack/react-query';
 import DOMPurify from 'dompurify';
 import { toast } from 'sonner';
@@ -156,8 +156,17 @@ export function Composer({
   const conversation = useQuery({
     queryKey: ['thread', tenant, threadId],
     queryFn: () => api<ThreadDetail>('/threads/' + threadId),
-    enabled: !!replyId && !!threadId,
+    enabled: !!threadId,
   });
+  const availableBoxes = useMemo(
+    () =>
+      boxes.data &&
+      conversation.data?.mailbox &&
+      !boxes.data.some((box) => box.id === conversation.data?.mailbox?.id)
+        ? [...boxes.data, { ...conversation.data.mailbox, role: conversation.data.my_role }]
+        : boxes.data,
+    [boxes.data, conversation.data],
+  );
   const [data, setData] = useState<OutboxInput>(() => blank(mailboxId)),
     [body, setBody] = useState(''),
     [quote, setQuote] = useState(''),
@@ -203,7 +212,7 @@ export function Composer({
     data.source_thread_id ?? data.thread_id,
     ready &&
       ['reply', 'reply_all'].includes(data.kind) &&
-      can(boxes.data?.find((b) => b.id === data.mailbox_id)?.role ?? null, 'send'),
+      can(availableBoxes?.find((b) => b.id === data.mailbox_id)?.role ?? null, 'send'),
   );
   const toDraft = draftRecipientValue(data.to_addresses, pendingRecipients.to),
     ccDraft = draftRecipientValue(data.cc_addresses, pendingRecipients.cc),
@@ -316,7 +325,7 @@ export function Composer({
         }
         if (replyId && conversation.data) {
           const m = conversation.data.messages.find((m) => m.id === replyId),
-            box = boxes.data.find((b) => b.id === mailboxId);
+            box = availableBoxes!.find((b) => b.id === mailboxId);
           if (!m || !box) {
             setError('A mensagem original não está disponível.');
             return;
@@ -357,6 +366,7 @@ export function Composer({
       canceled = true;
     };
   }, [
+    availableBoxes,
     boxes.data,
     signatures.data,
     draft.data,
@@ -540,7 +550,13 @@ export function Composer({
         const xhr = new XMLHttpRequest();
         xhr.open(
           'POST',
-          '/api/uploads?mailbox_id=' + encodeURIComponent(current.current.mailbox_id),
+          '/api/uploads?' +
+            new URLSearchParams({
+              mailbox_id: current.current.mailbox_id,
+              ...((current.current.thread_id ?? current.current.source_thread_id)
+                ? { thread_id: (current.current.thread_id ?? current.current.source_thread_id)! }
+                : {}),
+            }),
         );
         xhr.withCredentials = true;
         xhr.upload.onprogress = (e) => {
@@ -913,7 +929,7 @@ export function Composer({
                     }
                   }}
                 >
-                  {boxes.data
+                  {availableBoxes
                     ?.filter((b) => canMailbox(b, 'send') && b.status === 'active')
                     .map((b) => (
                       <option key={b.id} value={b.id}>
@@ -930,6 +946,7 @@ export function Composer({
                     initialInput={pendingRecipients.to}
                     value={data.to_addresses}
                     mailboxId={data.mailbox_id}
+                    threadId={data.thread_id ?? data.source_thread_id ?? undefined}
                     onPendingChange={(to) => {
                       setEdited(true);
                       setPendingRecipients((value) => ({ ...value, to }));
@@ -972,6 +989,7 @@ export function Composer({
                   initialInput={pendingRecipients.cc}
                   value={data.cc_addresses}
                   mailboxId={data.mailbox_id}
+                  threadId={data.thread_id ?? data.source_thread_id ?? undefined}
                   onPendingChange={(cc) => {
                     setEdited(true);
                     setPendingRecipients((value) => ({ ...value, cc }));
@@ -989,6 +1007,7 @@ export function Composer({
                   initialInput={pendingRecipients.bcc}
                   value={data.bcc_addresses}
                   mailboxId={data.mailbox_id}
+                  threadId={data.thread_id ?? data.source_thread_id ?? undefined}
                   onPendingChange={(bcc) => {
                     setEdited(true);
                     setPendingRecipients((value) => ({ ...value, bcc }));

@@ -1,51 +1,53 @@
 import { useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { can, type MailboxRole } from '@apmail/shared';
-import { CheckCircle2, RotateCcw, Inbox, CircleSlash, ListChecks } from 'lucide-react';
+import { CheckCircle2, RotateCcw, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { Thread } from '@/lib/mail';
 import { MailActionButton } from './mail-action-button';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu';
 import { ThreadAssignee } from './thread-assignee';
-import { meQuery, useMailQueues } from '@/lib/auth';
+import { ThreadInvitations } from './thread-invitations';
+import { meQuery } from '@/lib/auth';
 import { useThreadPresence } from '@/hooks/use-thread-presence';
 export function ThreadWorkflow({
   thread,
   mailboxId,
   role,
+  delegated = false,
   children,
 }: {
   thread: Thread;
   mailboxId: string;
   role: MailboxRole;
+  delegated?: boolean;
   children?: ReactNode;
 }) {
   const client = useQueryClient(),
-    queuesEnabled = useMailQueues(),
     [busy, setBusy] = useState(false),
     me = useQuery(meQuery),
     presence = useThreadPresence(thread.id).filter(
       (u) => u.user_id !== me.data?.user.id && u.composing,
     );
-  const change = async (action: string) => {
+  const change = async (action: 'start' | 'done' | 'reopen') => {
     setBusy(true);
     try {
-      await api(
-        '/threads/' + thread.id + '/' + (action === 'excluded' ? 'queue-excluded' : action),
-        {
-          method: action === 'excluded' ? 'PUT' : 'POST',
-          ...(action === 'excluded' ? { body: { excluded: !thread.queue_excluded } } : {}),
-        },
-      );
-      for (const key of ['thread', 'threads', 'queue-counts', 'thread-history'])
+      await api('/threads/' + thread.id + '/' + action, { method: 'POST' });
+      for (const key of [
+        'thread',
+        'threads',
+        'queue-counts',
+        'thread-history',
+        'thread-invitations',
+      ])
         void client.invalidateQueries({ queryKey: [key] });
+      toast.success(
+        action === 'start'
+          ? 'Atendimento iniciado.'
+          : action === 'done'
+            ? 'Conversa concluída.'
+            : 'Conversa reaberta.',
+      );
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -54,7 +56,7 @@ export function ThreadWorkflow({
   };
   return (
     <div className="space-y-3">
-      {queuesEnabled && thread.assigned_to && (
+      {thread.assigned_to && (
         <p className="break-words text-xs text-muted-foreground">
           Responsável atual:{' '}
           <span className="font-semibold text-foreground">{thread.assigned_to.full_name}</span>
@@ -65,7 +67,7 @@ export function ThreadWorkflow({
         aria-label="Ações da conversa"
         className="flex min-w-0 flex-wrap items-center gap-2"
       >
-        {queuesEnabled && (
+        {!delegated && (
           <ThreadAssignee
             mailboxId={mailboxId}
             threadIds={[thread.id]}
@@ -75,32 +77,43 @@ export function ThreadWorkflow({
             iconOnly
           />
         )}
-        {queuesEnabled && can(role, 'queue') && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <MailActionButton label={busy ? 'Atualizando…' : 'Status'} disabled={busy}>
-                <ListChecks />
+        {!delegated &&
+          (can(role, 'assign_others') ||
+            (can(role, 'send') && thread.assigned_to?.id === me.data?.user.id)) && (
+            <ThreadInvitations threadId={thread.id} />
+          )}
+        {can(role, 'queue') && (
+          <>
+            {thread.queue_status !== 'done' && !thread.service_started_at && (
+              <MailActionButton
+                label="Iniciar atendimento"
+                text="Iniciar atendimento"
+                disabled={busy}
+                onClick={() => void change('start')}
+              >
+                <Play />
               </MailActionButton>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem
-                disabled={thread.queue_status === 'done' || (thread.pending_task_count ?? 0) > 0}
-                onSelect={() => void change('done')}
+            )}
+            {thread.queue_status === 'done' ? (
+              <MailActionButton
+                label="Reabrir"
+                text="Reabrir"
+                disabled={busy}
+                onClick={() => void change('reopen')}
+              >
+                <RotateCcw />
+              </MailActionButton>
+            ) : (
+              <MailActionButton
+                label="Concluir"
+                text="Concluir"
+                disabled={busy || (thread.pending_task_count ?? 0) > 0}
+                onClick={() => void change('done')}
               >
                 <CheckCircle2 />
-                Marcar como concluída
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void change('reopen')}>
-                <RotateCcw />
-                Reabrir conversa
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => void change('excluded')}>
-                {thread.queue_excluded ? <Inbox /> : <CircleSlash />}
-                {thread.queue_excluded ? 'Incluir nas filas' : 'Excluir das filas'}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </MailActionButton>
+            )}
+          </>
         )}
         {children}
       </div>
@@ -108,12 +121,9 @@ export function ThreadWorkflow({
         <p className="text-xs text-muted-foreground" role="status">
           {thread.pending_task_count === 1
             ? 'Conclua ou dispense a tarefa pendente antes de concluir a conversa.'
-            : `Conclua ou dispense as ${thread.pending_task_count} tarefas pendentes antes de concluir a conversa.`}
-        </p>
-      )}
-      {queuesEnabled && thread.queue_excluded && (
-        <p className="rounded-md border bg-muted p-3 text-sm">
-          Esta conversa está fora das filas operacionais.
+            : 'Conclua ou dispense as ' +
+              thread.pending_task_count +
+              ' tarefas pendentes antes de concluir a conversa.'}
         </p>
       )}
       {!!presence.length && (

@@ -1,6 +1,7 @@
 import { hasAccess } from '@apmail/shared';
 import { sql } from 'kysely';
 import type { Database } from './threads.js';
+import { hasConversationInvitation, operatorThreadPredicate } from './service-access.js';
 /** Revalidates the destination of queued folder actions against current membership. */
 export async function userCanReadFolder(
   db: Database,
@@ -49,7 +50,7 @@ export async function userCanReadFolder(
     !hasAccess({ role: member.role, access_permissions: member.permissions ?? [] }, 'mail')
   )
     return false;
-  if (member.mailbox_role === 'mailbox_admin') return true;
+  if (member.mailbox_role === 'mailbox_admin' || member.mailbox_role === 'supervisor') return true;
   if (!member.mailbox_role) return false;
   if (!member.restrict_to_folders) return true;
   const result = await sql<{ allowed: boolean }>`with recursive allowed as (
@@ -67,6 +68,7 @@ export async function userCanReadThread(
   userId: string,
   threadId: string,
   messageId?: string,
+  forAssignment = false,
 ) {
   if (
     await db
@@ -104,6 +106,15 @@ export async function userCanReadThread(
     !hasAccess({ role: member.role, access_permissions: member.permissions ?? [] }, 'mail')
   )
     return false;
+  if (!forAssignment) {
+    if (await hasConversationInvitation(db, tenantId, userId, threadId)) return true;
+    const permitted = await sql<{
+      allowed: boolean;
+    }>`select ${operatorThreadPredicate(tenantId, userId, sql`${threadId}::uuid`, sql`${boxId}::uuid`, false)} as allowed`.execute(
+      db,
+    );
+    if (!permitted.rows[0]?.allowed) return false;
+  }
   const access = await db
     .selectFrom('mailbox_members')
     .select(['role', 'restrict_to_folders'])
@@ -112,7 +123,12 @@ export async function userCanReadThread(
     .where('user_id', '=', userId)
     .executeTakeFirst();
   if (!access) return false;
-  if (access.role === 'mailbox_admin' || !access.restrict_to_folders) return true;
+  if (
+    access.role === 'mailbox_admin' ||
+    access.role === 'supervisor' ||
+    !access.restrict_to_folders
+  )
+    return true;
   const result = await sql<{ allowed: boolean }>`with recursive allowed as (
   select f.id from folders f join folder_permissions p on p.folder_id=f.id and p.tenant_id=f.tenant_id and p.mailbox_id=f.mailbox_id where p.tenant_id=${tenantId} and p.mailbox_id=${boxId} and p.user_id=${userId} and f.deleted_at is null
   union select f.id from folders f join allowed a on f.parent_id=a.id where f.tenant_id=${tenantId} and f.mailbox_id=${boxId} and f.deleted_at is null

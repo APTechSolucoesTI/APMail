@@ -80,11 +80,13 @@ export function ThreadNotes({
   mailboxId,
   role,
   subject = '',
+  delegated = false,
 }: {
   threadId: string;
   mailboxId: string;
   role: MailboxRole;
   subject?: string;
+  delegated?: boolean;
 }) {
   const tenant = useTenantId(),
     client = useQueryClient(),
@@ -111,7 +113,7 @@ export function ThreadNotes({
     users = useQuery({
       queryKey: ['mentionable', tenant, mailboxId],
       queryFn: () => api<User[]>('/mailboxes/' + mailboxId + '/mentionable'),
-      enabled: can(role, 'note'),
+      enabled: !delegated && can(role, 'note'),
     });
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30000);
@@ -170,10 +172,12 @@ export function ThreadNotes({
             <History className="hidden size-4 sm:block" />
             Histórico
           </TabsTrigger>
-          <TabsTrigger value="tasks">
-            <ListTodo className="hidden size-4 sm:block" aria-hidden="true" />
-            Tarefas
-          </TabsTrigger>
+          {!delegated && (
+            <TabsTrigger value="tasks">
+              <ListTodo className="hidden size-4 sm:block" aria-hidden="true" />
+              Tarefas
+            </TabsTrigger>
+          )}
         </TabsList>
         <TabsContent value="notes" className="space-y-4 p-4 pt-0">
           <p className="text-xs text-muted-foreground">
@@ -422,9 +426,11 @@ export function ThreadNotes({
             </ol>
           )}
         </TabsContent>
-        <TabsContent value="tasks" className="p-3 pt-0">
-          <ThreadTasks threadId={threadId} mailboxId={mailboxId} subject={subject} />
-        </TabsContent>
+        {!delegated && (
+          <TabsContent value="tasks" className="p-3 pt-0">
+            <ThreadTasks threadId={threadId} mailboxId={mailboxId} subject={subject} />
+          </TabsContent>
+        )}
       </Tabs>
     </section>
   );

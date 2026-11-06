@@ -1,4 +1,5 @@
 import { sql } from 'kysely';
+import { operatorThreadPredicate } from '@apmail/db';
 import type {
   DashboardKpis,
   DailyVolume,
@@ -24,7 +25,7 @@ const scoped = (s: DashboardScope) => {
     restricted = s.folderScopes
       .filter((scope) => scope.folders !== null)
       .map((scope) => scope.mailboxId);
-  return sql`allowed_messages as materialized (select source.* from public.messages source where source.tenant_id=${s.tenantId} and source.deleted_at is null and (${predicates.length ? sql.join(predicates, sql` or `) : sql`false`})),
+  return sql`allowed_messages as materialized (select source.* from public.messages source where source.tenant_id=${s.tenantId} and source.deleted_at is null and ${operatorThreadPredicate(s.tenantId, s.viewerUserId, sql`source.thread_id`, sql`source.mailbox_id`)} and (${predicates.length ? sql.join(predicates, sql` or `) : sql`false`})),
     scoped_messages as materialized (select source.* from allowed_messages source where ${s.userId ? sql`(source.direction='outbound' and source.sent_by_user_id=${s.userId}) or (source.direction='inbound' and exists(select 1 from public.threads t where t.id=source.thread_id and t.tenant_id=${s.tenantId} and t.deleted_at is null and t.assigned_to=${s.userId}))` : sql`true`}),
     allowed_threads as materialized (
       select source.id,source.tenant_id,source.mailbox_id,source.deleted_at,source.queue_status,source.queue_excluded,source.assigned_to,
@@ -39,7 +40,7 @@ const scoped = (s: DashboardScope) => {
       union all select source.id,source.tenant_id,source.mailbox_id,source.deleted_at,source.queue_status,source.queue_excluded,source.assigned_to,source.subject,source.last_inbound_at,source.first_inbound_at,
         ${s.userId ? sql`(select min(resp.message_at) from allowed_messages resp where resp.thread_id=source.id and resp.direction='outbound' and resp.message_at>source.first_inbound_at and resp.sent_by_user_id=${s.userId})` : sql`source.first_response_at`} first_response_at
       from public.threads source where source.tenant_id=${s.tenantId} and source.deleted_at is null and ${full.length ? sql`source.mailbox_id in (${sql.join(full)})` : sql`false`}
-    ), scoped_threads as materialized (select * from allowed_threads where ${s.userId ? sql`assigned_to=${s.userId}` : sql`true`})`;
+    ), scoped_threads as materialized (select * from allowed_threads visible where ${operatorThreadPredicate(s.tenantId, s.viewerUserId, sql`visible.id`, sql`visible.mailbox_id`)} and ${s.userId ? sql`assigned_to=${s.userId}` : sql`true`})`;
 };
 export async function kpis(r: Resources, s: DashboardScope) {
   return (

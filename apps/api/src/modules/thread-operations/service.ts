@@ -1,7 +1,7 @@
 import { sql } from 'kysely';
 import {
   assignThread,
-  tenantQueuesEnabled,
+  startThreadService,
   audit,
   mailboxUserCan,
   userCanReadThread,
@@ -19,22 +19,38 @@ import {
 import { requireMailboxPerm } from '../../authz/guards.js';
 import { requireThread, mailEvents } from '../mail.js';
 import type { Resources } from '../resources.js';
+
+async function refreshThreadAccess(r: Resources, tenantId: string, mailboxId: string, id: string) {
+  const invites = await r.db
+    .selectFrom('thread_service_invitations')
+    .select('invitee_id')
+    .distinct()
+    .where('tenant_id', '=', tenantId)
+    .where('thread_id', '=', id)
+    .execute();
+  for (const { invitee_id } of invites)
+    r.io.to('user:' + invitee_id).emit('thread-invitations:changed', {});
+  const sockets = await r.io.in('thread:' + id).fetchSockets();
+  for (const socket of sockets) {
+    const userId = socket.data.ctx?.userId as string | undefined;
+    if (!userId || !(await userCanReadThread(r.db, tenantId, mailboxId, userId, id)))
+      await socket.leave('thread:' + id);
+  }
+}
 export async function changeThread(
   r: Resources,
   ctx: RequestContext | null,
   id: string,
-  action: 'done' | 'reopen' | 'excluded' | 'assign',
+  action: 'done' | 'reopen' | 'excluded' | 'assign' | 'start',
   value?: boolean | string | null,
 ) {
-  if (!(await tenantQueuesEnabled(r.db, requireTenant(ctx).tenantId)))
-    throw conflict('O atendimento por filas está desativado nesta empresa.');
   const perm: MailboxPerm =
     action === 'assign' ? (value === ctx?.userId ? 'assign_self' : 'assign_others') : 'queue';
   const { thread, c } = await requireThread(ctx, r, id, perm);
   if (
     action === 'assign' &&
     typeof value === 'string' &&
-    !(await userCanReadThread(r.db, c.tenantId, thread.mailbox_id, value, id))
+    !(await userCanReadThread(r.db, c.tenantId, thread.mailbox_id, value, id, undefined, true))
   )
     throw conflict('Escolha um responsável com acesso às pastas desta conversa.');
   if (
@@ -44,14 +60,34 @@ export async function changeThread(
   )
     throw conflict('Escolha um responsável com permissão de envio nesta caixa.');
   const notification = await r.db.transaction().execute(async (tx) => {
+    await tx
+      .selectFrom('threads')
+      .select('id')
+      .where('id', '=', id)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    await requireThread(c, r, id, perm);
     if (action === 'assign') return assignThread(tx, id, value as string | null, c.userId);
+    if (action === 'start') {
+      await startThreadService(tx, id, c.userId);
+      return null;
+    }
+    if (action === 'done')
+      await sql`update thread_service_invitations set state='completed',closed_at=now(),closed_by=${c.userId} where tenant_id=${c.tenantId} and thread_id=${id} and state='active'`.execute(
+        tx,
+      );
     await tx
       .updateTable('threads')
       .set(
         action === 'done'
           ? { manual_done_at: new Date() }
           : action === 'reopen'
-            ? { manual_done_at: null, queue_excluded: false, history_queue_eligible: true }
+            ? {
+                manual_done_at: null,
+                service_started_at: null,
+                queue_excluded: false,
+                history_queue_eligible: true,
+              }
             : { queue_excluded: value as boolean },
       )
       .where('id', '=', id)
@@ -69,6 +105,8 @@ export async function changeThread(
   if (notification)
     r.io.to('user:' + notification.user_id).emit('notification:new', { notification });
   mailEvents(r, thread.mailbox_id, [id]);
+  if (action === 'done' || action === 'assign')
+    await refreshThreadAccess(r, c.tenantId, thread.mailbox_id, id);
   return { ok: true };
 }
 export async function bulkQueue(
@@ -80,12 +118,10 @@ export async function bulkQueue(
   userId: string | null,
 ) {
   const c = requireTenant(ctx);
-  if (!(await tenantQueuesEnabled(r.db, c.tenantId)))
-    throw conflict('O atendimento por filas está desativado nesta empresa.');
   for (const id of ids) await requireThread(c, r, id);
   if (action === 'assign' && userId)
     for (const id of ids)
-      if (!(await userCanReadThread(r.db, c.tenantId, mailboxId, userId, id)))
+      if (!(await userCanReadThread(r.db, c.tenantId, mailboxId, userId, id, undefined, true)))
         throw conflict('Escolha um responsável com acesso às pastas selecionadas.');
   await requireMailboxPerm(
     c,
@@ -122,7 +158,12 @@ export async function bulkQueue(
           .set(
             action === 'done'
               ? { manual_done_at: new Date() }
-              : { manual_done_at: null, queue_excluded: false, history_queue_eligible: true },
+              : {
+                  manual_done_at: null,
+                  service_started_at: null,
+                  queue_excluded: false,
+                  history_queue_eligible: true,
+                },
           )
           .where('id', '=', row.id)
           .execute();
@@ -141,6 +182,8 @@ export async function bulkQueue(
   for (const notification of notifications)
     r.io.to('user:' + notification.user_id).emit('notification:new', { notification });
   mailEvents(r, mailboxId, ids);
+  if (action === 'done' || action === 'assign')
+    await Promise.all(ids.map((id) => refreshThreadAccess(r, c.tenantId, mailboxId, id)));
   return { updated: ids.length };
 }
 export async function threadHistory(r: Resources, ctx: RequestContext | null, id: string) {

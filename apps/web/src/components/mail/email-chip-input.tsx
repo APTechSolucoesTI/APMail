@@ -18,6 +18,7 @@ export function EmailChipInput({
   onPendingChange,
   initialInput = '',
   mailboxId,
+  threadId,
   compact = false,
 }: {
   label: string;
@@ -26,6 +27,7 @@ export function EmailChipInput({
   onPendingChange?: (input: string) => void;
   initialInput?: string;
   mailboxId: string;
+  threadId?: string;
   compact?: boolean;
 }) {
   const id = useId(),
@@ -43,10 +45,13 @@ export function EmailChipInput({
     return () => clearTimeout(timer);
   }, [input]);
   const q = useQuery({
-    queryKey: ['address-suggestions', tenant, useUserId(), mailboxId, debounced],
+    queryKey: ['address-suggestions', tenant, useUserId(), mailboxId, threadId, debounced],
     queryFn: ({ signal }) =>
       api<(Address & { nickname?: string; company_name?: string; source?: string })[]>(
-        '/mailboxes/' + mailboxId + '/address-suggestions?q=' + encodeURIComponent(debounced),
+        '/mailboxes/' +
+          mailboxId +
+          '/address-suggestions?' +
+          new URLSearchParams({ q: debounced, ...(threadId ? { thread_id: threadId } : {}) }),
         { signal },
       ),
     enabled: debounced.length >= 2,

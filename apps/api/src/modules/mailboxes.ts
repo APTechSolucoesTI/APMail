@@ -1,4 +1,4 @@
-import { ensureMailboxDomain } from '@apmail/db';
+import { ensureMailboxDomain, mailboxOwnerEligible } from '@apmail/db';
 import { isTenantAdmin, hasAccess } from '@apmail/shared';
 import { MAILBOX_PERMS, can, canDelegate, profileAllowsMailbox } from '@apmail/shared';
 import type { FastifyInstance } from 'fastify';
@@ -26,6 +26,9 @@ import { requireMember, setMailboxMember } from './tenants.js';
 import type { Resources } from './resources.js';
 // Lista explícita: nenhuma query deste módulo lê mailbox_credentials.
 const publicColumns = [
+  'box_type',
+  'queues_enabled',
+  'owner_user_id',
   'receiving_protocol',
   'id',
   'tenant_id',
@@ -203,6 +206,12 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
           .insertInto('mailbox_members')
           .values({ ...m, tenant_id: c.tenantId, mailbox_id: row.id })
           .execute();
+      if (
+        data.box_type === 'individual' &&
+        (!data.owner_user_id ||
+          !(await mailboxOwnerEligible(tx, c.tenantId, row.id, data.owner_user_id)))
+      )
+        throw conflict('Escolha um proprietário ativo com acesso à caixa e permissão para enviar.');
       await audit(tx, {
         tenantId: c.tenantId,
         actorId: c.userId,
@@ -337,10 +346,13 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
     const c = requireTenantAdmin(req.ctx, 'mailboxes.manage');
     const { id } = z.object({ id: z.uuid() }).parse(req.params);
     await configurationAccess(c, r, id);
+    const input = z.record(z.string(), z.unknown()).parse(req.body);
     const b = mailboxSchema
       .partial()
       .omit({ members: true, receiving_protocol: true })
-      .parse(req.body);
+      .parse(input);
+    // Zod defaults also run inside optional fields: PATCH must preserve every omitted value.
+    for (const key of Object.keys(b) as (keyof typeof b)[]) if (!(key in input)) delete b[key];
     const { password, sync_days, ...data } = b;
     const previous = await r.db
       .selectFrom('mailboxes')
@@ -368,6 +380,28 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
           (await readMailboxCredential(r.db, c.tenantId, id, r.env.CREDENTIALS_ENCRYPTION_KEY)),
       });
     await r.db.transaction().execute(async (tx) => {
+      await tx
+        .selectFrom('tenants')
+        .select('id')
+        .where('id', '=', c.tenantId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      const current = await tx
+        .selectFrom('mailboxes')
+        .select(['box_type', 'owner_user_id'])
+        .where('tenant_id', '=', c.tenantId)
+        .where('id', '=', id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      const boxType = data.box_type ?? current.box_type;
+      const ownerId = data.owner_user_id === undefined ? current.owner_user_id : data.owner_user_id;
+      if (
+        boxType === 'individual' &&
+        (!ownerId || !(await mailboxOwnerEligible(tx, c.tenantId, id, ownerId)))
+      )
+        throw conflict(
+          'Escolha um proprietário ativo que já tenha acesso à caixa e permissão para enviar.',
+        );
       await tx
         .updateTable('mailboxes')
         .set({

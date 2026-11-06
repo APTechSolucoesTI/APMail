@@ -34,6 +34,7 @@ export function routePermission(
   if (/^\/api\/access-profiles(?:\/|$)/.test(path))
     return method === 'GET' ? 'personal' : 'profiles.manage';
   if (/^\/api\/invitations(?:\/|$)/.test(path)) return 'users.invite';
+  if (/^\/api\/thread-invitations(?:\/|$)/.test(path)) return 'mail';
   if (/^\/api\/members(?:\/|$)/.test(path)) return method === 'GET' ? 'users.view' : 'users.manage';
   if (/^\/api\/audit-logs(?:\/|$)/.test(path)) return 'audit.view';
   if (

@@ -14,6 +14,8 @@ const result = spawnSync(
       columns: {
         'mailboxes.receiving_protocol': "Generated<'imap' | 'pop3' | 'local'>",
         'contacts.scope': "Generated<'tenant' | 'personal'>",
+        'mailboxes.box_type': "Generated<'individual' | 'global'>",
+        'thread_service_invitations.state': "Generated<'active' | 'completed' | 'revoked'>",
       },
     }),
   ],

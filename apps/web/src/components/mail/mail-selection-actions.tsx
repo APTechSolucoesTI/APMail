@@ -15,22 +15,13 @@ import {
   Pin,
   Tags,
   Ellipsis,
-  CircleSlash,
-  Inbox,
   ListTodo,
   Printer,
 } from 'lucide-react';
 import { normalizeRuleEmail, type MailboxPerm } from '@apmail/shared';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import {
-  canMailbox,
-  meQuery,
-  useAccess,
-  useMailQueues,
-  useTenantId,
-  type Mailbox,
-} from '@/lib/auth';
+import { canMailbox, meQuery, useAccess, useTenantId, type Mailbox } from '@/lib/auth';
 import {
   flattenFolders,
   threadDetailKey,
@@ -75,8 +66,7 @@ export function MailSelectionActions({
 }) {
   const tenant = useTenantId(),
     client = useQueryClient(),
-    me = useQuery(meQuery),
-    queues = useMailQueues();
+    me = useQuery(meQuery);
   const boxes = useQuery({
     queryKey: ['mailboxes', tenant],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
@@ -247,7 +237,7 @@ export function MailSelectionActions({
         >
           <Mail />
         </MailActionButton>
-        {queues && allowed('assign_self') && (
+        {allowed('assign_self') && (
           <MailActionButton
             label="Assumir"
             disabled={busy}
@@ -256,7 +246,7 @@ export function MailSelectionActions({
             <UserCheck />
           </MailActionButton>
         )}
-        {queues && allowed('assign_others') && (
+        {allowed('assign_others') && (
           <MailActionButton
             label="Atribuir responsável"
             text="Atribuir"
@@ -266,7 +256,7 @@ export function MailSelectionActions({
             <UserRoundPlus />
           </MailActionButton>
         )}
-        {queues && allowed('queue') && (
+        {allowed('queue') && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <MailActionButton label="Status" disabled={busy}>
@@ -284,19 +274,6 @@ export function MailSelectionActions({
               <DropdownMenuItem onSelect={() => void bulk('reopen')}>
                 <RotateCcw />
                 Reabrir conversa
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={() => void each('queue-excluded', { excluded: true }, 'PUT')}
-              >
-                <CircleSlash />
-                Excluir das filas
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => void each('queue-excluded', { excluded: false }, 'PUT')}
-              >
-                <Inbox />
-                Incluir nas filas
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

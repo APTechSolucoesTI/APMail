@@ -5,6 +5,7 @@ import type { FetchMessageObject } from 'imapflow';
 import {
   resolveThread,
   touchThreads,
+  assignIndividualMailboxOwnerOnInbound,
   asJson,
   sanitizeEmailHtml,
   htmlToText,
@@ -233,6 +234,15 @@ export async function ingestMessage(
           ).rows[0]!.bytes,
         );
       const before = external?.measureStorage ? await usage() : 0n;
+      // Recheck under the tenant lock: concurrent folder/import deliveries may have
+      // persisted this identity after the optimistic read above.
+      const persistedIdentity = await trx
+        .selectFrom('messages')
+        .select('id')
+        .where('tenant_id', '=', box.tenant_id)
+        .where('mailbox_id', '=', box.id)
+        .where('message_id_header', '=', header)
+        .executeTakeFirst();
       const threadId = await resolveThread(trx, metadata, own);
       const previousInbound =
         external?.kind === 'archive' && external.markRead
@@ -357,6 +367,20 @@ export async function ingestMessage(
           }),
         );
       }
+      // A second folder copy, old import or automated receipt must not claim service ownership.
+      if (
+        !isHistorical &&
+        !persistedIdentity &&
+        external?.kind !== 'archive' &&
+        !own.includes(from.address) &&
+        !(parsed ? isMdnReport(parsed) : false) &&
+        !isAutomated(
+          from.address,
+          Object.fromEntries([...(parsed?.headers ?? [])].map(([k, v]) => [k, String(v)])),
+        ) &&
+        !['trash', 'junk', 'sent', 'drafts'].includes(folder.special_use ?? '')
+      )
+        await assignIndividualMailboxOwnerOnInbound(trx, threadId);
       await touchThreads(
         trx,
         [threadId],

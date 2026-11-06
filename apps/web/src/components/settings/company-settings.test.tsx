@@ -46,13 +46,17 @@ function setup(settings: Record<string, unknown> = registration.settings) {
     </QueryClientProvider>,
   );
 }
-it('saves a disabled company queue policy even when older settings are incomplete', async () => {
+it('saves operator restriction even when older settings are incomplete', async () => {
   setup({ mail_queues_enabled: true });
   fireEvent.mouseDown(await screen.findByRole('tab', { name: 'E-mail e contatos' }), {
     button: 0,
     ctrlKey: false,
   });
-  fireEvent.click(screen.getByRole('checkbox', { name: /Exibir filas de atendimento/ }));
+  expect(
+    screen.getByText(/Operadores acessam somente conversas atribuídas a eles ou com convite ativo/),
+  ).toBeVisible();
+  expect(screen.queryByText(/Operadores das caixas globais/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('checkbox', { name: /Restringir operadores/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Salvar atendimento' }));
   await waitFor(() =>
     expect(api).toHaveBeenCalledWith(
@@ -62,7 +66,7 @@ it('saves a disabled company queue policy even when older settings are incomplet
           settings: {
             sla_first_response_hours: 24,
             default_sync_days: 90,
-            mail_queues_enabled: false,
+            restrict_operators_to_assigned: true,
           },
         },
       }),
@@ -126,7 +130,7 @@ it('saves the import period as a number without overwriting other settings', asy
         settings: {
           sla_first_response_hours: 8,
           default_sync_days: 365,
-          mail_queues_enabled: true,
+          restrict_operators_to_assigned: false,
         },
       },
     }),

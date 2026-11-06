@@ -34,7 +34,10 @@ const thread: Thread = {
   has_scheduled: false,
   latest_from: { name: 'Ana', address: 'ana@qa.test' },
 };
-function open(mailbox: Pick<Mailbox, 'id' | 'role' | 'permissions'>, item = thread) {
+function open(
+  mailbox: Pick<Mailbox, 'id' | 'role' | 'permissions' | 'queues_enabled'>,
+  item = thread,
+) {
   vi.mocked(api).mockClear();
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
@@ -101,4 +104,13 @@ it('offers personal pin with read access and hides flag when effective permissio
     'true',
   );
   expect(screen.getByRole('article')).not.toHaveAttribute('data-flagged');
+});
+
+it('mostra status do atendimento mesmo sem filas, sem exibir alerta SLA', () => {
+  open(
+    { id: 'box', role: 'viewer', queues_enabled: false },
+    { ...thread, queue_status: 'done', is_overdue: true },
+  );
+  expect(screen.getByText('Concluído')).toBeVisible();
+  expect(screen.queryByText('Fora do SLA')).not.toBeInTheDocument();
 });

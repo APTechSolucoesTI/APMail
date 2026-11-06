@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
 import { toast } from 'sonner';
 import { SocketContext } from '@/hooks/use-socket-room';
+import { InvitationsNavigation } from '@/components/mail/invitations-navigation';
 import { SummaryNavigation } from '@/components/mail/summary-navigation';
 import { ChatNavigation } from '@/components/chat/chat-navigation';
 import { useChatRealtime } from '@/hooks/use-chat';
@@ -69,7 +70,7 @@ export function AppShell() {
   const client = useQueryClient();
   const navigate = useNavigate();
   const pathname = useLocation().pathname;
-  const mailView = pathname.startsWith('/mail/');
+  const mailView = pathname.startsWith('/mail/') || pathname === '/invitations';
   const boxes = useQuery({
     queryKey: ['mailboxes', me.data?.current_tenant_id],
     queryFn: () => api<Mailbox[]>('/mailboxes'),
@@ -113,6 +114,7 @@ export function AppShell() {
         'rules',
         'thread-notes',
         'thread-history',
+        'thread-invitations',
         'dashboard',
         'global-search',
         'contacts',
@@ -136,7 +138,19 @@ export function AppShell() {
       });
     });
     socket.on('tenant:settings-changed', () => {
-      for (const key of ['me', 'tenant', 'admin-overview', 'dashboard', 'queue-counts'])
+      for (const key of [
+        'me',
+        'tenant',
+        'admin-overview',
+        'dashboard',
+        'queue-counts',
+        'folders',
+        'threads',
+        'thread',
+        'global-search',
+        'outbox',
+        'thread-invitations',
+      ])
         void client.invalidateQueries({ queryKey: [key] });
     });
     socket.on('mailboxes:changed', () => {
@@ -212,8 +226,16 @@ export function AppShell() {
     const invalidate = (...keys: string[]) => {
       for (const key of keys) void client.invalidateQueries({ queryKey: [key] });
     };
+    socket.on('thread-invitations:changed', () => invalidate('thread-invitations', 'thread'));
     socket.on('threads:changed', () =>
-      invalidate('labels', 'threads', 'thread', 'thread-history', 'global-search'),
+      invalidate(
+        'labels',
+        'threads',
+        'thread',
+        'thread-history',
+        'global-search',
+        'thread-invitations',
+      ),
     );
     socket.on(
       'thread:notes-changed',
@@ -337,6 +359,7 @@ export function AppShell() {
           </Link>
           {allowed('mail') && (
             <>
+              <InvitationsNavigation onNavigate={() => setOpen(false)} />
               {me.data.preferences.mail_summary_enabled && (
                 <SummaryNavigation onNavigate={() => setOpen(false)} />
               )}

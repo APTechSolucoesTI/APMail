@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { TenantContext } from '@/lib/auth';
+import { TenantContext, type Mailbox } from '@/lib/auth';
 import { threadDetailKey, type Message, type ThreadDetail } from '@/lib/mail';
 import { ThreadView } from './thread-view';
 
@@ -11,7 +11,7 @@ vi.mock('@/lib/api', async (original) => ({
   api: vi.fn(async () => ({})),
 }));
 
-function open(lastRead = '2026-10-26T12:00:00Z', admin = false) {
+function open(lastRead = '2026-10-26T12:00:00Z', admin = false, queuesEnabled = true) {
   const messages: Message[] = ['Antigo', 'Intermediário', 'Recente'].map((name, index) => ({
     id: name,
     folder_id: 'inbox',
@@ -32,6 +32,7 @@ function open(lastRead = '2026-10-26T12:00:00Z', admin = false) {
     sent_by: null,
   }));
   const data: ThreadDetail = {
+    mailbox: { queues_enabled: queuesEnabled } as Mailbox,
     messages,
     labels: [],
     cid_map: {},
@@ -53,7 +54,7 @@ function open(lastRead = '2026-10-26T12:00:00Z', admin = false) {
       is_pinned: false,
       labels: [],
       assigned_to: null,
-      is_overdue: false,
+      is_overdue: true,
       has_scheduled: false,
       latest_from: { name: 'Recente', address: 'recente@example.com' },
     },
@@ -111,7 +112,8 @@ it('mostra o mais recente primeiro e aberto, sem alterar o histórico usado pela
 it('mantém organização e clonagem por mensagem, sem repetir ações no topo', () => {
   const { onCompose } = open(undefined, true);
   const newest = screen.getAllByRole('article')[0]!;
-  expect(screen.queryByRole('group', { name: 'Ações da conversa' })).not.toBeInTheDocument();
+  expect(screen.getByRole('group', { name: 'Ações da conversa' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Reabrir' })).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Mais ações' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Imprimir conversa' })).not.toBeInTheDocument();
   expect(within(newest).getByRole('button', { name: 'Mover' })).toBeVisible();
@@ -135,4 +137,11 @@ it('preserva a abertura das mensagens não lidas mesmo abaixo da mais recente', 
     'aria-expanded',
     'false',
   );
+});
+
+it('preserva status do atendimento e oculta SLA quando a caixa não utiliza filas', () => {
+  open(undefined, true, false);
+  expect(screen.getByText('Concluído')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Reabrir' })).toBeVisible();
+  expect(screen.queryByText('Fora do SLA')).not.toBeInTheDocument();
 });

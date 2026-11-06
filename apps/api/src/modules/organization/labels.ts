@@ -3,6 +3,7 @@ import { sql } from 'kysely';
 import { z } from 'zod';
 import { audit, lockStorageTenant, type Database } from '@apmail/db';
 import { personalLabelSchema, isTenantAdmin } from '@apmail/shared';
+import { operatorThreadPredicate } from '@apmail/db';
 import {
   requireTenant,
   notFound,
@@ -158,7 +159,7 @@ export function labelsService(r: Resources) {
       if (mailbox_id) await requireMailboxPerm(c, r.db, mailbox_id, 'read');
       // Apply folder grants before counts; never leak hidden conversations via labels.
       const result = await sql`with recursive boxes as (
-        select b.id,(mm.role='mailbox_admin' or not mm.restrict_to_folders) as full_access
+        select b.id,(mm.role in ('mailbox_admin','supervisor') or not mm.restrict_to_folders) as full_access
         from mailboxes b left join mailbox_members mm on mm.mailbox_id=b.id and mm.tenant_id=b.tenant_id and mm.user_id=${c.userId}
         where b.tenant_id=${c.tenantId} and b.deleted_at is null and (${mailbox_id ?? null}::uuid is null or b.id=${mailbox_id ?? null}::uuid) and mm.user_id is not null
       ), permitted as (
@@ -167,7 +168,7 @@ export function labelsService(r: Resources) {
         union select f.id,f.mailbox_id from folders f join permitted p on p.id=f.parent_id and p.mailbox_id=f.mailbox_id where f.tenant_id=${c.tenantId} and f.deleted_at is null
       ), visible as (
         select distinct m.thread_id,m.mailbox_id from messages m join boxes b on b.id=m.mailbox_id join threads t on t.id=m.thread_id and t.tenant_id=m.tenant_id
-        where m.tenant_id=${c.tenantId} and m.deleted_at is null and t.deleted_at is null and (b.full_access or exists(select 1 from permitted p where p.id=m.folder_id and p.mailbox_id=m.mailbox_id))
+        where m.tenant_id=${c.tenantId} and m.deleted_at is null and t.deleted_at is null and ${operatorThreadPredicate(c.tenantId, c.userId, sql`m.thread_id`, sql`m.mailbox_id`)} and (b.full_access or exists(select 1 from permitted p where p.id=m.folder_id and p.mailbox_id=m.mailbox_id))
       ) select l.id,l.name,l.color,l.scope,l.user_id,l.mailbox_mode,array(select lm.mailbox_id from label_mailboxes lm join boxes b on b.id=lm.mailbox_id where lm.label_id=l.id and lm.tenant_id=l.tenant_id) as mailbox_ids,(select count(*)::int from thread_personal_labels tl join visible v on v.thread_id=tl.thread_id where tl.label_id=l.id and tl.tenant_id=l.tenant_id and (l.mailbox_mode='all' or exists(select 1 from label_mailboxes lm where lm.label_id=l.id and lm.mailbox_id=v.mailbox_id and lm.tenant_id=l.tenant_id))) as thread_count
       from personal_labels l where l.tenant_id=${c.tenantId} and (l.scope='tenant' or l.user_id=${c.userId}) and (${mailbox_id ?? null}::uuid is null or l.mailbox_mode='all' or exists(select 1 from label_mailboxes lm where lm.label_id=l.id and lm.tenant_id=l.tenant_id and lm.mailbox_id=${mailbox_id ?? null}::uuid)) order by (l.scope='tenant') desc,l.name,l.id`.execute(
         r.db,

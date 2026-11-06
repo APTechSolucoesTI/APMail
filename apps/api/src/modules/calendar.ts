@@ -593,7 +593,7 @@ export async function registerCalendar(app: FastifyInstance, r: Resources) {
       .where('deleted_at', 'is', null)
       .executeTakeFirst();
     if (!message) throw notFound();
-    await requireMailboxPerm(c, r.db, message.mailbox_id, 'read');
+    await requireThread(c, r, message.thread_id);
     await requireFolder(c, r.db, message.mailbox_id, message.folder_id);
     const parsed = calendarInviteSchema.safeParse(message.calendar_invite);
     if (!parsed.success) throw conflict('Convite inválido ou indisponível.');

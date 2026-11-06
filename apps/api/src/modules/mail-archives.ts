@@ -21,7 +21,7 @@ import {
   MAIL_ARCHIVE_FINGERPRINT_BYTES,
   toBullJobId,
 } from '@apmail/shared';
-import { requireTenantAdmin, ApiError, notFound, conflict } from '../authz/context.js';
+import { requireTenantAdmin, ApiError, notFound, conflict, forbidden } from '../authz/context.js';
 import { requireMailboxPerm } from '../authz/guards.js';
 import type { Resources } from './resources.js';
 import { registerMailArchiveExports } from './mail-archive-exports.js';
@@ -135,7 +135,19 @@ export async function registerMailArchives(app: FastifyInstance, r: Resources) {
   const authorize = async (ctx: Parameters<typeof requireTenantAdmin>[0], input: unknown) => {
     const c = requireTenantAdmin(ctx, 'archives');
     const p = params.parse(input);
-    await requireMailboxPerm(c, r.db, p.id, 'read');
+    const role = await requireMailboxPerm(c, r.db, p.id, 'read');
+    if (role === 'editor') {
+      const company = await r.db
+        .selectFrom('tenants')
+        .select('settings')
+        .where('id', '=', c.tenantId)
+        .executeTakeFirstOrThrow();
+      if (
+        (company.settings as { restrict_operators_to_assigned?: boolean })
+          .restrict_operators_to_assigned
+      )
+        throw forbidden();
+    }
     return { c, ...p };
   };
   const enqueue = async (id: string) =>

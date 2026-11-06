@@ -44,6 +44,7 @@ import { MailActionButton } from '@/components/mail/mail-action-button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { SearchInput } from '@/components/data/search-input';
 import { ThreadLabels } from '@/components/mail/thread-labels';
+import { AssigneeFilter } from '@/components/mail/assignee-filter';
 import { ThreadAssignee } from '@/components/mail/thread-assignee';
 import { ThreadView } from '@/components/mail/thread-view';
 import { MessageActions } from '@/components/mail/message-actions';
@@ -58,7 +59,7 @@ export const Route = createFileRoute('/_app/mail/$mailboxId')({
 function MailPage() {
   const { mailboxId } = Route.useParams(),
     rawSearch = Route.useSearch(),
-    queuesEnabled = useMailQueues(),
+    queuesEnabled = useMailQueues(mailboxId),
     preferredPageSize = useQuery(meQuery).data?.preferences.mail_page_size ?? 50,
     search = useMemo(
       () =>
@@ -69,7 +70,6 @@ function MailPage() {
               pageSize: rawSearch.pageSize ?? preferredPageSize,
               view: rawSearch.view === 'queue' ? ('folder' as const) : rawSearch.view,
               queue: undefined,
-              assigned: 'any' as const,
               sort: rawSearch.sort === 'waiting_longest' ? ('recent' as const) : rawSearch.sort,
             },
       [queuesEnabled, rawSearch, preferredPageSize],
@@ -88,12 +88,7 @@ function MailPage() {
   const mayMove = useAccess('mail.move');
   const mayDelete = useAccess('mail.delete');
   useEffect(() => {
-    if (
-      !queuesEnabled &&
-      (rawSearch.view === 'queue' ||
-        rawSearch.assigned !== 'any' ||
-        rawSearch.sort === 'waiting_longest')
-    )
+    if (!queuesEnabled && (rawSearch.view === 'queue' || rawSearch.sort === 'waiting_longest'))
       void navigate({ search: { ...search, page: 1 }, replace: true });
   }, [queuesEnabled, rawSearch, search, navigate]);
   const folders = useQuery({
@@ -112,7 +107,13 @@ function MailPage() {
     search.view === 'drafts' || (search.view === 'folder' && folder?.special_use === 'drafts');
   const query = new URLSearchParams({
     view: search.view === 'drafts' ? 'folder' : search.view,
-    assigned: search.assigned,
+    assigned:
+      search.assigned ??
+      ((box.data?.box_type ?? 'global') === 'global' &&
+      can(box.data?.role ?? null, 'assign_others') &&
+      ['folder', 'queue'].includes(search.view)
+        ? 'me'
+        : 'any'),
     sort: search.sort,
     page: String(search.page),
     page_size: String(search.pageSize),
@@ -128,7 +129,7 @@ function MailPage() {
     params: query,
     page: search.page,
     size: search.pageSize,
-    enabled: !isDrafts,
+    enabled: !isDrafts && !!box.data,
   });
   useEffect(() => {
     if (isDrafts || !threads.data || threads.isFetching || threads.isPlaceholderData) return;
@@ -300,7 +301,7 @@ function MailPage() {
       f: () => compose('forward'),
       Escape: close,
       e: () => {
-        if (queuesEnabled && search.thread && !updating && can(box.data?.role ?? null, 'queue')) {
+        if (search.thread && !updating && can(box.data?.role ?? null, 'queue')) {
           setUpdating(true);
           void api('/threads/' + search.thread + '/done', { method: 'POST' })
             .then(() => toast.success('Conversa concluída.'))
@@ -319,7 +320,7 @@ function MailPage() {
   const activeFilters = [
     !!search.q,
     !!search.unread,
-    search.assigned !== 'any',
+    !!search.assigned && search.assigned !== 'any',
     search.sort !== 'recent',
   ].filter(Boolean).length;
   const list = isDrafts ? (
@@ -369,26 +370,12 @@ function MailPage() {
             />
           </Button>
         </div>
-        <div className={'grid min-w-0 gap-3 ' + (queuesEnabled ? 'grid-cols-2' : 'grid-cols-1')}>
-          {queuesEnabled && (
-            <div className="min-w-0 space-y-1">
-              <label className="block text-xs font-medium" htmlFor="mail-assigned">
-                Responsável
-              </label>
-              <select
-                id="mail-assigned"
-                className="h-11 w-full min-w-0 rounded-md border border-input bg-card px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8"
-                value={search.assigned}
-                onChange={(e) =>
-                  change({ assigned: e.target.value as typeof search.assigned, page: 1 })
-                }
-              >
-                <option value="any">Todos</option>
-                <option value="me">Minhas conversas</option>
-                <option value="unassigned">Sem responsável</option>
-              </select>
-            </div>
-          )}
+        <div className={'grid min-w-0 gap-3 ' + 'grid-cols-2'}>
+          <AssigneeFilter
+            mailboxes={[box.data]}
+            value={query.get('assigned') ?? 'any'}
+            onChange={(assigned) => change({ assigned, page: 1 })}
+          />
           <div className="min-w-0 space-y-1">
             <label className="block text-xs font-medium" htmlFor="mail-sort">
               Ordenar
@@ -454,7 +441,7 @@ function MailPage() {
               threadIds={selectedThreads}
               onDone={() => setSelection({ context, ids: [] })}
             />
-            {queuesEnabled && can(box.data.role, 'queue') && (
+            {can(box.data.role, 'queue') && (
               <>
                 <MailActionButton
                   label="Concluir"

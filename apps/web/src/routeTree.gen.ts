@@ -24,6 +24,7 @@ import { Route as AppChatRouteImport } from './routes/_app.chat'
 import { Route as AppCompaniesRouteImport } from './routes/_app.companies'
 import { Route as AppContactsRouteImport } from './routes/_app.contacts'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
+import { Route as AppInvitationsRouteImport } from './routes/_app.invitations'
 import { Route as AppMailSummaryRouteImport } from './routes/_app.mail-summary'
 import { Route as AppRemindersRouteImport } from './routes/_app.reminders'
 import { Route as AppReportsRouteImport } from './routes/_app.reports'
@@ -137,6 +138,11 @@ const AppContactsRoute = AppContactsRouteImport.update({
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInvitationsRoute = AppInvitationsRouteImport.update({
+  id: '/invitations',
+  path: '/invitations',
   getParentRoute: () => AppRoute,
 } as any)
 const AppMailSummaryRoute = AppMailSummaryRouteImport.update({
@@ -361,6 +367,7 @@ export interface FileRoutesByFullPath {
   '/companies': typeof AppCompaniesRoute
   '/contacts': typeof AppContactsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/invitations': typeof AppInvitationsRoute
   '/mail-summary': typeof AppMailSummaryRoute
   '/reminders': typeof AppRemindersRoute
   '/reports': typeof AppReportsRoute
@@ -414,6 +421,7 @@ export interface FileRoutesByTo {
   '/companies': typeof AppCompaniesRoute
   '/contacts': typeof AppContactsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/invitations': typeof AppInvitationsRoute
   '/mail-summary': typeof AppMailSummaryRoute
   '/reminders': typeof AppRemindersRoute
   '/reports': typeof AppReportsRoute
@@ -472,6 +480,7 @@ export interface FileRoutesById {
   '/_app/companies': typeof AppCompaniesRoute
   '/_app/contacts': typeof AppContactsRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/invitations': typeof AppInvitationsRoute
   '/_app/mail-summary': typeof AppMailSummaryRoute
   '/_app/reminders': typeof AppRemindersRoute
   '/_app/reports': typeof AppReportsRoute
@@ -531,6 +540,7 @@ export interface FileRouteTypes {
     | '/companies'
     | '/contacts'
     | '/dashboard'
+    | '/invitations'
     | '/mail-summary'
     | '/reminders'
     | '/reports'
@@ -584,6 +594,7 @@ export interface FileRouteTypes {
     | '/companies'
     | '/contacts'
     | '/dashboard'
+    | '/invitations'
     | '/mail-summary'
     | '/reminders'
     | '/reports'
@@ -641,6 +652,7 @@ export interface FileRouteTypes {
     | '/_app/companies'
     | '/_app/contacts'
     | '/_app/dashboard'
+    | '/_app/invitations'
     | '/_app/mail-summary'
     | '/_app/reminders'
     | '/_app/reports'
@@ -801,6 +813,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/invitations': {
+      id: '/_app/invitations'
+      path: '/invitations'
+      fullPath: '/invitations'
+      preLoaderRoute: typeof AppInvitationsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/mail-summary': {
@@ -1148,6 +1167,7 @@ interface AppRouteChildren {
   AppCompaniesRoute: typeof AppCompaniesRoute
   AppContactsRoute: typeof AppContactsRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppInvitationsRoute: typeof AppInvitationsRoute
   AppMailSummaryRoute: typeof AppMailSummaryRoute
   AppRemindersRoute: typeof AppRemindersRoute
   AppReportsRoute: typeof AppReportsRoute
@@ -1179,6 +1199,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppCompaniesRoute: AppCompaniesRoute,
   AppContactsRoute: AppContactsRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppInvitationsRoute: AppInvitationsRoute,
   AppMailSummaryRoute: AppMailSummaryRoute,
   AppRemindersRoute: AppRemindersRoute,
   AppReportsRoute: AppReportsRoute,

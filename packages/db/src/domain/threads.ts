@@ -36,6 +36,8 @@ export async function refreshThreadAggregates(db: Database, threadId: string): P
       'threads.tenant_id',
       'threads.mailbox_id',
       'threads.manual_done_at',
+      'threads.last_inbound_at',
+      'threads.service_started_at',
       'b.email_address',
       'b.aliases',
     ])
@@ -88,6 +90,13 @@ export async function refreshThreadAggregates(db: Database, threadId: string): P
       last_message_at: last?.message_at ?? null,
       first_inbound_at: firstInbound,
       last_inbound_at: lastInbound,
+      service_started_at:
+        thread.service_started_at &&
+        lastInbound &&
+        lastInbound > thread.service_started_at &&
+        (!thread.last_inbound_at || lastInbound > thread.last_inbound_at)
+          ? null
+          : thread.service_started_at,
       last_outbound_at: outbound.at(-1)?.message_at ?? null,
       first_response_at: firstInbound
         ? (outbound.find((m) => m.message_at > firstInbound)?.message_at ?? null)

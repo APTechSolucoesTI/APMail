@@ -125,13 +125,23 @@ beforeAll(async () => {
     .execute();
   await db
     .insertInto('mailbox_members')
-    .values({
-      tenant_id: tenant,
-      mailbox_id: box,
-      user_id: limited,
-      role: 'editor',
-      restrict_to_folders: true,
-    })
+    .values([
+      ...[user, other].flatMap((userId) =>
+        [box, second].map((mailboxId) => ({
+          tenant_id: tenant,
+          mailbox_id: mailboxId,
+          user_id: userId,
+          role: 'mailbox_admin' as const,
+        })),
+      ),
+      {
+        tenant_id: tenant,
+        mailbox_id: box,
+        user_id: limited,
+        role: 'editor',
+        restrict_to_folders: true,
+      },
+    ])
     .execute();
   await db
     .insertInto('folder_permissions')

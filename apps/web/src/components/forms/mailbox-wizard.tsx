@@ -3,7 +3,13 @@ import { useTenantId } from '@/lib/auth';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
-import { mailboxSchema, PROVIDER_PRESETS, renderFromName, type MailboxRole } from '@apmail/shared';
+import {
+  can,
+  mailboxSchema,
+  PROVIDER_PRESETS,
+  renderFromName,
+  type MailboxRole,
+} from '@apmail/shared';
 import { SchemaForm, type FormField } from './schema-form';
 import { api } from '@/lib/api';
 import { meQuery, type MailboxConfiguration as Mailbox } from '@/lib/auth';
@@ -38,6 +44,9 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Record<string, unknown>>({
     receiving_protocol: 'imap',
+    box_type: 'global',
+    owner_user_id: '',
+    queues_enabled: true,
     imap_port: 993,
     imap_secure: true,
     smtp_port: 465,
@@ -289,8 +298,9 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
               >
                 {[
                   ['none', 'Sem acesso'],
-                  ['viewer', 'Somente leitura'],
-                  ['editor', 'Editor'],
+                  ['viewer', 'Visualizador'],
+                  ['editor', 'Operador'],
+                  ['supervisor', 'Supervisor'],
                   ['mailbox_admin', 'Admin da caixa'],
                 ].map(([role, label]) => (
                   <div key={role} className="flex min-h-11 items-center gap-2">
@@ -306,14 +316,54 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
       )}
       {step === 3 && (
         <SchemaForm
-          schema={mailboxSchema.pick({
-            sync_days: true,
-            history_classify_days: true,
-            append_sent_copy: true,
-            from_name_template: true,
-          })}
+          schema={mailboxSchema
+            .pick({
+              box_type: true,
+              queues_enabled: true,
+              sync_days: true,
+              history_classify_days: true,
+              append_sent_copy: true,
+              from_name_template: true,
+            })
+            .extend({
+              owner_user_id: z.union([z.uuid(), z.literal('')]).transform((value) => value || null),
+            })
+            .refine((value) => value.box_type !== 'individual' || !!value.owner_user_id, {
+              path: ['owner_user_id'],
+              message: 'Selecione o dono da caixa individual.',
+            })}
           defaults={draft}
           fields={[
+            ...(draft.receiving_protocol === 'local'
+              ? []
+              : [
+                  {
+                    name: 'box_type',
+                    label: 'Tipo de atendimento',
+                    type: 'select' as const,
+                    options: [
+                      { value: 'global', label: 'Global' },
+                      { value: 'individual', label: 'Individual' },
+                    ],
+                  },
+                  {
+                    name: 'owner_user_id',
+                    label: 'Dono da caixa individual',
+                    type: 'select' as const,
+                    options: [
+                      { value: '', label: 'Sem dono (caixa global)' },
+                      ...(directory.data ?? [])
+                        .filter((user) =>
+                          members.some(
+                            (member) => member.user_id === user.id && can(member.role, 'send'),
+                          ),
+                        )
+                        .map((user) => ({ value: user.id, label: user.full_name })),
+                    ],
+                    help: 'Somente usuários selecionados no passo Acesso com permissão de envio podem ser donos.',
+                  },
+                ]),
+            { name: 'queues_enabled', label: 'Utilizar filas', type: 'checkbox' },
             ...(draft.receiving_protocol === 'imap'
               ? [
                   {
@@ -378,7 +428,12 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
             const body =
               draft.receiving_protocol === 'local'
                 ? { ...draft, ...b, members }
-                : mailboxSchema.parse({ ...draft, ...b, members });
+                : mailboxSchema.parse({
+                    ...draft,
+                    ...b,
+                    owner_user_id: b.box_type === 'individual' ? b.owner_user_id : null,
+                    members,
+                  });
             const result = await api<Mailbox>(boxId ? '/mailboxes/' + boxId : '/mailboxes', {
               method: boxId ? 'PATCH' : 'POST',
               body,

@@ -250,7 +250,7 @@ function AccessForm({
                   }
                   className="grid gap-2 sm:grid-cols-2"
                 >
-                  {['none', 'viewer', 'editor', 'mailbox_admin'].map((role) => (
+                  {['none', 'viewer', 'editor', 'supervisor', 'mailbox_admin'].map((role) => (
                     <div key={role} className="flex min-h-11 items-center gap-2">
                       <RadioGroupItem id={box.id + '-' + role} value={role} />
                       <Label htmlFor={box.id + '-' + role}>

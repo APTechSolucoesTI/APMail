@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { asJson, audit, lockStorageTenant, outboxJobId, sendJobOptions } from '@apmail/db';
 import { mdnRequestSchema, messageIdSchema } from '@apmail/shared';
 import { requireTenant, notFound, conflict } from '../authz/context.js';
-import { requireMailboxPerm } from '../authz/guards.js';
-import { requireFolder } from '../authz/folders.js';
+import { readableThreadFolders } from '../authz/folders.js';
+import { requireThread } from './mail.js';
 import type { Resources } from './resources.js';
 import { mailEvents } from './mail.js';
 
@@ -24,9 +24,10 @@ export async function registerReadReceipts(app: FastifyInstance, r: Resources) {
       .where('deleted_at', 'is', null)
       .executeTakeFirst();
     if (!message) throw notFound();
-    await requireMailboxPerm(c, r.db, message.mailbox_id, 'read');
-    await requireFolder(c, r.db, message.mailbox_id, message.folder_id);
-    if (decision === 'confirm') await requireMailboxPerm(c, r.db, message.mailbox_id, 'send');
+    await requireThread(c, r, message.thread_id, decision === 'confirm' ? 'send' : 'read');
+    const scope = await readableThreadFolders(c, r.db, message.mailbox_id, message.thread_id);
+    if (scope !== null && (!message.folder_id || !scope.includes(message.folder_id)))
+      throw notFound();
     const request = mdnRequestSchema.safeParse(message.mdn_request);
     if (
       !request.success ||

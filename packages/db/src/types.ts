@@ -33,7 +33,7 @@ export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 export type MailActionType =
   'create_folder' | 'delete' | 'delete_folder' | 'move' | 'rename_folder' | 'restore' | 'set_flag';
 
-export type MailboxRole = 'editor' | 'mailbox_admin' | 'viewer';
+export type MailboxRole = 'editor' | 'mailbox_admin' | 'supervisor' | 'viewer';
 
 export type MailboxStatus = 'active' | 'disabled' | 'error' | 'pending';
 
@@ -662,6 +662,7 @@ export interface MailboxCredentials {
 export interface Mailboxes {
   aliases: Generated<string[]>;
   append_sent_copy: Generated<boolean>;
+  box_type: Generated<'individual' | 'global'>;
   connection_alerted_at: Timestamp | null;
   connection_error_kind: string | null;
   connection_failed_at: Timestamp | null;
@@ -684,6 +685,14 @@ export interface Mailboxes {
   last_synced_at: Timestamp | null;
   name: string;
   next_connection_attempt_at: Timestamp | null;
+  /**
+   * One existing active send-capable member owns an individual mailbox; never grants membership.
+   */
+  owner_user_id: string | null;
+  /**
+   * Controls service queue presentation only; service remains available when hidden.
+   */
+  queues_enabled: Generated<boolean>;
   receiving_protocol: Generated<'imap' | 'pop3' | 'local'>;
   smtp_host: string;
   smtp_port: Generated<number>;
@@ -827,8 +836,8 @@ export interface Messages {
   is_flagged: Generated<boolean>;
   is_historical: Generated<boolean>;
   is_mdn: Generated<boolean>;
-  mdn_provider_seen: boolean | null;
   mailbox_id: string;
+  mdn_provider_seen: boolean | null;
   mdn_request: Json | null;
   message_at: Timestamp;
   message_id_header: string;
@@ -1218,7 +1227,6 @@ export interface TenantMembers {
 }
 
 export interface Tenants {
-  mail_retention_days: Generated<number>;
   /**
    * Company registration, address and contact data. Validated at API boundaries; no credentials.
    */
@@ -1226,6 +1234,7 @@ export interface Tenants {
   created_at: Generated<Timestamp>;
   deleted_at: Timestamp | null;
   id: Generated<string>;
+  mail_retention_days: Generated<number>;
   name: string;
   settings: Generated<Json>;
   slug: string;
@@ -1295,11 +1304,28 @@ export interface Threads {
   queue_excluded: Generated<boolean>;
   queue_status: Generated<QueueStatus>;
   queue_status_changed_at: Generated<Timestamp>;
+  /**
+   * Explicit service start (button/draft); assignment and reading do not start service.
+   */
+  service_started_at: Timestamp | null;
   snippet: Generated<string>;
   subject: Generated<string>;
   subject_normalized: Generated<string>;
   tenant_id: string;
   updated_at: Generated<Timestamp>;
+}
+
+export interface ThreadServiceInvitations {
+  closed_at: Timestamp | null;
+  closed_by: string | null;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  invitee_id: string;
+  inviter_id: string;
+  mailbox_id: string;
+  state: Generated<'active' | 'completed' | 'revoked'>;
+  tenant_id: string;
+  thread_id: string;
 }
 
 export interface ThreadStatusHistory {
@@ -1330,6 +1356,7 @@ export interface Uploads {
   filename: string;
   id: Generated<string>;
   mailbox_id: string | null;
+  service_thread_id: string | null;
   size_bytes: number;
   storage_path: string;
   tenant_id: string;
@@ -1468,6 +1495,7 @@ export interface DB {
   thread_message_identities: ThreadMessageIdentities;
   thread_notes: ThreadNotes;
   thread_personal_labels: ThreadPersonalLabels;
+  thread_service_invitations: ThreadServiceInvitations;
   thread_status_history: ThreadStatusHistory;
   thread_user_state: ThreadUserState;
   threads: Threads;

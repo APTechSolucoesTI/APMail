@@ -66,7 +66,7 @@ function MailboxNavigation({
     enabled: expanded,
   });
   useSocketRoom('mailbox', expanded ? box.id : undefined);
-  const queuesEnabled = useMailQueues();
+  const queuesEnabled = useMailQueues(box.id);
   const navigation = useMailNavigation();
   const favorites = flattenFolders(folders.data ?? []).filter((folder) =>
     navigation.config.favorite_folder_ids.includes(folder.id),

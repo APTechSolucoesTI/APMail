@@ -11,6 +11,10 @@ import {
   securityForFiles,
   securitySummary,
   assertFilesClean,
+  userCanReadThread,
+  hasConversationInvitation,
+  invitationAllowsPermission,
+  operatorThreadPredicate,
 } from '@apmail/db';
 import { toBullJobId, externalParticipants, type Address, type MailboxPerm } from '@apmail/shared';
 import {
@@ -22,7 +26,12 @@ import {
 } from '../authz/context.js';
 import { requireMailboxPerm, requireMailboxExists } from '../authz/guards.js';
 import { summaryMailboxIds } from './mail-summary.js';
-import { readableFolders, folderPredicate, requireFolder } from '../authz/folders.js';
+import {
+  readableFolders,
+  readableThreadFolders,
+  folderPredicate,
+  requireFolder,
+} from '../authz/folders.js';
 import type { Resources } from './resources.js';
 import { listThreads, queueCounts, unreadInbound } from './mail-visibility-queries.js';
 import { replaceLabels, validateLabelIds, labelIdsSchema } from './organization/service.js';
@@ -44,12 +53,18 @@ export const threadListSchema = z.object({
     .enum(['to_reply', 'in_progress', 'awaiting_reply', 'scheduled', 'done', 'overdue'])
     .optional(),
   label_id: z.uuid().optional(),
+  mailbox_id: z.uuid().optional(),
+  status: z
+    .enum(['none', 'to_reply', 'in_progress', 'awaiting_reply', 'scheduled', 'done'])
+    .optional(),
+  from: z.iso.date().optional(),
+  until: z.iso.date().optional(),
   q: z.string().max(200).optional(),
   unread: z
     .enum(['true', 'false'])
     .default('false')
     .transform((s) => s === 'true'),
-  assigned: z.enum(['any', 'me', 'unassigned']).default('any'),
+  assigned: z.union([z.enum(['any', 'me', 'unassigned']), z.uuid()]).default('any'),
   sort: z.enum(['recent', 'oldest', 'waiting_longest']).default('recent'),
   page: z.coerce.number().int().min(1).default(1),
   page_size: z.coerce
@@ -72,8 +87,39 @@ export async function requireThread(
     .where('deleted_at', 'is', null)
     .executeTakeFirst();
   if (!thread) throw notFound();
-  const role = await requireMailboxPerm(c, r.db, thread.mailbox_id, perm);
-  const folders = await readableFolders(c, r.db, thread.mailbox_id);
+  const invitation = await hasConversationInvitation(r.db, c.tenantId, c.userId, id);
+  let role: import('@apmail/shared').MailboxRole;
+  let delegated = false;
+  try {
+    role = await requireMailboxPerm(c, r.db, thread.mailbox_id, perm);
+    if (!(await userCanReadThread(r.db, c.tenantId, thread.mailbox_id, c.userId, id)))
+      throw notFound();
+    const normal = (
+      await sql<{
+        allowed: boolean;
+      }>`select ${operatorThreadPredicate(c.tenantId, c.userId, sql`${id}::uuid`, sql`${thread.mailbox_id}::uuid`, false)} as allowed`.execute(
+        r.db,
+      )
+    ).rows[0]?.allowed;
+    if (!normal) throw notFound();
+    if (
+      invitation &&
+      role === 'viewer' &&
+      perm === 'read' &&
+      (await invitationAllowsPermission(r.db, c.tenantId, c.userId, id, 'send'))
+    ) {
+      role = 'editor';
+      delegated = true;
+    }
+  } catch (error) {
+    if (!invitation || !(await invitationAllowsPermission(r.db, c.tenantId, c.userId, id, perm)))
+      throw error;
+    role = 'editor';
+    delegated = true;
+  }
+  const folders = ['read', 'send', 'note', 'queue'].includes(perm)
+    ? await readableThreadFolders(c, r.db, thread.mailbox_id, id)
+    : await readableFolders(c, r.db, thread.mailbox_id);
   if (folders !== null) {
     const visible = await r.db
       .selectFrom('messages as m')
@@ -85,7 +131,7 @@ export async function requireThread(
       .executeTakeFirst();
     if (!visible) throw notFound();
   }
-  return { thread, role, c };
+  return { thread, role, c, delegated };
 }
 export function mailEvents(r: Resources, mailboxId: string, ids: string[], userId?: string) {
   r.io
@@ -112,7 +158,9 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
     const c = requireTenant(req.ctx),
       q = threadListSchema.parse(req.query);
     if (q.folder_id || q.label_id || q.view === 'label') throw notFound();
-    return listThreads(r, c, await summaryMailboxIds(r, c), q);
+    const allowed = await summaryMailboxIds(r, c);
+    if (q.mailbox_id && !allowed.includes(q.mailbox_id)) throw notFound();
+    return listThreads(r, c, q.mailbox_id ? [q.mailbox_id] : allowed, q);
   });
   app.get('/api/mail-summary/queue-counts', async (req) => {
     const c = requireTenant(req.ctx);
@@ -148,7 +196,7 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         'f.delimiter',
         (configuration
           ? sql<number>`0`
-          : sql<number>`(select count(distinct t.id)::int from messages m join threads t on t.id=m.thread_id left join thread_user_state us on us.thread_id=t.id and us.user_id=${c.userId} where m.folder_id=f.id and m.deleted_at is null and (t.last_inbound_at > coalesce(us.last_read_at,'-infinity'::timestamptz) or (m.is_mdn and ${unreadInbound} and m.message_at>coalesce(us.last_read_at,'-infinity'::timestamptz))))`
+          : sql<number>`(select count(distinct t.id)::int from messages m join threads t on t.id=m.thread_id left join thread_user_state us on us.thread_id=t.id and us.user_id=${c.userId} where m.folder_id=f.id and m.deleted_at is null and ${operatorThreadPredicate(c.tenantId, c.userId, sql`m.thread_id`, sql`m.mailbox_id`)} and (t.last_inbound_at > coalesce(us.last_read_at,'-infinity'::timestamptz) or (m.is_mdn and ${unreadInbound} and m.message_at>coalesce(us.last_read_at,'-infinity'::timestamptz))))`
         ).as('unread_count'),
       ])
       .where('f.tenant_id', '=', c.tenantId)
@@ -188,11 +236,11 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
     return listThreads(r, c, id, q);
   });
   app.get('/api/threads/:id', async (req) => {
-    const { thread, role, c } = await requireThread(req.ctx, r, idOf(req.params));
+    const { thread, role, c, delegated } = await requireThread(req.ctx, r, idOf(req.params));
     const { message_id: messageId, folder_id: folderId } = z
       .object({ message_id: z.uuid().optional(), folder_id: z.uuid().optional() })
       .parse(req.query);
-    const scope = await readableFolders(c, r.db, thread.mailbox_id);
+    const scope = await readableThreadFolders(c, r.db, thread.mailbox_id, thread.id);
     const messages = await r.db
       .selectFrom('messages as m')
       .leftJoin('users as u', 'u.id', 'm.sent_by_user_id')
@@ -333,7 +381,19 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
     );
     const box = await r.db
       .selectFrom('mailboxes')
-      .select(['email_address', 'aliases'])
+      .select([
+        'id',
+        'name',
+        'email_address',
+        'aliases',
+        'from_name_template',
+        'append_sent_copy',
+        'receiving_protocol',
+        'status',
+        'box_type',
+        'owner_user_id',
+        'queues_enabled',
+      ])
       .where('id', '=', thread.mailbox_id)
       .executeTakeFirstOrThrow();
     const taskCounts = await r.db
@@ -450,6 +510,12 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         .orderBy('o.send_after')
         .execute(),
       my_role: role,
+      delegated,
+      mailbox: {
+        ...box,
+        role,
+        permissions: delegated ? ['read', 'send', 'note', 'queue'] : undefined,
+      },
     };
   });
   for (const action of ['read', 'unread', 'pin'] as const)
@@ -647,6 +713,9 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       else query = query.where('thread_id', 'in', b.thread_ids!);
       const scope = await readableFolders(c, trx, id);
       if (scope !== null) query = query.where(folderPredicate(scope));
+      query = query.where(
+        operatorThreadPredicate(c.tenantId, c.userId, sql`thread_id`, sql`mailbox_id`),
+      );
       let messages = await query.orderBy('id').forUpdate().execute();
       if (b.trash_folder_id && !messages.length) return null;
       const hasMore = !!b.trash_folder_id && messages.length > 1000;
@@ -819,13 +888,18 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       .where('m.deleted_at', 'is', null)
       .executeTakeFirst();
     if (!a) throw notFound();
-    await requireMailboxPerm(c, r.db, a.mailbox_id, 'read');
     const message = await r.db
       .selectFrom('messages')
-      .select('folder_id')
+      .select(['folder_id', 'thread_id'])
       .where('id', '=', a.message_id)
       .executeTakeFirstOrThrow();
-    await requireFolder(c, r.db, a.mailbox_id, message.folder_id);
+    await requireThread(c, r, message.thread_id);
+    const attachmentScope = await readableThreadFolders(c, r.db, a.mailbox_id, message.thread_id);
+    if (
+      attachmentScope !== null &&
+      (!message.folder_id || !attachmentScope.includes(message.folder_id))
+    )
+      throw notFound();
     return a;
   };
   app.get('/api/attachments/:id/security', async (req, reply) => {

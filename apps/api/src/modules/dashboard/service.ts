@@ -12,6 +12,7 @@ export type DashboardScope = {
   to: string;
   filtered: boolean;
   userId: string | null;
+  viewerUserId: string;
   sla: number;
   limit: number;
   folderScopes: { mailboxId: string; folders: string[] | null }[];
@@ -29,7 +30,14 @@ export async function dashboardScope(
       .where('id', '=', c.tenantId)
       .executeTakeFirstOrThrow();
   if (q.mailbox_id) await requireMailboxPerm(c, r.db, q.mailbox_id, 'read');
-  const personal = c.tenantRole === 'member';
+  const supervised = await r.db
+    .selectFrom('mailbox_members')
+    .select('mailbox_id')
+    .where('tenant_id', '=', c.tenantId)
+    .where('user_id', '=', c.userId)
+    .where('role', 'in', ['mailbox_admin', 'supervisor'])
+    .execute();
+  const personal = !supervised.length;
   if (personal && q.user_id && q.user_id !== c.userId) throw forbidden();
   let boxes = r.db
     .selectFrom('mailboxes as b')
@@ -48,6 +56,11 @@ export async function dashboardScope(
     ),
   );
   const ids = (await boxes.execute()).map((b) => b.id);
+  if (q.user_id && q.user_id !== c.userId) {
+    const allowed = new Set(supervised.map((b) => b.mailbox_id));
+    if (q.mailbox_id && !allowed.has(q.mailbox_id)) throw forbidden();
+    for (let i = ids.length - 1; i >= 0; i--) if (!allowed.has(ids[i]!)) ids.splice(i, 1);
+  }
   if (q.user_id && !personal) {
     const member = await r.db
       .selectFrom('tenant_members')
@@ -102,6 +115,7 @@ export async function dashboardScope(
     .parse({ from, to });
   return {
     tenantId: c.tenantId,
+    viewerUserId: c.userId,
     boxIds: ids,
     timezone: tenant.timezone,
     from,

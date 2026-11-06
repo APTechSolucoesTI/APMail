@@ -41,6 +41,8 @@ export type Thread = {
   last_message_at: string | null;
   last_inbound_at: string | null;
   queue_status: 'none' | 'to_reply' | 'in_progress' | 'awaiting_reply' | 'scheduled' | 'done';
+  service_started_at?: string | null;
+  queues_enabled?: boolean;
   queue_excluded?: boolean;
   is_unread: boolean;
   is_pinned: boolean;
@@ -99,6 +101,8 @@ export type Message = {
   sent_by: { id: string; full_name: string } | null;
 };
 export type ThreadDetail = {
+  delegated?: boolean;
+  mailbox?: import('./auth').Mailbox;
   contacts?: ContactResolution;
   is_pinned_personal?: boolean;
   is_pinned_global?: boolean;

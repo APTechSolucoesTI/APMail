@@ -185,6 +185,9 @@ export async function registerPlatformManagement(
         from_name_template: mailboxSchema.shape.from_name_template.removeDefault().optional(),
         history_classify_days: mailboxSchema.shape.history_classify_days.removeDefault().optional(),
         append_sent_copy: mailboxSchema.shape.append_sent_copy.removeDefault().optional(),
+        box_type: mailboxSchema.shape.box_type.removeDefault().optional(),
+        queues_enabled: mailboxSchema.shape.queues_enabled.removeDefault().optional(),
+        owner_user_id: mailboxSchema.shape.owner_user_id.removeDefault().optional(),
       })
       .refine((body) => Object.keys(body).some((key) => key !== 'tenant_id'), {
         message: 'Informe ao menos um campo para atualizar.',

@@ -36,8 +36,8 @@ export const ROLE_LABELS = {
   member: 'Membro',
   supervisor: 'Supervisor',
   mailbox_admin: 'Admin da caixa',
-  editor: 'Editor',
-  viewer: 'Somente leitura',
+  editor: 'Operador',
+  viewer: 'Visualizador',
 } as const;
 export const PAGE_SIZES = [10, 20, 30, 50, 100] as const;
 export const PROVIDER_PRESETS = [

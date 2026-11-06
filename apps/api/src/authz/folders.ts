@@ -1,5 +1,6 @@
 import { sql, type Kysely } from 'kysely';
 import type { DB } from '@apmail/db';
+import { hasConversationInvitation } from '@apmail/db';
 import { requireTenant, notFound, type RequestContext } from './context.js';
 import { requireMailboxPerm } from './guards.js';
 type Scope = string[] | null;
@@ -12,7 +13,7 @@ export async function readableFolders(
 ): Promise<Scope> {
   const c = requireTenant(ctx),
     role = await requireMailboxPerm(c, db, boxId, 'read');
-  if (role === 'mailbox_admin') return null;
+  if (role === 'mailbox_admin' || role === 'supervisor') return null;
   let boxes = cached.get(c);
   if (!boxes) {
     boxes = new Map();
@@ -47,6 +48,16 @@ export const folderPredicate = (scope: Scope, column = 'm.folder_id') =>
     : scope.length
       ? sql<boolean>`${sql.ref(column)} in (${sql.join(scope.map((id) => sql`${id}::uuid`))})`
       : sql<boolean>`false`;
+export async function readableThreadFolders(
+  ctx: RequestContext,
+  db: Kysely<DB>,
+  boxId: string,
+  threadId: string,
+) {
+  const c = requireTenant(ctx);
+  if (await hasConversationInvitation(db, c.tenantId, c.userId, threadId)) return null;
+  return readableFolders(c, db, boxId);
+}
 export async function requireFolder(
   ctx: RequestContext,
   db: Kysely<DB>,

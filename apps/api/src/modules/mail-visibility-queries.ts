@@ -8,6 +8,9 @@ import { notFound, requireTenant } from '../authz/context.js';
 import { readableFolders, folderPredicate } from '../authz/folders.js';
 import { resolveContacts } from './contact-resolution.js';
 import { mailSearchTerms } from './mail-search-date.js';
+import { operatorThreadPredicate } from '@apmail/db';
+import { getMailboxRole } from '../authz/guards.js';
+import { forbidden } from '../authz/context.js';
 // Keep receipt mail out of queue/SLA activity while counting it as an unread inbox item.
 export const unreadInbound = sql`m.direction='inbound' and (not m.is_automated or (m.is_mdn and m.source_kind in ('imap','pop3') and m.mdn_provider_seen is false))`;
 export async function listThreads(
@@ -17,7 +20,17 @@ export async function listThreads(
   q: z.infer<typeof threadListSchema>,
   inspect?: (query: CompiledQuery) => Promise<void>,
 ) {
-  const boxIds = Array.isArray(boxId) ? boxId : [boxId];
+  let boxIds = Array.isArray(boxId) ? boxId : [boxId];
+  if (!['any', 'me', 'unassigned', c.userId].includes(q.assigned)) {
+    const supervisors = await Promise.all(
+      boxIds.map(async (id) => ({ id, role: await getMailboxRole(c, r.db, id) })),
+    );
+    const allowed = supervisors
+      .filter((b) => b.role === 'mailbox_admin' || b.role === 'supervisor')
+      .map((b) => b.id);
+    if (!allowed.length) throw forbidden();
+    boxIds = allowed;
+  }
   if (!boxIds.length) return { items: [], total: 0, page: q.page, page_size: q.page_size };
   const scopes = await Promise.all(
     boxIds.map(async (id) => ({ id, folders: await readableFolders(c, r.db, id) })),
@@ -66,15 +79,16 @@ export async function listThreads(
     if (!label) throw notFound();
   }
   const search = mailSearchTerms(q.q);
-  const timezone = search.from
-    ? ((
-        await r.db
-          .selectFrom('user_preferences')
-          .select('timezone')
-          .where('user_id', '=', c.userId)
-          .executeTakeFirst()
-      )?.timezone ?? 'America/Sao_Paulo')
-    : 'America/Sao_Paulo';
+  const timezone =
+    search.from || q.from || q.until
+      ? ((
+          await r.db
+            .selectFrom('user_preferences')
+            .select('timezone')
+            .where('user_id', '=', c.userId)
+            .executeTakeFirst()
+        )?.timezone ?? 'America/Sao_Paulo')
+      : 'America/Sao_Paulo';
   const matchesSearch = (alias: string) => {
     const parts = [sql`true`];
     if (search.text)
@@ -91,10 +105,36 @@ export async function listThreads(
     sql`t.tenant_id=${c.tenantId}`,
     sql`t.mailbox_id in (${sql.join(boxIds)})`,
     sql`t.deleted_at is null`,
+    operatorThreadPredicate(c.tenantId, c.userId, sql`t.id`, sql`t.mailbox_id`),
   ];
-  if (q.assigned === 'me') conditions.push(sql`t.assigned_to=${c.userId}`);
+  const responsible =
+    q.assigned === 'me'
+      ? c.userId
+      : !['any', 'unassigned'].includes(q.assigned)
+        ? q.assigned
+        : null;
+  if (q.assigned === 'me')
+    conditions.push(
+      individualMessages
+        ? sql`(t.assigned_to=${c.userId} or exists(select 1 from messages sender where sender.thread_id=t.id and sender.tenant_id=${c.tenantId} and sender.sent_by_user_id=${c.userId} and sender.direction='outbound' and sender.deleted_at is null))`
+        : sql`t.assigned_to=${c.userId}`,
+    );
   else if (q.assigned === 'unassigned') conditions.push(sql`t.assigned_to is null`);
+  else if (q.assigned !== 'any')
+    conditions.push(
+      individualMessages
+        ? sql`(t.assigned_to=${q.assigned} or exists(select 1 from messages sender where sender.thread_id=t.id and sender.tenant_id=${c.tenantId} and sender.sent_by_user_id=${q.assigned} and sender.direction='outbound' and sender.deleted_at is null))`
+        : sql`t.assigned_to=${q.assigned}`,
+    );
+  if (q.status) conditions.push(sql`t.queue_status=${q.status}::queue_status`);
+  if (q.from || q.until)
+    conditions.push(
+      sql`exists(select 1 from messages period where period.tenant_id=${c.tenantId} and period.thread_id=t.id and period.deleted_at is null and ${scope('period.folder_id')} ${q.from ? sql`and period.message_at>=(${q.from}::date::timestamp at time zone ${timezone})` : sql``} ${q.until ? sql`and period.message_at<((${q.until}::date+1)::timestamp at time zone ${timezone})` : sql``})`,
+    );
   if (q.view === 'queue') {
+    conditions.push(
+      sql`exists(select 1 from mailboxes enabled where enabled.id=t.mailbox_id and enabled.tenant_id=${c.tenantId} and enabled.queues_enabled)`,
+    );
     conditions.push(sql`not t.queue_excluded`);
     if (q.queue === 'overdue') conditions.push(sql`t.queue_status in ('to_reply','in_progress')`);
     else if (q.queue) conditions.push(sql`t.queue_status=${q.queue}::queue_status`);
@@ -118,8 +158,7 @@ export async function listThreads(
         : q.sort === 'waiting_longest'
           ? sql`last_inbound_at asc nulls last,id,entry_id`
           : sql`is_pinned desc,last_message_at desc nulls last,id,entry_id`;
-  const messageSearch =
-    individualMessages && (search.text || search.from) ? sql`and ${matchesSearch('m')}` : sql``;
+  const messageSearch = sql`${individualMessages && (search.text || search.from) ? sql`and ${matchesSearch('m')}` : sql``} ${individualMessages && responsible ? sql`and (e.assigned_to=${responsible} or m.sent_by_user_id=${responsible})` : sql``}`;
   // A grouped folder entry opens the full readable conversation, including Sent replies.
   const messageCount =
     individualMessages || !folderIds.length
@@ -175,7 +214,7 @@ export async function listThreads(
        ${individualMessages ? sql`and original.id=p.entry_id` : sql``}) as has_reply,
    (select count(*)::int from reminders task where task.tenant_id=${c.tenantId} and task.thread_id=p.id and task.status in ('pending','notified')) as pending_task_count,
    (select count(*)::int from reminders task where task.tenant_id=${c.tenantId} and task.thread_id=p.id and task.status='completed') as completed_task_count,
-   box.name as mailbox_name,box.email_address as mailbox_email,latest.snippet,jsonb_build_object('name',latest.from_name,'address',latest.from_address) as latest_from,latest.to_addresses as latest_to,latest.direction,
+   box.name as mailbox_name,box.email_address as mailbox_email,box.queues_enabled,latest.snippet,jsonb_build_object('name',latest.from_name,'address',latest.from_address) as latest_from,latest.to_addresses as latest_to,latest.direction,
    case when latest.request_read_receipt then case when exists(select 1 from mdn_receipts receipt where receipt.original_message_id=latest.id and receipt.disposition='displayed') then 'confirmed' else 'waiting' end else null end as read_receipt_status,
    coalesce((select array_agg(distinct address) from (
     select lower(m.from_address) as address from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${scope()} ${folderFilter} ${selectedMessage('p')}
@@ -235,15 +274,15 @@ export async function queueCounts(
   select m.thread_id,max(m.message_at) filter(where m.direction='inbound' and not m.is_automated and coalesce(f.special_use::text,'') not in ('trash','junk')) as last_inbound_at,
   max(m.message_at) filter(where ${unreadInbound} and f.special_use='inbox') as inbox_at
   from messages m join folders f on f.id=m.folder_id where m.tenant_id=${c.tenantId} and m.mailbox_id in (${sql.join(boxIds)}) and m.deleted_at is null and ${scope()} group by m.thread_id
- ) select count(*) filter(where not t.queue_excluded and t.queue_status='to_reply')::int as to_reply,
- count(*) filter(where not t.queue_excluded and t.queue_status='in_progress')::int as in_progress,
- count(*) filter(where not t.queue_excluded and t.queue_status='awaiting_reply')::int as awaiting_reply,
- count(*) filter(where not t.queue_excluded and t.queue_status='scheduled')::int as scheduled,
- count(*) filter(where not t.queue_excluded and t.queue_status='done' and t.queue_status_changed_at>=now()-interval '7 days')::int as done_7d,
- count(*) filter(where not t.queue_excluded and t.queue_status in ('to_reply','in_progress') and v.last_inbound_at<now()-make_interval(hours=>coalesce((tenant.settings->>'sla_first_response_hours')::int,24)))::int as overdue,
+ ) select count(*) filter(where box.queues_enabled and not t.queue_excluded and t.queue_status='to_reply')::int as to_reply,
+ count(*) filter(where box.queues_enabled and not t.queue_excluded and t.queue_status='in_progress')::int as in_progress,
+ count(*) filter(where box.queues_enabled and not t.queue_excluded and t.queue_status='awaiting_reply')::int as awaiting_reply,
+ count(*) filter(where box.queues_enabled and not t.queue_excluded and t.queue_status='scheduled')::int as scheduled,
+ count(*) filter(where box.queues_enabled and not t.queue_excluded and t.queue_status='done' and t.queue_status_changed_at>=now()-interval '7 days')::int as done_7d,
+ count(*) filter(where box.queues_enabled and not t.queue_excluded and t.queue_status in ('to_reply','in_progress') and v.last_inbound_at<now()-make_interval(hours=>coalesce((tenant.settings->>'sla_first_response_hours')::int,24)))::int as overdue,
  count(*) filter(where v.inbox_at>coalesce(us.last_read_at,'-infinity'::timestamptz))::int as unread_inbox
- from threads t join visible v on v.thread_id=t.id join tenants tenant on tenant.id=t.tenant_id left join thread_user_state us on us.thread_id=t.id and us.tenant_id=${c.tenantId} and us.user_id=${c.userId}
- where t.tenant_id=${c.tenantId} and t.mailbox_id in (${sql.join(boxIds)}) and t.deleted_at is null`.execute(
+ from threads t join visible v on v.thread_id=t.id join mailboxes box on box.id=t.mailbox_id and box.tenant_id=t.tenant_id join tenants tenant on tenant.id=t.tenant_id left join thread_user_state us on us.thread_id=t.id and us.tenant_id=${c.tenantId} and us.user_id=${c.userId}
+ where t.tenant_id=${c.tenantId} and t.mailbox_id in (${sql.join(boxIds)}) and t.deleted_at is null and ${operatorThreadPredicate(c.tenantId, c.userId, sql`t.id`, sql`t.mailbox_id`)} `.execute(
     r.db,
   );
   return result.rows[0]!;

@@ -6,6 +6,7 @@ import { requireTenant } from '../authz/context.js';
 import { requireMailboxPerm } from '../authz/guards.js';
 import { readableFolders, folderPredicate } from '../authz/folders.js';
 import type { Resources } from './resources.js';
+import { operatorThreadPredicate } from '@apmail/db';
 
 type DraftItem = {
   id: string;
@@ -59,6 +60,7 @@ export async function registerMailboxDrafts(app: FastifyInstance, r: Resources) 
       where m.tenant_id=${c.tenantId} and m.mailbox_id=${id} and m.deleted_at is null
         and f.deleted_at is null and t.deleted_at is null and f.special_use='drafts'
         and ${folderPredicate(scope)}
+        and ${operatorThreadPredicate(c.tenantId, c.userId, sql`m.thread_id`, sql`m.mailbox_id`)}
     ), filtered as (select * from drafts where ${
       q.q
         ? sql`(subject ilike ${'%' + q.q + '%'} or snippet ilike ${'%' + q.q + '%'} or to_addresses::text ilike ${'%' + q.q + '%'})`

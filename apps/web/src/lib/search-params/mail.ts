@@ -8,7 +8,13 @@ export const mailSearchSchema = z.object({
   labelId: z.uuid().optional(),
   q: z.coerce.string().max(200).optional(),
   unread: z.boolean().optional(),
-  assigned: z.enum(['any', 'me', 'unassigned']).default('any'),
+  assigned: z.union([z.enum(['any', 'me', 'unassigned']), z.uuid()]).optional(),
+  mailboxId: z.uuid().optional(),
+  status: z
+    .enum(['none', 'to_reply', 'in_progress', 'awaiting_reply', 'scheduled', 'done'])
+    .optional(),
+  from: z.iso.date().optional(),
+  until: z.iso.date().optional(),
   sort: z.enum(['recent', 'oldest', 'waiting_longest']).default('recent'),
   page: z.number().int().min(1).default(1),
   pageSize: z

@@ -18,8 +18,9 @@ import {
   registerSecurityFile,
   inheritFileSecurity,
   FileSecurityError,
+  invitationAllowsPermission,
 } from '@apmail/db';
-import { can, OUTBOX_SUBJECT_REQUIRED, type Address } from '@apmail/shared';
+import { OUTBOX_SUBJECT_REQUIRED, type Address } from '@apmail/shared';
 import { UnrecoverableError, type Job } from 'bullmq';
 import type { WorkerResources } from '../resources.js';
 import { transports } from '../imap/connect.js';
@@ -96,23 +97,14 @@ export async function handleOutboxSend(
       .where('deleted_at', 'is', null)
       .executeTakeFirst();
     if (!box || box.status !== 'active') throw new Error('mailbox_unavailable');
-    if (!(await userCanMailbox(r, box, row.created_by, 'send')))
-      throw new Error('send_permission_revoked');
+    const sourceThread = row.source_thread_id ?? row.thread_id;
+    const regular = await userCanMailbox(r, box, row.created_by, 'send');
+    const delegated =
+      !!sourceThread &&
+      ['reply', 'reply_all'].includes(row.kind) &&
+      (await invitationAllowsPermission(r.db, row.tenant_id, row.created_by, sourceThread, 'send'));
+    if (!regular && !delegated) throw new Error('send_permission_revoked');
     if (row.is_auto_reply && !(await userCanMailbox(r, box, row.created_by, 'rules')))
-      throw new Error('send_permission_revoked');
-    const membership = await r.db
-      .selectFrom('tenant_members')
-      .select(['role', 'status'])
-      .where('user_id', '=', row.created_by)
-      .where('tenant_id', '=', row.tenant_id)
-      .executeTakeFirst();
-    const access = await r.db
-      .selectFrom('mailbox_members')
-      .select('role')
-      .where('user_id', '=', row.created_by)
-      .where('mailbox_id', '=', box.id)
-      .executeTakeFirst();
-    if (!membership || membership.status !== 'active' || !access || !can(access.role, 'send'))
       throw new Error('send_permission_revoked');
     if (
       (row.source_thread_id ?? row.thread_id) &&
@@ -195,7 +187,17 @@ export async function handleOutboxSend(
                   (await resolveThread(tx, metadata, [box.email_address, ...box.aliases])));
             await tx
               .updateTable('threads')
-              .set({ history_queue_eligible: true })
+              .set({
+                history_queue_eligible: true,
+                ...(!row.is_auto_reply && !row.mdn_original_message_id
+                  ? { service_started_at: null }
+                  : {}),
+                ...(!row.is_auto_reply &&
+                !row.mdn_original_message_id &&
+                (row.kind === 'new' || row.kind === 'forward')
+                  ? { assigned_to: row.created_by, assigned_at: at }
+                  : {}),
+              })
               .where('id', '=', threadId)
               .execute();
             await tx

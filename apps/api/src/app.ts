@@ -54,6 +54,7 @@ import { registerOutboxRoutes } from './modules/outbox.js';
 import { registerAntivirus } from './modules/antivirus.js';
 import { registerOrganizationRoutes } from './modules/organization/routes.js';
 import { registerThreadOperations } from './modules/thread-operations/routes.js';
+import { registerThreadInvitations } from './modules/thread-invitations.js';
 import { registerDashboard } from './modules/dashboard/routes.js';
 import { registerChat } from './modules/chat/routes.js';
 import { registerSuperAdmin } from './modules/superadmin.js';
@@ -301,6 +302,7 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await registerAntivirus(app, resources);
   await registerOrganizationRoutes(app, resources);
   registerThreadOperations(app, resources);
+  await registerThreadInvitations(app, resources);
   registerDashboard(app, resources);
   registerChat(app, resources);
   await registerSuperAdmin(app, resources);

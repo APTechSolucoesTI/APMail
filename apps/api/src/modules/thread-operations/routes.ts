@@ -12,7 +12,7 @@ import {
 } from './service.js';
 const idOf = (params: unknown) => z.object({ id: z.uuid() }).parse(params).id;
 export function registerThreadOperations(app: FastifyInstance, r: Resources) {
-  for (const action of ['done', 'reopen'] as const)
+  for (const action of ['done', 'reopen', 'start'] as const)
     app.post('/api/threads/:id/' + action, (req) =>
       changeThread(r, req.ctx, idOf(req.params), action),
     );

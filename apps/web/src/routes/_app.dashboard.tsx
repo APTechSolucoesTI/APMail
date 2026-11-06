@@ -155,11 +155,11 @@ function CustomPeriod({
   );
 }
 function Dashboard() {
-  const showQueues = useMailQueues();
   const search = Route.useSearch(),
     navigate = Route.useNavigate(),
     tenantId = useTenantId(),
     me = useQuery(meQuery);
+  const showQueues = useMailQueues(search.mailboxId);
   const boxes = useQuery({
     queryKey: ['mailboxes', tenantId],
     queryFn: () => api<Mailbox[]>('/mailboxes'),

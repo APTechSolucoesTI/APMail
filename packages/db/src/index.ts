@@ -41,3 +41,5 @@ export * from './domain/thread-identities.js';
 export * from './domain/mail-policy.js';
 export * from './domain/domains.js';
 export * from './domain/mail-retention.js';
+export * from './domain/service-access.js';
+export * from './domain/mailbox-service.js';

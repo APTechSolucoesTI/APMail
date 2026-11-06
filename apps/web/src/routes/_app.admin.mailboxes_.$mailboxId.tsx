@@ -12,6 +12,7 @@ import { connectionFields } from '@/components/forms/mailbox-wizard';
 import { MailboxStatusBadge } from '@/components/common/status-badge';
 import { mailboxRecovering } from '@/lib/mailbox-health';
 import { LoadingState, ErrorState } from '@/components/data/data-state';
+import { MailboxServiceSettings } from '@/components/settings/mailbox-service-settings';
 import { MailboxMembersPanel } from '@/components/settings/mailbox-members-panel';
 import { toast } from 'sonner';
 import { FolderManagement } from '@/components/mail/folder-controls';
@@ -59,7 +60,11 @@ function MailboxSettings() {
           {q.data.receiving_protocol !== 'local' && <TabsTrigger value="send">Envio</TabsTrigger>}
           <TabsTrigger value="archives">Importação e backup</TabsTrigger>
         </TabsList>
-        <TabsContent value="connection" className="max-w-2xl rounded-lg border bg-card p-4">
+        <TabsContent
+          value="connection"
+          className="max-w-2xl space-y-6 rounded-lg border bg-card p-4"
+        >
+          <MailboxServiceSettings mailbox={q.data} />
           <SchemaForm
             cancelLabel="Cancelar"
             schema={mailboxSchema
@@ -92,7 +97,11 @@ function MailboxSettings() {
           />
         </TabsContent>
         <TabsContent value="members">
-          <MailboxMembersPanel mailboxId={mailboxId} />
+          <MailboxMembersPanel
+            mailboxId={mailboxId}
+            ownerUserId={q.data.owner_user_id}
+            boxType={q.data.box_type}
+          />
         </TabsContent>
         <TabsContent value="archives">
           <MailArchivesPanel mailboxId={mailboxId} />

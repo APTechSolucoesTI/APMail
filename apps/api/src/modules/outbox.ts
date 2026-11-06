@@ -24,6 +24,9 @@ import {
   securitySummary,
   enqueueSecurityScan,
   assertFilesClean,
+  startThreadService,
+  operatorThreadPredicate,
+  activeInvitationPredicate,
 } from '@apmail/db';
 import {
   outboxSchema,
@@ -43,8 +46,8 @@ import {
   ApiError,
   type RequestContext,
 } from '../authz/context.js';
-import { requireMailboxPerm, getMailboxRole } from '../authz/guards.js';
-import { readableFolders, folderPredicate, requireFolder } from '../authz/folders.js';
+import { requireMailboxPerm } from '../authz/guards.js';
+import { readableFolders, readableThreadFolders, folderPredicate } from '../authz/folders.js';
 import { requireThread } from './mail.js';
 import type { Resources } from './resources.js';
 import { moveDraftUploads } from './outbox-mailbox.js';
@@ -59,6 +62,32 @@ const subjectFailure = (row: OutboxRow) =>
 export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
   await registerRecurringSchedules(app, r);
   const storage = new Storage(r.env.STORAGE_DIR, r.db);
+  const rowAccess = async (
+    c: RequestContext,
+    row: Pick<OutboxRow, 'mailbox_id' | 'thread_id' | 'source_thread_id'>,
+    permission: 'read' | 'send',
+  ) => {
+    const id = row.thread_id ?? row.source_thread_id;
+    if (id) {
+      const access = await requireThread(c, r, id, permission);
+      if (access.thread.mailbox_id !== row.mailbox_id) throw notFound();
+      return access.role;
+    }
+    return requireMailboxPerm(c, r.db, row.mailbox_id, permission);
+  };
+  const uploadAccess = async (c: RequestContext, id: string, box: string) => {
+    const stored = (
+      await sql<{
+        service_thread_id: string | null;
+      }>`select service_thread_id from uploads where id=${id} and tenant_id=${c.tenantId} and user_id=${c.userId}`.execute(
+        r.db,
+      )
+    ).rows[0];
+    if (stored?.service_thread_id) {
+      const access = await requireThread(c, r, stored.service_thread_id, 'send');
+      if (access.thread.mailbox_id !== box) throw notFound();
+    } else await requireMailboxPerm(c, r.db, box, 'send');
+  };
   const owned = async (ctx: RequestContext | null, id: string) => {
     const c = requireTenant(ctx);
     const row = await r.db
@@ -72,7 +101,14 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     return { c, row };
   };
   const flags = async (c: RequestContext, row: OutboxRow) => {
-    const role = await getMailboxRole(c, r.db, row.mailbox_id);
+    const role = await rowAccess(c, row, 'read');
+    let canSend = false;
+    try {
+      await rowAccess(c, row, 'send');
+      canSend = true;
+    } catch {
+      /* A revoked grant must never enable editing. */
+    }
     return {
       can_cancel:
         (row.created_by === c.userId && ['queued', 'scheduled'].includes(row.status)) ||
@@ -81,8 +117,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         !row.calendar_payload &&
         row.created_by === c.userId &&
         (['draft', 'queued', 'scheduled'].includes(row.status) || subjectFailure(row)) &&
-        !!role &&
-        can(role, 'send'),
+        canSend,
     };
   };
   const changed = (row: OutboxRow) => {
@@ -104,22 +139,27 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
     body: OutboxInput,
     db: Database = r.db,
   ) => {
-    await requireMailboxPerm(c, db, body.mailbox_id, 'send');
-    const scope = await readableFolders(c, db, body.mailbox_id);
     const sourceThread =
       body.kind === 'forward' ? (body.source_thread_id ?? body.thread_id) : body.thread_id;
     if (sourceThread) {
-      const t = await db
+      const locked = await db
         .selectFrom('threads')
         .select('id')
-        .where('id', '=', sourceThread!)
+        .where('id', '=', sourceThread)
         .where('tenant_id', '=', c.tenantId)
         .where('mailbox_id', '=', body.mailbox_id)
         .where('deleted_at', 'is', null)
+        .forUpdate()
         .executeTakeFirst();
-      if (!t) throw notFound();
-      await requireThread(c, r, sourceThread!);
+      if (!locked) throw notFound();
     }
+    const access = sourceThread ? await requireThread(c, r, sourceThread, 'send') : null;
+    if (access && access.thread.mailbox_id !== body.mailbox_id) throw notFound();
+    if (access?.delegated && !['reply', 'reply_all'].includes(body.kind)) throw forbidden();
+    if (!sourceThread) await requireMailboxPerm(c, db, body.mailbox_id, 'send');
+    const scope = sourceThread
+      ? await readableThreadFolders(c, db, body.mailbox_id, sourceThread)
+      : await readableFolders(c, db, body.mailbox_id);
     if (body.reply_to_message_id) {
       const m = await db
         .selectFrom('messages')
@@ -130,7 +170,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         .where('deleted_at', 'is', null)
         .executeTakeFirst();
       if (!m || m.thread_id !== sourceThread) throw notFound();
-      await requireFolder(c, db, body.mailbox_id, m.folder_id);
+      if (scope !== null && (!m.folder_id || !scope.includes(m.folder_id))) throw notFound();
     }
     if (
       ['reply', 'reply_all'].includes(body.kind) &&
@@ -149,7 +189,18 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       if (!s || (s.mailbox_id && s.mailbox_id !== body.mailbox_id)) throw notFound();
     }
     for (const ref of body.attachments) {
-      if (ref.source !== 'message_attachment') continue;
+      if (ref.source === 'upload') {
+        const upload = await db
+          .selectFrom('uploads')
+          .select('service_thread_id')
+          .where('tenant_id', '=', c.tenantId)
+          .where('user_id', '=', c.userId)
+          .where('id', '=', ref.upload_id)
+          .executeTakeFirst();
+        if (upload?.service_thread_id && upload.service_thread_id !== sourceThread)
+          throw notFound();
+        continue;
+      }
       const file = await db
         .selectFrom('attachments as a')
         .innerJoin('messages as m', 'm.id', 'a.message_id')
@@ -159,6 +210,8 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         .where('a.mailbox_id', '=', body.mailbox_id)
         .where('m.deleted_at', 'is', null)
         .where(folderPredicate(scope))
+        .where(operatorThreadPredicate(c.tenantId, c.userId, sql`m.thread_id`, sql`m.mailbox_id`))
+        .$if(!!sourceThread, (q) => q.where('m.thread_id', '=', sourceThread!))
         .executeTakeFirst();
       if (!file) throw notFound();
     }
@@ -219,8 +272,13 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
   app.post('/api/uploads', async (req, reply) => {
     const c = requireTenant(req.ctx),
       file = await req.file();
-    const { mailbox_id } = z.object({ mailbox_id: z.uuid().optional() }).parse(req.query);
-    if (mailbox_id) await requireMailboxPerm(c, r.db, mailbox_id, 'send');
+    const { mailbox_id, thread_id } = z
+      .object({ mailbox_id: z.uuid().optional(), thread_id: z.uuid().optional() })
+      .parse(req.query);
+    if (thread_id) {
+      const access = await requireThread(c, r, thread_id, 'send');
+      if (access.thread.mailbox_id !== mailbox_id) throw notFound();
+    } else if (mailbox_id) await requireMailboxPerm(c, r.db, mailbox_id, 'send');
     else {
       const configured = await sql<{
         cap: string | null;
@@ -262,6 +320,10 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
           })
           .returning(['id', 'filename', 'content_type', 'size_bytes'])
           .executeTakeFirstOrThrow();
+        if (thread_id)
+          await sql`update uploads set service_thread_id=${thread_id} where id=${id} and tenant_id=${c.tenantId}`.execute(
+            tx,
+          );
         const security = await registerSecurityFile(tx, {
           storage_key: path,
           tenant_id: c.tenantId,
@@ -296,7 +358,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       .executeTakeFirst();
     if (!row) throw notFound();
     if (row.consumed_at) throw conflict('Este anexo já foi enviado.');
-    if (row.mailbox_id) await requireMailboxPerm(c, r.db, row.mailbox_id, 'send');
+    if (row.mailbox_id) await uploadAccess(c, id, row.mailbox_id);
     const referenced = await r.db
       .selectFrom('outbox')
       .select('id')
@@ -332,7 +394,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         !/^(image\/(png|jpeg|gif|webp)|application\/pdf)$/.test(file.content_type)
       )
         throw notFound();
-      if (file.mailbox_id) await requireMailboxPerm(c, r.db, file.mailbox_id, 'send');
+      if (file.mailbox_id) await uploadAccess(c, id, file.mailbox_id);
       await assertFilesClean(r.db, [file.storage_path], storage);
       if (kind === 'download') {
         const filename = file.filename.replace(/[\r\n"\\]/g, '_');
@@ -360,7 +422,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       .where('consumed_at', 'is', null)
       .executeTakeFirst();
     if (!file) throw notFound();
-    if (file.mailbox_id) await requireMailboxPerm(c, r.db, file.mailbox_id, 'send');
+    if (file.mailbox_id) await uploadAccess(c, id, file.mailbox_id);
     const security = await securityForFiles(r.db, [file.storage_path]);
     reply.header('Cache-Control', 'private, no-store');
     return securitySummary(security.get(file.storage_path) ?? null);
@@ -368,17 +430,21 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
   app.post('/api/outbox', async (req, reply) => {
     const c = requireTenant(req.ctx),
       body = outboxSchema.parse(req.body);
-    await validateRefs(c, body);
-    const row = await r.db
-      .insertInto('outbox')
-      .values({
-        ...values(body),
-        tenant_id: c.tenantId,
-        created_by: c.userId,
-        contact_prompt_handled: false,
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow();
+    const row = await r.db.transaction().execute(async (tx) => {
+      await validateRefs(c, body, tx);
+      const row = await tx
+        .insertInto('outbox')
+        .values({
+          ...values(body),
+          tenant_id: c.tenantId,
+          created_by: c.userId,
+          contact_prompt_handled: false,
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      if (row.thread_id) await startThreadService(tx, row.thread_id, c.userId);
+      return row;
+    });
     changed(row);
     return reply.code(201).send({ ...row, ...(await flags(c, row)) });
   });
@@ -440,11 +506,13 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       )
     )
       throw forbidden();
-    await requireMailboxPerm(c, r.db, row.mailbox_id, 'read');
+    await rowAccess(c, row, 'read');
     if (row.created_by !== c.userId) {
       if (row.status === 'draft') throw notFound();
-      await requireMailboxPerm(c, r.db, row.mailbox_id, 'read');
-      const scope = await readableFolders(c, r.db, row.mailbox_id);
+      await rowAccess(c, row, 'read');
+      const scope = row.thread_id
+        ? await readableThreadFolders(c, r.db, row.mailbox_id, row.thread_id)
+        : await readableFolders(c, r.db, row.mailbox_id);
       if (scope !== null) {
         if (!row.thread_id) throw notFound();
         await requireThread(c, r, row.thread_id);
@@ -493,6 +561,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         .where('status', '=', 'draft')
         .returningAll()
         .executeTakeFirstOrThrow();
+      if (result.thread_id) await startThreadService(tx, result.thread_id, c.userId);
       if (current.mailbox_id !== body.mailbox_id)
         await assertStorageCapacity(tx, c.tenantId, body.mailbox_id);
       return result;
@@ -548,9 +617,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
       .where('o.tenant_id', '=', c.tenantId)
       .where('o.mdn_original_message_id', 'is', null)
       .where(
-        'o.mailbox_id',
-        'in',
-        visible.map((b) => b.id),
+        sql<boolean>`(${visible.length ? sql`o.mailbox_id in (${sql.join(visible.map((b) => b.id))})` : sql`false`} or (o.created_by=${c.userId} and ${activeInvitationPredicate(c.tenantId, c.userId, sql`coalesce(o.thread_id,o.source_thread_id)`)}))`,
       )
       .where(
         'o.status',
@@ -567,11 +634,13 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
           : sql`(o.mailbox_id=${box.id} and (o.created_by=${c.userId} or exists(select 1 from messages m where m.tenant_id=${c.tenantId} and m.thread_id=o.thread_id and m.deleted_at is null and ${folderPredicate(scope)})))`,
       );
     }
-    query = query.where(
-      boxPredicates.length
-        ? sql<boolean>`(${sql.join(boxPredicates, sql` or `)})`
-        : sql<boolean>`false`,
-    );
+    query = query
+      .where(
+        sql<boolean>`((${boxPredicates.length ? sql.join(boxPredicates, sql` or `) : sql`false`}) or (o.created_by=${c.userId} and ${activeInvitationPredicate(c.tenantId, c.userId, sql`coalesce(o.thread_id,o.source_thread_id)`)}))`,
+      )
+      .where(
+        sql<boolean>`((coalesce(o.thread_id,o.source_thread_id) is null and o.created_by=${c.userId}) or ${operatorThreadPredicate(c.tenantId, c.userId, sql`coalesce(o.thread_id,o.source_thread_id)`, sql`o.mailbox_id`)})`,
+      );
     if (q.mailbox_id) query = query.where('o.mailbox_id', '=', q.mailbox_id);
     if (q.search) query = query.where('o.subject', 'ilike', `%${q.search}%`);
     const columns = {
@@ -687,7 +756,7 @@ export async function registerOutboxRoutes(app: FastifyInstance, r: Resources) {
         return result;
       }
       if (!own) throw forbidden();
-      await requireMailboxPerm(c, r.db, row.mailbox_id, 'send');
+      await rowAccess(c, row, 'send');
       const expected =
         action === 'submit' ? 'draft' : action === 'send-now' ? 'scheduled' : 'failed';
       if (row.status !== expected) throw conflict('Este envio não está disponível para esta ação.');

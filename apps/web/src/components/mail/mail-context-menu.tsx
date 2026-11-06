@@ -5,14 +5,12 @@ import {
   Archive,
   CheckCircle2,
   ChevronRight,
-  CircleSlash,
   Scissors,
   Copy,
   Eye,
   Flag,
   FolderInput,
   Forward,
-  Inbox,
   ListChecks,
   ListTodo,
   Mail,
@@ -33,14 +31,7 @@ import {
 import { normalizeRuleEmail, resolveAddress } from '@apmail/shared';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import {
-  canMailbox,
-  useAccess,
-  useMailQueues,
-  useTenantId,
-  useUserId,
-  type Mailbox,
-} from '@/lib/auth';
+import { canMailbox, useAccess, useTenantId, useUserId, type Mailbox } from '@/lib/auth';
 import {
   flattenFolders,
   threadDetailKey,
@@ -125,7 +116,6 @@ export function MailContextMenu({
   const client = useQueryClient();
   const tenant = useTenantId();
   const userId = useUserId();
-  const queues = useMailQueues();
   const rules = useAccess('rules');
   const contacts = useAccess('contacts');
   const createContact = useAccess('contacts.create');
@@ -165,10 +155,9 @@ export function MailContextMenu({
   const organize = allowed('organize');
   const mayMove = organize && move && allowed('move');
   const mayRules = rules && allowed('rules');
-  const canQueue = queues && allowed('queue');
-  const canAssign = queues && allowed('assign_others');
-  const canAssume =
-    queues && !!userId && allowed('assign_self') && current.assigned_to?.id !== userId;
+  const canQueue = allowed('queue');
+  const canAssign = allowed('assign_others');
+  const canAssume = !!userId && allowed('assign_self') && current.assigned_to?.id !== userId;
   const flatFolders = flattenFolders(folders.data ?? []);
   const specialUse = (id: string | null) =>
     flatFolders.find((folder) => folder.id === id)?.special_use;
@@ -451,19 +440,6 @@ export function MailContextMenu({
                         </Item>
                         <Item onSelect={() => change('reopen', 'Conversa reaberta.')}>
                           <RotateCcw /> Reabrir conversa
-                        </Item>
-                        <Item
-                          onSelect={() =>
-                            change(
-                              'queue-excluded',
-                              'Filas atualizadas.',
-                              { excluded: !current.queue_excluded },
-                              'PUT',
-                            )
-                          }
-                        >
-                          {current.queue_excluded ? <Inbox /> : <CircleSlash />}
-                          {current.queue_excluded ? 'Incluir nas filas' : 'Excluir das filas'}
                         </Item>
                       </>
                     )}

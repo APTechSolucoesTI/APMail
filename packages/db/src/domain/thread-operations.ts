@@ -1,4 +1,3 @@
-import { tenantQueuesEnabled } from './mail-policy.js';
 import { profileAllowsMailbox } from '@apmail/shared';
 import { sql } from 'kysely';
 import { can, type MailboxPerm, type QueueReason } from '@apmail/shared';
@@ -65,7 +64,6 @@ export async function threadNotification(
     !(await userCanReadThread(db, value.tenantId, value.mailboxId, value.userId, value.threadId))
   )
     return null;
-  if (value.type === 'assignment' && !(await tenantQueuesEnabled(db, value.tenantId))) return null;
   const prefs = await db
     .selectFrom('user_preferences')
     .select(['notify_assignments', 'notify_mentions'])
@@ -111,7 +109,15 @@ export async function assignThread(
   if (
     userId &&
     (!(await mailboxUserCan(db, thread.tenant_id, thread.mailbox_id, userId, 'send')) ||
-      !(await userCanReadThread(db, thread.tenant_id, thread.mailbox_id, userId, threadId)))
+      !(await userCanReadThread(
+        db,
+        thread.tenant_id,
+        thread.mailbox_id,
+        userId,
+        threadId,
+        undefined,
+        true,
+      )))
   )
     throw new Error('invalid_assignee');
   await db

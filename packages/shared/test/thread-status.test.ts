@@ -14,7 +14,7 @@ it('aplica todas as prioridades da fila e preserva atribuição nas respostas', 
   expect(computeThreadStatus(base)).toBe('none');
   expect(computeThreadStatus({ ...base, last_inbound_at: inbound })).toBe('to_reply');
   expect(computeThreadStatus({ ...base, last_inbound_at: inbound, assigned_to: 'id' })).toBe(
-    'in_progress',
+    'to_reply',
   );
   expect(computeThreadStatus({ ...base, last_outbound_at: outbound })).toBe('awaiting_reply');
   expect(
@@ -63,5 +63,30 @@ it('mantém histórico sem fila e preserva intervenções operacionais', () => {
   expect(computeThreadStatus(history)).toBe('none');
   expect(computeThreadStatus({ ...history, history_queue_eligible: true })).toBe('to_reply');
   expect(computeThreadStatus({ ...history, has_pending_outbox: true })).toBe('scheduled');
-  expect(computeThreadStatus({ ...history, assigned_to: 'user' })).toBe('in_progress');
+  expect(computeThreadStatus({ ...history, assigned_to: 'user' })).toBe('to_reply');
+});
+
+it('separa atribuição do início explícito do atendimento', () => {
+  const assigned = { ...base, last_inbound_at: inbound, assigned_to: 'id' };
+  expect(computeThreadStatus(assigned)).toBe('to_reply');
+  expect(computeThreadStatus({ ...assigned, service_started_at: inbound })).toBe('in_progress');
+  expect(
+    computeThreadStatus({ ...assigned, service_started_at: outbound, last_outbound_at: inbound }),
+  ).toBe('awaiting_reply');
+  expect(
+    computeThreadStatus({ ...assigned, service_started_at: inbound, manual_done_at: inbound }),
+  ).toBe('done');
+});
+
+it('início explícito abre um novo atendimento após resposta enviada ou conversa somente de saída', () => {
+  expect(
+    computeThreadStatus({ ...base, last_outbound_at: outbound, service_started_at: inbound }),
+  ).toBe('in_progress');
+  expect(
+    computeThreadStatus({ ...base, last_outbound_at: inbound, service_started_at: inbound }),
+  ).toBe('in_progress');
+  expect(computeThreadStatus({ ...base, service_started_at: inbound })).toBe('in_progress');
+  expect(
+    computeThreadStatus({ ...base, last_outbound_at: inbound, service_started_at: outbound }),
+  ).toBe('awaiting_reply');
 });

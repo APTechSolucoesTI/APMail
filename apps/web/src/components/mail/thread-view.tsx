@@ -4,7 +4,7 @@ import { ArrowLeft, Pin } from 'lucide-react';
 import { toast } from 'sonner';
 import { can } from '@apmail/shared';
 import { api, ApiError } from '@/lib/api';
-import { useTenantId, meQuery, useMailQueues, useAccess } from '@/lib/auth';
+import { useTenantId, meQuery, useAccess } from '@/lib/auth';
 import { useSocketRoom } from '@/hooks/use-socket-room';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -35,7 +35,6 @@ export function ThreadView({
   onCompose?: (mode: string) => void;
 }) {
   const tenantId = useTenantId(),
-    queuesEnabled = useMailQueues(),
     me = useQuery(meQuery);
   const q = useQuery({
     queryKey: threadDetailKey(tenantId, threadId, messageId, folderId),
@@ -77,7 +76,8 @@ export function ThreadView({
     );
   if (!q.data) return <ErrorState onRetry={() => void q.refetch()} />;
   const data = q.data,
-    organize = can(data.my_role, 'organize');
+    organize = !data.delegated && can(data.my_role, 'organize'),
+    queuesEnabled = data.mailbox?.queues_enabled !== false;
   return (
     <section aria-label="Conversa" className="h-full min-w-0 space-y-4 overflow-y-auto p-3 sm:p-4">
       <div className="space-y-3 border-b pb-4">
@@ -96,9 +96,9 @@ export function ThreadView({
             {data.thread.subject || '(Sem assunto)'}
           </h2>
         </div>
-        {(queuesEnabled || data.is_pinned_global) && (
+        {(data.thread.queue_status !== 'none' || data.is_pinned_global) && (
           <div className="flex flex-wrap gap-2">
-            {queuesEnabled && <QueueStatusBadge status={data.thread.queue_status} />}
+            <QueueStatusBadge status={data.thread.queue_status} />
             {queuesEnabled && data.thread.is_overdue && <OverdueBadge />}
             {data.is_pinned_global && (
               <Badge variant="secondary">
@@ -107,9 +107,12 @@ export function ThreadView({
             )}
           </div>
         )}
-        {queuesEnabled && (
-          <ThreadWorkflow thread={data.thread} mailboxId={mailboxId} role={data.my_role} />
-        )}
+        <ThreadWorkflow
+          thread={data.thread}
+          mailboxId={mailboxId}
+          role={data.my_role}
+          delegated={data.delegated}
+        />
         {!!data.labels.length && (
           <div className="flex flex-wrap gap-1">
             {data.labels.map((label) => (
@@ -183,7 +186,9 @@ export function ThreadView({
           key={m.id}
           message={m}
           threadId={threadId}
-          onClone={mayClone && onCompose ? () => onCompose('clone:' + m.id) : undefined}
+          onClone={
+            !data.delegated && mayClone && onCompose ? () => onCompose('clone:' + m.id) : undefined
+          }
           contacts={data.contacts}
           timeZone={me.data?.preferences.timezone}
           expanded={i === 0 || !data.last_read_at || m.message_at > data.last_read_at}
@@ -193,6 +198,7 @@ export function ThreadView({
           mailboxId={mailboxId}
           folders={folders}
           onCompose={can(data.my_role, 'send') ? onCompose : undefined}
+          allowForward={!data.delegated}
         />
       ))}
       <ThreadNotes
@@ -201,6 +207,7 @@ export function ThreadView({
         mailboxId={mailboxId}
         role={data.my_role}
         subject={data.thread.subject}
+        delegated={data.delegated}
       />
     </section>
   );

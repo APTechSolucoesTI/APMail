@@ -249,17 +249,18 @@ export function AdminOverview() {
               <h2 className="text-base font-semibold">Padrões de e-mail</h2>
               <p className="my-3 flex items-center gap-2 text-sm font-medium">
                 <CheckCircle2 className="size-4 text-primary" />
-                Filas de atendimento {policy.data?.enabled ? 'visíveis' : 'ocultas'}
+                {policy.data?.enabled
+                  ? 'Filas habilitadas em pelo menos uma caixa'
+                  : 'Nenhuma caixa com filas habilitadas'}
               </p>
               <p className="text-xs text-muted-foreground">
-                Defina como a equipe utiliza o atendimento. O Resumo das caixas de entrada é uma
-                preferência de cada pessoa.
+                Cada caixa tem sua própria configuração de filas.
               </p>
               <Link
-                to="/admin/company"
+                to="/admin/mailboxes"
                 className="mt-4 inline-flex items-center gap-1 text-sm text-primary"
               >
-                Configurar padrões
+                Configurar caixas
                 <ArrowUpRight className="size-4" />
               </Link>
             </section>

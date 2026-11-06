@@ -44,6 +44,7 @@ export function MessageCard({
   mailboxId,
   folders,
   onCompose,
+  allowForward = true,
   contacts = {},
   timeZone = 'America/Sao_Paulo',
 }: {
@@ -57,6 +58,7 @@ export function MessageCard({
   mailboxId: string;
   folders: Folder[];
   onCompose?: (mode: string) => void;
+  allowForward?: boolean;
   contacts?: ContactResolution;
   timeZone?: string;
 }) {
@@ -208,12 +210,14 @@ export function MessageCard({
                 >
                   <ReplyAll aria-hidden />
                 </MailActionButton>
-                <MailActionButton
-                  label="Encaminhar"
-                  onClick={() => onCompose('forward:' + message.id)}
-                >
-                  <Forward aria-hidden />
-                </MailActionButton>
+                {allowForward && (
+                  <MailActionButton
+                    label="Encaminhar"
+                    onClick={() => onCompose('forward:' + message.id)}
+                  >
+                    <Forward aria-hidden />
+                  </MailActionButton>
+                )}
               </div>
             )}
             {message.pending_action ? (

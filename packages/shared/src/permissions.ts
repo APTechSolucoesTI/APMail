@@ -15,7 +15,7 @@ export const MAILBOX_PERMS = [
   'dashboard',
 ] as const;
 export type MailboxPerm = (typeof MAILBOX_PERMS)[number];
-export type MailboxRole = 'mailbox_admin' | 'editor' | 'viewer';
+export type MailboxRole = 'mailbox_admin' | 'supervisor' | 'editor' | 'viewer';
 export type TenantRole = 'owner' | 'admin' | 'member' | 'supervisor';
 export const isTenantAdmin = (role: string | null | undefined): boolean =>
   role === 'owner' || role === 'admin';
@@ -44,6 +44,7 @@ export const canDelegate = (
 export const ROLE_PERMS: Record<MailboxRole, readonly MailboxPerm[]> = {
   viewer: ['read'],
   editor: ['read', 'send', 'note', 'queue', 'assign_self'],
+  supervisor: ['read', 'send', 'note', 'queue', 'assign_self', 'assign_others', 'dashboard'],
   mailbox_admin: MAILBOX_PERMS,
 };
 export const can = (role: MailboxRole | null, perm: MailboxPerm): boolean =>
