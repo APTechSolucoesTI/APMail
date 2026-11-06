@@ -18,6 +18,7 @@ export function FolderRow({
   siblings,
   organize,
   reorder = true,
+  onFolderDragChange,
   children,
 }: {
   folder: Folder;
@@ -25,6 +26,7 @@ export function FolderRow({
   siblings: Folder[];
   organize: boolean;
   reorder?: boolean;
+  onFolderDragChange?: (folder: Folder, dragging: boolean) => void;
   children: ReactNode;
 }) {
   const navigation = useMailNavigation(),
@@ -34,12 +36,12 @@ export function FolderRow({
     [dragging, setDragging] = useState(false);
   const drop = useMailDrop(mailboxId, folder.id, organize);
   const blockedStart = useRef(false);
-  const canReorder =
+  const navigationReady = !navigation.busy && !navigation.isLoading && !navigation.isError;
+  const canReorder = reorder && siblings.length > 1 && navigationReady;
+  const canDrag =
     reorder &&
-    siblings.length > 1 &&
-    !navigation.busy &&
-    !navigation.isLoading &&
-    !navigation.isError;
+    navigationReady &&
+    (canReorder || (organize && !!folder.parent_id && !folder.special_use));
   const interactive = (target: EventTarget) =>
     target instanceof Element &&
     !!target.closest('button, input, textarea, select, [role=button], [contenteditable=true]');
@@ -54,7 +56,7 @@ export function FolderRow({
     <div
       className={cn(
         'group/folder-row relative flex min-w-0 items-center rounded-md transition-[background-color,box-shadow,opacity] duration-150 motion-reduce:transition-none',
-        canReorder && 'cursor-grab hover:bg-muted/50 active:cursor-grabbing [&_a]:cursor-grab',
+        canDrag && 'cursor-grab hover:bg-muted/50 active:cursor-grabbing [&_a]:cursor-grab',
         dragging && 'opacity-40',
         drop.over && 'bg-accent ring-2 ring-inset ring-primary',
         insertion === 'before' &&
@@ -63,10 +65,10 @@ export function FolderRow({
           'after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-primary',
       )}
       aria-busy={drop.busy || navigation.busy}
-      draggable={canReorder}
+      draggable={canDrag}
       aria-description={
-        canReorder
-          ? 'Arraste para reordenar entre pastas do mesmo nível. Pelo teclado, use Alt e seta para cima ou para baixo.'
+        canDrag
+          ? 'Arraste para reordenar entre pastas do mesmo nível ou solte em Raiz da caixa para retirar de uma subpasta. Pelo teclado, use Alt e seta para cima ou para baixo; para mover, use o menu da pasta.'
           : undefined
       }
       onPointerDown={(event) => {
@@ -74,7 +76,7 @@ export function FolderRow({
       }}
       onDragStart={(event) => {
         event.stopPropagation();
-        if (!canReorder || blockedStart.current || interactive(event.target)) {
+        if (!canDrag || blockedStart.current || interactive(event.target)) {
           event.preventDefault();
           return;
         }
@@ -85,10 +87,12 @@ export function FolderRow({
           parentId: folder.parent_id,
         });
         setDragging(true);
+        onFolderDragChange?.(folder, true);
       }}
       onDragEnd={() => {
         clearMailDrag();
         setDragging(false);
+        onFolderDragChange?.(folder, false);
         setInsertion(null);
         blockedStart.current = false;
       }}

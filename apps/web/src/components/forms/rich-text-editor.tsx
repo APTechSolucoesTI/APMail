@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { COMPOSITION_FONTS, COMPOSITION_SIZES, type CompositionFormat } from '@apmail/shared';
 import { createPortal } from 'react-dom';
 import { useEditor, EditorContent, Node } from '@tiptap/react';
@@ -53,6 +53,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { secureEditorImage } from '@/lib/secure-editor-image';
 import { composerCid } from '@/lib/composer-content';
+import {
+  editorTypography,
+  editorSizeLabel,
+  preserveEditorTypography,
+} from '@/lib/editor-typography';
 const EmailImage = Node.create<{ resolveAttachment: (cid: string) => string | undefined }>({
   name: 'image',
   group: 'block',
@@ -153,6 +158,7 @@ export function RichTextEditor({
   const [uploading, setUploading] = useState(false);
   const [tab, setTab] = useState('Mensagem');
   const [expanded, setExpanded] = useState(false);
+  const content = useMemo(() => preserveEditorTypography(value), [value]);
   const ParagraphLayout = Node.create({
     name: 'paragraphLayout',
     addGlobalAttributes() {
@@ -191,7 +197,7 @@ export function RichTextEditor({
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       TableKit.configure({ table: { resizable: false } }),
     ],
-    content: value,
+    content,
     editorProps: {
       attributes: {
         class: ribbon
@@ -200,7 +206,12 @@ export function RichTextEditor({
         role: 'textbox',
         'aria-label': label,
         'aria-multiline': 'true',
+        spellcheck: 'true',
+        lang: 'pt-BR',
+        autocorrect: 'on',
+        autocapitalize: 'sentences',
       },
+      transformPastedHTML: preserveEditorTypography,
       handleKeyDown: (_view, event) => {
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
           event.preventDefault();
@@ -213,9 +224,9 @@ export function RichTextEditor({
     onUpdate: ({ editor }) => onChange(editor.getHTML()),
   });
   useEffect(() => {
-    if (editor && value !== editor.getHTML())
-      editor.commands.setContent(value, { emitUpdate: false });
-  }, [value, editor]);
+    if (editor && content !== editor.getHTML())
+      editor.commands.setContent(content, { emitUpdate: false });
+  }, [content, editor]);
   useEffect(() => {
     if (editor) setCompositionFormat(editor, defaultFormat);
   }, [editor, defaultFormat]);
@@ -225,6 +236,7 @@ export function RichTextEditor({
         Carregando editor…
       </div>
     );
+  const typography = editorTypography(editor);
   const buttons = [
     { label: 'Desfazer', icon: Undo2, active: '', run: () => editor.chain().focus().undo().run() },
     { label: 'Refazer', icon: Redo2, active: '', run: () => editor.chain().focus().redo().run() },
@@ -368,9 +380,16 @@ export function RichTextEditor({
               <select
                 aria-label="Fonte"
                 className="h-8 max-w-32 rounded-md border bg-card px-2 text-xs"
-                value={editor.getAttributes('textStyle').fontFamily || 'Arial, sans-serif'}
+                value={typography.fontFamily}
                 onChange={(e) => editor.chain().focus().setFontFamily(e.target.value).run()}
               >
+                {!typography.fontFamily && <option value="">Várias fontes</option>}
+                {typography.fontFamily &&
+                  !COMPOSITION_FONTS.some((font) => font === typography.fontFamily) && (
+                    <option value={typography.fontFamily}>
+                      {typography.fontFamily.split(',')[0]!.replace(/["']/g, '')}
+                    </option>
+                  )}
                 {COMPOSITION_FONTS.map((font) => (
                   <option key={font} value={font}>
                     {font.split(',')[0]}
@@ -383,9 +402,16 @@ export function RichTextEditor({
               <select
                 aria-label="Tamanho da fonte"
                 className="h-8 rounded-md border bg-card px-2 text-xs"
-                value={editor.getAttributes('textStyle').fontSize || '14px'}
+                value={typography.fontSize}
                 onChange={(e) => editor.chain().focus().setFontSize(e.target.value).run()}
               >
+                {!typography.fontSize && <option value="">Vários tamanhos</option>}
+                {typography.fontSize &&
+                  !COMPOSITION_SIZES.some((size) => `${size}px` === typography.fontSize) && (
+                    <option value={typography.fontSize}>
+                      {editorSizeLabel(typography.fontSize)}
+                    </option>
+                  )}
                 {COMPOSITION_SIZES.map((size) => (
                   <option key={size} value={`${size}px`}>
                     {size}
@@ -610,6 +636,7 @@ export function RichTextEditor({
   );
   return (
     <div
+      onContextMenu={(event) => event.stopPropagation()}
       className={cn(
         'rich-text-editor bg-card focus-within:ring-2 focus-within:ring-ring',
         ribbon ? 'min-h-64 flex-1' : 'rounded-md border border-input',

@@ -10,6 +10,8 @@ import {
   ShieldAlert,
   Folder as FolderIcon,
   ChevronRight,
+  FolderUp,
+  Loader2,
 } from 'lucide-react';
 import { folderLabel, type Folder } from '@/lib/mail';
 import { meQuery } from '@/lib/auth';
@@ -18,7 +20,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { FolderRow } from './folder-row';
 import { useMailNavigation } from '@/hooks/use-mail-navigation';
-import { orderedSiblingItems } from '@/lib/mail-drag';
+import { activeMailDrag, readMailDrag, orderedSiblingItems } from '@/lib/mail-drag';
+import { useFolderAction } from '@/hooks/use-folder-action';
 const icons = {
   inbox: Inbox,
   sent: Send,
@@ -72,6 +75,20 @@ function FolderBranches({
   favoritesOnly = false,
 }: Props & { storageKey: string }) {
   const navigation = useMailNavigation();
+  const [draggedFolder, setDraggedFolder] = useState<Folder>(),
+    [folderDragging, setFolderDragging] = useState(false),
+    [rootOver, setRootOver] = useState(false);
+  const rootMove = useFolderAction(mailboxId, draggedFolder);
+  const canMoveToRoot = (drag: ReturnType<typeof activeMailDrag>) =>
+    organize &&
+    !favoritesOnly &&
+    !rootMove.busy &&
+    drag?.kind === 'folder' &&
+    drag.mailboxId === mailboxId &&
+    drag.id === draggedFolder?.id &&
+    drag.parentId === draggedFolder.parent_id &&
+    !!draggedFolder.parent_id &&
+    !draggedFolder.special_use;
   const [expanded, setExpanded] = useState(() => readExpanded(storageKey));
   const [collapsedForSelection, setCollapsedForSelection] = useState<
     Record<string, string | undefined>
@@ -113,7 +130,12 @@ function FolderBranches({
               mailboxId={mailboxId}
               siblings={siblings.filter((sibling) => sibling.parent_id === folder.parent_id)}
               organize={organize}
-              reorder={!favoritesOnly}
+              reorder={!favoritesOnly && !rootMove.busy}
+              onFolderDragChange={(source, dragging) => {
+                if (dragging) setDraggedFolder(source);
+                setFolderDragging(dragging);
+                setRootOver(false);
+              }}
             >
               <div
                 className={cn(
@@ -177,7 +199,12 @@ function FolderBranches({
               {depth === 0 && index === draftsIndex && draftsFallback && <li>{draftsFallback}</li>}
               <li>
                 {organize ? (
-                  <FolderControls mailboxId={mailboxId} folder={folder} compact>
+                  <FolderControls
+                    mailboxId={mailboxId}
+                    folder={folder}
+                    compact
+                    disabled={rootMove.busy}
+                  >
                     {row}
                   </FolderControls>
                 ) : (
@@ -197,5 +224,73 @@ function FolderBranches({
       </ul>
     );
   };
-  return branch(folders);
+  return (
+    <>
+      {organize && !favoritesOnly && (
+        <>
+          {((folderDragging && !!draggedFolder?.parent_id && !draggedFolder.special_use) ||
+            rootMove.busy) && (
+            <section
+              role="region"
+              aria-label="Mover para a raiz da caixa"
+              aria-busy={rootMove.busy}
+              className={cn(
+                'sticky top-0 z-10 mb-2 flex min-h-16 items-center gap-3 rounded-lg border border-dashed border-primary/50 bg-secondary px-3 py-2 text-secondary-foreground transition-colors motion-reduce:transition-none',
+                rootOver && 'border-solid border-primary bg-accent ring-2 ring-inset ring-primary',
+              )}
+              onDragOver={(event) => {
+                if (!canMoveToRoot(activeMailDrag())) return;
+                event.preventDefault();
+                event.stopPropagation();
+                event.dataTransfer.dropEffect = 'move';
+                setRootOver(true);
+              }}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+                  setRootOver(false);
+              }}
+              onDrop={(event) => {
+                setRootOver(false);
+                const drag = readMailDrag(event.dataTransfer);
+                if (drag?.kind !== 'folder') return;
+                event.preventDefault();
+                event.stopPropagation();
+                if (!canMoveToRoot(drag) || !draggedFolder) return;
+                void rootMove.enqueue('move', draggedFolder.name, null).catch((error: unknown) => {
+                  rootMove.setError(
+                    error instanceof Error
+                      ? error.message
+                      : 'Não foi possível mover a pasta. Tente novamente.',
+                  );
+                });
+              }}
+            >
+              {rootMove.busy ? (
+                <Loader2
+                  className="size-5 shrink-0 animate-spin motion-reduce:animate-none"
+                  aria-hidden
+                />
+              ) : (
+                <FolderUp className="size-5 shrink-0" aria-hidden />
+              )}
+              <div className="min-w-0 text-xs">
+                <p className="font-semibold">Raiz da caixa</p>
+                {rootMove.busy ? (
+                  <p role="status">Aplicando no servidor…</p>
+                ) : (
+                  <p>Solte aqui para retirar da subpasta.</p>
+                )}
+              </div>
+            </section>
+          )}
+          {rootMove.error && (
+            <p role="alert" className="mb-2 px-2 text-xs text-destructive">
+              {rootMove.error}
+            </p>
+          )}
+        </>
+      )}
+      {branch(folders)}
+    </>
+  );
 }

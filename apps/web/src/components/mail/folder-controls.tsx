@@ -1,11 +1,11 @@
-import { useState, useEffect, useContext, type ReactNode } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
 import { Ellipsis, Plus, Pencil, Trash2, Lock, FolderInput } from 'lucide-react';
-import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useTenantId } from '@/lib/auth';
-import { SocketContext, useSocketRoom } from '@/hooks/use-socket-room';
+import { useSocketRoom } from '@/hooks/use-socket-room';
+import { useFolderAction } from '@/hooks/use-folder-action';
 import { flattenFolders, folderLabel, type Folder } from '@/lib/mail';
 import { Button } from '@/components/ui/button';
 import {
@@ -34,132 +34,41 @@ const nameSchema = z.object({
     .max(100)
     .refine((v) => !/[\r\n\0/\\]/.test(v), 'Use um nome sem barras ou quebras de linha.'),
 });
-type Pending = {
-  id: string;
-  kind: 'create' | 'rename' | 'move' | 'delete';
-  name: string;
-  parentId: string | null;
-};
 export function FolderControls({
   mailboxId,
   folder,
   children,
   compact = false,
+  disabled = false,
 }: {
   mailboxId: string;
   folder?: Folder;
   children?: ReactNode;
   compact?: boolean;
+  disabled?: boolean;
 }) {
-  const client = useQueryClient(),
-    socket = useContext(SocketContext);
   const [menu, setMenu] = useState(false),
     [edit, setEdit] = useState<'create' | 'rename' | 'move' | null>(null),
-    [remove, setRemove] = useState(false),
-    [pending, setPending] = useState<Pending | null>(null),
-    [error, setError] = useState('');
-  const enqueue = async (
-    kind: Pending['kind'],
-    name = '',
-    parentId = folder?.parent_id ?? null,
-  ) => {
-    const url =
-      kind === 'create' ? '/mailboxes/' + mailboxId + '/folders' : '/folders/' + folder!.id;
-    const result = await api<{ action_id: string }>(url, {
-      method: kind === 'create' ? 'POST' : kind === 'delete' ? 'DELETE' : 'PATCH',
-      ...(kind === 'delete'
-        ? {}
-        : {
-            body:
-              kind === 'create'
-                ? { name, parent_id: folder?.id ?? null }
-                : kind === 'move'
-                  ? { name, parent_id: parentId }
-                  : { name },
-          }),
-    });
-    setPending({
-      id: result.action_id,
-      kind,
-      name,
-      parentId: kind === 'create' ? (folder?.id ?? null) : parentId,
-    });
+    [remove, setRemove] = useState(false);
+  const action = useFolderAction(mailboxId, folder);
+  const { pending, error } = action;
+  const busy = disabled || action.busy;
+  const enqueue = async (...args: Parameters<typeof action.enqueue>) => {
+    await action.enqueue(...args);
     setEdit(null);
     setRemove(false);
-    setError('');
   };
-  useEffect(() => {
-    if (!pending) return;
-    let closed = false;
-    const completed = () => {
-      if (closed) return;
-      closed = true;
-      setPending(null);
-      void client.invalidateQueries({ queryKey: ['folders'] });
-      toast.success('Pasta atualizada no servidor.');
-    };
-    const check = async () => {
-      try {
-        const action = await api<{ status: string; error?: string | null }>(
-          '/folder-actions/' + pending.id,
-        );
-        if (closed) return;
-        if (action.status === 'failed') {
-          closed = true;
-          setError(action.error ?? 'Não foi possível alterar a pasta. Tente novamente.');
-          setPending(null);
-          return;
-        }
-        if (action.status === 'done') {
-          completed();
-          return;
-        }
-        const rows = flattenFolders(await api<Folder[]>('/mailboxes/' + mailboxId + '/folders'));
-        if (closed) return;
-        const done =
-          pending.kind === 'create'
-            ? rows.some((f) => f.name === pending.name && f.parent_id === pending.parentId)
-            : pending.kind === 'rename' || pending.kind === 'move'
-              ? rows.some(
-                  (f) =>
-                    f.id === folder?.id &&
-                    f.name === pending.name &&
-                    f.parent_id === pending.parentId,
-                )
-              : !rows.some((f) => f.id === folder?.id);
-        if (done) completed();
-      } catch {
-        /* Uma reconexão retomará a conferência. */
-      }
-    };
-    const changed = (event: { action_id?: string; status?: string; error?: string }) => {
-      if (event.action_id === pending.id) {
-        if (event.status === 'failed') {
-          setError(event.error ?? 'Não foi possível alterar a pasta.');
-          setPending(null);
-        } else if (event.status === 'done') completed();
-      }
-    };
-    socket?.on('folders:changed', changed);
-    const timer = setInterval(() => void check(), 5000);
-    void check();
-    return () => {
-      closed = true;
-      clearInterval(timer);
-      socket?.off('folders:changed', changed);
-    };
-  }, [pending, folder?.id, mailboxId, socket, client]);
   return (
     <div className="min-w-0">
       <div
         className="group/folder-actions flex min-w-0 items-center gap-1"
         onContextMenu={(e) => {
           e.preventDefault();
-          if (pending) return;
+          if (busy) return;
           setMenu(true);
         }}
         onKeyDown={(e) => {
-          if (!pending && e.shiftKey && e.key === 'F10') {
+          if (!busy && e.shiftKey && e.key === 'F10') {
             e.preventDefault();
             setMenu(true);
           }
@@ -171,7 +80,7 @@ export function FolderControls({
             <Button
               variant="ghost"
               size={children ? 'icon-sm' : 'sm'}
-              disabled={!!pending}
+              disabled={busy}
               aria-label={folder ? 'Opções da pasta ' + folderLabel(folder) : 'Criar pasta'}
               className={
                 compact

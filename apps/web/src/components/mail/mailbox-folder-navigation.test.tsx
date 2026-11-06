@@ -32,7 +32,10 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }));
 vi.mock('@/lib/api', () => ({ api: vi.fn() }));
-vi.mock('@/hooks/use-socket-room', () => ({ useSocketRoom: vi.fn() }));
+vi.mock('@/hooks/use-socket-room', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/use-socket-room')>()),
+  useSocketRoom: vi.fn(),
+}));
 vi.mock('./folder-controls', () => ({ FolderControls: () => null }));
 const boxes = [
   { id: 'a', name: 'Comercial', role: 'viewer' },

@@ -613,6 +613,7 @@ export function Composer({
         }}
       >
         <DialogContent
+          onContextMenu={(event) => event.stopPropagation()}
           showCloseButton={false}
           style={floating ? { left: position.style.left, top: position.style.top } : undefined}
           className={cn(
