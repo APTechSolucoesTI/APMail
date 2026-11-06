@@ -32,6 +32,7 @@ import {
   IndentDecrease,
   ChevronDown,
   Ellipsis,
+  SpellCheck,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -158,6 +159,7 @@ export function RichTextEditor({
   const [uploading, setUploading] = useState(false);
   const [tab, setTab] = useState('Mensagem');
   const [expanded, setExpanded] = useState(false);
+  const [spellcheck, setSpellcheck] = useState(true);
   const content = useMemo(() => preserveEditorTypography(value), [value]);
   const ParagraphLayout = Node.create({
     name: 'paragraphLayout',
@@ -206,9 +208,9 @@ export function RichTextEditor({
         role: 'textbox',
         'aria-label': label,
         'aria-multiline': 'true',
-        spellcheck: 'true',
+        spellcheck: String(spellcheck),
         lang: 'pt-BR',
-        autocorrect: 'on',
+        autocorrect: spellcheck ? 'on' : 'off',
         autocapitalize: 'sentences',
       },
       transformPastedHTML: preserveEditorTypography,
@@ -501,6 +503,30 @@ export function RichTextEditor({
               <b.icon />
             </Button>
           ))}
+        {ribbon && tab !== 'Inserir' && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8 aria-pressed:bg-accent aria-pressed:text-accent-foreground"
+            aria-label="Correção ortográfica"
+            aria-pressed={spellcheck}
+            title={spellcheck ? 'Desativar correção ortográfica' : 'Ativar correção ortográfica'}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              setSpellcheck(!spellcheck);
+              if (!spellcheck) {
+                toast.info('Correção ortográfica ativada no editor', {
+                  id: 'composer-spellcheck',
+                  description:
+                    'Se os sublinhados não aparecerem, confira se a verificação ortográfica em português está ativada nas configurações de idioma do navegador.',
+                });
+              }
+            }}
+          >
+            <SpellCheck aria-hidden />
+          </Button>
+        )}
         {(!compact || expanded) && (!ribbon || tab === 'Inserir') && (
           <Button
             type="button"

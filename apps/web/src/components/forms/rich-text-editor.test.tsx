@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { RichTextEditor } from './rich-text-editor';
 
 it('mostra a fonte e o tamanho herdados do HTML da assinatura', async () => {
@@ -45,4 +45,23 @@ it('ativa a revisão nativa em português e preserva o menu de edição do naveg
   textbox.dispatchEvent(event);
   expect(parent).not.toHaveBeenCalled();
   expect(event.defaultPrevented).toBe(false);
+});
+
+it('alterna a revisão ortográfica na faixa da mensagem sem modificar o texto', async () => {
+  const onChange = vi.fn();
+  render(<RichTextEditor ribbon value="<p>Minha mensagem</p>" onChange={onChange} />);
+
+  const textbox = await screen.findByRole('textbox', { name: 'Mensagem' });
+  const toggle = screen.getByRole('button', { name: 'Correção ortográfica' });
+  expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  expect(textbox).toHaveAttribute('spellcheck', 'false');
+
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  expect(textbox).toHaveAttribute('spellcheck', 'true');
+  expect(textbox).toHaveTextContent('Minha mensagem');
+  expect(onChange).not.toHaveBeenCalled();
 });
