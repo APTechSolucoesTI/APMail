@@ -44,7 +44,12 @@ async function user(tid = tenant, role: 'owner' | 'member' = 'member'): Promise<
     .execute();
   return { id, email, cookie: 'apmail_session=' + encodeURIComponent(app.signCookie(secret)) };
 }
-function admin(method: 'GET' | 'POST' | 'DELETE', path: string, payload?: unknown, who = owner) {
+function admin(
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  payload?: unknown,
+  who = owner,
+) {
   return app.inject({
     method,
     url: '/api/integrations/api-tokens' + path,
@@ -57,14 +62,17 @@ function admin(method: 'GET' | 'POST' | 'DELETE', path: string, payload?: unknow
   });
 }
 async function token(users: User[], who = owner) {
-  const result = await admin(
-    'POST',
-    '',
-    { name: 'Integração QA', user_ids: users.map((u) => u.id), expires_in_days: 90 },
+  const result = await admin('POST', '', { name: 'Integração QA', expires_in_days: 90 }, who);
+  expect(result.statusCode, result.body).toBe(201);
+  const created = result.json<{ id: string; token: string }>();
+  const configured = await admin(
+    'PUT',
+    '/' + created.id + '/access',
+    { permissions: ['notifications:read'], user_ids: users.map((u) => u.id) },
     who,
   );
-  expect(result.statusCode, result.body).toBe(201);
-  return result.json<{ id: string; token: string }>();
+  expect(configured.statusCode, configured.body).toBe(200);
+  return created;
 }
 function notify(secret: string, email: string, headers: Record<string, string> = {}) {
   return app.inject({
@@ -206,6 +214,40 @@ afterAll(async () => {
   await app.close();
   await redis.quit();
   await db.destroy();
+});
+
+it('cria a chave sem acesso e aplica concessão e remoção de rotas imediatamente', async () => {
+  const u = await user(),
+    other = await user();
+  const created = await admin('POST', '', { name: 'Sistema externo' });
+  expect(created.statusCode).toBe(201);
+  const key = created.json<{ id: string; token: string; permissions: string[] }>();
+  expect(key.permissions).toEqual([]);
+  expect((await notify(key.token, u.email)).statusCode).toBe(403);
+  const catalog = (await admin('GET', '')).json().routes;
+  expect(catalog).toContainEqual(
+    expect.objectContaining({
+      method: 'GET',
+      path: '/api/integrations/notifications',
+      permission: 'notifications:read',
+    }),
+  );
+  const configure = (permissions: string[], user_ids: string[], who = owner) =>
+    admin('PUT', '/' + key.id + '/access', { permissions, user_ids }, who);
+  expect((await configure(['mailboxes:all'], [u.id])).statusCode).toBe(400);
+  expect((await configure(['notifications:read'], [])).statusCode).toBe(400);
+  expect((await configure(['notifications:read'], [u.id], foreignOwner)).statusCode).toBe(404);
+  expect((await configure(['notifications:read'], [u.id], u)).statusCode).toBe(403);
+  expect((await configure(['notifications:read'], [u.id])).statusCode).toBe(200);
+  expect((await notify(key.token, u.email)).statusCode).toBe(200);
+  expect((await notify(key.token, other.email)).statusCode).toBe(404);
+  expect((await configure(['notifications:read'], [other.id])).statusCode).toBe(200);
+  expect((await notify(key.token, u.email)).statusCode).toBe(404);
+  expect((await notify(key.token, other.email)).statusCode).toBe(200);
+  expect((await configure([], [])).statusCode).toBe(200);
+  expect((await notify(key.token, other.email)).statusCode).toBe(403);
+  await admin('DELETE', '/' + key.id);
+  expect((await configure(['notifications:read'], [u.id])).statusCode).toBe(404);
 });
 
 it('conta mensagens por usuário, reflete leitura e novos recebimentos sem alterar dados', async () => {
@@ -389,7 +431,12 @@ it('não revela usuário inexistente, fora da lista, desativado ou de outro tena
     .execute();
   expect((await notify(key.token, u.email)).body).toBe(responses[0]!.body);
   expect(
-    (await admin('POST', '', { name: 'Inválido', user_ids: [foreignOwner.id] })).statusCode,
+    (
+      await admin('PUT', '/' + key.id + '/access', {
+        permissions: ['notifications:read'],
+        user_ids: [foreignOwner.id],
+      })
+    ).statusCode,
   ).toBe(404);
   const foreignKey = await token([foreignOwner], foreignOwner);
   expect((await notify(foreignKey.token, owner.email)).statusCode).toBe(404);

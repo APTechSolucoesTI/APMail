@@ -7,6 +7,7 @@ import type { ApiEnv } from '../env.js';
 import { ApiError, type RequestContext } from '../authz/context.js';
 import { assertLoginAccessSchedule, outsideSchedule } from '../authz/access-schedule.js';
 import { isWithinAccessSchedule } from '@apmail/shared';
+import { integrationApiRoutes } from '../modules/integration-api-routes.js';
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 export const newToken = () => randomBytes(32).toString('base64url');
 export async function contextForToken(
@@ -97,7 +98,14 @@ export async function contextForToken(
 export async function installAuth(app: FastifyInstance, db: Kysely<DB>, redis: Redis, env: ApiEnv) {
   app.decorateRequest('ctx', null);
   app.addHook('onRequest', async (req, reply) => {
-    if (req.routeOptions.url === '/api/integrations/notifications') return;
+    if (
+      integrationApiRoutes.some(
+        (route) =>
+          route.path === req.routeOptions.url &&
+          (route.method === req.method || req.method === 'HEAD'),
+      )
+    )
+      return;
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
       let origin = req.headers.origin;
       try {

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, KeyRound, Plus, RotateCw, Trash2 } from 'lucide-react';
+import { Copy, KeyRound, Plus, RotateCw, Trash2, SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useTenantId } from '@/lib/auth';
@@ -18,11 +18,12 @@ import {
 } from '@/components/ui/dialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/data/data-state';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
+import { ApiTokenAccess, type ApiRoute, type ApiUser, type TokenAccess } from './api-token-access';
 
 type Token = {
   id: string;
   name: string;
-  permission: string;
+  permissions: string[];
   user_ids: string[];
   created_at: string;
   expires_at: string;
@@ -32,9 +33,16 @@ type Token = {
 type TokenList = {
   tenant: { id: string; name: string };
   tokens: Token[];
-  users: { id: string; full_name: string; email: string }[];
+  users: ApiUser[];
+  routes: ApiRoute[];
 };
-type IssuedToken = { token: string; name: string; expires_at: string };
+type IssuedToken = {
+  id: string;
+  token: string;
+  name: string;
+  expires_at: string;
+  permissions: string[];
+};
 const date = (value: string) => new Date(value).toLocaleDateString('pt-BR');
 
 export function ApiTokens() {
@@ -53,32 +61,25 @@ function ApiTokensForTenant() {
   });
   const [create, setCreate] = useState(false);
   const [name, setName] = useState('');
-  const [users, setUsers] = useState<string[]>([]);
-  const [search, setSearch] = useState('');
   const [days, setDays] = useState(90);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [issued, setIssued] = useState<IssuedToken | null>(null);
+  const [access, setAccess] = useState<TokenAccess | null>(null);
   const [action, setAction] = useState<{ token: Token; kind: 'rotate' | 'revoke' } | null>(null);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!users.length) {
-      setError('Selecione ao menos um usuário autorizado.');
-      return;
-    }
     setBusy(true);
     setError('');
     try {
       const result = await api<IssuedToken>('/integrations/api-tokens', {
         method: 'POST',
-        body: { name, user_ids: users, expires_in_days: days },
+        body: { name, expires_in_days: days },
       });
       setCreate(false);
       setIssued(result);
       setName('');
-      setUsers([]);
-      setSearch('');
       await client.invalidateQueries({ queryKey: key });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Não foi possível criar o token.');
@@ -109,7 +110,7 @@ function ApiTokensForTenant() {
     <div className="space-y-4">
       <PageHeader
         title="Integrações"
-        description="Tokens de API para consultar notificações entre sistemas."
+        description="Chaves de acesso para conectar seus sistemas ao APMail."
       />
       <section className="rounded-lg border bg-card p-4 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -118,9 +119,7 @@ function ApiTokensForTenant() {
               <KeyRound className="size-4" />
               Tokens de API
             </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {query.data?.tenant.name} · Somente leitura de notificações
-            </p>
+            <p className="mt-1 text-sm text-muted-foreground">{query.data?.tenant.name}</p>
           </div>
           <Button
             onClick={() => {
@@ -134,8 +133,8 @@ function ApiTokensForTenant() {
           </Button>
         </div>
         <p className="text-sm text-muted-foreground">
-          Autorize os usuários que cada integração poderá consultar. Guarde o token no servidor do
-          sistema integrado. O acesso às caixas continua seguindo as permissões de cada usuário.
+          Crie uma chave para sua integração e depois configure as rotas que ela pode acessar.
+          Guarde a chave no servidor do sistema integrado.
         </p>
         {query.isPending ? (
           <LoadingState />
@@ -145,7 +144,7 @@ function ApiTokensForTenant() {
           <EmptyState
             icon={KeyRound}
             title="Nenhum token criado"
-            description="Crie um token para conectar o indicador de e-mails do seu sistema ao APMail."
+            description="Crie uma chave e configure os acessos da sua integração."
           />
         ) : (
           <ul className="divide-y">
@@ -160,7 +159,13 @@ function ApiTokensForTenant() {
                     <p className="break-words text-sm font-medium">
                       {token.name}{' '}
                       <Badge variant="outline">
-                        {token.revoked_at ? 'Revogado' : expired ? 'Expirado' : 'Ativo'}
+                        {token.revoked_at
+                          ? 'Revogado'
+                          : expired
+                            ? 'Expirado'
+                            : token.permissions.length
+                              ? 'Ativo'
+                              : 'Sem acessos'}
                       </Badge>
                     </p>
                     <p className="text-xs text-muted-foreground">
@@ -168,7 +173,14 @@ function ApiTokensForTenant() {
                       {token.user_ids.length === 1 ? 'usuário autorizado' : 'usuários autorizados'}{' '}
                       · Validade até {date(token.expires_at)}
                     </p>
-                    <p className="font-mono text-xs text-muted-foreground">notifications:read</p>
+                    <p className="text-xs text-muted-foreground">
+                      {token.permissions.length
+                        ? query.data.routes
+                            .filter((route) => token.permissions.includes(route.permission))
+                            .map((route) => route.name)
+                            .join(', ')
+                        : 'Nenhuma rota autorizada'}
+                    </p>
                     <p className="break-words text-xs text-muted-foreground">
                       {query.data.users
                         .filter((user) => token.user_ids.includes(user.id))
@@ -177,7 +189,11 @@ function ApiTokensForTenant() {
                     </p>
                   </div>
                   {!token.revoked_at && (
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setAccess(token)}>
+                        <SlidersHorizontal />
+                        Acessos
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
@@ -208,7 +224,7 @@ function ApiTokensForTenant() {
           <DialogHeader>
             <DialogTitle>Criar token de API</DialogTitle>
             <DialogDescription>
-              Empresa {query.data?.tenant.name}. Permissão de leitura de notificações.
+              Empresa {query.data?.tenant.name}. Depois de criar, configure as rotas autorizadas.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={save} className="space-y-4">
@@ -221,7 +237,7 @@ function ApiTokensForTenant() {
                 maxLength={100}
                 required
                 autoFocus
-                placeholder="Integração Curciol"
+                placeholder="Escreva o nome da sua integração aqui…"
               />
             </div>
             <div className="space-y-2">
@@ -239,43 +255,6 @@ function ApiTokensForTenant() {
                 ))}
               </select>
             </div>
-            <fieldset className="space-y-2">
-              <legend className="text-sm font-medium">Usuários autorizados ({users.length})</legend>
-              <Input
-                aria-label="Pesquisar usuários autorizados"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar nome ou e-mail"
-              />
-              <div className="max-h-52 space-y-1 overflow-y-auto rounded-md border p-2">
-                {query.data?.users
-                  .filter((user) =>
-                    `${user.full_name} ${user.email}`.toLowerCase().includes(search.toLowerCase()),
-                  )
-                  .map((user) => (
-                    <label
-                      key={user.id}
-                      className="flex min-h-11 cursor-pointer items-center gap-2 rounded p-2 text-sm hover:bg-muted"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={users.includes(user.id)}
-                        onChange={(event) =>
-                          setUsers((current) =>
-                            event.target.checked
-                              ? [...current, user.id]
-                              : current.filter((id) => id !== user.id),
-                          )
-                        }
-                      />
-                      <span className="min-w-0 break-words">
-                        {user.full_name}
-                        <span className="block text-xs text-muted-foreground">{user.email}</span>
-                      </span>
-                    </label>
-                  ))}
-              </div>
-            </fieldset>
             {error && (
               <p role="alert" className="text-sm text-destructive">
                 {error}
@@ -290,9 +269,7 @@ function ApiTokensForTenant() {
               >
                 Cancelar
               </Button>
-              <Button disabled={busy || !name.trim() || !users.length}>
-                {busy ? 'Criando…' : 'Criar token'}
-              </Button>
+              <Button disabled={busy || !name.trim()}>{busy ? 'Criando…' : 'Criar token'}</Button>
             </div>
           </form>
         </DialogContent>
@@ -317,9 +294,32 @@ function ApiTokensForTenant() {
           <p className="text-sm text-muted-foreground">
             Validade até {issued && date(issued.expires_at)}.
           </p>
-          <div className="flex justify-end gap-2">
+          {!issued?.permissions.length && (
+            <p className="text-sm text-muted-foreground">
+              Configure os acessos para liberar as rotas desta chave.
+            </p>
+          )}
+          <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" onClick={() => setIssued(null)}>
               Fechar
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (!issued) return;
+                const existing = query.data?.tokens.find((token) => token.id === issued.id);
+                setAccess(
+                  existing ?? {
+                    id: issued.id,
+                    name: issued.name,
+                    permissions: issued.permissions,
+                    user_ids: [],
+                  },
+                );
+                setIssued(null);
+              }}
+            >
+              Configurar acessos
             </Button>
             <Button
               onClick={async () => {
@@ -337,6 +337,19 @@ function ApiTokensForTenant() {
           </div>
         </DialogContent>
       </Dialog>
+      {access && query.data && (
+        <ApiTokenAccess
+          key={access.id}
+          token={access}
+          routes={query.data.routes}
+          users={query.data.users}
+          onClose={() => setAccess(null)}
+          onSaved={async () => {
+            await client.invalidateQueries({ queryKey: key });
+            toast.success('Acessos atualizados.');
+          }}
+        />
+      )}
       <ConfirmDialog
         open={!!action}
         onOpenChange={(open) => !open && setAction(null)}

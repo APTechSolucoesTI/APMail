@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import { audit } from '@apmail/db';
@@ -7,16 +7,35 @@ import { ApiError, notFound, requireTenantAdmin } from '../authz/context.js';
 import { hashToken, newToken } from '../plugins/auth.js';
 import type { Resources } from './resources.js';
 import { integrationNotificationCounts } from './integration-notification-counts.js';
+import { integrationApiAccess } from './integration-api-access.js';
+import { integrationApiRoutes } from './integration-api-routes.js';
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(100),
-  user_ids: z
-    .array(z.uuid())
-    .min(1)
-    .max(1000)
-    .transform((ids) => [...new Set(ids)]),
   expires_in_days: z.union([z.literal(30), z.literal(90), z.literal(365)]).default(90),
 });
+const accessSchema = z
+  .object({
+    permissions: z
+      .array(
+        z
+          .string()
+          .refine(
+            (permission) => integrationApiRoutes.some((route) => route.permission === permission),
+            'Rota de integração indisponível.',
+          ),
+      )
+      .max(integrationApiRoutes.length)
+      .transform((items) => [...new Set(items)]),
+    user_ids: z
+      .array(z.uuid())
+      .max(1000)
+      .transform((ids) => [...new Set(ids)]),
+  })
+  .refine(
+    (value) => !value.permissions.includes('notifications:read') || value.user_ids.length > 0,
+    { message: 'Selecione ao menos um usuário para a rota de notificações.', path: ['user_ids'] },
+  );
 const idSchema = z.object({ id: z.uuid() });
 const notificationQuery = z.object({
   email: z
@@ -24,15 +43,13 @@ const notificationQuery = z.object({
     .max(254)
     .transform((email) => email.toLowerCase()),
 });
-const invalidToken = () =>
-  new ApiError(401, 'invalid_integration_token', 'Token de integração inválido ou indisponível.');
 const unavailableUser = () =>
   new ApiError(
     404,
     'notification_scope_unavailable',
     'Consulta indisponível para o escopo desta integração.',
   );
-const issueToken = () => 'apmail_ntf_' + newToken();
+const issueToken = () => 'apmail_api_' + newToken();
 const expiresIn = (days: number) => new Date(Date.now() + days * 86_400_000);
 
 export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
@@ -45,7 +62,7 @@ export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
         .select([
           't.id',
           't.name',
-          't.permission',
+          't.permissions',
           't.created_at',
           't.expires_at',
           't.revoked_at',
@@ -74,7 +91,7 @@ export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
         .where('id', '=', c.tenantId)
         .executeTakeFirstOrThrow(),
     ]);
-    return { tokens, users, tenant };
+    return { tokens, users, tenant, routes: integrationApiRoutes };
   });
 
   app.post('/api/integrations/api-tokens', async (req, reply) => {
@@ -82,15 +99,6 @@ export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
     const b = createSchema.parse(req.body);
     const token = issueToken();
     const saved = await r.db.transaction().execute(async (tx) => {
-      const users = await tx
-        .selectFrom('tenant_members as m')
-        .select('m.user_id')
-        .where('m.tenant_id', '=', c.tenantId)
-        .where('m.status', '=', 'active')
-        .where('m.user_id', 'in', b.user_ids)
-        .where(sql<boolean>`not exists(select 1 from platform_admins p where p.user_id=m.user_id)`)
-        .execute();
-      if (users.length !== b.user_ids.length) throw unavailableUser();
       const row = await tx
         .insertInto('integration_api_tokens')
         .values({
@@ -100,19 +108,15 @@ export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
           created_by: c.userId,
           expires_at: expiresIn(b.expires_in_days),
         })
-        .returning(['id', 'name', 'permission', 'expires_at'])
+        .returning(['id', 'name', 'permissions', 'expires_at'])
         .executeTakeFirstOrThrow();
-      await tx
-        .insertInto('integration_api_token_users')
-        .values(b.user_ids.map((user_id) => ({ tenant_id: c.tenantId, token_id: row.id, user_id })))
-        .execute();
       await audit(tx, {
         tenantId: c.tenantId,
         actorId: c.userId,
         action: 'integration.api_token.created',
         entityType: 'integration',
         entityId: row.id,
-        metadata: { name: b.name, authorized_users: users.length },
+        metadata: { name: b.name },
         requestId: req.id,
         ip: req.ip,
       });
@@ -135,7 +139,7 @@ export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
         .where('tenant_id', '=', c.tenantId)
         .where('id', '=', id)
         .where('revoked_at', 'is', null)
-        .returning(['id', 'name', 'permission', 'expires_at'])
+        .returning(['id', 'name', 'permissions', 'expires_at'])
         .executeTakeFirst();
       if (!row) throw notFound();
       await audit(tx, {
@@ -178,55 +182,80 @@ export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
     });
   });
 
-  // Keep integration identity separate from interactive sessions and their mutation hooks.
-  const scopes = new WeakMap<FastifyRequest, { id: string; tenantId: string }>();
-  const throttleInvalid = app.rateLimit({
-    max: 60,
-    timeWindow: '1 minute',
-    keyGenerator: (req) => 'notification-invalid:' + req.ip,
+  app.put('/api/integrations/api-tokens/:id/access', async (req) => {
+    const c = requireTenantAdmin(req.ctx, 'integrations');
+    const { id } = idSchema.parse(req.params);
+    const b = accessSchema.parse(req.body);
+    return r.db.transaction().execute(async (tx) => {
+      const token = await tx
+        .selectFrom('integration_api_tokens')
+        .select('id')
+        .where('tenant_id', '=', c.tenantId)
+        .where('id', '=', id)
+        .where('revoked_at', 'is', null)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!token) throw notFound();
+      if (b.user_ids.length) {
+        const users = await tx
+          .selectFrom('tenant_members as m')
+          .select('m.user_id')
+          .where('m.tenant_id', '=', c.tenantId)
+          .where('m.status', '=', 'active')
+          .where('m.user_id', 'in', b.user_ids)
+          .where(
+            sql<boolean>`not exists(select 1 from platform_admins p where p.user_id=m.user_id)`,
+          )
+          .execute();
+        if (users.length !== b.user_ids.length) throw unavailableUser();
+      }
+      await tx
+        .updateTable('integration_api_tokens')
+        .set({ permissions: b.permissions })
+        .where('id', '=', id)
+        .where('tenant_id', '=', c.tenantId)
+        .execute();
+      await tx
+        .deleteFrom('integration_api_token_users')
+        .where('tenant_id', '=', c.tenantId)
+        .where('token_id', '=', id)
+        .execute();
+      if (b.user_ids.length) {
+        await tx
+          .insertInto('integration_api_token_users')
+          .values(b.user_ids.map((user_id) => ({ tenant_id: c.tenantId, token_id: id, user_id })))
+          .execute();
+      }
+      await audit(tx, {
+        tenantId: c.tenantId,
+        actorId: c.userId,
+        action: 'integration.api_token.access_updated',
+        entityType: 'integration',
+        entityId: id,
+        metadata: { permissions: b.permissions, authorized_users: b.user_ids.length },
+        requestId: req.id,
+        ip: req.ip,
+      });
+      return { success: true };
+    });
   });
-  async function authenticate(req: FastifyRequest, reply: FastifyReply) {
-    reply.header('Cache-Control', 'no-store').header('Vary', 'Authorization');
-    if (r.env.NODE_ENV === 'production' && req.protocol !== 'https') {
-      throw new ApiError(403, 'https_required', 'Utilize HTTPS para consultar esta API.');
-    }
-    const match = /^Bearer (apmail_ntf_[A-Za-z0-9_-]{43})$/i.exec(req.headers.authorization ?? '');
-    const row = match
-      ? await r.db
-          .selectFrom('integration_api_tokens as i')
-          .innerJoin('tenants as t', 't.id', 'i.tenant_id')
-          .select(['i.id', 'i.tenant_id'])
-          .where('i.token_hash', '=', hashToken(match[1]!))
-          .where('i.permission', '=', 'notifications:read')
-          .where('i.revoked_at', 'is', null)
-          .where('i.expires_at', '>', new Date())
-          .where('t.deleted_at', 'is', null)
-          .where('t.suspended_at', 'is', null)
-          .executeTakeFirst()
-      : undefined;
-    if (!row) {
-      await throttleInvalid.call(app, req, reply);
-      if (reply.sent) return;
-      reply.header('WWW-Authenticate', 'Bearer');
-      throw invalidToken();
-    }
-    scopes.set(req, { id: row.id, tenantId: row.tenant_id });
-  }
+
+  const access = integrationApiAccess(app, r);
 
   app.get(
     '/api/integrations/notifications',
     {
-      onRequest: authenticate,
+      onRequest: access.requirePermission('notifications:read'),
       config: {
         rateLimit: {
           max: 1200,
           timeWindow: '1 minute',
-          keyGenerator: (req) => 'notification:' + scopes.get(req)!.id,
+          keyGenerator: (req) => 'notification:' + access.scope(req).id,
         },
       },
     },
     async (req) => {
-      const scope = scopes.get(req)!;
+      const scope = access.scope(req);
       const { email } = notificationQuery.parse(req.query);
       const user = await r.db
         .selectFrom('integration_api_token_users as s')

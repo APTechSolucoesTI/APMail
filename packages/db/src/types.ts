@@ -538,7 +538,7 @@ export interface IntegrationApiTokens {
   expires_at: Timestamp;
   id: Generated<string>;
   name: string;
-  permission: Generated<string>;
+  permissions: Generated<string[]>;
   revoked_at: Timestamp | null;
   tenant_id: string;
   token_hash: string;
