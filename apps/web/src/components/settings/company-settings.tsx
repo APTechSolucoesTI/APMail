@@ -121,9 +121,9 @@ export function CompanySettings() {
       fields: [
         {
           name: 'settings.restrict_operators_to_assigned',
-          label: 'Restringir operadores aos atendimentos atribuídos',
+          label: 'Operadores da caixa só podem ver seus tickets',
           type: 'checkbox',
-          help: 'Operadores acessam somente conversas atribuídas a eles ou com convite ativo. Supervisores e administradores mantêm sua visão de supervisão.',
+          help: 'Vale para todas as caixas da empresa. Ao ativar, operadores veem apenas tickets atribuídos a eles e convites ativos. Desativado, eles veem os tickets permitidos pelo acesso de cada caixa.',
         },
         {
           name: 'settings.sla_first_response_hours',

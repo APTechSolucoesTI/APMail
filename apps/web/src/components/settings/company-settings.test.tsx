@@ -52,11 +52,11 @@ it('saves operator restriction even when older settings are incomplete', async (
     button: 0,
     ctrlKey: false,
   });
-  expect(
-    screen.getByText(/Operadores acessam somente conversas atribuídas a eles ou com convite ativo/),
-  ).toBeVisible();
+  expect(screen.getByText(/Vale para todas as caixas da empresa/)).toBeVisible();
   expect(screen.queryByText(/Operadores das caixas globais/)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('checkbox', { name: /Restringir operadores/ }));
+  fireEvent.click(
+    screen.getByRole('checkbox', { name: /Operadores da caixa só podem ver seus tickets/ }),
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Salvar atendimento' }));
   await waitFor(() =>
     expect(api).toHaveBeenCalledWith(
