@@ -54,6 +54,7 @@ it('alterna a revisão ortográfica na faixa da mensagem sem modificar o texto',
   const textbox = await screen.findByRole('textbox', { name: 'Mensagem' });
   const toggle = screen.getByRole('button', { name: 'Correção ortográfica' });
   expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  expect(textbox).toHaveAttribute('spellcheck', 'false');
 
   fireEvent.click(toggle);
   expect(toggle).toHaveAttribute('aria-pressed', 'false');
@@ -61,7 +62,7 @@ it('alterna a revisão ortográfica na faixa da mensagem sem modificar o texto',
 
   fireEvent.click(toggle);
   expect(toggle).toHaveAttribute('aria-pressed', 'true');
-  expect(textbox).toHaveAttribute('spellcheck', 'true');
+  expect(textbox).toHaveAttribute('spellcheck', 'false');
   expect(textbox).toHaveTextContent('Minha mensagem');
   expect(onChange).not.toHaveBeenCalled();
 });

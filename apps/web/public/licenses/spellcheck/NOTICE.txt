@@ -1,0 +1,11 @@
+APMail Brazilian Portuguese spellcheck
+
+VERO dictionary by Raimundo Santos Moura and contributors.
+The unmodified UTF-8 affix and dictionary files are from LibreOffice dictionaries:
+https://github.com/LibreOffice/dictionaries/tree/4f1df64b2e8e14751aa7c2205d170ca016071315/pt_BR
+Distributed under MPL 2.0. See VERO-README.txt and MPL-2.0.txt.
+
+Hunspell WebAssembly wrapper by Rotem Dan and Hunspell contributors.
+Version 0.3.0, distributed under the MPL 1.1 option. See MPL-1.1.txt.
+Source and build instructions: https://github.com/rotemdan/hunspell-wasm
+Exact release source files: https://registry.npmjs.org/hunspell-wasm/-/hunspell-wasm-0.3.0.tgz

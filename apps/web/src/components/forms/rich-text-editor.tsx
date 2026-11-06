@@ -41,6 +41,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { ComposerSpellcheck } from './composer-spellcheck';
 import { CompositionDefaults, setCompositionFormat } from '@/lib/composition-defaults';
 import { Button } from '@/components/ui/button';
 import {
@@ -208,10 +209,11 @@ export function RichTextEditor({
         role: 'textbox',
         'aria-label': label,
         'aria-multiline': 'true',
-        spellcheck: String(spellcheck),
+        spellcheck: ribbon ? 'false' : 'true',
         lang: 'pt-BR',
-        autocorrect: spellcheck ? 'on' : 'off',
+        autocorrect: ribbon ? 'off' : 'on',
         autocapitalize: 'sentences',
+        ...(ribbon && spellcheck ? { 'aria-keyshortcuts': 'Shift+F10' } : {}),
       },
       transformPastedHTML: preserveEditorTypography,
       handleKeyDown: (_view, event) => {
@@ -511,18 +513,13 @@ export function RichTextEditor({
             className="size-8 aria-pressed:bg-accent aria-pressed:text-accent-foreground"
             aria-label="Correção ortográfica"
             aria-pressed={spellcheck}
-            title={spellcheck ? 'Desativar correção ortográfica' : 'Ativar correção ortográfica'}
+            title={
+              spellcheck
+                ? 'Desativar correção ortográfica. Para sugestões, clique na palavra ou use Shift+F10.'
+                : 'Ativar correção ortográfica'
+            }
             onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              setSpellcheck(!spellcheck);
-              if (!spellcheck) {
-                toast.info('Correção ortográfica ativada no editor', {
-                  id: 'composer-spellcheck',
-                  description:
-                    'Se os sublinhados não aparecerem, confira se a verificação ortográfica em português está ativada nas configurações de idioma do navegador.',
-                });
-              }
-            }}
+            onClick={() => setSpellcheck((enabled) => !enabled)}
           >
             <SpellCheck aria-hidden />
           </Button>
@@ -670,6 +667,7 @@ export function RichTextEditor({
     >
       {toolbarContainer ? createPortal(toolbar, toolbarContainer) : toolbar}
       <EditorContent editor={editor} />
+      {ribbon && spellcheck && <ComposerSpellcheck editor={editor} />}
       <Dialog
         open={!!dialog}
         onOpenChange={(open) => {
