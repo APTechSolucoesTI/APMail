@@ -67,7 +67,10 @@ function ApiTokensForTenant() {
   const [error, setError] = useState('');
   const [issued, setIssued] = useState<IssuedToken | null>(null);
   const [access, setAccess] = useState<TokenAccess | null>(null);
-  const [action, setAction] = useState<{ token: Token; kind: 'rotate' | 'revoke' } | null>(null);
+  const [action, setAction] = useState<{
+    token: Token;
+    kind: 'rotate' | 'revoke' | 'delete';
+  } | null>(null);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -100,8 +103,10 @@ function ApiTokensForTenant() {
         }),
       );
     } else {
-      await api(`/integrations/api-tokens/${token.id}`, { method: 'DELETE' });
-      toast.success('Token revogado.');
+      await api(`/integrations/api-tokens/${token.id}${kind === 'delete' ? '/permanent' : ''}`, {
+        method: 'DELETE',
+      });
+      toast.success(kind === 'delete' ? 'Token excluído.' : 'Token revogado.');
     }
     setAction(null);
     await client.invalidateQueries({ queryKey: key });
@@ -189,7 +194,7 @@ function ApiTokensForTenant() {
                         .join(', ')}
                     </p>
                   </div>
-                  {!token.revoked_at && (
+                  {!token.revoked_at ? (
                     <div className="flex flex-wrap gap-2">
                       <Button variant="outline" size="sm" onClick={() => setAccess(token)}>
                         <SlidersHorizontal />
@@ -213,6 +218,16 @@ function ApiTokensForTenant() {
                         Revogar
                       </Button>
                     </div>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive"
+                      onClick={() => setAction({ token, kind: 'delete' })}
+                    >
+                      <Trash2 />
+                      Excluir
+                    </Button>
                   )}
                 </li>
               );
@@ -353,13 +368,21 @@ function ApiTokensForTenant() {
       <ConfirmDialog
         open={!!action}
         onOpenChange={(open) => !open && setAction(null)}
-        title={action?.kind === 'rotate' ? 'Renovar token?' : 'Revogar token?'}
+        title={
+          action?.kind === 'rotate'
+            ? 'Renovar token?'
+            : action?.kind === 'delete'
+              ? 'Excluir token?'
+              : 'Revogar token?'
+        }
         description={
           action?.kind === 'rotate'
             ? 'O token anterior perde o acesso imediatamente. O novo token terá validade ' +
               (action.token.expires_at === null ? 'ilimitada' : 'de 90 dias') +
               '. Atualize-o no sistema integrado.'
-            : 'O sistema integrado perderá imediatamente o acesso às notificações por este token.'
+            : action?.kind === 'delete'
+              ? 'O token revogado e suas autorizações serão removidos definitivamente. Confirme para excluir.'
+              : 'O sistema integrado perderá imediatamente o acesso às notificações por este token.'
         }
         destructive
         onConfirm={confirm}

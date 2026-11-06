@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import { audit } from '@apmail/db';
 import { isWithinAccessSchedule, profileAllowsMailbox } from '@apmail/shared';
-import { ApiError, notFound, requireTenantAdmin } from '../authz/context.js';
+import { ApiError, conflict, notFound, requireTenantAdmin } from '../authz/context.js';
 import { hashToken, newToken } from '../plugins/auth.js';
 import type { Resources } from './resources.js';
 import { integrationNotificationCounts } from './integration-notification-counts.js';
@@ -182,6 +182,38 @@ export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
         action: 'integration.api_token.revoked',
         entityType: 'integration',
         entityId: id,
+        requestId: req.id,
+        ip: req.ip,
+      });
+      return { success: true };
+    });
+  });
+
+  app.delete('/api/integrations/api-tokens/:id/permanent', async (req) => {
+    const c = requireTenantAdmin(req.ctx, 'integrations');
+    const { id } = idSchema.parse(req.params);
+    return r.db.transaction().execute(async (tx) => {
+      const row = await tx
+        .selectFrom('integration_api_tokens')
+        .select(['id', 'name', 'revoked_at'])
+        .where('tenant_id', '=', c.tenantId)
+        .where('id', '=', id)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!row) throw notFound();
+      if (!row.revoked_at) throw conflict('Revogue a chave antes de excluí-la.');
+      await tx
+        .deleteFrom('integration_api_tokens')
+        .where('tenant_id', '=', c.tenantId)
+        .where('id', '=', id)
+        .execute();
+      await audit(tx, {
+        tenantId: c.tenantId,
+        actorId: c.userId,
+        action: 'integration.api_token.deleted',
+        entityType: 'integration',
+        entityId: id,
+        metadata: { name: row.name },
         requestId: req.id,
         ip: req.ip,
       });

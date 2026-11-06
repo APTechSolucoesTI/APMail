@@ -279,6 +279,33 @@ it('cria e renova chave ilimitada e continua permitindo revogá-la', async () =>
   expect((await notify(rotated.token, u.email)).statusCode).toBe(401);
 });
 
+it('exclui somente chaves revogadas da própria empresa e remove seus vínculos', async () => {
+  const u = await user(),
+    key = await token([u]);
+  const path = '/' + key.id + '/permanent';
+  expect((await admin('DELETE', path)).statusCode).toBe(409);
+  expect((await notify(key.token, u.email)).statusCode).toBe(200);
+  expect((await admin('DELETE', '/' + key.id)).statusCode).toBe(200);
+  expect((await admin('DELETE', path, undefined, foreignOwner)).statusCode).toBe(404);
+  expect((await admin('DELETE', path, undefined, u)).statusCode).toBe(403);
+  expect((await admin('DELETE', path)).statusCode).toBe(200);
+  expect(
+    await db.selectFrom('integration_api_tokens').select('id').where('id', '=', key.id).execute(),
+  ).toEqual([]);
+  expect(
+    await db
+      .selectFrom('integration_api_token_users')
+      .select('user_id')
+      .where('token_id', '=', key.id)
+      .execute(),
+  ).toEqual([]);
+  expect(
+    (await admin('GET', '')).json().tokens.some((item: { id: string }) => item.id === key.id),
+  ).toBe(false);
+  expect((await notify(key.token, u.email)).statusCode).toBe(401);
+  expect((await admin('DELETE', path)).statusCode).toBe(404);
+});
+
 it('conta mensagens por usuário, reflete leitura e novos recebimentos sem alterar dados', async () => {
   const u = await user(),
     key = await token([u]),
