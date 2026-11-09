@@ -106,11 +106,11 @@ it('offers personal pin with read access and hides flag when effective permissio
   expect(screen.getByRole('article')).not.toHaveAttribute('data-flagged');
 });
 
-it('mostra status do atendimento mesmo sem filas, sem exibir alerta SLA', () => {
+it('oculta status e alerta de SLA de uma caixa sem filas, inclusive em uma lista mista', () => {
   open(
     { id: 'box', role: 'viewer', queues_enabled: false },
-    { ...thread, queue_status: 'done', is_overdue: true },
+    { ...thread, queues_enabled: true, queue_status: 'to_reply', is_overdue: true },
   );
-  expect(screen.getByText('Concluído')).toBeVisible();
+  expect(screen.queryByText('A responder')).not.toBeInTheDocument();
   expect(screen.queryByText('Fora do SLA')).not.toBeInTheDocument();
 });

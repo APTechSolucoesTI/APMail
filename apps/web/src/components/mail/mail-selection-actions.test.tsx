@@ -66,6 +66,14 @@ it('não oferece atribuição, status nem spam para caixa somente de leitura', a
   for (const name of ['Assumir', 'Atribuir responsável', 'Status', 'Organizar'])
     expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
 });
+it('oculta ações de atendimento em seleção mista com uma caixa sem filas', async () => {
+  vi.mocked(api).mockResolvedValue([boxes[0], { ...boxes[1], queues_enabled: false }]);
+  open();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Marcar lida' })).toBeEnabled());
+  for (const name of ['Assumir', 'Atribuir responsável', 'Status'])
+    expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Mover para pasta' })).toBeVisible();
+});
 it('preserva a seleção não processada quando outra caixa rejeita a ação', async () => {
   vi.mocked(api).mockImplementation(async (path, options) => {
     if (path === '/mailboxes') return boxes;

@@ -77,7 +77,9 @@ export function ThreadView({
   if (!q.data) return <ErrorState onRetry={() => void q.refetch()} />;
   const data = q.data,
     organize = !data.delegated && can(data.my_role, 'organize'),
-    queuesEnabled = data.mailbox?.queues_enabled !== false;
+    queuesEnabled = (data.mailbox?.queues_enabled ?? data.thread.queues_enabled) !== false,
+    showQueueStatus = queuesEnabled && data.thread.queue_status !== 'none',
+    showOverdue = queuesEnabled && data.thread.is_overdue;
   return (
     <section aria-label="Conversa" className="h-full min-w-0 space-y-4 overflow-y-auto p-3 sm:p-4">
       <div className="space-y-3 border-b pb-4">
@@ -96,10 +98,10 @@ export function ThreadView({
             {data.thread.subject || '(Sem assunto)'}
           </h2>
         </div>
-        {(data.thread.queue_status !== 'none' || data.is_pinned_global) && (
+        {(showQueueStatus || showOverdue || data.is_pinned_global) && (
           <div className="flex flex-wrap gap-2">
-            <QueueStatusBadge status={data.thread.queue_status} />
-            {queuesEnabled && data.thread.is_overdue && <OverdueBadge />}
+            {showQueueStatus && <QueueStatusBadge status={data.thread.queue_status} />}
+            {showOverdue && <OverdueBadge />}
             {data.is_pinned_global && (
               <Badge variant="secondary">
                 <Pin className="size-3" aria-hidden /> Fixada para a caixa
@@ -111,6 +113,7 @@ export function ThreadView({
           thread={data.thread}
           mailboxId={mailboxId}
           role={data.my_role}
+          queuesEnabled={queuesEnabled}
           delegated={data.delegated}
         />
         {!!data.labels.length && (

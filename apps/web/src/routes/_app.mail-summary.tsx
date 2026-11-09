@@ -37,17 +37,19 @@ export function SummaryPage() {
   });
   const pageSize = search.pageSize ?? me.data?.preferences.mail_page_size ?? 50;
   const view = search.view === 'queue' && queues ? 'queue' : search.q ? 'search' : 'folder';
+  const sort = !queues && search.sort === 'waiting_longest' ? 'recent' : search.sort;
+  const status = queues ? search.status : undefined;
   const query = new URLSearchParams({
     view,
     page: String(search.page),
     page_size: String(pageSize),
-    sort: search.sort,
+    sort,
     assigned: search.assigned ?? 'any',
     unread: String(!!search.unread),
   });
   if (search.q) query.set('q', search.q);
   if (search.mailboxId) query.set('mailbox_id', search.mailboxId);
-  if (search.status) query.set('status', search.status);
+  if (status) query.set('status', status);
   if (search.from) query.set('from', search.from);
   if (search.until) query.set('until', search.until);
   if (search.queue && view === 'queue') query.set('queue', search.queue);
@@ -107,7 +109,7 @@ export function SummaryPage() {
             Ordenar
             <select
               className="block h-11 rounded-md border bg-card px-2 sm:h-8"
-              value={search.sort}
+              value={sort}
               onChange={(e) => change({ sort: e.target.value as typeof search.sort, page: 1 })}
             >
               <option value="recent">Mais recentes</option>
@@ -131,26 +133,35 @@ export function SummaryPage() {
               ))}
             </select>
           </label>
-          <label className="space-y-1 text-xs">
-            Status
-            <select
-              aria-label="Filtrar status"
-              className="block h-11 rounded-md border bg-card px-2 sm:h-8"
-              value={search.status ?? ''}
-              onChange={(e) =>
-                change({ status: (e.target.value as typeof search.status) || undefined, page: 1 })
-              }
-            >
-              <option value="">Todos os status</option>
-              {(
-                ['none', 'to_reply', 'in_progress', 'awaiting_reply', 'scheduled', 'done'] as const
-              ).map((status) => (
-                <option key={status} value={status}>
-                  {QUEUE_LABELS[status]}
-                </option>
-              ))}
-            </select>
-          </label>
+          {queues && (
+            <label className="space-y-1 text-xs">
+              Status
+              <select
+                aria-label="Filtrar status"
+                className="block h-11 rounded-md border bg-card px-2 sm:h-8"
+                value={search.status ?? ''}
+                onChange={(e) =>
+                  change({ status: (e.target.value as typeof search.status) || undefined, page: 1 })
+                }
+              >
+                <option value="">Todos os status</option>
+                {(
+                  [
+                    'none',
+                    'to_reply',
+                    'in_progress',
+                    'awaiting_reply',
+                    'scheduled',
+                    'done',
+                  ] as const
+                ).map((status) => (
+                  <option key={status} value={status}>
+                    {QUEUE_LABELS[status]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <AssigneeFilter
             mailboxes={(mailboxes.data ?? []).filter(
               (box) => !search.mailboxId || box.id === search.mailboxId,
@@ -200,9 +211,9 @@ export function SummaryPage() {
           {(search.q ||
             search.unread ||
             (search.assigned && search.assigned !== 'any') ||
-            search.sort !== 'recent' ||
+            sort !== 'recent' ||
             search.mailboxId ||
-            search.status ||
+            status ||
             search.from ||
             search.until) && (
             <Button

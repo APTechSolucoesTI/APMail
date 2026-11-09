@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { can, type MailboxRole } from '@apmail/shared';
 import { CheckCircle2, RotateCcw, Play } from 'lucide-react';
@@ -14,14 +14,14 @@ export function ThreadWorkflow({
   thread,
   mailboxId,
   role,
+  queuesEnabled,
   delegated = false,
-  children,
 }: {
   thread: Thread;
   mailboxId: string;
   role: MailboxRole;
+  queuesEnabled: boolean;
   delegated?: boolean;
-  children?: ReactNode;
 }) {
   const client = useQueryClient(),
     [busy, setBusy] = useState(false),
@@ -54,70 +54,72 @@ export function ThreadWorkflow({
       setBusy(false);
     }
   };
+  if (!queuesEnabled && !presence.length) return null;
   return (
     <div className="space-y-3">
-      {thread.assigned_to && (
+      {queuesEnabled && thread.assigned_to && (
         <p className="break-words text-xs text-muted-foreground">
           Responsável atual:{' '}
           <span className="font-semibold text-foreground">{thread.assigned_to.full_name}</span>
         </p>
       )}
-      <div
-        role="group"
-        aria-label="Ações da conversa"
-        className="flex min-w-0 flex-wrap items-center gap-2"
-      >
-        {!delegated && (
-          <ThreadAssignee
-            mailboxId={mailboxId}
-            threadIds={[thread.id]}
-            role={role}
-            assigned={thread.assigned_to}
-            showAssigned={false}
-            iconOnly
-          />
-        )}
-        {!delegated &&
-          (can(role, 'assign_others') ||
-            (can(role, 'send') && thread.assigned_to?.id === me.data?.user.id)) && (
-            <ThreadInvitations threadId={thread.id} />
+      {queuesEnabled && (
+        <div
+          role="group"
+          aria-label="Ações da conversa"
+          className="flex min-w-0 flex-wrap items-center gap-2"
+        >
+          {!delegated && (
+            <ThreadAssignee
+              mailboxId={mailboxId}
+              threadIds={[thread.id]}
+              role={role}
+              assigned={thread.assigned_to}
+              showAssigned={false}
+              iconOnly
+            />
           )}
-        {can(role, 'queue') && (
-          <>
-            {thread.queue_status !== 'done' && !thread.service_started_at && (
-              <MailActionButton
-                label="Iniciar atendimento"
-                text="Iniciar atendimento"
-                disabled={busy}
-                onClick={() => void change('start')}
-              >
-                <Play />
-              </MailActionButton>
+          {!delegated &&
+            (can(role, 'assign_others') ||
+              (can(role, 'send') && thread.assigned_to?.id === me.data?.user.id)) && (
+              <ThreadInvitations threadId={thread.id} />
             )}
-            {thread.queue_status === 'done' ? (
-              <MailActionButton
-                label="Reabrir"
-                text="Reabrir"
-                disabled={busy}
-                onClick={() => void change('reopen')}
-              >
-                <RotateCcw />
-              </MailActionButton>
-            ) : (
-              <MailActionButton
-                label="Concluir"
-                text="Concluir"
-                disabled={busy || (thread.pending_task_count ?? 0) > 0}
-                onClick={() => void change('done')}
-              >
-                <CheckCircle2 />
-              </MailActionButton>
-            )}
-          </>
-        )}
-        {children}
-      </div>
-      {(thread.pending_task_count ?? 0) > 0 && (
+          {can(role, 'queue') && (
+            <>
+              {thread.queue_status !== 'done' && !thread.service_started_at && (
+                <MailActionButton
+                  label="Iniciar atendimento"
+                  text="Iniciar atendimento"
+                  disabled={busy}
+                  onClick={() => void change('start')}
+                >
+                  <Play />
+                </MailActionButton>
+              )}
+              {thread.queue_status === 'done' ? (
+                <MailActionButton
+                  label="Reabrir"
+                  text="Reabrir"
+                  disabled={busy}
+                  onClick={() => void change('reopen')}
+                >
+                  <RotateCcw />
+                </MailActionButton>
+              ) : (
+                <MailActionButton
+                  label="Concluir"
+                  text="Concluir"
+                  disabled={busy || (thread.pending_task_count ?? 0) > 0}
+                  onClick={() => void change('done')}
+                >
+                  <CheckCircle2 />
+                </MailActionButton>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      {queuesEnabled && can(role, 'queue') && (thread.pending_task_count ?? 0) > 0 && (
         <p className="text-xs text-muted-foreground" role="status">
           {thread.pending_task_count === 1
             ? 'Conclua ou dispense a tarefa pendente antes de concluir a conversa.'

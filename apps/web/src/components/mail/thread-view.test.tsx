@@ -139,9 +139,10 @@ it('preserva a abertura das mensagens não lidas mesmo abaixo da mais recente', 
   );
 });
 
-it('preserva status do atendimento e oculta SLA quando a caixa não utiliza filas', () => {
+it('oculta status, atendimento e SLA sem esconder ações de mensagem quando a caixa não utiliza filas', () => {
   open(undefined, true, false);
-  expect(screen.getByText('Concluído')).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Reabrir' })).toBeVisible();
+  expect(screen.queryByText('Concluído')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Reabrir' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Mover' })).toBeVisible();
   expect(screen.queryByText('Fora do SLA')).not.toBeInTheDocument();
 });

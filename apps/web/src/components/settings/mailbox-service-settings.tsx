@@ -80,7 +80,7 @@ export function MailboxServiceSettings({ mailbox }: { mailbox: MailboxConfigurat
             name: 'queues_enabled',
             label: 'Utilizar filas',
             type: 'checkbox',
-            help: 'Exibe filas e indicadores de atendimento nesta caixa. Iniciar e concluir continuam disponíveis com as filas ocultas.',
+            help: 'Exibe as filas, os status e as ações de atendimento nesta caixa.',
           },
         ]}
         submitLabel="Salvar atendimento da caixa"

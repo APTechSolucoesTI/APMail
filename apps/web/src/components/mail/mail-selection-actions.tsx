@@ -79,6 +79,10 @@ export function MailSelectionActions({
     threads.length > 0;
   const allowed = (permission: MailboxPerm) =>
     complete && groups.every((g) => canMailbox(g.box, permission));
+  const queuesEnabled = groups.every(({ box, threads }) =>
+    threads.every((thread) => (box.queues_enabled ?? thread.queues_enabled) !== false),
+  );
+  const mayAssign = queuesEnabled && allowed('assign_others');
   const mayMove = useAccess('mail.move') && allowed('organize') && allowed('move');
   const mayDelete = useAccess('mail.delete') && allowed('organize') && allowed('delete');
   const mayFlag = useAccess('mail.flag') && allowed('organize') && allowed('flag');
@@ -98,7 +102,7 @@ export function MailSelectionActions({
     queries: groups.map((g) => ({
       queryKey: ['assignable', tenant, g.box.id],
       queryFn: () => api<Assignee[]>('/mailboxes/' + g.box.id + '/assignable'),
-      enabled: dialog === 'assign' && allowed('assign_others'),
+      enabled: dialog === 'assign' && mayAssign,
     })),
   });
   const eligibleUsers = (assignees[0]?.data ?? []).filter((user) =>
@@ -237,7 +241,7 @@ export function MailSelectionActions({
         >
           <Mail />
         </MailActionButton>
-        {allowed('assign_self') && (
+        {queuesEnabled && allowed('assign_self') && (
           <MailActionButton
             label="Assumir"
             disabled={busy}
@@ -246,7 +250,7 @@ export function MailSelectionActions({
             <UserCheck />
           </MailActionButton>
         )}
-        {allowed('assign_others') && (
+        {mayAssign && (
           <MailActionButton
             label="Atribuir responsável"
             text="Atribuir"
@@ -256,7 +260,7 @@ export function MailSelectionActions({
             <UserRoundPlus />
           </MailActionButton>
         )}
-        {allowed('queue') && (
+        {queuesEnabled && allowed('queue') && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <MailActionButton label="Status" disabled={busy}>
@@ -413,7 +417,7 @@ export function MailSelectionActions({
         }
       />
       <Dialog
-        open={!!dialog && dialog !== 'delete'}
+        open={!!dialog && dialog !== 'delete' && (dialog !== 'assign' || mayAssign)}
         onOpenChange={(open) => !open && !busy && setDialog(null)}
       >
         <DialogContent className="max-h-[90dvh] overflow-auto">

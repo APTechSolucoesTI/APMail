@@ -48,7 +48,7 @@ curl --get 'https://app.apmail.com.br/api/integrations/notifications' \
 
 `unread` conta mensagens recebidas depois do último registro de leitura daquela conversa pelo próprio usuário. A leitura de outra pessoa não altera esse contador. Abrir uma conversa no APMail marca suas mensagens como lidas conforme o fluxo atual. A consulta da integração não altera a leitura, as mensagens ou os atendimentos.
 
-`pending` conta conversas visíveis em A Responder ou Em Atendimento. Inclui caixas com filas ocultas, pois o atendimento continua disponível nelas. Conversas excluídas das filas não entram nesse total. Os campos são independentes e podem representar a mesma conversa. Não devem ser somados.
+`pending` conta conversas visíveis em A Responder ou Em Atendimento. Inclui caixas com filas desativadas na interface, pois o cálculo continua ativo internamente. Conversas excluídas das filas não entram nesse total. Os campos são independentes e podem representar a mesma conversa. Não devem ser somados.
 
 Os campos existentes `data.unread` e `data.pending` continuam sendo os totais consolidados. `data.totals` repete esses valores e corresponde à soma de `data.mailboxes`. Cada caixa aparece uma única vez, incluindo caixas sem notificações. As contagens são agregadas em uma consulta, sem uma consulta por caixa. As mensagens são contadas por seu identificador persistido, mesmo quando a autorização vem simultaneamente de vínculo e convite.
 

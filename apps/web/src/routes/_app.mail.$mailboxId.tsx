@@ -301,7 +301,7 @@ function MailPage() {
       f: () => compose('forward'),
       Escape: close,
       e: () => {
-        if (search.thread && !updating && can(box.data?.role ?? null, 'queue')) {
+        if (queuesEnabled && search.thread && !updating && can(box.data?.role ?? null, 'queue')) {
           setUpdating(true);
           void api('/threads/' + search.thread + '/done', { method: 'POST' })
             .then(() => toast.success('Conversa concluída.'))
@@ -441,7 +441,7 @@ function MailPage() {
               threadIds={selectedThreads}
               onDone={() => setSelection({ context, ids: [] })}
             />
-            {can(box.data.role, 'queue') && (
+            {queuesEnabled && can(box.data.role, 'queue') && (
               <>
                 <MailActionButton
                   label="Concluir"

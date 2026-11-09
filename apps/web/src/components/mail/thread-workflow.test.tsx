@@ -32,13 +32,20 @@ function open(
         thread={{ ...thread, ...patch }}
         mailboxId="box"
         role={role}
+        queuesEnabled={patch.queues_enabled !== false}
         delegated={delegated}
       />
     </QueryClientProvider>,
   );
 }
-it('mantém iniciar, concluir e responsável mesmo com filas ocultas', async () => {
-  open({ queues_enabled: false });
+it('oculta todo o atendimento quando as filas da caixa estão desativadas', () => {
+  open({ queues_enabled: false, pending_task_count: 1 });
+  expect(screen.queryByRole('group', { name: 'Ações da conversa' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Responsável QA')).not.toBeInTheDocument();
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+});
+it('permite iniciar atendimento com as filas da caixa ativadas', async () => {
+  open();
   expect(screen.getByRole('button', { name: 'Atribuir' })).toBeVisible();
   expect(screen.getByRole('button', { name: 'Concluir' })).toBeVisible();
   expect(screen.getByText('Responsável QA')).toBeVisible();

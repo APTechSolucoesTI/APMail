@@ -155,9 +155,13 @@ export function MailContextMenu({
   const organize = allowed('organize');
   const mayMove = organize && move && allowed('move');
   const mayRules = rules && allowed('rules');
-  const canQueue = allowed('queue');
-  const canAssign = allowed('assign_others');
-  const canAssume = !!userId && allowed('assign_self') && current.assigned_to?.id !== userId;
+  const queuesEnabled =
+    (box.data?.queues_enabled ?? detail.data?.mailbox?.queues_enabled ?? thread.queues_enabled) !==
+    false;
+  const canQueue = queuesEnabled && allowed('queue');
+  const canAssign = queuesEnabled && allowed('assign_others');
+  const canAssume =
+    queuesEnabled && !!userId && allowed('assign_self') && current.assigned_to?.id !== userId;
   const flatFolders = flattenFolders(folders.data ?? []);
   const specialUse = (id: string | null) =>
     flatFolders.find((folder) => folder.id === id)?.special_use;
@@ -561,7 +565,7 @@ export function MailContextMenu({
       )}
       {(dialog === 'tasks' || dialog === 'notes' || dialog === 'assign') && box.data && (
         <Dialog
-          open
+          open={dialog !== 'assign' || canAssign}
           onOpenChange={(value) => {
             if (!value) closeDialog();
           }}

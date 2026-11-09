@@ -58,7 +58,7 @@ export function ThreadListItem({
   const sender = resolveAddress(identity, contacts);
   const me = useQuery(meQuery).data;
   const timeZone = me?.preferences.timezone ?? 'America/Sao_Paulo';
-  const queuesEnabled = (thread.queues_enabled ?? mailbox?.queues_enabled) !== false;
+  const queuesEnabled = (mailbox?.queues_enabled ?? thread.queues_enabled) !== false;
   const fullTime = date?.toLocaleString('pt-BR', { timeZone });
   const dragging = useMessageDrag(drag);
   const tenant = useTenantId();
@@ -262,9 +262,9 @@ export function ThreadListItem({
               {thread.completed_task_count} concluída(s)
             </span>
           )}
-          <QueueStatusBadge status={thread.queue_status} />
+          {queuesEnabled && <QueueStatusBadge status={thread.queue_status} />}
           {queuesEnabled && thread.is_overdue && <OverdueBadge />}
-          {thread.assigned_to && (
+          {queuesEnabled && thread.assigned_to && (
             <span
               title={'Responsável: ' + thread.assigned_to.full_name}
               aria-label={'Responsável: ' + thread.assigned_to.full_name}
