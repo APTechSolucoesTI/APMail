@@ -186,15 +186,35 @@ function data(response: Awaited<ReturnType<typeof notify>>) {
   expect(Object.keys(response.json().data).sort()).toEqual([
     'email',
     'hasNotifications',
+    'mailboxes',
     'pending',
+    'totals',
     'unread',
   ]);
-  return response.json().data as {
+  const result = response.json().data as {
     email: string;
     unread: number;
     pending: number;
     hasNotifications: boolean;
+    totals: { unread: number; pending: number };
+    mailboxes: {
+      id: string;
+      email: string;
+      name: string;
+      unread: number;
+      pending: number;
+      url: string;
+    }[];
   };
+  expect(result.totals).toEqual({ unread: result.unread, pending: result.pending });
+  expect(result.mailboxes.reduce((total, mailbox) => total + mailbox.unread, 0)).toBe(
+    result.unread,
+  );
+  expect(result.mailboxes.reduce((total, mailbox) => total + mailbox.pending, 0)).toBe(
+    result.pending,
+  );
+  expect(new Set(result.mailboxes.map((mailbox) => mailbox.id)).size).toBe(result.mailboxes.length);
+  return result;
 }
 
 beforeAll(async () => {
@@ -441,8 +461,19 @@ it('inclui apenas o convite privado ativo e encerra o acesso na conclusão', asy
   });
   expect(invite.statusCode, invite.body).toBe(201);
   expect(data(await notify(key.token, u.email))).toMatchObject({ unread: 1, pending: 1 });
+  expect(data(await notify(key.token, u.email)).mailboxes).toEqual([
+    {
+      id: b.id,
+      email: b.id + '@notifications.test',
+      name: 'Caixa QA',
+      unread: 1,
+      pending: 1,
+      url: '/invitations',
+    },
+  ]);
   expect((await mailAction(invited.thread, 'done', u)).statusCode).toBe(200);
   expect(data(await notify(key.token, u.email))).toMatchObject({ unread: 0, pending: 0 });
+  expect(data(await notify(key.token, u.email)).mailboxes).toEqual([]);
   await mailAction(invited.thread, 'reopen', owner);
   expect(data(await notify(key.token, u.email)).unread).toBe(0);
 });
@@ -581,5 +612,81 @@ it('exige HTTPS em produção e limita tentativas com credenciais inválidas', a
   }
   expect((await notify('invalid', u.email, { 'x-forwarded-for': '192.0.2.201' })).statusCode).toBe(
     429,
+  );
+});
+
+it('separa cinco caixas, mantém zeros e atualiza somente a caixa lida ou com novo recebimento', async () => {
+  const u = await user(),
+    key = await token([u]);
+  const boxes = [];
+  for (let index = 0; index < 5; index++) boxes.push(await box(u));
+  const [first, second, third, fourth, fifth] = boxes;
+  const firstMessage = await message(first!, u);
+  await message(first!, u, firstMessage.thread);
+  const secondMessage = await message(second!, u);
+  const done = await message(fourth!, u);
+  expect((await mailAction(done.thread, 'done', owner)).statusCode).toBe(200);
+  await db
+    .updateTable('mailboxes')
+    .set({ queues_enabled: true })
+    .where('id', '=', second!.id)
+    .execute();
+  const hidden = await box(),
+    foreign = await box(undefined, foreignTenant);
+  await message(hidden, u);
+  await message(foreign, foreignOwner);
+  const invited = await app.inject({
+    method: 'POST',
+    url: `/api/threads/${firstMessage.thread}/invitations`,
+    headers: { origin, cookie: owner.cookie, 'content-type': 'application/json' },
+    payload: { user_id: u.id },
+  });
+  expect(invited.statusCode, invited.body).toBe(201);
+
+  const initial = data(await notify(key.token, u.email));
+  expect(initial).toMatchObject({
+    unread: 4,
+    pending: 2,
+    totals: { unread: 4, pending: 2 },
+    hasNotifications: true,
+  });
+  expect(initial.mailboxes.map((mailbox) => mailbox.id).sort()).toEqual(
+    boxes.map((b) => b.id).sort(),
+  );
+  const expected = new Map<string, { unread: number; pending: number }>([
+    [first!.id, { unread: 2, pending: 1 }],
+    [second!.id, { unread: 1, pending: 1 }],
+    [third!.id, { unread: 0, pending: 0 }],
+    [fourth!.id, { unread: 1, pending: 0 }],
+    [fifth!.id, { unread: 0, pending: 0 }],
+  ]);
+  for (const mailbox of initial.mailboxes) {
+    expect(mailbox).toEqual({
+      id: mailbox.id,
+      name: 'Caixa QA',
+      email: mailbox.id + '@notifications.test',
+      ...expected.get(mailbox.id),
+      url: `/mail/${mailbox.id}?assigned=any`,
+    });
+  }
+  expect((await mailAction(firstMessage.thread, 'read', u)).statusCode).toBe(200);
+  const read = data(await notify(key.token, u.email));
+  expect(read.unread).toBe(2);
+  expect(read.mailboxes.find((mailbox) => mailbox.id === first!.id)).toMatchObject({
+    unread: 0,
+    pending: 1,
+  });
+  expect(read.mailboxes.filter((mailbox) => mailbox.id !== first!.id)).toEqual(
+    initial.mailboxes.filter((mailbox) => mailbox.id !== first!.id),
+  );
+  await message(second!, u, secondMessage.thread, second!.inbox, new Date(Date.now() + 1000));
+  const received = data(await notify(key.token, u.email));
+  expect(received.totals).toEqual({ unread: 3, pending: 2 });
+  expect(received.mailboxes.find((mailbox) => mailbox.id === second!.id)).toMatchObject({
+    unread: 2,
+    pending: 1,
+  });
+  expect(received.mailboxes.filter((mailbox) => mailbox.id !== second!.id)).toEqual(
+    read.mailboxes.filter((mailbox) => mailbox.id !== second!.id),
   );
 });

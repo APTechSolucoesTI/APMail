@@ -19,7 +19,29 @@ curl --get 'https://app.apmail.com.br/api/integrations/notifications' \
     "email": "usuario@empresa.com.br",
     "unread": 3,
     "pending": 2,
-    "hasNotifications": true
+    "totals": {
+      "unread": 3,
+      "pending": 2
+    },
+    "hasNotifications": true,
+    "mailboxes": [
+      {
+        "id": "4fb136f9-ef86-4520-9cd9-d30397008478",
+        "email": "financeiro@empresa.com.br",
+        "name": "Financeiro",
+        "unread": 3,
+        "pending": 2,
+        "url": "/mail/4fb136f9-ef86-4520-9cd9-d30397008478?assigned=any"
+      },
+      {
+        "id": "78477d64-83fe-4252-8946-b96613265e4f",
+        "email": "comercial@empresa.com.br",
+        "name": "Comercial",
+        "unread": 0,
+        "pending": 0,
+        "url": "/mail/78477d64-83fe-4252-8946-b96613265e4f?assigned=any"
+      }
+    ]
   }
 }
 ```
@@ -27,6 +49,10 @@ curl --get 'https://app.apmail.com.br/api/integrations/notifications' \
 `unread` conta mensagens recebidas depois do último registro de leitura daquela conversa pelo próprio usuário. A leitura de outra pessoa não altera esse contador. Abrir uma conversa no APMail marca suas mensagens como lidas conforme o fluxo atual. A consulta da integração não altera a leitura, as mensagens ou os atendimentos.
 
 `pending` conta conversas visíveis em A Responder ou Em Atendimento. Inclui caixas com filas ocultas, pois o atendimento continua disponível nelas. Conversas excluídas das filas não entram nesse total. Os campos são independentes e podem representar a mesma conversa. Não devem ser somados.
+
+Os campos existentes `data.unread` e `data.pending` continuam sendo os totais consolidados. `data.totals` repete esses valores e corresponde à soma de `data.mailboxes`. Cada caixa aparece uma única vez, incluindo caixas sem notificações. As contagens são agregadas em uma consulta, sem uma consulta por caixa. As mensagens são contadas por seu identificador persistido, mesmo quando a autorização vem simultaneamente de vínculo e convite.
+
+Os IDs são UUIDs reais do APMail. Os valores no exemplo são ilustrativos. `mailboxes[].url` é um endereço relativo ao próprio APMail. Para membros da caixa, aponta para `/mail/{id}?assigned=any`. Esse filtro exibe as conversas autorizadas independentemente do responsável, mantendo as restrições de operadores. Para acesso exclusivo por convite, aponta para `/invitations`, onde somente as conversas convidadas podem ser abertas. A caixa deixa de ser retornada quando o convite termina e não existe vínculo com ela. Nenhum conteúdo, assunto, anexo ou conversa de terceiros é retornado.
 
 As contagens respeitam o usuário autorizado pelo token, seu perfil, os vínculos explícitos com caixas, as pastas e subpastas permitidas, a restrição de operadores e os convites ativos. Lixeira, spam, mensagens retidas e registros excluídos ficam fora. Confirmações de leitura seguem o critério existente de mensagens não lidas. O e-mail do usuário é normalizado para minúsculas. O tenant vem exclusivamente do token, independentemente da empresa selecionada em sessões interativas.
 
@@ -49,6 +75,6 @@ A API exige HTTPS em produção. O proxy reverso do ambiente deve ser o único a
 
 Crie uma rota autenticada no backend do Curciol que consulte a API com o e-mail da sessão atual. O navegador chama somente essa rota local. Use `APMAIL_API_BASE_URL=https://app.apmail.com.br` e `APMAIL_INTEGRATION_TOKEN` como configuração privada do servidor. Não receba um e-mail arbitrário do navegador para consultar outra pessoa.
 
-Atualize ao entrar e a cada 60 segundos, com timeout de 5 segundos e uma requisição por vez. Pause consultas quando a página estiver oculta e retome ao voltar. Use um badge com `unread` e um tooltip que apresente separadamente as conversas pendentes. Quando somente `pending` for positivo, mostre um ponto discreto. O clique abre `https://app.apmail.com.br` em outra aba com `noopener`.
+Atualize ao entrar e a cada 60 segundos, com timeout de 5 segundos e uma requisição por vez. Pause consultas quando a página estiver oculta e retome ao voltar. Exiba um sininho com badge de `totals.unread`. Ao clicar, abra uma lista de `mailboxes`, com nome, endereço e contagem de não lidos, incluindo as caixas zeradas. A quantidade pendente pode aparecer como informação secundária. Abra a caixa usando `new URL(mailbox.url, APMAIL_API_BASE_URL)`, conferindo que a origem é a do APMail, em outra aba com `noopener noreferrer`. O destino usa a autenticação e autorização normais do APMail.
 
 Durante indisponibilidade, mantenha a última contagem com indicação discreta de desatualização por até cinco minutos. Depois, apresente o indicador sem número. Uma falha não deve ser apresentada como zero nem impedir o uso do Curciol. Nunca registre o token ou o e-mail consultado em logs rotineiros.
