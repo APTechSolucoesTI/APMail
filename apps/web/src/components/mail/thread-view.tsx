@@ -25,6 +25,7 @@ export function ThreadView({
   folders,
   onClose,
   onCompose,
+  showBackButton = true,
 }: {
   threadId: string;
   messageId?: string;
@@ -33,6 +34,7 @@ export function ThreadView({
   folders: Folder[];
   onClose: () => void;
   onCompose?: (mode: string) => void;
+  showBackButton?: boolean;
 }) {
   const tenantId = useTenantId(),
     me = useQuery(meQuery);
@@ -84,16 +86,18 @@ export function ThreadView({
     <section aria-label="Conversa" className="h-full min-w-0 space-y-4 overflow-y-auto p-3 sm:p-4">
       <div className="space-y-3 border-b pb-4">
         <div className="flex items-start gap-2">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="shrink-0"
-            aria-label="Voltar à lista"
-            onClick={onClose}
-            data-mail-drag-ignore
-          >
-            <ArrowLeft />
-          </Button>
+          {showBackButton && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0"
+              aria-label="Voltar à lista"
+              onClick={onClose}
+              data-mail-drag-ignore
+            >
+              <ArrowLeft />
+            </Button>
+          )}
           <h2 className="min-w-0 flex-1 select-text break-words text-xl font-semibold">
             {data.thread.subject || '(Sem assunto)'}
           </h2>

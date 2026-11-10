@@ -6,8 +6,16 @@ beforeEach(() => {
   Object.defineProperty(window, 'innerWidth', { value: 1440, configurable: true });
   Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true });
 });
-function Fixture({ user = 'user', enabled = true }: { user?: string; enabled?: boolean }) {
-  const position = useComposerPosition('tenant:' + user, enabled);
+function Fixture({
+  user = 'user',
+  enabled = true,
+  surface,
+}: {
+  user?: string;
+  enabled?: boolean;
+  surface?: 'composer' | 'summary';
+}) {
+  const position = useComposerPosition('tenant:' + user, enabled, surface);
   return (
     <>
       <output aria-label="Posição">
@@ -38,6 +46,18 @@ it('move pelo teclado, lembra ao reabrir e isola a preferência por usuário', (
   expect(screen.getByLabelText('Posição')).toHaveTextContent('444,104');
   reopened.rerender(<Fixture user="other" />);
   expect(screen.getByLabelText('Posição')).toHaveTextContent('464,124');
+});
+it('centraliza a conversa do Resumo e salva sua posição separadamente do compositor', () => {
+  localStorage.setItem(
+    'apmail-composer-position:tenant:user',
+    JSON.stringify({ left: 32, top: 32 }),
+  );
+  const view = render(<Fixture surface="summary" />);
+  expect(screen.getByLabelText('Posição')).toHaveTextContent('240,70');
+  fireEvent.keyDown(screen.getByRole('button'), { key: 'ArrowRight' });
+  expect(localStorage.getItem('apmail-summary-position:tenant:user')).toBe('{"left":260,"top":70}');
+  view.rerender(<Fixture />);
+  expect(screen.getByLabelText('Posição')).toHaveTextContent('32,32');
 });
 it('mantém o compositor visível quando a tela diminui e limita os movimentos', () => {
   render(<Fixture />);

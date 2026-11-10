@@ -110,6 +110,7 @@ export function Composer({
   initialRecipient,
   onClose,
   onReopen,
+  trapFocus = false,
   ref,
 }: {
   mailboxId: string;
@@ -119,6 +120,7 @@ export function Composer({
   onClose: () => void;
   onReopen: (id: string) => void;
   ref?: Ref<ComposerHandle>;
+  trapFocus?: boolean;
 }) {
   const desktop = useMediaQuery('(min-width: 1024px)'),
     [minimized, setMinimized] = useState(false),
@@ -623,7 +625,7 @@ export function Composer({
       )}
       <Dialog
         open={!minimized}
-        modal={!desktop || maximized}
+        modal={trapFocus || !desktop || maximized}
         onOpenChange={(v) => {
           if (!v) void close();
         }}
@@ -669,16 +671,18 @@ export function Composer({
           >
             {desktop && (
               <div className="absolute right-10 top-1 flex justify-end gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Minimizar compositor"
-                  className="text-primary-foreground hover:bg-primary-foreground/15 hover:text-primary-foreground focus-visible:ring-primary-foreground"
-                  disabled={busy}
-                  onClick={() => setMinimized(true)}
-                >
-                  <Minus />
-                </Button>
+                {!trapFocus && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Minimizar compositor"
+                    className="text-primary-foreground hover:bg-primary-foreground/15 hover:text-primary-foreground focus-visible:ring-primary-foreground"
+                    disabled={busy}
+                    onClick={() => setMinimized(true)}
+                  >
+                    <Minus />
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="icon"

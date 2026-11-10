@@ -23,8 +23,12 @@ function read(key: string): Position | null {
 }
 
 /** Positions are local UI preferences. Message content is never stored here. */
-export function useComposerPosition(key: string, enabled: boolean) {
-  const storageKey = 'apmail-composer-position:' + key;
+export function useComposerPosition(
+  key: string,
+  enabled: boolean,
+  surface: 'composer' | 'summary' = 'composer',
+) {
+  const storageKey = 'apmail-' + surface + '-position:' + key;
   const stored = useMemo(() => read(storageKey), [storageKey]);
   const [size, setSize] = useState(viewport);
   const [moved, setMoved] = useState<{ key: string; position: Position } | null>(null);
@@ -43,9 +47,11 @@ export function useComposerPosition(key: string, enabled: boolean) {
     left: Math.max(16, Math.min(position.left, maxLeft)),
     top: Math.max(16, Math.min(position.top, maxTop)),
   });
-  const position = clamp(
-    (moved?.key === storageKey ? moved.position : stored) ?? { left: maxLeft, top: maxTop },
-  );
+  const initial =
+    surface === 'summary'
+      ? { left: Math.round((maxLeft + 16) / 2), top: Math.round((maxTop + 16) / 2) }
+      : { left: maxLeft, top: maxTop };
+  const position = clamp((moved?.key === storageKey ? moved.position : stored) ?? initial);
   useEffect(() => {
     const resize = () => setSize(viewport());
     window.addEventListener('resize', resize);
@@ -60,7 +66,7 @@ export function useComposerPosition(key: string, enabled: boolean) {
       } catch {
         /* Optional UI preference. */
       }
-      setAnnouncement('Posição do compositor ajustada.');
+      setAnnouncement('Posição ajustada.');
     }
     return next;
   };
@@ -79,7 +85,7 @@ export function useComposerPosition(key: string, enabled: boolean) {
       const step = event.shiftKey ? 60 : 20;
       update(
         event.key === 'Home'
-          ? { left: maxLeft, top: maxTop }
+          ? initial
           : {
               left:
                 position.left +
@@ -94,8 +100,9 @@ export function useComposerPosition(key: string, enabled: boolean) {
     onPointerDown: (event: PointerEvent<HTMLElement>) => {
       if (!enabled || event.button !== 0) return;
       const button = (event.target as HTMLElement).closest('button');
-      if (button) return;
+      if (button && !button.hasAttribute('data-window-drag-handle')) return;
       event.preventDefault();
+      button?.focus({ preventScroll: true });
       event.currentTarget.setPointerCapture(event.pointerId);
       drag.current = {
         pointer: event.pointerId,
@@ -105,7 +112,9 @@ export function useComposerPosition(key: string, enabled: boolean) {
         current: position,
       };
       setDragging(true);
-      setAnnouncement('Movendo compositor.');
+      setAnnouncement(
+        surface === 'summary' ? 'Movendo janela da conversa.' : 'Movendo compositor.',
+      );
     },
     onPointerMove: (event: PointerEvent<HTMLElement>) => {
       const current = drag.current;

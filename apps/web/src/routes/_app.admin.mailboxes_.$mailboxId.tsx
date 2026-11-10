@@ -1,5 +1,7 @@
 import { useTenantId } from '@/lib/auth';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
+import { ArrowLeft } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { mailboxSchema } from '@apmail/shared';
 import { api } from '@/lib/api';
@@ -38,10 +40,30 @@ function MailboxSettings() {
     refetchInterval: (query) =>
       ['pending', 'error'].includes(query.state.data?.status ?? '') ? 15000 : false,
   });
-  if (q.isLoading) return <LoadingState />;
-  if (!q.data) return <ErrorState onRetry={() => void q.refetch()} />;
+  const back = (
+    <Button asChild variant="ghost" className="mb-2 w-fit">
+      <Link to="/admin/mailboxes">
+        <ArrowLeft aria-hidden /> Voltar para caixas de e-mail
+      </Link>
+    </Button>
+  );
+  if (q.isLoading)
+    return (
+      <>
+        {back}
+        <LoadingState />
+      </>
+    );
+  if (!q.data)
+    return (
+      <>
+        {back}
+        <ErrorState onRetry={() => void q.refetch()} />
+      </>
+    );
   return (
     <>
+      {back}
       <PageHeader title={q.data.name} description={q.data.email_address} />
       <MailboxStatusBadge status={q.data.status} recovering={mailboxRecovering(q.data)} />
       <Tabs
