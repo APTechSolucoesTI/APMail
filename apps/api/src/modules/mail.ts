@@ -407,6 +407,17 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
       .where('tenant_id', '=', c.tenantId)
       .where('thread_id', '=', thread.id)
       .executeTakeFirstOrThrow();
+    const servicePeriod =
+      box.queues_enabled && thread.assigned_to
+        ? await r.db
+            .selectFrom('thread_service_periods')
+            .select('started_at')
+            .where('tenant_id', '=', c.tenantId)
+            .where('thread_id', '=', thread.id)
+            .where('assignee_id', '=', thread.assigned_to)
+            .where('ended_at', 'is', null)
+            .executeTakeFirst()
+        : undefined;
     const latest = messages.at(-1),
       inbound = messages.filter((m) => m.direction === 'inbound' && !m.is_automated),
       outbound = messages.filter((m) => m.direction === 'outbound' && !m.is_mdn);
@@ -459,7 +470,12 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
         ...visibleThread,
         ...taskCounts,
         assigned_to: assignee ?? null,
+        is_assignee_overdue:
+          !!servicePeriod &&
+          !!visibleThread.last_inbound_at &&
+          servicePeriod.started_at.getTime() < Date.now() - sla * 3600000,
         is_overdue:
+          !thread.queue_excluded &&
           ['to_reply', 'in_progress'].includes(thread.queue_status) &&
           !!visibleThread.last_inbound_at &&
           visibleThread.last_inbound_at.getTime() < Date.now() - sla * 3600000,

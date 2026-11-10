@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Grip, Mail, X } from 'lucide-react';
+import { Mail, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { canMailbox, useTenantId, type Mailbox } from '@/lib/auth';
 import type { Folder, Thread } from '@/lib/mail';
@@ -62,7 +62,7 @@ export function SummaryConversation({
         <div
           className={cn(
             'flex shrink-0 items-center gap-2 rounded-t-[inherit] border-b bg-muted/60 px-3 py-2',
-            desktop && 'cursor-grab touch-none select-none active:cursor-grabbing',
+            desktop && 'touch-none select-none',
           )}
           onPointerDown={position.onPointerDown}
           onPointerMove={position.onPointerMove}
@@ -71,26 +71,19 @@ export function SummaryConversation({
         >
           <Mail className="size-4 shrink-0 text-primary" aria-hidden />
           <div className="min-w-0 flex-1">
-            <DialogTitle className="truncate text-sm leading-5">Conversa do Resumo</DialogTitle>
+            <DialogTitle
+              className="truncate text-sm leading-5 focus-visible:outline-2 focus-visible:outline-ring"
+              tabIndex={desktop ? 0 : undefined}
+              aria-describedby={desktop ? help : undefined}
+              onKeyDown={position.onKeyDown}
+            >
+              Conversa do Resumo
+            </DialogTitle>
             <p className="truncate text-xs text-muted-foreground" title={mailboxEmail}>
               {mailboxName}
               {mailboxEmail && mailboxName !== mailboxEmail ? ' · ' + mailboxEmail : ''}
             </p>
           </div>
-          {desktop && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Mover janela da conversa"
-              aria-describedby={help}
-              title="Arraste a janela ou use as setas"
-              data-window-drag-handle
-              className="cursor-grab active:cursor-grabbing"
-              onKeyDown={position.onKeyDown}
-            >
-              <Grip aria-hidden />
-            </Button>
-          )}
           <DialogClose asChild>
             <Button variant="ghost" size="icon-sm" aria-label="Fechar conversa" autoFocus>
               <X aria-hidden />

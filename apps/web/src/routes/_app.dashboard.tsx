@@ -397,7 +397,7 @@ function Dashboard() {
                         boxes={selected}
                       />
                       <KpiCard
-                        label="Fora do SLA"
+                        label="Fora do SLA da caixa"
                         value={values.overdue}
                         icon={AlarmClock}
                         danger={values.overdue > 0}
@@ -463,7 +463,7 @@ function Dashboard() {
               <section className="min-w-0 space-y-3">
                 <h2 className="text-xl font-semibold">Produtividade por usuário</h2>
                 <p className="text-xs text-muted-foreground">
-                  Envios e conclusões no período; atribuições em aberto mostram o estado atual.
+                  A média por responsável considera os períodos encerrados no intervalo selecionado.
                 </p>
                 <UserTable
                   key={params}
@@ -478,7 +478,8 @@ function Dashboard() {
               <section className="min-w-0 space-y-3">
                 <h2 className="text-xl font-semibold">Conversas paradas há mais tempo</h2>
                 <p className="text-xs text-muted-foreground">
-                  As 20 conversas em aberto com espera mais longa nas caixas escolhidas.
+                  As 20 conversas com maior espera na caixa, com o tempo do responsável atual em
+                  separado.
                 </p>
                 <StaleThreadsTable
                   key={params}

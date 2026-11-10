@@ -45,6 +45,7 @@ export type UserProductivity = {
   sent: number;
   threads_replied: number;
   avg_reply_minutes: number | null;
+  avg_service_minutes?: number | null;
   open_assigned: number;
   done_in_period: number;
 };
@@ -57,5 +58,7 @@ export type StaleThread = {
   assigned_name: string | null;
   last_inbound_at: string;
   waiting_minutes: number;
+  assigned_minutes?: number | null;
+  is_assignee_overdue?: boolean;
   is_overdue: boolean;
 };

@@ -219,7 +219,25 @@ export async function threadHistory(r: Resources, ctx: RequestContext | null, id
     .where('a.entity_id', '=', id)
     .where('a.action', '=', 'thread.assigned')
     .execute();
+  const periods = await r.db
+    .selectFrom('thread_service_periods as p')
+    .leftJoin('users as u', 'u.id', 'p.assignee_id')
+    .select([
+      'p.id',
+      'p.started_at as created_at',
+      'p.ended_at',
+      'p.assignee_id',
+      'u.full_name as assigned_to_name',
+      sql<number>`greatest(0, extract(epoch from (coalesce(p.ended_at, now()) - p.started_at)) / 60)::double precision`.as(
+        'duration_minutes',
+      ),
+    ])
+    .where('p.tenant_id', '=', c.tenantId)
+    .where('p.thread_id', '=', id)
+    .orderBy('p.id')
+    .execute();
   return [
+    ...periods.map((p) => ({ ...p, id: String(p.id), type: 'service_period' as const })),
     ...statuses.map((s) => ({ ...s, type: 'status' as const })),
     ...assignments.map((a) => ({ ...a, id: String(a.id), type: 'assignment' as const })),
   ].sort((a, b) => a.created_at.getTime() - b.created_at.getTime());

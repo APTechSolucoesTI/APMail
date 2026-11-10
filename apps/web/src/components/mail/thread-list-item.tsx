@@ -263,7 +263,8 @@ export function ThreadListItem({
             </span>
           )}
           {queuesEnabled && <QueueStatusBadge status={thread.queue_status} />}
-          {queuesEnabled && thread.is_overdue && <OverdueBadge />}
+          {queuesEnabled && thread.is_overdue && <OverdueBadge scope="mailbox" />}
+          {queuesEnabled && thread.is_assignee_overdue && <OverdueBadge scope="assignee" />}
           {queuesEnabled && thread.assigned_to && (
             <span
               title={'Responsável: ' + thread.assigned_to.full_name}

@@ -54,6 +54,7 @@ export type Thread = {
   labels: PersonalLabel[];
   assigned_to: { id: string; full_name: string; avatar_url: string | null } | null;
   is_overdue: boolean;
+  is_assignee_overdue?: boolean;
   has_scheduled: boolean;
   latest_from: { name: string; address: string };
   latest_to?: Address[];

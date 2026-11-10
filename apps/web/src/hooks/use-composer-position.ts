@@ -100,9 +100,8 @@ export function useComposerPosition(
     onPointerDown: (event: PointerEvent<HTMLElement>) => {
       if (!enabled || event.button !== 0) return;
       const button = (event.target as HTMLElement).closest('button');
-      if (button && !button.hasAttribute('data-window-drag-handle')) return;
+      if (button) return;
       event.preventDefault();
-      button?.focus({ preventScroll: true });
       event.currentTarget.setPointerCapture(event.pointerId);
       drag.current = {
         pointer: event.pointerId,

@@ -109,8 +109,14 @@ it('offers personal pin with read access and hides flag when effective permissio
 it('oculta status e alerta de SLA de uma caixa sem filas, inclusive em uma lista mista', () => {
   open(
     { id: 'box', role: 'viewer', queues_enabled: false },
-    { ...thread, queues_enabled: true, queue_status: 'to_reply', is_overdue: true },
+    {
+      ...thread,
+      queues_enabled: true,
+      queue_status: 'to_reply',
+      is_overdue: true,
+      is_assignee_overdue: true,
+    },
   );
   expect(screen.queryByText('A responder')).not.toBeInTheDocument();
-  expect(screen.queryByText('Fora do SLA')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Fora do SLA/)).not.toBeInTheDocument();
 });

@@ -23,6 +23,8 @@ import { ThreadTasks } from './thread-tasks';
 import { UserAvatar } from '@/components/common/user-avatar';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/data/data-state';
+import { durationLabel } from '@/lib/dashboard';
+
 type Note = {
   id: string;
   author_id: string;
@@ -36,11 +38,14 @@ type Note = {
 type User = { id: string; full_name: string; avatar_url: string | null };
 type Timeline = {
   id: string;
-  type: 'status' | 'assignment';
+  type: 'status' | 'assignment' | 'service_period';
+  assignee_id?: string | null;
+  ended_at?: string | null;
+  duration_minutes?: number;
   from_status?: keyof typeof QUEUE_LABELS;
   to_status?: keyof typeof QUEUE_LABELS;
   reason?: string;
-  changed_by_name: string | null;
+  changed_by_name?: string | null;
   assigned_to_name?: string | null;
   created_at: string;
 };
@@ -404,25 +409,47 @@ export function ThreadNotes({
             />
           ) : (
             <ol className="space-y-4 border-l pl-4">
-              {history.data.map((h) => (
-                <li key={h.type + h.id} className="space-y-1 text-sm">
-                  <p className="font-medium">
-                    {h.type === 'assignment'
-                      ? `Responsável: ${h.assigned_to_name ?? 'sem responsável'}`
-                      : `${h.from_status ? QUEUE_LABELS[h.from_status] : 'Sem fila'} → ${h.to_status ? QUEUE_LABELS[h.to_status] : 'Sem fila'}`}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {h.changed_by_name ?? 'Sistema'} ·{' '}
-                    {h.type === 'assignment' ? 'Atribuição' : (reasons[h.reason ?? ''] ?? h.reason)}
-                  </p>
-                  <time dateTime={h.created_at} className="text-xs text-muted-foreground">
-                    {new Date(h.created_at).toLocaleString('pt-BR', {
-                      timeZone: me.data?.preferences.timezone,
-                      timeZoneName: 'short',
-                    })}
-                  </time>
-                </li>
-              ))}
+              {history.data.map((h) =>
+                h.type === 'service_period' ? (
+                  <li key={h.type + h.id} className="space-y-1 text-sm">
+                    <p className="font-medium">
+                      {h.assignee_id
+                        ? (h.assigned_to_name ?? 'Usuário removido')
+                        : 'Aguardando atribuição'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {durationLabel(h.duration_minutes ?? null)}
+                      {!h.ended_at && ' · em andamento'}
+                    </p>
+                    <time dateTime={h.created_at} className="text-xs text-muted-foreground">
+                      Desde{' '}
+                      {new Date(h.created_at).toLocaleString('pt-BR', {
+                        timeZone: me.data?.preferences.timezone,
+                      })}
+                    </time>
+                  </li>
+                ) : (
+                  <li key={h.type + h.id} className="space-y-1 text-sm">
+                    <p className="font-medium">
+                      {h.type === 'assignment'
+                        ? `Responsável: ${h.assigned_to_name ?? 'sem responsável'}`
+                        : `${h.from_status ? QUEUE_LABELS[h.from_status] : 'Sem fila'} → ${h.to_status ? QUEUE_LABELS[h.to_status] : 'Sem fila'}`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {h.changed_by_name ?? 'Sistema'} ·{' '}
+                      {h.type === 'assignment'
+                        ? 'Atribuição'
+                        : (reasons[h.reason ?? ''] ?? h.reason)}
+                    </p>
+                    <time dateTime={h.created_at} className="text-xs text-muted-foreground">
+                      {new Date(h.created_at).toLocaleString('pt-BR', {
+                        timeZone: me.data?.preferences.timezone,
+                        timeZoneName: 'short',
+                      })}
+                    </time>
+                  </li>
+                ),
+              )}
             </ol>
           )}
         </TabsContent>

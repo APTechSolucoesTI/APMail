@@ -214,7 +214,9 @@ export async function listThreads(
        ${individualMessages ? sql`and original.id=p.entry_id` : sql``}) as has_reply,
    (select count(*)::int from reminders task where task.tenant_id=${c.tenantId} and task.thread_id=p.id and task.status in ('pending','notified')) as pending_task_count,
    (select count(*)::int from reminders task where task.tenant_id=${c.tenantId} and task.thread_id=p.id and task.status='completed') as completed_task_count,
-   box.name as mailbox_name,box.email_address as mailbox_email,box.queues_enabled,latest.snippet,jsonb_build_object('name',latest.from_name,'address',latest.from_address) as latest_from,latest.to_addresses as latest_to,latest.direction,
+   box.name as mailbox_name,box.email_address as mailbox_email,box.queues_enabled,
+   coalesce(box.queues_enabled and p.last_inbound_at is not null and service.assignee_id is not null and service.started_at<now()-make_interval(hours=>coalesce((settings.settings->>'sla_first_response_hours')::int,24)),false) as is_assignee_overdue,
+   latest.snippet,jsonb_build_object('name',latest.from_name,'address',latest.from_address) as latest_from,latest.to_addresses as latest_to,latest.direction,
    case when latest.request_read_receipt then case when exists(select 1 from mdn_receipts receipt where receipt.original_message_id=latest.id and receipt.disposition='displayed') then 'confirmed' else 'waiting' end else null end as read_receipt_status,
    coalesce((select array_agg(distinct address) from (
     select lower(m.from_address) as address from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.deleted_at is null and ${scope()} ${folderFilter} ${selectedMessage('p')}
@@ -222,7 +224,9 @@ export async function listThreads(
    ) contacts where address<>lower(box.email_address) and not address=any(box.aliases)), '{}'::text[]) as participants,
    coalesce((select jsonb_agg(jsonb_build_object('id',l.id,'name',l.name,'color',l.color,'scope',l.scope) order by (l.scope='tenant') desc,l.name) from thread_personal_labels tl join personal_labels l on l.id=tl.label_id where tl.thread_id=p.id and tl.tenant_id=${c.tenantId} and (l.scope='tenant' or l.user_id=${c.userId}) and (l.mailbox_mode='all' or exists(select 1 from label_mailboxes lm where lm.label_id=l.id and lm.mailbox_id in (${sql.join(boxIds)}) and lm.tenant_id=l.tenant_id))),'[]'::jsonb) as labels,
    exists(select 1 from outbox o where o.thread_id=p.id and o.tenant_id=${c.tenantId} and o.mdn_original_message_id is null and o.status in ('scheduled','queued','sending')) as has_scheduled
-  from paged p join mailboxes box on box.id=p.mailbox_id join lateral (
+  from paged p join mailboxes box on box.id=p.mailbox_id join tenants settings on settings.id=box.tenant_id
+  left join thread_service_periods service on service.thread_id=p.id and service.tenant_id=settings.id and service.ended_at is null
+  join lateral (
    select coalesce(bool_or(m.is_flagged),false) as is_flagged,coalesce(bool_or(m.pending_action),false) as has_pending_message_action
    from messages m where m.thread_id=p.id and m.tenant_id=${c.tenantId} and m.mailbox_id=p.mailbox_id and m.deleted_at is null and ${scope()} ${selectedMessage('p')}
   ) message_state on true join lateral (

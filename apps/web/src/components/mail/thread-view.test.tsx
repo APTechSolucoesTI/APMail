@@ -55,6 +55,7 @@ function open(lastRead = '2026-10-26T12:00:00Z', admin = false, queuesEnabled = 
       labels: [],
       assigned_to: null,
       is_overdue: true,
+      is_assignee_overdue: true,
       has_scheduled: false,
       latest_from: { name: 'Recente', address: 'recente@example.com' },
     },
@@ -144,5 +145,5 @@ it('oculta status, atendimento e SLA sem esconder ações de mensagem quando a c
   expect(screen.queryByText('Concluído')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Reabrir' })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Mover' })).toBeVisible();
-  expect(screen.queryByText('Fora do SLA')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Fora do SLA/)).not.toBeInTheDocument();
 });

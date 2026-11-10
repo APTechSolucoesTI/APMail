@@ -150,6 +150,8 @@ beforeAll(async () => {
   await db
     .insertInto('mailbox_members')
     .values([
+      { tenant_id: tenant, mailbox_id: box, user_id: owner, role: 'mailbox_admin' },
+      { tenant_id: tenant, mailbox_id: otherBox, user_id: owner, role: 'mailbox_admin' },
       { tenant_id: tenant, mailbox_id: box, user_id: admin, role: 'mailbox_admin' },
       { tenant_id: tenant, mailbox_id: box, user_id: editor, role: 'editor' },
       { tenant_id: tenant, mailbox_id: box, user_id: viewer, role: 'viewer' },

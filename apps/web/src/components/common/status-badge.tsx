@@ -64,8 +64,14 @@ export function QueueStatusBadge({ status }: { status: QueueStatus }) {
   const [variant, icon] = queueStyles[status];
   return <StatusBadge label={QUEUE_LABELS[status]} variant={variant} icon={icon} />;
 }
-export function OverdueBadge() {
-  return <StatusBadge label="Fora do SLA" icon={AlarmClock} variant="danger" />;
+export function OverdueBadge({ scope }: { scope?: 'mailbox' | 'assignee' } = {}) {
+  const label =
+    scope === 'mailbox'
+      ? 'Fora do SLA da caixa'
+      : scope === 'assignee'
+        ? 'Fora do SLA do responsável'
+        : 'Fora do SLA';
+  return <StatusBadge label={label} icon={AlarmClock} variant="danger" />;
 }
 export function MailboxStatusBadge({
   status,

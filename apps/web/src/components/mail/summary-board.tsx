@@ -144,7 +144,8 @@ function SummaryColumn({
                       <span className="min-w-0 truncate" title={thread.assigned_to?.full_name}>
                         {thread.assigned_to?.full_name ?? 'Sem responsável'}
                       </span>
-                      {thread.is_overdue && <OverdueBadge />}
+                      {thread.is_overdue && <OverdueBadge scope="mailbox" />}
+                      {thread.is_assignee_overdue && <OverdueBadge scope="assignee" />}
                     </span>
                   </button>
                 </MailContextMenu>

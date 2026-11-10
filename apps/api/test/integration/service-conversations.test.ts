@@ -487,3 +487,114 @@ it('supervisor atribui ao operador restrito e o atendimento continua A Responder
     assigned_to: { id: operator },
   });
 });
+
+it('separa espera na caixa do tempo de cada responsável após transferências', async () => {
+  const id = randomUUID();
+  const inboundAt = new Date(Date.now() - 30 * 3600000);
+  const folder = await db
+    .selectFrom('folders')
+    .select('id')
+    .where('mailbox_id', '=', shared)
+    .where('special_use', '=', 'inbox')
+    .executeTakeFirstOrThrow();
+  await db
+    .insertInto('threads')
+    .values({
+      id,
+      tenant_id: tenant,
+      mailbox_id: shared,
+      subject: 'Relógios de SLA',
+      history_queue_eligible: true,
+    })
+    .execute();
+  await db
+    .insertInto('messages')
+    .values({
+      tenant_id: tenant,
+      mailbox_id: shared,
+      thread_id: id,
+      folder_id: folder.id,
+      direction: 'inbound',
+      message_at: inboundAt,
+      message_id_header: '<' + id + '@service.test>',
+      from_address: 'cliente@service.test',
+      subject: 'Relógios de SLA',
+    })
+    .execute();
+  await touchThreads(db, [id], 'inbound', null);
+  const url = '/threads/' + id;
+  const assign = async (user_id: string) => {
+    const result = await call('PUT', url + '/assignee', supervisor, { user_id });
+    expect(result.statusCode, result.body).toBe(200);
+  };
+  await assign(operator);
+  const first = await call('GET', url, operator);
+  expect(first.json().thread).toMatchObject({ is_overdue: true, is_assignee_overdue: false });
+  await assign(operator);
+  await assign(owner);
+  const visible = await call(
+    'GET',
+    '/mail-summary/threads?view=search&q=Rel%C3%B3gios%20de%20SLA',
+    supervisor,
+  );
+  expect(visible.json().items).toEqual([
+    expect.objectContaining({
+      id,
+      is_overdue: true,
+      is_assignee_overdue: false,
+      assigned_to: expect.objectContaining({ id: owner }),
+    }),
+  ]);
+  const history = (await call('GET', url + '/history', supervisor))
+    .json<
+      {
+        type: string;
+        assignee_id: string | null;
+        duration_minutes: number;
+        ended_at: string | null;
+      }[]
+    >()
+    .filter((entry) => entry.type === 'service_period');
+  expect(history.map((entry) => entry.assignee_id)).toEqual([null, operator, owner]);
+  expect(history[0]?.duration_minutes).toBeGreaterThanOrEqual(1800);
+  expect(history[1]?.ended_at).toBeTruthy();
+  expect(history[2]?.ended_at).toBeNull();
+  expect((await call('GET', url + '/history', foreign)).statusCode).toBe(404);
+
+  const periodFilter = '?mailbox_id=' + shared;
+  const dashboard = await call('GET', '/dashboard/stale-threads' + periodFilter);
+  expect(dashboard.json()).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        thread_id: id,
+        is_overdue: true,
+        is_assignee_overdue: false,
+        assigned_minutes: 0,
+      }),
+    ]),
+  );
+  const from = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const to = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const productivity = await call(
+    'GET',
+    '/dashboard/by-user?mailbox_id=' + shared + '&from=' + from + '&to=' + to,
+  );
+  expect(productivity.json()).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        user_id: operator,
+        avg_service_minutes: expect.any(Number),
+      }),
+    ]),
+  );
+  expect((await call('POST', url + '/done')).statusCode).toBe(200);
+  expect((await call('POST', url + '/reopen')).statusCode).toBe(200);
+  const periods = await db
+    .selectFrom('thread_service_periods')
+    .selectAll()
+    .where('thread_id', '=', id)
+    .orderBy('id')
+    .execute();
+  expect(periods.map(({ assignee_id }) => assignee_id)).toEqual([null, operator, owner, owner]);
+  expect(periods.filter(({ ended_at }) => ended_at === null)).toHaveLength(1);
+});

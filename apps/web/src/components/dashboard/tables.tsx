@@ -82,6 +82,13 @@ export function UserTable({
           sortable: true,
           cell: (row) => durationLabel(row.avg_reply_minutes),
         },
+        {
+          id: 'avg_service_minutes',
+          header: 'Tempo médio sob responsabilidade',
+          align: 'right',
+          sortable: true,
+          cell: (row) => durationLabel(row.avg_service_minutes ?? null),
+        },
         { id: 'open_assigned', header: 'Atribuídas em aberto', align: 'right', sortable: true },
         { id: 'done_in_period', header: 'Concluídas no período', align: 'right', sortable: true },
       ]}
@@ -138,13 +145,25 @@ export function StaleThreadsTable(props: BlockData<StaleThread>) {
         },
         {
           id: 'waiting_minutes',
-          header: 'Aguardando há',
+          header: 'Espera na caixa',
           sortable: true,
           align: 'right',
           cell: (row) => (
             <span className="inline-flex flex-col items-end gap-1">
               <span className="tabular-nums">{durationLabel(row.waiting_minutes)}</span>
-              {row.is_overdue && <OverdueBadge />}
+              {row.is_overdue && <OverdueBadge scope="mailbox" />}
+            </span>
+          ),
+        },
+        {
+          id: 'assigned_minutes',
+          header: 'Com o responsável',
+          sortable: true,
+          align: 'right',
+          cell: (row) => (
+            <span className="inline-flex flex-col items-end gap-1">
+              <span className="tabular-nums">{durationLabel(row.assigned_minutes ?? null)}</span>
+              {row.is_assignee_overdue && <OverdueBadge scope="assignee" />}
             </span>
           ),
         },

@@ -1349,6 +1349,19 @@ export interface ThreadServiceInvitations {
   thread_id: string;
 }
 
+export interface ThreadServicePeriods {
+  /**
+   * Historical user identifier. Retained after user deletion so the interval is not counted as unassigned.
+   */
+  assignee_id: string | null;
+  ended_at: Timestamp | null;
+  id: Generated<Int8>;
+  mailbox_id: string;
+  started_at: Timestamp;
+  tenant_id: string;
+  thread_id: string;
+}
+
 export interface ThreadStatusHistory {
   changed_by: string | null;
   created_at: Generated<Timestamp>;
@@ -1519,6 +1532,7 @@ export interface DB {
   thread_notes: ThreadNotes;
   thread_personal_labels: ThreadPersonalLabels;
   thread_service_invitations: ThreadServiceInvitations;
+  thread_service_periods: ThreadServicePeriods;
   thread_status_history: ThreadStatusHistory;
   thread_user_state: ThreadUserState;
   threads: Threads;

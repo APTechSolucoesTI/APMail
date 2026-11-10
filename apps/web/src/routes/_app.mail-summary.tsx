@@ -151,7 +151,7 @@ export function SummaryPage() {
               aria-pressed={board}
               onClick={() => setLayout('board')}
             >
-              <Columns3 aria-hidden /> Painel de atendimento
+              <Columns3 aria-hidden /> Kanban
             </Button>
           </div>
         )}
