@@ -100,4 +100,6 @@ Veja [Cadastro de empresas](docs/COMPANY-DETAILS.md).
 
 ## Administração
 
+[API de mensagens e Webhooks](docs/INTEGRACAO-MENSAGENS-WEBHOOKS.md): permissões de conteúdo e anexos na tela existente de tokens, GET paginado por cursor e aba Webhooks com assinatura HMAC, histórico e reenvios persistentes. Migrations aditivas `0079`–`0080`; atualizar API, worker e web juntos. Tokens de notificações existentes mantêm seus acessos anteriores.
+
 O [Painel Administrativo](docs/PAINEL-ADMINISTRATIVO.md) reúne domínios/DNS, caixas, equipe, empresa, integrações, segurança, auditoria e relatórios, com acesso delegado por seção. O Dashboard das caixas permanece no ambiente de e-mail.

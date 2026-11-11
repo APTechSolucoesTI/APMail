@@ -18,13 +18,20 @@ import {
 } from '@/components/ui/dialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/data/data-state';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
-import { ApiTokenAccess, type ApiRoute, type ApiUser, type TokenAccess } from './api-token-access';
+import {
+  ApiTokenAccess,
+  type ApiRoute,
+  type ApiUser,
+  type ApiMailbox,
+  type TokenAccess,
+} from './api-token-access';
 
 type Token = {
   id: string;
   name: string;
   permissions: string[];
   user_ids: string[];
+  mailbox_ids: string[];
   created_at: string;
   expires_at: string | null;
   revoked_at: string | null;
@@ -35,6 +42,7 @@ type TokenList = {
   tokens: Token[];
   users: ApiUser[];
   routes: ApiRoute[];
+  mailboxes: ApiMailbox[];
 };
 type IssuedToken = {
   id: string;
@@ -329,6 +337,7 @@ function ApiTokensForTenant() {
                     name: issued.name,
                     permissions: issued.permissions,
                     user_ids: [],
+                    mailbox_ids: [],
                   },
                 );
                 setIssued(null);
@@ -358,6 +367,7 @@ function ApiTokensForTenant() {
           token={access}
           routes={query.data.routes}
           users={query.data.users}
+          mailboxes={query.data.mailboxes}
           onClose={() => setAccess(null)}
           onSaved={async () => {
             await client.invalidateQueries({ queryKey: key });
@@ -382,7 +392,7 @@ function ApiTokensForTenant() {
               '. Atualize-o no sistema integrado.'
             : action?.kind === 'delete'
               ? 'O token revogado e suas autorizações serão removidos definitivamente. Confirme para excluir.'
-              : 'O sistema integrado perderá imediatamente o acesso às notificações por este token.'
+              : 'O sistema integrado perderá imediatamente o acesso às rotas autorizadas por este token.'
         }
         destructive
         onConfirm={confirm}

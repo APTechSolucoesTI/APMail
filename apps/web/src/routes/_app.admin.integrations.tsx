@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { z } from 'zod';
 import { GoogleIntegration } from '@/components/integrations/google-integration';
 import { ApiTokens } from '@/components/integrations/api-tokens';
+import { Webhooks } from '@/components/integrations/webhooks';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useQuery } from '@tanstack/react-query';
 import { isTenantAdmin } from '@apmail/shared';
@@ -26,12 +27,16 @@ function Integrations() {
       <TabsList aria-label="Integrações">
         <TabsTrigger value="google">Google</TabsTrigger>
         <TabsTrigger value="tokens">Tokens de API</TabsTrigger>
+        <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
       </TabsList>
       <TabsContent value="google">
         <GoogleIntegration result={search.google} />
       </TabsContent>
       <TabsContent value="tokens">
         <ApiTokens />
+      </TabsContent>
+      <TabsContent value="webhooks">
+        <Webhooks />
       </TabsContent>
     </Tabs>
   );

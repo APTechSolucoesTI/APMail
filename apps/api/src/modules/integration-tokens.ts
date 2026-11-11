@@ -34,10 +34,21 @@ const accessSchema = z
       .array(z.uuid())
       .max(1000)
       .transform((ids) => [...new Set(ids)]),
+    mailbox_ids: z
+      .array(z.uuid())
+      .max(1000)
+      .default([])
+      .transform((ids) => [...new Set(ids)]),
+  })
+  .refine((value) => !value.permissions.length || value.user_ids.length > 0, {
+    message: 'Selecione ao menos um usuário autorizado.',
+    path: ['user_ids'],
   })
   .refine(
-    (value) => !value.permissions.includes('notifications:read') || value.user_ids.length > 0,
-    { message: 'Selecione ao menos um usuário para a rota de notificações.', path: ['user_ids'] },
+    (value) =>
+      !value.permissions.some((p) => p === 'messages:read' || p === 'attachments:download') ||
+      value.mailbox_ids.length > 0,
+    { message: 'Selecione ao menos uma caixa autorizada.', path: ['mailbox_ids'] },
   );
 const idSchema = z.object({ id: z.uuid() });
 const notificationQuery = z.object({
@@ -60,7 +71,7 @@ export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
   app.get('/api/integrations/api-tokens', async (req, reply) => {
     const c = requireTenantAdmin(req.ctx, 'integrations');
     reply.header('Cache-Control', 'no-store');
-    const [tokens, users, tenant] = await Promise.all([
+    const [tokens, users, tenant, mailboxes] = await Promise.all([
       r.db
         .selectFrom('integration_api_tokens as t')
         .select([
@@ -70,6 +81,11 @@ export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
           't.created_at',
           't.expires_at',
           't.revoked_at',
+          sql<
+            string[]
+          >`array(select s.mailbox_id::text from integration_api_token_mailboxes s where s.tenant_id=t.tenant_id and s.token_id=t.id order by s.mailbox_id)`.as(
+            'mailbox_ids',
+          ),
           sql<boolean>`coalesce(t.expires_at<=now(),false)`.as('expired'),
           sql<
             string[]
@@ -94,8 +110,20 @@ export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
         .select(['id', 'name'])
         .where('id', '=', c.tenantId)
         .executeTakeFirstOrThrow(),
+      r.db
+        .selectFrom('mailboxes as b')
+        .innerJoin('mailbox_members as mm', (j) =>
+          j.onRef('mm.mailbox_id', '=', 'b.id').onRef('mm.tenant_id', '=', 'b.tenant_id'),
+        )
+        .select(['b.id', 'b.name', 'b.email_address'])
+        .where('b.tenant_id', '=', c.tenantId)
+        .where('b.deleted_at', 'is', null)
+        .where('mm.user_id', '=', c.userId)
+        .where('mm.role', '=', 'mailbox_admin')
+        .orderBy('b.name')
+        .execute(),
     ]);
-    return { tokens, users, tenant, routes: integrationApiRoutes };
+    return { tokens, users, tenant, mailboxes, routes: integrationApiRoutes };
   });
 
   app.post('/api/integrations/api-tokens', async (req, reply) => {
@@ -235,6 +263,21 @@ export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
         .forUpdate()
         .executeTakeFirst();
       if (!token) throw notFound();
+      if (b.mailbox_ids.length) {
+        const boxes = await tx
+          .selectFrom('mailboxes as box')
+          .innerJoin('mailbox_members as mm', (j) =>
+            j.onRef('mm.mailbox_id', '=', 'box.id').onRef('mm.tenant_id', '=', 'box.tenant_id'),
+          )
+          .select('box.id')
+          .where('box.tenant_id', '=', c.tenantId)
+          .where('box.deleted_at', 'is', null)
+          .where('mm.user_id', '=', c.userId)
+          .where('mm.role', '=', 'mailbox_admin')
+          .where('box.id', 'in', b.mailbox_ids)
+          .execute();
+        if (boxes.length !== b.mailbox_ids.length) throw unavailableUser();
+      }
       if (b.user_ids.length) {
         const users = await tx
           .selectFrom('tenant_members as m')
@@ -265,13 +308,33 @@ export function registerIntegrationTokens(app: FastifyInstance, r: Resources) {
           .values(b.user_ids.map((user_id) => ({ tenant_id: c.tenantId, token_id: id, user_id })))
           .execute();
       }
+      await tx
+        .deleteFrom('integration_api_token_mailboxes')
+        .where('tenant_id', '=', c.tenantId)
+        .where('token_id', '=', id)
+        .execute();
+      if (b.mailbox_ids.length)
+        await tx
+          .insertInto('integration_api_token_mailboxes')
+          .values(
+            b.mailbox_ids.map((mailbox_id) => ({
+              tenant_id: c.tenantId,
+              token_id: id,
+              mailbox_id,
+            })),
+          )
+          .execute();
       await audit(tx, {
         tenantId: c.tenantId,
         actorId: c.userId,
         action: 'integration.api_token.access_updated',
         entityType: 'integration',
         entityId: id,
-        metadata: { permissions: b.permissions, authorized_users: b.user_ids.length },
+        metadata: {
+          permissions: b.permissions,
+          authorized_users: b.user_ids.length,
+          authorized_mailboxes: b.mailbox_ids.length,
+        },
         requestId: req.id,
         ip: req.ip,
       });

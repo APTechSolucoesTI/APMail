@@ -69,6 +69,8 @@ import { registerMeetManagement } from './modules/google/management.js';
 import { registerReports } from './modules/reports/routes.js';
 import { registerReminderAlerts } from './modules/reminder-alerts.js';
 import { registerIntegrationTokens } from './modules/integration-tokens.js';
+import { registerIntegrationMessages } from './modules/integration-messages.js';
+import { registerIntegrationWebhooks } from './modules/integration-webhooks.js';
 import { ApiError, requireTenantAdmin } from './authz/context.js';
 
 export async function buildApp(config: ApiEnv = readEnv()) {
@@ -318,6 +320,8 @@ export async function buildApp(config: ApiEnv = readEnv()) {
   await registerReports(app, resources);
   await registerReminderAlerts(app, resources);
   registerIntegrationTokens(app, resources);
+  registerIntegrationMessages(app, resources);
+  registerIntegrationWebhooks(app, resources);
   app.addHook('onClose', async () => {
     io.local.disconnectSockets(true);
     await sockets.drain();

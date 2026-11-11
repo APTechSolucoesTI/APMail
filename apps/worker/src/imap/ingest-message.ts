@@ -311,6 +311,7 @@ export async function ingestMessage(
             ),
           body_text: text,
           body_html: mailText(sanitizeEmailHtml(mailText(parsed?.html || ''), text)),
+          body_html_original: parsed?.html ? mailText(parsed.html) : null,
           snippet: messageSnippet(text),
           has_attachments: !!parsed?.attachments.some(
             (a) => a.contentDisposition !== 'inline' || !a.cid,

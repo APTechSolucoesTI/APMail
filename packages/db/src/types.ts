@@ -532,6 +532,12 @@ export interface GoogleMeetTranscriptEntries {
   tenant_id: string;
 }
 
+export interface IntegrationApiTokenMailboxes {
+  mailbox_id: string;
+  tenant_id: string;
+  token_id: string;
+}
+
 export interface IntegrationApiTokens {
   created_at: Generated<Timestamp>;
   created_by: string;
@@ -551,6 +557,71 @@ export interface IntegrationApiTokenUsers {
   tenant_id: string;
   token_id: string;
   user_id: string;
+}
+
+export interface IntegrationEventCounters {
+  last_sequence: Generated<Int8>;
+  tenant_id: string;
+}
+
+export interface IntegrationMessageEvents {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  mailbox_id: string;
+  message_id: string;
+  sequence: Int8;
+  tenant_id: string;
+}
+
+export interface IntegrationWebhookAttempts {
+  delivery_id: string;
+  error_code: string | null;
+  finished_at: Timestamp | null;
+  http_status: number | null;
+  id: Generated<string>;
+  number: number;
+  started_at: Generated<Timestamp>;
+}
+
+export interface IntegrationWebhookDeliveries {
+  attempts: Generated<number>;
+  created_at: Generated<Timestamp>;
+  delivered_at: Timestamp | null;
+  event_id: string | null;
+  event_key: string;
+  id: Generated<string>;
+  is_test: Generated<boolean>;
+  last_error: string | null;
+  last_status: number | null;
+  lease_expires_at: Timestamp | null;
+  lease_token: string | null;
+  max_attempts: Generated<number>;
+  message_identity: string | null;
+  next_attempt_at: Generated<Timestamp>;
+  state: Generated<string>;
+  tenant_id: string;
+  webhook_id: string;
+  webhook_version: number;
+}
+
+export interface IntegrationWebhookMailboxes {
+  mailbox_id: string;
+  tenant_id: string;
+  webhook_id: string;
+}
+
+export interface IntegrationWebhooks {
+  created_at: Generated<Timestamp>;
+  created_by: string;
+  enabled: Generated<boolean>;
+  encrypted_secret: string;
+  event: Generated<string>;
+  id: Generated<string>;
+  name: string;
+  tenant_id: string;
+  updated_at: Generated<Timestamp>;
+  url: string;
+  version: Generated<number>;
 }
 
 export interface Invitations {
@@ -839,6 +910,7 @@ export interface Messages {
   auto_reply_to: string | null;
   bcc_addresses: Generated<Json>;
   body_html: string | null;
+  body_html_original: string | null;
   body_text: Generated<string>;
   calendar_invite: Json | null;
   cc_addresses: Generated<Json>;
@@ -1476,8 +1548,15 @@ export interface DB {
   google_meet_spaces: GoogleMeetSpaces;
   google_meet_transcript_entries: GoogleMeetTranscriptEntries;
   google_meeting_requests: GoogleMeetingRequests;
+  integration_api_token_mailboxes: IntegrationApiTokenMailboxes;
   integration_api_token_users: IntegrationApiTokenUsers;
   integration_api_tokens: IntegrationApiTokens;
+  integration_event_counters: IntegrationEventCounters;
+  integration_message_events: IntegrationMessageEvents;
+  integration_webhook_attempts: IntegrationWebhookAttempts;
+  integration_webhook_deliveries: IntegrationWebhookDeliveries;
+  integration_webhook_mailboxes: IntegrationWebhookMailboxes;
+  integration_webhooks: IntegrationWebhooks;
   invitations: Invitations;
   label_mailboxes: LabelMailboxes;
   mail_actions: MailActions;

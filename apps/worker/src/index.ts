@@ -1,4 +1,8 @@
 import { refreshTenantQueues } from './handlers/refresh-tenant-queues.js';
+import {
+  handleIntegrationWebhook,
+  sweepIntegrationWebhooks,
+} from './handlers/integration-webhooks.js';
 import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { writeFile } from 'node:fs/promises';
@@ -51,6 +55,10 @@ const workers = QUEUE_NAMES.map(
     new Worker(
       name,
       async (job) => {
+        if (name === 'integration-webhooks')
+          return job.data.delivery_id
+            ? handleIntegrationWebhook(r, job.data.delivery_id)
+            : sweepIntegrationWebhooks(r);
         if (name === 'maintenance' && job.name === 'refresh-tenant-queues')
           return refreshTenantQueues(r, job.data);
         if (name === 'antivirus-scan') return handleAntivirus(r, job.data);
@@ -249,6 +257,11 @@ for (const worker of workers)
       .catch(() => undefined);
   });
 async function registerMaintenance() {
+  await resources.queues['integration-webhooks'].upsertJobScheduler(
+    'integration-webhook-sweep',
+    { every: 15000 },
+    { name: 'sweep', data: { sweep: true } },
+  );
   await ensureAntivirusScheduler(r);
   await resources.queues['google-meet-sync'].upsertJobScheduler(
     'meet-sweep',

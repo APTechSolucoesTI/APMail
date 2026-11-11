@@ -17,19 +17,28 @@ export type ApiRoute = {
   method: string;
   path: string;
 };
-export type TokenAccess = { id: string; name: string; permissions: string[]; user_ids: string[] };
+export type TokenAccess = {
+  id: string;
+  name: string;
+  permissions: string[];
+  user_ids: string[];
+  mailbox_ids: string[];
+};
 export type ApiUser = { id: string; full_name: string; email: string };
+export type ApiMailbox = { id: string; name: string; email_address: string };
 
 export function ApiTokenAccess({
   token,
   routes,
   users,
+  mailboxes,
   onClose,
   onSaved,
 }: {
   token: TokenAccess;
   routes: ApiRoute[];
   users: ApiUser[];
+  mailboxes: ApiMailbox[];
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -38,9 +47,13 @@ export function ApiTokenAccess({
     token.user_ids.filter((id) => users.some((user) => user.id === id)),
   );
   const [search, setSearch] = useState('');
+  const [boxes, setBoxes] = useState(
+    token.mailbox_ids.filter((id) => mailboxes.some((box) => box.id === id)),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const needsUsers = permissions.includes('notifications:read');
+  const needsUsers = permissions.length > 0;
+  const needsBoxes = permissions.some((p) => p === 'messages:read' || p === 'attachments:download');
   const visibleUsers = users.filter((user) =>
     `${user.full_name} ${user.email}`.toLowerCase().includes(search.toLowerCase()),
   );
@@ -52,7 +65,7 @@ export function ApiTokenAccess({
     try {
       await api(`/integrations/api-tokens/${token.id}/access`, {
         method: 'PUT',
-        body: { permissions, user_ids: selected },
+        body: { permissions, user_ids: selected, mailbox_ids: needsBoxes ? boxes : [] },
       });
       await onSaved();
       onClose();
@@ -107,14 +120,54 @@ export function ApiTokenAccess({
               </p>
             )}
           </fieldset>
+          {needsBoxes && (
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">Caixas autorizadas ({boxes.length})</legend>
+              <p className="text-xs text-muted-foreground">
+                O conteúdo será limitado a estas caixas e ao acesso do usuário consultado. Somente
+                caixas que você administra podem ser autorizadas.
+              </p>
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
+                {mailboxes.map((box) => (
+                  <label
+                    key={box.id}
+                    className="flex min-h-11 cursor-pointer items-center gap-2 rounded p-2 text-sm hover:bg-muted"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={boxes.includes(box.id)}
+                      onChange={(e) =>
+                        setBoxes((current) =>
+                          e.target.checked
+                            ? [...current, box.id]
+                            : current.filter((id) => id !== box.id),
+                        )
+                      }
+                    />
+                    <span className="min-w-0 break-words">
+                      {box.name}
+                      <span className="block text-xs text-muted-foreground">
+                        {box.email_address}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+                {!mailboxes.length && (
+                  <p className="p-2 text-xs text-muted-foreground">
+                    Nenhuma caixa administrada por você está disponível.
+                  </p>
+                )}
+              </div>
+            </fieldset>
+          )}
           {needsUsers && (
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">
                 Usuários autorizados ({selected.length})
               </legend>
               <p className="text-xs text-muted-foreground">
-                A rota de notificações consulta somente os usuários selecionados, respeitando o
-                acesso de cada um às caixas.
+                As rotas consultam somente os usuários selecionados, respeitando o acesso de cada um
+                às caixas.
               </p>
               <Input
                 aria-label="Pesquisar usuários autorizados"
@@ -162,7 +215,9 @@ export function ApiTokenAccess({
             <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
               Cancelar
             </Button>
-            <Button disabled={busy || (needsUsers && !selected.length)}>
+            <Button
+              disabled={busy || (needsUsers && !selected.length) || (needsBoxes && !boxes.length)}
+            >
               {busy ? 'Salvando…' : 'Salvar acessos'}
             </Button>
           </div>

@@ -1,5 +1,7 @@
 # API de notificações para integrações
 
+Para consultar conteúdo e anexos ou receber eventos de chegada, consulte [API de mensagens e Webhooks](INTEGRACAO-MENSAGENS-WEBHOOKS.md). Esses recursos possuem permissões/configurações próprias e não alteram o contrato de notificações abaixo.
+
 Depois do deploy, a consulta é `GET https://app.apmail.com.br/api/integrations/notifications?email=usuario%40empresa.com.br`.
 
 No painel administrativo, abra Integrações e a aba Tokens de API. Crie uma chave com um nome e validade de 30, 90 ou 365 dias, ou ilimitada. O segredo aparece uma única vez. Depois, clique em Configurar acessos ou Acessos, autorize a rota GET /api/integrations/notifications e selecione os usuários que ela poderá consultar. Chaves novas começam sem rotas autorizadas. Guarde o segredo em uma variável de ambiente no backend do sistema integrado. Renovar invalida o segredo anterior imediatamente e preserva os acessos configurados. Chaves ilimitadas continuam sem vencimento. As demais recebem validade de 90 dias. Revogar encerra o acesso. Depois de revogar, o botão Excluir remove definitivamente a chave e seus vínculos após confirmação. A ação fica registrada na auditoria.
