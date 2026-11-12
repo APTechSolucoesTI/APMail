@@ -27,6 +27,18 @@ export async function serializeIntegrationMessages(
     .innerJoin('threads as t', (j) =>
       j.onRef('t.id', '=', 'm.thread_id').onRef('t.tenant_id', '=', 'm.tenant_id'),
     )
+    .leftJoin('tenant_members as assignee_member', (j) =>
+      j
+        .onRef('assignee_member.user_id', '=', 't.assigned_to')
+        .onRef('assignee_member.tenant_id', '=', 'm.tenant_id'),
+    )
+    .leftJoin('users as assignee', 'assignee.id', 'assignee_member.user_id')
+    .leftJoin('tenant_members as sender_member', (j) =>
+      j
+        .onRef('sender_member.user_id', '=', 'm.sent_by_user_id')
+        .onRef('sender_member.tenant_id', '=', 'm.tenant_id'),
+    )
+    .leftJoin('users as sender', 'sender.id', 'sender_member.user_id')
     .select([
       'm.id',
       'm.tenant_id',
@@ -55,6 +67,12 @@ export async function serializeIntegrationMessages(
       'b.name as mailbox_name',
       't.queue_status',
       't.assigned_to',
+      'assignee.id as assignee_id',
+      'assignee.full_name as assignee_name',
+      'assignee.email as assignee_email',
+      'sender.id as sender_id',
+      'sender.full_name as sender_name',
+      'sender.email as sender_email',
       (options.includeBody !== false
         ? sql<string | null>`m.body_html_original`
         : sql<string | null>`null`
@@ -156,6 +174,14 @@ export async function serializeIntegrationMessages(
         references: m.references_headers,
         status: m.queue_status,
         assignedTo: m.assigned_to,
+        assignedToUser:
+          m.assignee_id && m.assignee_name !== null && m.assignee_email
+            ? { id: m.assignee_id, name: m.assignee_name, email: m.assignee_email }
+            : null,
+        sentByUser:
+          m.direction === 'outbound' && m.sender_id && m.sender_name !== null && m.sender_email
+            ? { id: m.sender_id, name: m.sender_name, email: m.sender_email }
+            : null,
         isHistorical: m.is_historical,
         isAutomated: m.is_automated,
         isReadReceipt: m.is_mdn,

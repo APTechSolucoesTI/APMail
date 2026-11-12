@@ -65,6 +65,7 @@ export async function handleIntegrationWebhook(
         'w.tenant_id',
         'w.url',
         'w.enabled',
+        'w.events',
         'w.encrypted_secret',
         'w.version',
         't.deleted_at',
@@ -90,6 +91,7 @@ export async function handleIntegrationWebhook(
       webhook.deleted_at ||
       webhook.suspended_at ||
       webhook.version !== d.webhook_version ||
+      !webhook.events.includes(d.event_type) ||
       (!d.is_test && (!webhook.enabled || !event))
     ) {
       await tx
@@ -146,7 +148,7 @@ export async function handleIntegrationWebhook(
       return;
     }
     const payload = {
-      event: 'email.received',
+      event: d.event_type,
       eventId: d.event_key,
       timestamp: (event?.created_at ?? d.created_at).toISOString(),
       test: d.is_test,

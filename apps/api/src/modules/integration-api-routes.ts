@@ -15,6 +15,13 @@ export const integrationApiRoutes = [
     path: '/api/integrations/messages',
   },
   {
+    permission: 'messages:read',
+    name: 'Consultar conteúdo de mensagens',
+    description: 'Mensagens recebidas e enviadas de uma conversa autorizada.',
+    method: 'GET',
+    path: '/api/integrations/threads/:threadId',
+  },
+  {
     permission: 'attachments:download',
     name: 'Baixar anexos de mensagens',
     description:

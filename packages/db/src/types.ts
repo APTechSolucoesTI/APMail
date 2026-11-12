@@ -589,6 +589,7 @@ export interface IntegrationWebhookDeliveries {
   delivered_at: Timestamp | null;
   event_id: string | null;
   event_key: string;
+  event_type: Generated<string>;
   id: Generated<string>;
   is_test: Generated<boolean>;
   last_error: string | null;
@@ -616,6 +617,7 @@ export interface IntegrationWebhooks {
   enabled: Generated<boolean>;
   encrypted_secret: string;
   event: Generated<string>;
+  events: Generated<string[]>;
   id: Generated<string>;
   name: string;
   tenant_id: string;

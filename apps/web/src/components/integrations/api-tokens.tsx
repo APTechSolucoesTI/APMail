@@ -189,10 +189,13 @@ function ApiTokensForTenant() {
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {token.permissions.length
-                        ? query.data.routes
-                            .filter((route) => token.permissions.includes(route.permission))
-                            .map((route) => route.name)
-                            .join(', ')
+                        ? [
+                            ...new Set(
+                              query.data.routes
+                                .filter((route) => token.permissions.includes(route.permission))
+                                .map((route) => route.name),
+                            ),
+                          ].join(', ')
                         : 'Nenhuma rota autorizada'}
                     </p>
                     <p className="break-words text-xs text-muted-foreground">

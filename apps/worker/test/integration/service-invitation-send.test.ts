@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, expect, it } from 'vitest';
-import { randomUUID, randomBytes } from 'node:crypto';
+import { randomUUID, randomBytes, createHmac } from 'node:crypto';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,10 +16,12 @@ import {
   writeMailboxCredential,
   Storage,
   asJson,
+  encryptSecret,
 } from '@apmail/db';
 import { socketRedisKey } from '@apmail/shared';
 import { envSchema } from '../../src/env.js';
 import { handleOutboxSend } from '../../src/handlers/outbox-send.js';
+import { handleIntegrationWebhook } from '../../src/handlers/integration-webhooks.js';
 
 const url = process.env.DATABASE_URL_TEST!,
   redisUrl = process.env.REDIS_URL_TEST!;
@@ -260,6 +262,25 @@ async function queuedReply() {
 it('an invited colleague without mailbox membership sends through the original mailbox and preserves service ownership', async () => {
   const f = await queuedReply(),
     before = deliveries.length;
+  const secret = randomBytes(32).toString('base64url');
+  const webhook = await db
+    .insertInto('integration_webhooks')
+    .values({
+      tenant_id: tenant,
+      name: 'QA enviados',
+      url: 'https://example.com/apmail',
+      enabled: true,
+      event: 'email.sent',
+      events: ['email.sent'],
+      created_by: owner,
+      encrypted_secret: encryptSecret(secret, key),
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  await db
+    .insertInto('integration_webhook_mailboxes')
+    .values({ tenant_id: tenant, mailbox_id: boxId, webhook_id: webhook.id })
+    .execute();
   expect(
     await db
       .selectFrom('mailbox_members')
@@ -291,6 +312,48 @@ it('an invited colleague without mailbox membership sends through the original m
   expect(sent.thread_id).toBe(f.thread);
   expect(sent.sent_by_user_id).toBe(guest);
   expect(sent.from_address).toBe(mailboxAddress);
+  const event = await db
+    .selectFrom('integration_message_events')
+    .select(['id', 'sequence'])
+    .where('message_id', '=', sent.id)
+    .executeTakeFirstOrThrow();
+  const inboundEvent = await db
+    .selectFrom('integration_message_events')
+    .select('sequence')
+    .where('message_id', '=', f.message)
+    .executeTakeFirstOrThrow();
+  expect(BigInt(event.sequence)).toBeGreaterThan(BigInt(inboundEvent.sequence));
+  const delivery = await db
+    .selectFrom('integration_webhook_deliveries')
+    .select(['id', 'event_key'])
+    .where('webhook_id', '=', webhook.id)
+    .where('event_id', '=', event.id)
+    .where('event_type', '=', 'email.sent')
+    .executeTakeFirstOrThrow();
+  await handleIntegrationWebhook(r, delivery.id, async (_url, body, headers) => {
+    expect(JSON.parse(body)).toMatchObject({
+      event: 'email.sent',
+      eventId: delivery.event_key,
+      test: false,
+      data: { id: sent.id, threadId: f.thread, direction: 'outbound', sentByUser: { id: guest } },
+    });
+    expect(headers['X-APMail-Signature']).toBe(
+      'sha256=' +
+        createHmac('sha256', secret)
+          .update(headers['X-APMail-Timestamp'] + '.' + body)
+          .digest('hex'),
+    );
+    return 204;
+  });
+  expect(
+    (
+      await db
+        .selectFrom('integration_webhook_deliveries')
+        .select('state')
+        .where('id', '=', delivery.id)
+        .executeTakeFirstOrThrow()
+    ).state,
+  ).toBe('delivered');
   const thread = await db
     .selectFrom('threads')
     .selectAll()

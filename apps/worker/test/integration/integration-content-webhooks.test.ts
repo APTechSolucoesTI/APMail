@@ -133,20 +133,24 @@ async function message(
     header?: string;
     assigned?: string;
     html?: string;
+    thread?: string;
+    sender?: string;
+    at?: Date;
   } = {},
 ) {
   const id = randomUUID(),
-    thread = randomUUID();
-  await db
-    .insertInto('threads')
-    .values({
-      id: thread,
-      tenant_id: b.tenant,
-      mailbox_id: b.id,
-      subject: 'Assunto QA',
-      assigned_to: opts.assigned ?? null,
-    })
-    .execute();
+    thread = opts.thread ?? randomUUID();
+  if (!opts.thread)
+    await db
+      .insertInto('threads')
+      .values({
+        id: thread,
+        tenant_id: b.tenant,
+        mailbox_id: b.id,
+        subject: 'Assunto QA',
+        assigned_to: opts.assigned ?? null,
+      })
+      .execute();
   await db
     .insertInto('messages')
     .values({
@@ -156,7 +160,7 @@ async function message(
       thread_id: thread,
       folder_id: opts.outbound ? b.sent.id : b.inbox.id,
       message_id_header: opts.header ?? `<${id}@integration.test>`,
-      message_at: new Date(),
+      message_at: opts.at ?? new Date(),
       from_address: 'cliente@integration.test',
       from_name: 'Cliente',
       to_addresses: asJson([{ name: 'Equipe', address: 'equipe@integration.test' }]),
@@ -165,6 +169,7 @@ async function message(
       body_html: '<p>Olá<img src="cid:logo"></p>',
       body_html_original: opts.html ?? '<p style="color:red">Olá<img src="cid:logo"></p>',
       direction: opts.outbound ? 'outbound' : 'inbound',
+      sent_by_user_id: opts.sender ?? null,
       source_kind: 'imap',
       is_historical: opts.historical ?? false,
       references_headers: ['<anterior@integration.test>'],
@@ -424,6 +429,133 @@ it('aplica pastas autorizadas inclusive no GET direto', async () => {
     .execute();
   expect((await get(t.token, u, `/messages?messageId=${m.id}`)).statusCode).toBe(200);
 });
+
+it('lista recebidos e enviados no mesmo cursor e continua aceitando o cursor antigo de recebidos', async () => {
+  const u = await user(),
+    b = await box(u),
+    key = await token(u, [b.id], ['messages:read']);
+  const incoming = await message(b, { assigned: owner.id });
+  const initial = await get(key.token, u, '/messages');
+  expect(initial.statusCode, initial.body).toBe(200);
+  expect(initial.json().data.items).toMatchObject([
+    {
+      id: incoming.id,
+      direction: 'inbound',
+      body: null,
+      assignedToUser: { id: owner.id, name: 'Pessoa QA', email: owner.email },
+      sentByUser: null,
+    },
+  ]);
+  const legacy = JSON.parse(Buffer.from(initial.json().data.nextCursor, 'base64url').toString());
+  delete legacy.direction;
+  const legacyCursor = Buffer.from(JSON.stringify(legacy)).toString('base64url');
+  const outgoing = await message(b, { outbound: true, thread: incoming.thread, sender: u.id });
+  const inboundOnly = await get(key.token, u, '/messages?cursor=' + legacyCursor);
+  expect(inboundOnly.statusCode, inboundOnly.body).toBe(200);
+  expect(inboundOnly.json().data.items).toEqual([]);
+  expect(
+    (await get(key.token, u, '/messages?direction=all&cursor=' + legacyCursor)).statusCode,
+  ).toBe(400);
+  const outgoingOnly = await get(key.token, u, '/messages?direction=outbound');
+  expect(outgoingOnly.json().data.items).toMatchObject([
+    {
+      id: outgoing.id,
+      threadId: incoming.thread,
+      sentByUser: { id: u.id, name: 'Pessoa QA', email: u.email },
+    },
+  ]);
+
+  const first = await get(key.token, u, '/messages?direction=all&limit=1');
+  expect(first.statusCode, first.body).toBe(200);
+  expect(first.json().data).toMatchObject({ hasMore: true, items: [{ id: incoming.id }] });
+  const second = await get(
+    key.token,
+    u,
+    '/messages?direction=all&limit=1&cursor=' + first.json().data.nextCursor,
+  );
+  expect(second.json().data).toMatchObject({ hasMore: false, items: [{ id: outgoing.id }] });
+  const next = await message(b, { outbound: true, thread: incoming.thread });
+  await db.updateTable('messages').set({ folder_id: null }).where('id', '=', next.id).execute();
+  const polled = await get(
+    key.token,
+    u,
+    '/messages?direction=all&cursor=' + second.json().data.nextCursor,
+  );
+  expect(polled.json().data.items).toMatchObject([{ id: next.id, sentByUser: null }]);
+});
+
+it('consulta os dois sentidos com corpo e pagina empates pela data e UUID sem vazar caixas', async () => {
+  const u = await user(),
+    b = await box(u),
+    deniedBox = await box(u),
+    key = await token(u, [b.id], ['messages:read']);
+  const at = new Date('2026-10-01T15:00:00Z');
+  const inbound = await message(b, { at });
+  const outbound = await message(b, {
+    at,
+    outbound: true,
+    thread: inbound.thread,
+    sender: otherOwner.id,
+  });
+  const denied = await message(deniedBox);
+  const path = '/threads/' + inbound.thread;
+  const first = await get(key.token, u, path + '?limit=1');
+  expect(first.statusCode, first.body).toBe(200);
+  expect(first.json().data).toMatchObject({
+    threadId: inbound.thread,
+    hasMore: true,
+    items: [{ bodyIncluded: true, body: { text: 'Texto com assinatura' }, sentByUser: null }],
+  });
+  const cursor = first.json().data.nextCursor;
+  const second = await get(key.token, u, path + '?limit=1&cursor=' + cursor);
+  expect(second.statusCode, second.body).toBe(200);
+  expect(second.json().data).toMatchObject({
+    hasMore: false,
+    nextCursor: null,
+    items: [{ bodyIncluded: true, sentByUser: null }],
+  });
+  expect([first.json().data.items[0].id, second.json().data.items[0].id]).toEqual(
+    [inbound.id, outbound.id].sort(),
+  );
+  expect((await get(key.token, u, '/threads/' + denied.thread)).statusCode).toBe(404);
+  expect(
+    (await get(key.token, u, '/threads/' + denied.thread + '?cursor=' + cursor)).statusCode,
+  ).toBe(400);
+  const attachmentOnly = await token(u, [b.id], ['attachments:download']);
+  expect((await get(attachmentOnly.token, u, path)).statusCode).toBe(403);
+});
+
+it('aceita os dois eventos no mesmo webhook e assina testes de email.sent', async () => {
+  const b = await box(),
+    w = await webhook(b);
+  const config = {
+    name: 'Eventos QA',
+    url: 'https://example.com/apmail',
+    enabled: true,
+    events: ['email.received', 'email.sent'],
+    mailbox_ids: [b.id],
+  };
+  expect((await admin('PUT', '/webhooks/' + w.id, config)).statusCode).toBe(200);
+  const list = (await admin('GET', '/webhooks')).json();
+  expect(list.webhooks).toContainEqual(
+    expect.objectContaining({ id: w.id, event: 'email.received', events: config.events }),
+  );
+  const test = await admin('POST', '/webhooks/' + w.id + '/test', { event: 'email.sent' });
+  expect(test.statusCode, test.body).toBe(202);
+  const send = async (_url: string, body: string, headers: Record<string, string>) => {
+    expect(JSON.parse(body)).toMatchObject({ event: 'email.sent', test: true, data: null });
+    expect(headers['X-APMail-Signature']).toBe(
+      'sha256=' +
+        createHmac('sha256', w.secret)
+          .update(headers['X-APMail-Timestamp'] + '.' + body)
+          .digest('hex'),
+    );
+    return 204;
+  };
+  await handleIntegrationWebhook(r, test.json().deliveryId, send);
+  expect(await delivery(w.id)).toMatchObject({ event_type: 'email.sent', state: 'delivered' });
+});
+
 it('pagina por cursor durável, inclui históricos sem corpo e recupera inserções posteriores', async () => {
   const u = await user(),
     b = await box(u),

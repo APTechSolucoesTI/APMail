@@ -88,32 +88,45 @@ export function ApiTokenAccess({
         <form onSubmit={save} className="space-y-4">
           <fieldset className="space-y-2">
             <legend className="mb-2 text-sm font-medium">Rotas autorizadas</legend>
-            {routes.map((route) => (
-              <label
-                key={route.permission}
-                className="flex cursor-pointer gap-3 rounded-md border p-3 hover:bg-muted/50"
-              >
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 shrink-0"
-                  checked={permissions.includes(route.permission)}
-                  onChange={(event) =>
-                    setPermissions((current) =>
-                      event.target.checked
-                        ? [...current, route.permission]
-                        : current.filter((permission) => permission !== route.permission),
-                    )
-                  }
-                />
-                <span className="min-w-0 space-y-1 text-sm">
-                  <span className="block font-medium">{route.name}</span>
-                  <span className="block break-all font-mono text-xs text-primary">
-                    {route.method} {route.path}
+            {routes
+              .filter(
+                (route, index) =>
+                  routes.findIndex((item) => item.permission === route.permission) === index,
+              )
+              .map((route) => (
+                <label
+                  key={route.permission}
+                  className="flex cursor-pointer gap-3 rounded-md border p-3 hover:bg-muted/50"
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1 size-4 shrink-0"
+                    checked={permissions.includes(route.permission)}
+                    onChange={(event) =>
+                      setPermissions((current) =>
+                        event.target.checked
+                          ? [...current, route.permission]
+                          : current.filter((permission) => permission !== route.permission),
+                      )
+                    }
+                  />
+                  <span className="min-w-0 space-y-1 text-sm">
+                    <span className="block font-medium">{route.name}</span>
+                    {routes
+                      .filter((item) => item.permission === route.permission)
+                      .map((item) => (
+                        <span className="block" key={item.path}>
+                          <span className="block break-all font-mono text-xs text-primary">
+                            {item.method} {item.path}
+                          </span>
+                          <span className="block text-xs text-muted-foreground">
+                            {item.description}
+                          </span>
+                        </span>
+                      ))}
                   </span>
-                  <span className="block text-xs text-muted-foreground">{route.description}</span>
-                </span>
-              </label>
-            ))}
+                </label>
+              ))}
             {!permissions.length && (
               <p className="text-xs text-muted-foreground">
                 Esta chave está sem acesso às rotas da API.

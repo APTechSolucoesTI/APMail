@@ -6,28 +6,36 @@ import { audit, encryptSecret, webhookUrl } from '@apmail/db';
 import { conflict, forbidden, notFound, requireTenantAdmin } from '../authz/context.js';
 import type { Resources } from './resources.js';
 
-const configSchema = z.object({
-  name: z.string().trim().min(1).max(100),
-  url: z
-    .string()
-    .trim()
-    .max(2048)
-    .refine((url) => {
-      try {
-        webhookUrl(url);
-        return true;
-      } catch {
-        return false;
-      }
-    }, 'Informe uma URL HTTPS pública na porta 443, sem credenciais ou fragmento.'),
-  enabled: z.boolean().default(false),
-  event: z.literal('email.received'),
-  mailbox_ids: z
-    .array(z.uuid())
-    .min(1)
-    .max(1000)
-    .transform((ids) => [...new Set(ids)]),
-});
+const webhookEvent = z.enum(['email.received', 'email.sent']);
+const configSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    url: z
+      .string()
+      .trim()
+      .max(2048)
+      .refine((url) => {
+        try {
+          webhookUrl(url);
+          return true;
+        } catch {
+          return false;
+        }
+      }, 'Informe uma URL HTTPS pública na porta 443, sem credenciais ou fragmento.'),
+    enabled: z.boolean().default(false),
+    event: webhookEvent.optional(),
+    events: z.array(webhookEvent).min(1).max(2).optional(),
+    mailbox_ids: z
+      .array(z.uuid())
+      .min(1)
+      .max(1000)
+      .transform((ids) => [...new Set(ids)]),
+  })
+  .refine((b) => b.events || b.event, {
+    message: 'Selecione ao menos um evento.',
+    path: ['events'],
+  })
+  .transform((b) => ({ ...b, events: [...new Set(b.events ?? [b.event!])] }));
 const idSchema = z.object({ id: z.uuid() });
 
 export function registerIntegrationWebhooks(app: FastifyInstance, r: Resources) {
@@ -57,6 +65,7 @@ export function registerIntegrationWebhooks(app: FastifyInstance, r: Resources) 
           'w.url',
           'w.enabled',
           'w.event',
+          'w.events',
           'w.created_at',
           'w.updated_at',
           sql<
@@ -86,7 +95,8 @@ export function registerIntegrationWebhooks(app: FastifyInstance, r: Resources) 
           name: b.name,
           url: b.url,
           enabled: b.enabled,
-          event: b.event,
+          event: b.events[0]!,
+          events: b.events,
           created_by: c.userId,
           encrypted_secret: encryptSecret(secret, r.env.CREDENTIALS_ENCRYPTION_KEY),
         })
@@ -132,7 +142,8 @@ export function registerIntegrationWebhooks(app: FastifyInstance, r: Resources) 
           name: b.name,
           url: b.url,
           enabled: b.enabled,
-          event: b.event,
+          event: b.events[0]!,
+          events: b.events,
           version: sql`version+1`,
           updated_at: new Date(),
         })
@@ -228,15 +239,18 @@ export function registerIntegrationWebhooks(app: FastifyInstance, r: Resources) 
     async (req, reply) => {
       const c = requireTenantAdmin(req.ctx, 'integrations'),
         { id } = idSchema.parse(req.params);
+      const { event } = z.object({ event: webhookEvent.optional() }).parse(req.body ?? {});
       const delivery = await r.db.transaction().execute(async (tx) => {
         const webhook = await tx
           .selectFrom('integration_webhooks')
-          .select(['id', 'version'])
+          .select(['id', 'version', 'event', 'events'])
           .where('tenant_id', '=', c.tenantId)
           .where('id', '=', id)
           .forUpdate()
           .executeTakeFirst();
         if (!webhook) throw notFound();
+        if (event && !webhook.events.includes(event))
+          throw conflict('Selecione um evento habilitado no webhook.');
         const saved = await tx
           .insertInto('integration_webhook_deliveries')
           .values({
@@ -244,6 +258,7 @@ export function registerIntegrationWebhooks(app: FastifyInstance, r: Resources) 
             webhook_id: id,
             webhook_version: webhook.version,
             event_key: randomUUID(),
+            event_type: event ?? webhook.event,
             is_test: true,
           })
           .returning('id')
@@ -285,6 +300,7 @@ export function registerIntegrationWebhooks(app: FastifyInstance, r: Resources) 
         .select([
           'id',
           'event_key',
+          'event_type',
           'is_test',
           'state',
           'attempts',
@@ -337,7 +353,7 @@ export function registerIntegrationWebhooks(app: FastifyInstance, r: Resources) 
     return r.db.transaction().execute(async (tx) => {
       const w = await tx
         .selectFrom('integration_webhooks')
-        .select(['version', 'enabled'])
+        .select(['version', 'enabled', 'events'])
         .where('tenant_id', '=', c.tenantId)
         .where('id', '=', id)
         .forUpdate()
@@ -345,13 +361,15 @@ export function registerIntegrationWebhooks(app: FastifyInstance, r: Resources) 
       if (!w) throw notFound();
       const d = await tx
         .selectFrom('integration_webhook_deliveries')
-        .select(['id', 'state', 'is_test'])
+        .select(['id', 'state', 'is_test', 'event_type'])
         .where('tenant_id', '=', c.tenantId)
         .where('webhook_id', '=', id)
         .where('id', '=', deliveryId)
         .forUpdate()
         .executeTakeFirst();
       if (!d) throw notFound();
+      if (!w.events.includes(d.event_type))
+        throw conflict('Habilite o evento desta entrega para reenviar.');
       if (!['failed', 'cancelled'].includes(d.state) || (!d.is_test && !w.enabled))
         throw conflict('Ative o webhook e escolha uma entrega encerrada para reenviar.');
       await tx

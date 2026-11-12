@@ -38,7 +38,13 @@ import {
 import { EmptyState, ErrorState, LoadingState } from '@/components/data/data-state';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import type { ApiMailbox } from './api-token-access';
-import { WebhookForm, type Webhook, type WebhookSecret } from './webhook-form';
+import {
+  WebhookForm,
+  webhookEventLabels,
+  type Webhook,
+  type WebhookEvent,
+  type WebhookSecret,
+} from './webhook-form';
 import { WebhookHistory } from './webhook-history';
 
 export function Webhooks() {
@@ -61,18 +67,18 @@ function TenantWebhooks() {
     ),
     [busy, setBusy] = useState<string | null>(null);
   const refresh = () => client.invalidateQueries({ queryKey: key });
-  async function run(w: Webhook, kind: 'toggle' | 'test') {
+  async function run(w: Webhook, kind: 'toggle' | 'test', event?: WebhookEvent) {
     setBusy(w.id);
     try {
       await api(`/integrations/webhooks/${w.id}${kind === 'test' ? '/test' : ''}`, {
         method: kind === 'test' ? 'POST' : 'PUT',
         body:
           kind === 'test'
-            ? {}
+            ? { event }
             : {
                 name: w.name,
                 url: w.url,
-                event: w.event,
+                events: w.events ?? [w.event],
                 mailbox_ids: w.mailbox_ids,
                 enabled: !w.enabled,
               },
@@ -154,7 +160,7 @@ function TenantWebhooks() {
                   </div>
                   <p className="break-all text-xs text-muted-foreground">{w.url}</p>
                   <p className="text-xs text-muted-foreground">
-                    email.received · {w.mailbox_ids.length}{' '}
+                    {(w.events ?? [w.event]).join(', ')} · {w.mailbox_ids.length}{' '}
                     {w.mailbox_ids.length === 1 ? 'caixa monitorada' : 'caixas monitoradas'}
                   </p>
                   <p className="break-words text-xs text-muted-foreground">
@@ -194,10 +200,12 @@ function TenantWebhooks() {
                         {w.enabled ? <Pause /> : <Play />}
                         {w.enabled ? 'Desativar' : 'Ativar'}
                       </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => void run(w, 'test')}>
-                        <Send />
-                        Testar envio
-                      </DropdownMenuItem>
+                      {(w.events ?? [w.event]).map((event) => (
+                        <DropdownMenuItem key={event} onSelect={() => void run(w, 'test', event)}>
+                          <Send />
+                          Testar {webhookEventLabels[event].toLowerCase()}
+                        </DropdownMenuItem>
+                      ))}
                       <DropdownMenuItem onSelect={() => setAction({ webhook: w, kind: 'rotate' })}>
                         <RotateCw />
                         Gerar novo segredo

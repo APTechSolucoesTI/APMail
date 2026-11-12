@@ -19,6 +19,7 @@ import type { Webhook } from './webhook-form';
 type Delivery = {
   id: string;
   event_key: string;
+  event_type: string;
   is_test: boolean;
   state: string;
   attempts: number;
@@ -137,7 +138,7 @@ export function WebhookHistory({ webhook, onClose }: { webhook: Webhook; onClose
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {d.attempts} de {d.max_attempts} tentativas
+                  {d.event_type ?? 'email.received'} · {d.attempts} de {d.max_attempts} tentativas
                   {d.last_status ? ` · HTTP ${d.last_status}` : ''}
                 </p>
                 {d.last_error && <p className="text-sm text-destructive">{reason(d.last_error)}</p>}

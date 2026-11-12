@@ -12,12 +12,18 @@ import {
 } from '@/components/ui/dialog';
 import type { ApiMailbox } from './api-token-access';
 
+export const webhookEventLabels = {
+  'email.received': 'E-mail recebido',
+  'email.sent': 'E-mail enviado',
+} as const;
+export type WebhookEvent = keyof typeof webhookEventLabels;
 export type Webhook = {
   id: string;
   name: string;
   url: string;
   enabled: boolean;
-  event: 'email.received';
+  event: WebhookEvent;
+  events: WebhookEvent[];
   mailbox_ids: string[];
 };
 export type WebhookSecret = { id: string; name?: string; secret: string };
@@ -36,7 +42,9 @@ export function WebhookForm({
   const [name, setName] = useState(value?.name ?? '');
   const [url, setUrl] = useState(value?.url ?? '');
   const [enabled, setEnabled] = useState(value?.enabled ?? false);
-  const [receiveEvent, setReceiveEvent] = useState(true);
+  const [events, setEvents] = useState<WebhookEvent[]>(
+    value?.events ?? [value?.event ?? 'email.received'],
+  );
   const [selected, setSelected] = useState(
     value?.mailbox_ids.filter((id) => mailboxes.some((b) => b.id === id)) ?? [],
   );
@@ -52,7 +60,7 @@ export function WebhookForm({
         `/integrations/webhooks${value ? '/' + value.id : ''}`,
         {
           method: value ? 'PUT' : 'POST',
-          body: { name, url, enabled, event: 'email.received', mailbox_ids: selected },
+          body: { name, url, enabled, events, mailbox_ids: selected },
         },
       );
       await onSaved(value ? undefined : result);
@@ -72,7 +80,7 @@ export function WebhookForm({
         <DialogHeader>
           <DialogTitle>{value ? 'Editar webhook' : 'Criar webhook'}</DialogTitle>
           <DialogDescription>
-            Envie eventos de e-mails recebidos para o servidor da sua integração.
+            Envie eventos das caixas monitoradas para o servidor da sua integração.
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={save}>
@@ -103,15 +111,24 @@ export function WebhookForm({
             </p>
           </div>
           <fieldset className="space-y-2">
-            <legend className="mb-2 text-sm font-medium">Evento</legend>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={receiveEvent}
-                onChange={(event) => setReceiveEvent(event.target.checked)}
-              />
-              E-mail recebido <code className="text-xs text-muted-foreground">email.received</code>
-            </label>
+            <legend className="mb-2 text-sm font-medium">Eventos</legend>
+            {(Object.keys(webhookEventLabels) as WebhookEvent[]).map((event) => (
+              <label key={event} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={events.includes(event)}
+                  onChange={(e) =>
+                    setEvents((current) =>
+                      e.target.checked
+                        ? [...current, event]
+                        : current.filter((item) => item !== event),
+                    )
+                  }
+                />
+                {webhookEventLabels[event]}{' '}
+                <code className="text-xs text-muted-foreground">{event}</code>
+              </label>
+            ))}
           </fieldset>
           <fieldset className="space-y-2">
             <legend className="mb-2 text-sm font-medium">
@@ -178,7 +195,7 @@ export function WebhookForm({
             <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
               Cancelar
             </Button>
-            <Button disabled={busy || !selected.length || !receiveEvent}>
+            <Button disabled={busy || !selected.length || !events.length}>
               {busy ? 'Salvando…' : 'Salvar webhook'}
             </Button>
           </div>

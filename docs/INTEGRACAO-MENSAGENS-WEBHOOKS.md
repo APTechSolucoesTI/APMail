@@ -7,7 +7,7 @@ Base da instalação atual: `https://app.apmail.com.br`. As rotas abaixo ficam d
 Em **Configurações → Integrações**:
 
 - **Tokens de API**: use a tela existente para criar uma chave, copiá-la uma única vez e configurar os acessos. As permissões são independentes: `notifications:read` (contadores), `messages:read` (consulta de mensagens) e `attachments:download` (arquivos). Selecione os usuários autorizados. Para conteúdo e arquivos, selecione também as caixas autorizadas. Somente caixas das quais o administrador é explicitamente **Administrador da caixa** podem ser autorizadas para exportação. A consulta ainda respeita o acesso atual do usuário informado. Tokens antigos não recebem novas permissões automaticamente; validade ilimitada, renovação, revogação e exclusão continuam funcionando como antes.
-- **Webhooks**: cadastre nome, URL HTTPS pública, evento `email.received` e caixas monitoradas. Copie o segredo HMAC uma única vez. É possível editar, ativar/desativar, testar, consultar entregas/tentativas, reenviar entregas encerradas, gerar outro segredo e excluir a configuração. Excluir exige confirmação e remove seu histórico, sem excluir mensagens.
+- **Webhooks**: cadastre nome, URL HTTPS pública, caixas monitoradas e marque `email.received`, `email.sent` ou ambos. As configurações existentes conservam a seleção de recebidos. Copie o segredo HMAC uma única vez. A tela permite editar, ativar, desativar, testar cada evento, consultar tentativas, reenviar entregas encerradas, gerar outro segredo e excluir a configuração. A exclusão remove o histórico de entregas daquele webhook.
 
 Os recursos são independentes. Receber um webhook não exige token de API. Consultar mensagens ou baixar arquivos exige token com a permissão correspondente, mesmo que o consumidor já possua o segredo HMAC.
 
@@ -75,6 +75,8 @@ O `messageId` da query é o **UUID interno**, retornado em `data.id`, e não o c
     "references": ["<anterior@empresa.com.br>"],
     "status": "to_reply",
     "assignedTo": null,
+    "assignedToUser": null,
+    "sentByUser": null,
     "isHistorical": false,
     "isAutomated": false,
     "isReadReceipt": false,
@@ -106,7 +108,7 @@ O `messageId` da query é o **UUID interno**, retornado em `data.id`, e não o c
 
 - `messageAt`: data da mensagem registrada pelo APMail (cabeçalho/envelope conforme o processamento atual). `receivedAt`: momento de persistência local, não uma data de entrega remota inventada. Datas ISO 8601 em UTC.
 - `isRead`: leitura individual da mensagem para o usuário consultado, conforme o estado do atendimento. Ler pela API não modifica esse estado.
-- `status`: estado real do atendimento (`to_reply`, `in_progress` ou `done`). `assignedTo` é UUID do responsável ou `null`.
+- `status` indica o estado do atendimento. `assignedTo` continua sendo o UUID do responsável ou `null`. `assignedToUser` traz `{ "id": "UUID", "name": "Nome", "email": "pessoa@empresa.com.br" }` quando há um responsável identificado na empresa. `sentByUser` usa o mesmo formato para quem enviou a mensagem. Quando a pessoa não está identificada na empresa, o campo é `null`. Recebidos têm `sentByUser: null`.
 - `body.html`: HTML original preservado nas novas ingestões quando disponível; em mensagens antigas sem original preservado, usa o HTML já armazenado. `originalAvailable` distingue os casos. `sanitizedHtml` fornece a versão sanitizada pelo APMail; campos sem conteúdo podem ser `null`.
 - Assinatura, formatação, citações e encaminhamentos permanecem no corpo; não existe extração artificial da assinatura.
 - Endereços não disponíveis (incluindo Bcc ausente no e-mail recebido) resultam em listas vazias. Não há prioridade fabricada.
@@ -117,23 +119,40 @@ O `messageId` da query é o **UUID interno**, retornado em `data.id`, e não o c
 
 ## Listar e recuperar mensagens por cursor
 
-`GET /api/integrations/messages?email=USUARIO&limit=25&mailboxId=UUID&cursor=CURSOR`
+`GET /api/integrations/messages?email=USUARIO&direction=all&limit=25&mailboxId=UUID&cursor=CURSOR`
 
-- Omita `messageId` para listar **mensagens recebidas**; `mailboxId` é opcional e filtra uma caixa. `limit` varia de 1 a 100, padrão 25.
-- A primeira consulta sem cursor percorre as mensagens recebidas disponíveis desde o início, incluindo antigas/históricas. O detalhe pode consultar também uma mensagem enviada, caso seja permitida.
+- Omita `messageId` para listar mensagens. `direction=inbound` lista recebidos e continua sendo o padrão. Use `outbound` para enviados ou `all` para os dois. `mailboxId` é opcional. `limit` varia de 1 a 100, com padrão 25.
+- A primeira consulta sem cursor percorre as mensagens disponíveis no escopo, incluindo as históricas. Enviados anteriores à migration foram acrescentados à sequência existente, que representa a ordem da integração. Use `messageAt` para ordenar mensagens no histórico exibido ao cliente.
 - Retorno: `{"success":true,"data":{"items":[...],"nextCursor":"...","hasMore":false}}`. Cada item segue o mesmo contrato de mensagem, mas com `body: null` e `bodyIncluded: false`, evitando carregar corpos inteiros na listagem. Use o GET de detalhe para conteúdo.
 - Consuma enquanto `hasMore` for `true`. Persista `nextCursor` somente após processar os itens com sucesso. Quando for `false`, guarde o cursor e reutilize-o nas próximas consultas periódicas para receber novas mensagens.
 - O cursor usa uma sequência persistente por tenant, coordenada com os commits das mensagens. Não depende da data declarada pelo remetente e não salta uma transação que ainda não foi confirmada.
-- O cursor está vinculado ao token, usuário e filtro de caixa. Não o interprete ou altere. Ao mudar usuário, filtro ou chave, comece outra sequência. Mudanças de permissões não reapresentam automaticamente mensagens antigas: reinicie sem cursor se precisar reconciliar o novo escopo.
+- O cursor está vinculado ao token, usuário, filtro de caixa e direção. Guarde o valor como recebido. Ao adotar `direction=all`, comece sem cursor. Os cursores emitidos antes dessa opção continuam válidos para `inbound`. Para reconciliar mensagens antigas depois de ampliar permissões, reinicie sem cursor.
 - A listagem não é um histórico de edições, exclusões, leitura ou mudança de status. Uma mensagem que deixou de existir ou de ser permitida não será retornada. Deduplicate por UUID interno (`id`).
 
 ```bash
 curl --get 'https://app.apmail.com.br/api/integrations/messages' \
   --header "Authorization: Bearer $APMAIL_API_TOKEN" \
   --data-urlencode 'email=usuario@empresa.com.br' \
+  --data-urlencode 'direction=all' \
   --data-urlencode 'limit=100' \
   --data-urlencode "cursor=$APMAIL_CURSOR"
 ```
+
+## Buscar uma conversa completa
+
+`GET /api/integrations/threads/:threadId?email=USUARIO&limit=25&cursor=CURSOR`
+
+Use o `threadId` retornado na listagem ou no webhook. A mesma permissão `messages:read` autoriza a consulta e o APMail aplica o escopo do token e do usuário a cada mensagem. Uma conversa sem mensagens visíveis responde `404 not_found`.
+
+```bash
+curl --get 'https://app.apmail.com.br/api/integrations/threads/0aa125a2-6100-4fd2-b37a-09f0711280a2' \
+  --header "Authorization: Bearer $APMAIL_API_TOKEN" \
+  --data-urlencode 'email=usuario@empresa.com.br'
+```
+
+`data` retorna `{ "threadId": "UUID", "items": [], "nextCursor": null, "hasMore": false }`. `items` contém os objetos de mensagem completos, com `bodyIncluded: true` e metadados de anexos. As mensagens são ordenadas por `messageAt` e UUID. `limit` aceita 1 a 50, com padrão 25. Quando `hasMore` for `true`, passe `nextCursor` na mesma rota. Esse cursor pagina a conversa e o cursor de `/messages` acompanha novas mensagens em todas as conversas.
+
+Para o histórico da Curciol, agrupe os itens por `threadId`, associe o cliente pelos endereços em `from`, `to` e `cc`, e associe os atendentes pelo e-mail em `assignedToUser` e `sentByUser`. Use `web+apmail://mensagem/<id>` para o botão **Abrir no APMail**. O histórico pode ignorar `attachments` e usar somente `messages:read`.
 
 ## Baixar anexos
 
@@ -153,6 +172,8 @@ O retorno é binário, transmitido em stream, com MIME e `Content-Disposition`. 
 ## Receber webhooks
 
 O APMail envia `POST` à URL configurada, depois de persistir uma mensagem recebida nova, não histórica, via IMAP/POP3. Importações históricas, mensagens enviadas e cópias feitas pelo mecanismo de transferência entre caixas não disparam `email.received`. Uma nova cópia sincronizada do mesmo Message-ID na mesma caixa não gera outra entrega para o mesmo webhook. Mensagens sem Message-ID utilizam a identidade gerada pelo processamento atual do APMail.
+
+`email.sent` é enviado para webhooks inscritos nesse evento após o envio pelo APMail e a persistência da mensagem. A assinatura, os cabeçalhos, os reenvios e o objeto `data` seguem o mesmo contrato. Enviados já existentes podem ser recuperados por `direction=all` ou `outbound`. Eles não geram entregas retroativas.
 
 Cabeçalhos:
 
@@ -242,4 +263,4 @@ Conteúdo e arquivos: limite de 300 consultas/minuto por token. Notificações m
 
 ## Implantação
 
-As migrations `0079_external_mail_integrations.sql` e `0080_integration_delivery_event_index.sql` criam concessões por caixa, registro sequencial de mensagens, configurações e entregas de webhook, a coluna de HTML original e o índice de relacionamento das entregas para a limpeza de mensagens. Não ampliam permissões de tokens existentes e não disparam webhooks de mensagens antigas no backfill. API e worker executam as migrations versionadas no início em produção, pelo mecanismo existente. É necessário atualizar **API e worker**, além do frontend. Sem worker atualizado, GET funciona, mas as entregas ficam pendentes até o processamento estar disponível.
+As migrations `0079` e `0080` criam a estrutura de integrações. `0081_integration_mail_history.sql` acrescenta enviados ao registro sequencial, preserva os cursores de recebidos e prepara a assinatura por evento. API e worker executam as migrations versionadas no início em produção. Atualize **API, worker e frontend** antes de selecionar `email.sent` no painel. Para a homologação da Curciol na porta 90, use o GET periódico com `direction=all`. Configure o webhook no destino HTTPS público de produção, na porta 443.

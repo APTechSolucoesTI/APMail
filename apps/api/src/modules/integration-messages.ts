@@ -19,18 +19,40 @@ const querySchema = z.object({
   mailboxId: z.uuid().optional(),
   cursor: z.string().max(2000).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
+  direction: z.enum(['inbound', 'outbound', 'all']).default('inbound'),
 });
-const cursorSchema = z.object({
-  v: z.literal(1),
+const cursorScope = z.object({
   tenant: z.uuid(),
   user: z.uuid(),
   token: z.uuid(),
+});
+const cursorSchema = cursorScope.extend({
+  v: z.literal(1),
   mailbox: z.uuid().nullable(),
+  direction: querySchema.shape.direction,
   after: z
     .string()
     .regex(/^\d{1,19}$/)
     .refine((value) => BigInt(value) <= 9223372036854775807n),
 });
+const threadCursorSchema = cursorScope.extend({
+  v: z.literal(1),
+  thread: z.uuid(),
+  time: z.iso.datetime(),
+  id: z.uuid(),
+});
+const threadQuery = querySchema.pick({ email: true, cursor: true }).extend({
+  limit: z.coerce.number().int().min(1).max(50).default(25),
+});
+const invalidCursor = () => new ApiError(400, 'invalid_cursor', 'Cursor de consulta inválido.');
+function decodeCursor<T>(schema: z.ZodType<T>, value: string): T {
+  try {
+    return schema.parse(JSON.parse(Buffer.from(value, 'base64url').toString('utf8')));
+  } catch {
+    throw invalidCursor();
+  }
+}
+const encodeCursor = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
 
 function visibleMessages(tenantId: string, userId: string, tokenId: string) {
   return sql`with recursive boxes as (
@@ -42,12 +64,13 @@ function visibleMessages(tenantId: string, userId: string, tokenId: string) {
       and (b.full_access or exists(select 1 from folder_permissions p where p.tenant_id=f.tenant_id and p.mailbox_id=f.mailbox_id and p.folder_id=f.id and p.user_id=${userId}))
     union select f.id,f.mailbox_id from folders f join allowed_folders a on a.id=f.parent_id and a.mailbox_id=f.mailbox_id where f.tenant_id=${tenantId} and f.deleted_at is null
   ), visible as (
-    select m.id,e.sequence from messages m join threads t on t.id=m.thread_id and t.tenant_id=m.tenant_id
+    select m.id,m.direction,m.thread_id,m.mailbox_id,m.message_at,e.sequence from messages m join threads t on t.id=m.thread_id and t.tenant_id=m.tenant_id
     join mailboxes b on b.id=m.mailbox_id and b.tenant_id=m.tenant_id and b.deleted_at is null
-    join folders f on f.id=m.folder_id and f.mailbox_id=m.mailbox_id and f.tenant_id=m.tenant_id and f.deleted_at is null
+    left join folders f on f.id=m.folder_id and f.mailbox_id=m.mailbox_id and f.tenant_id=m.tenant_id and f.deleted_at is null
     join integration_api_token_mailboxes grant_box on grant_box.tenant_id=m.tenant_id and grant_box.mailbox_id=m.mailbox_id and grant_box.token_id=${tokenId}
     left join integration_message_events e on e.message_id=m.id and e.tenant_id=m.tenant_id
     where m.tenant_id=${tenantId} and m.deleted_at is null and t.deleted_at is null
+    and (m.folder_id is null or f.id is not null)
     and (${activeInvitationPredicate(tenantId, userId, sql`m.thread_id`)} or (
       (exists(select 1 from boxes full_box where full_box.id=m.mailbox_id and full_box.full_access)
        or exists(select 1 from allowed_folders af where af.id=m.folder_id and af.mailbox_id=m.mailbox_id))
@@ -70,23 +93,16 @@ export function registerIntegrationMessages(app: FastifyInstance, r: Resources) 
       const q = querySchema.parse(req.query),
         scope = access.scope(req),
         user = await integrationUser(r.db, scope, q.email);
-      let cursor: z.infer<typeof cursorSchema> | undefined;
-      if (q.cursor) {
-        try {
-          cursor = cursorSchema.parse(
-            JSON.parse(Buffer.from(q.cursor, 'base64url').toString('utf8')),
-          );
-        } catch {
-          throw new ApiError(400, 'invalid_cursor', 'Cursor de consulta inválido.');
-        }
-        if (
-          cursor.tenant !== scope.tenantId ||
+      const cursor = q.cursor ? decodeCursor(cursorSchema, q.cursor) : undefined;
+      if (
+        cursor &&
+        (cursor.tenant !== scope.tenantId ||
           cursor.user !== user.id ||
           cursor.token !== scope.id ||
-          cursor.mailbox !== (q.mailboxId ?? null)
-        )
-          throw new ApiError(400, 'invalid_cursor', 'Cursor de consulta inválido.');
-      }
+          cursor.mailbox !== (q.mailboxId ?? null) ||
+          cursor.direction !== q.direction)
+      )
+        throw invalidCursor();
       return r.db
         .transaction()
         .setIsolationLevel('repeatable read')
@@ -113,29 +129,28 @@ export function registerIntegrationMessages(app: FastifyInstance, r: Resources) 
                 .where('tenant_id', '=', scope.tenantId)
                 .executeTakeFirst()
             )?.last_sequence ?? '0';
-          if (BigInt(cursor?.after ?? '0') > BigInt(watermark))
-            throw new ApiError(400, 'invalid_cursor', 'Cursor de consulta inválido.');
+          if (BigInt(cursor?.after ?? '0') > BigInt(watermark)) throw invalidCursor();
           const rows = (
             await sql<{
               id: string;
               sequence: string;
             }>`${visibility} select v.id,v.sequence::text sequence from visible v
-        join messages m on m.id=v.id where v.sequence>${cursor?.after ?? '0'}::bigint and v.sequence<=${watermark}::bigint
-        ${q.mailboxId ? sql`and m.mailbox_id=${q.mailboxId}::uuid` : sql``}
+        where v.sequence>${cursor?.after ?? '0'}::bigint and v.sequence<=${watermark}::bigint
+        ${q.mailboxId ? sql`and v.mailbox_id=${q.mailboxId}::uuid` : sql``}
+        ${q.direction === 'all' ? sql`` : sql`and v.direction=${q.direction}`}
         order by v.sequence limit ${q.limit + 1}`.execute(tx)
           ).rows;
           const hasMore = rows.length > q.limit,
             selected = rows.slice(0, q.limit);
-          const nextCursor = Buffer.from(
-            JSON.stringify({
-              v: 1,
-              tenant: scope.tenantId,
-              user: user.id,
-              token: scope.id,
-              mailbox: q.mailboxId ?? null,
-              after: hasMore ? selected.at(-1)!.sequence : watermark,
-            }),
-          ).toString('base64url');
+          const nextCursor = encodeCursor({
+            v: 1,
+            tenant: scope.tenantId,
+            user: user.id,
+            token: scope.id,
+            mailbox: q.mailboxId ?? null,
+            direction: q.direction,
+            after: hasMore ? selected.at(-1)!.sequence : watermark,
+          });
           const items = await serializeIntegrationMessages(
             tx,
             scope.tenantId,
@@ -143,6 +158,73 @@ export function registerIntegrationMessages(app: FastifyInstance, r: Resources) 
             { userId: user.id, includeBody: false },
           );
           return { success: true, data: { items, nextCursor, hasMore } };
+        });
+    },
+  );
+  app.get(
+    '/api/integrations/threads/:threadId',
+    { onRequest: access.requirePermission('messages:read'), config: { rateLimit } },
+    async (req) => {
+      const { threadId } = z.object({ threadId: z.uuid() }).parse(req.params);
+      const q = threadQuery.parse(req.query),
+        scope = access.scope(req);
+      const user = await integrationUser(r.db, scope, q.email);
+      const cursor = q.cursor ? decodeCursor(threadCursorSchema, q.cursor) : undefined;
+      if (
+        cursor &&
+        (cursor.tenant !== scope.tenantId ||
+          cursor.user !== user.id ||
+          cursor.token !== scope.id ||
+          cursor.thread !== threadId)
+      )
+        throw invalidCursor();
+      return r.db
+        .transaction()
+        .setIsolationLevel('repeatable read')
+        .execute(async (tx) => {
+          const visibility = visibleMessages(scope.tenantId, user.id, scope.id);
+          const rows = (
+            await sql<{ id: string; time: string }>`${visibility}
+          select id,to_char(message_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as time
+          from visible where thread_id=${threadId}::uuid
+          ${cursor ? sql`and (message_at,id)>(${cursor.time}::timestamptz,${cursor.id}::uuid)` : sql``}
+          order by message_at,id limit ${q.limit + 1}`.execute(tx)
+          ).rows;
+          if (!rows.length) {
+            if (
+              !cursor ||
+              !(
+                await sql<{
+                  id: string;
+                }>`${visibility} select id from visible where thread_id=${threadId}::uuid limit 1`.execute(
+                  tx,
+                )
+              ).rows.length
+            )
+              throw notFound();
+          }
+          const selected = rows.slice(0, q.limit),
+            last = selected.at(-1),
+            hasMore = rows.length > q.limit;
+          const items = await serializeIntegrationMessages(
+            tx,
+            scope.tenantId,
+            selected.map(({ id }) => id),
+            { userId: user.id },
+          );
+          const nextCursor =
+            hasMore && last
+              ? encodeCursor({
+                  v: 1,
+                  tenant: scope.tenantId,
+                  user: user.id,
+                  token: scope.id,
+                  thread: threadId,
+                  time: last.time,
+                  id: last.id,
+                })
+              : null;
+          return { success: true, data: { threadId, items, nextCursor, hasMore } };
         });
     },
   );
