@@ -183,6 +183,63 @@ afterAll(async () => {
   await app.close();
   await db.destroy();
 });
+it('resolves external message links with the existing session, folder and invitation permissions', async () => {
+  const locate = (id: string, who?: string) =>
+    app.inject({
+      method: 'GET',
+      url: '/api/messages/' + id + '/location',
+      headers: who ? { cookie: cookies.get(who)! } : {},
+    });
+  expect((await locate(visibleMessage)).statusCode).toBe(401);
+  const allowed = await locate(visibleMessage, limited);
+  expect(allowed.statusCode, allowed.body).toBe(200);
+  expect(allowed.headers['cache-control']).toBe('no-store');
+  expect(allowed.json()).toEqual({
+    path: `/mail/${box}?folderId=${a}&thread=${visibleThread}&message=${visibleMessage}&assigned=any`,
+  });
+  expect((await locate(hiddenMessage, limited)).statusCode).toBe(404);
+  expect((await locate('ffffffff-ffff-ffff-ffff-ffffffffffff', user)).statusCode).toBe(404);
+
+  await db
+    .updateTable('messages')
+    .set({ folder_id: null })
+    .where('id', '=', visibleMessage)
+    .execute();
+  try {
+    const unfiled = await locate(visibleMessage, user);
+    expect(unfiled.statusCode, unfiled.body).toBe(200);
+    expect(unfiled.json()).toEqual({
+      path: `/mail/${box}?thread=${visibleThread}&message=${visibleMessage}&assigned=any`,
+    });
+    expect((await locate(visibleMessage, limited)).statusCode).toBe(404);
+  } finally {
+    await db
+      .updateTable('messages')
+      .set({ folder_id: a })
+      .where('id', '=', visibleMessage)
+      .execute();
+  }
+
+  // Remove the invitation again so later navigation tests keep their original scope.
+  const invitation = await db
+    .insertInto('thread_service_invitations')
+    .values({
+      tenant_id: tenant,
+      mailbox_id: box,
+      thread_id: hiddenThread,
+      invitee_id: limited,
+      inviter_id: user,
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  try {
+    const invited = await locate(hiddenMessage, limited);
+    expect(invited.statusCode, invited.body).toBe(200);
+    expect(invited.json()).toEqual({ path: '/invitations?thread=' + hiddenThread });
+  } finally {
+    await db.deleteFrom('thread_service_invitations').where('id', '=', invitation.id).execute();
+  }
+});
 it('persists independent mailbox order, sibling order and folder favorites per person', async () => {
   expect((await call('PATCH', { type: 'mailboxes', ids: [second, box] })).statusCode).toBe(200);
   expect(

@@ -7,11 +7,18 @@ import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query-client';
 import { TwoFactorForm } from '@/components/auth/two-factor-form';
 import { Button } from '@/components/ui/button';
-export function LoginForm() {
+import { resolveExternalLaunch, takeExternalLaunch } from '@/lib/external-launch';
+export function LoginForm({ external = false }: { external?: boolean }) {
   const navigate = useNavigate();
   const [challenge, setChallenge] = useState<string | null>(null);
   async function signedIn() {
     queryClient.clear();
+    if (external) {
+      const origin = window.location.origin;
+      const href = await resolveExternalLaunch(takeExternalLaunch(origin), origin);
+      await navigate({ href, replace: true });
+      return;
+    }
     await navigate({ to: '/' });
   }
   return (

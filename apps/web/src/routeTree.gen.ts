@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as AbrirExternoRouteImport } from './routes/abrir-externo'
 import { Route as AcceptInviteRouteImport } from './routes/accept-invite'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as LoginRouteImport } from './routes/login'
@@ -68,6 +69,11 @@ import { Route as AppAdminReportsMeetMeetingIdRouteImport } from './routes/_app.
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AbrirExternoRoute = AbrirExternoRouteImport.update({
+  id: '/abrir-externo',
+  path: '/abrir-externo',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AcceptInviteRoute = AcceptInviteRouteImport.update({
@@ -354,6 +360,7 @@ const AppAdminReportsMeetMeetingIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/abrir-externo': typeof AbrirExternoRoute
   '/accept-invite': typeof AcceptInviteRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
@@ -410,6 +417,7 @@ export interface FileRoutesByFullPath {
   '/admin/reports/meet/$meetingId': typeof AppAdminReportsMeetMeetingIdRoute
 }
 export interface FileRoutesByTo {
+  '/abrir-externo': typeof AbrirExternoRoute
   '/accept-invite': typeof AcceptInviteRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
@@ -467,6 +475,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/abrir-externo': typeof AbrirExternoRoute
   '/accept-invite': typeof AcceptInviteRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
@@ -527,6 +536,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/abrir-externo'
     | '/accept-invite'
     | '/forgot-password'
     | '/login'
@@ -583,6 +593,7 @@ export interface FileRouteTypes {
     | '/admin/reports/meet/$meetingId'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/abrir-externo'
     | '/accept-invite'
     | '/forgot-password'
     | '/login'
@@ -639,6 +650,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_app'
+    | '/abrir-externo'
     | '/accept-invite'
     | '/forgot-password'
     | '/login'
@@ -698,6 +710,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  AbrirExternoRoute: typeof AbrirExternoRoute
   AcceptInviteRoute: typeof AcceptInviteRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
@@ -715,6 +728,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/abrir-externo': {
+      id: '/abrir-externo'
+      path: '/abrir-externo'
+      fullPath: '/abrir-externo'
+      preLoaderRoute: typeof AbrirExternoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/accept-invite': {
@@ -1228,6 +1248,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  AbrirExternoRoute: AbrirExternoRoute,
   AcceptInviteRoute: AcceptInviteRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,

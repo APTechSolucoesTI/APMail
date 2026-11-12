@@ -235,6 +235,45 @@ export async function registerMailRoutes(app: FastifyInstance, r: Resources) {
     const q = threadListSchema.parse(req.query);
     return listThreads(r, c, id, q);
   });
+  app.get('/api/messages/:id/location', async (req, reply) => {
+    const c = requireTenant(req.ctx);
+    const { id } = z.object({ id: z.guid() }).parse(req.params);
+    reply.header('Cache-Control', 'no-store');
+    const message = await r.db
+      .selectFrom('messages as m')
+      .leftJoin('folders as f', (j) =>
+        j
+          .onRef('f.id', '=', 'm.folder_id')
+          .onRef('f.mailbox_id', '=', 'm.mailbox_id')
+          .onRef('f.tenant_id', '=', 'm.tenant_id'),
+      )
+      .innerJoin('mailboxes as b', (j) =>
+        j.onRef('b.id', '=', 'm.mailbox_id').onRef('b.tenant_id', '=', 'm.tenant_id'),
+      )
+      .select(['m.id', 'm.thread_id', 'm.mailbox_id', 'f.id as folder_id'])
+      .where('m.id', '=', id)
+      .where('m.tenant_id', '=', c.tenantId)
+      .where('m.deleted_at', 'is', null)
+      .where((eb) => eb.or([eb('m.folder_id', 'is', null), eb('f.id', 'is not', null)]))
+      .where('f.deleted_at', 'is', null)
+      .where('b.deleted_at', 'is', null)
+      .executeTakeFirst();
+    if (!message) throw notFound();
+    const { delegated } = await requireThread(c, r, message.thread_id);
+    const folders = delegated ? [] : await readableFolders(c, r.db, message.mailbox_id);
+    if (folders !== null && (!message.folder_id || !folders.includes(message.folder_id))) {
+      if (!(await hasConversationInvitation(r.db, c.tenantId, c.userId, message.thread_id)))
+        throw notFound();
+      return { path: '/invitations?thread=' + message.thread_id };
+    }
+    const search = new URLSearchParams({
+      ...(message.folder_id ? { folderId: message.folder_id } : {}),
+      thread: message.thread_id,
+      message: message.id,
+      assigned: 'any',
+    });
+    return { path: '/mail/' + message.mailbox_id + '?' + search };
+  });
   app.get('/api/threads/:id', async (req) => {
     const { thread, role, c, delegated } = await requireThread(req.ctx, r, idOf(req.params));
     const { message_id: messageId, folder_id: folderId } = z
