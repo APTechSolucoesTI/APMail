@@ -17,6 +17,7 @@ import {
   tenantSchema,
   emailSchema,
   mailboxSchema,
+  mailboxSyncSince,
   invitationSchema,
   memberAccessSchema,
   cnpjSchema,
@@ -648,7 +649,7 @@ export async function registerSuperAdmin(app: FastifyInstance, r: Resources) {
           tenant_id,
           created_by: c.userId,
           ...(data.receiving_protocol === 'local' ? { status: 'active' as const } : {}),
-          sync_since: new Date(Date.now() - sync_days * 86400000),
+          sync_since: mailboxSyncSince(sync_days),
         })
         .returning('id')
         .executeTakeFirstOrThrow();

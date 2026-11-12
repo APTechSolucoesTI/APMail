@@ -6,6 +6,8 @@ import { z } from 'zod';
 import {
   can,
   mailboxSchema,
+  mailboxSyncDaysSchema,
+  MAILBOX_SYNC_OPTIONS,
   PROVIDER_PRESETS,
   renderFromName,
   type MailboxRole,
@@ -326,6 +328,7 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
               from_name_template: true,
             })
             .extend({
+              sync_days: z.coerce.number().pipe(mailboxSyncDaysSchema).default(90),
               owner_user_id: z.union([z.uuid(), z.literal('')]).transform((value) => value || null),
             })
             .refine((value) => value.box_type !== 'individual' || !!value.owner_user_id, {
@@ -368,9 +371,10 @@ export function MailboxWizard({ onDone }: { onDone: () => void }) {
               ? [
                   {
                     name: 'sync_days',
-                    label: 'Importar e-mails dos últimos (dias)',
-                    type: 'number' as const,
-                    help: 'Opções: 30, 90, 180 ou 365.',
+                    label: 'Período de importação inicial',
+                    type: 'select' as const,
+                    options: MAILBOX_SYNC_OPTIONS,
+                    help: 'Todo o histórico importa todos os e-mails disponíveis no servidor, sem limite de data.',
                   },
                 ]
               : []),

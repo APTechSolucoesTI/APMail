@@ -2,6 +2,13 @@
 
 Gestão de e-mails compartilhados do Grupo AP. Aplicação própria com React, Fastify, PostgreSQL, Redis/BullMQ e integração IMAP/POP3/SMTP.
 
+A importação inicial IMAP oferece 30, 90 ou 180 dias, 1, 5 ou 10 anos e **Todo o histórico**.
+Os mesmos períodos estão disponíveis no cadastro de caixas da empresa, na plataforma
+e no padrão de importação da empresa. Na API, `sync_days: 0` representa todo o histórico;
+a migration `0082` permite `sync_since = NULL`, que faz o worker buscar sem filtro de data.
+As caixas existentes mantêm seu corte e seus cursores; a alteração não reimporta
+automaticamente mensagens antigas de caixas já sincronizadas. Publicar API, worker e web juntos.
+
 [Recuperação automática das caixas](docs/RECUPERACAO-DE-CAIXAS.md): reconexão persistente,
 espera progressiva, retomada da sincronização e distinção entre queda temporária,
 senha inválida e falha TLS. Migration aditiva `0057`; publicar API/worker/web juntos.

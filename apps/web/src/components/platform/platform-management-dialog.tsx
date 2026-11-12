@@ -9,6 +9,8 @@ import {
   passwordSchema,
   fullNameSchema,
   mailboxSchema,
+  mailboxSyncDaysSchema,
+  MAILBOX_SYNC_OPTIONS,
   memberAccessSchema,
 } from '@apmail/shared';
 import { api } from '@/lib/api';
@@ -304,7 +306,9 @@ export function PlatformManagementDialog({
                           sync_days: true,
                           append_sent_copy: true,
                         })
-                      : mailboxSchema.omit({ members: true })
+                      : mailboxSchema.omit({ members: true }).extend({
+                          sync_days: z.coerce.number().pipe(mailboxSyncDaysSchema).default(90),
+                        })
                     : mailboxProtocol === 'local'
                       ? mailboxSchema
                           .pick({
@@ -368,8 +372,9 @@ export function PlatformManagementDialog({
                           ? [
                               {
                                 name: 'sync_days',
-                                label: 'Importar histórico (30, 90, 180 ou 365 dias)',
-                                type: 'number' as const,
+                                label: 'Período de importação inicial',
+                                type: 'select' as const,
+                                options: MAILBOX_SYNC_OPTIONS,
                               },
                             ]
                           : []),

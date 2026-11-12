@@ -4,7 +4,7 @@ import { MAILBOX_PERMS, can, canDelegate, profileAllowsMailbox } from '@apmail/s
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sql } from 'kysely';
-import { mailboxSchema, mailboxRoleSchema } from '@apmail/shared';
+import { mailboxSchema, mailboxRoleSchema, mailboxSyncSince } from '@apmail/shared';
 import {
   audit,
   auditChanges,
@@ -188,7 +188,7 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
           tenant_id: c.tenantId,
           created_by: c.userId,
           ...(data.receiving_protocol === 'local' ? { status: 'active' as const } : {}),
-          sync_since: new Date(Date.now() - sync_days * 86400000),
+          sync_since: mailboxSyncSince(sync_days),
         })
         .returning('id')
         .executeTakeFirstOrThrow();
@@ -418,7 +418,7 @@ export async function registerMailboxRoutes(app: FastifyInstance, r: Resources) 
                 ).id,
               }
             : {}),
-          ...(sync_days ? { sync_since: new Date(Date.now() - sync_days * 86400000) } : {}),
+          ...(sync_days !== undefined ? { sync_since: mailboxSyncSince(sync_days) } : {}),
           ...(changed && previous.receiving_protocol !== 'local'
             ? {
                 status:

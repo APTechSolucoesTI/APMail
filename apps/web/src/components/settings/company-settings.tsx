@@ -7,6 +7,8 @@ import { z } from 'zod';
 import {
   companyDetailsSchema,
   tenantSettingsSchema,
+  mailboxSyncDaysSchema,
+  MAILBOX_SYNC_OPTIONS,
   timezoneSchema,
   type CompanyDetails,
 } from '@apmail/shared';
@@ -113,10 +115,7 @@ export function CompanySettings() {
       schema: tenantSettingsSchema
         .pick({ sla_first_response_hours: true, restrict_operators_to_assigned: true })
         .extend({
-          default_sync_days: z.coerce
-            .number()
-            .pipe(z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)]))
-            .optional(),
+          default_sync_days: z.coerce.number().pipe(mailboxSyncDaysSchema).optional(),
         }),
       fields: [
         {
@@ -134,10 +133,7 @@ export function CompanySettings() {
           name: 'settings.default_sync_days',
           label: 'Período de importação inicial',
           type: 'select',
-          options: [30, 90, 180, 365].map((days) => ({
-            value: String(days),
-            label: `${days} dias`,
-          })),
+          options: MAILBOX_SYNC_OPTIONS,
         },
       ],
     },

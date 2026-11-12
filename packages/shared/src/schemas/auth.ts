@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { companyDetailsSchema } from '../company.js';
+import { mailboxSyncDaysSchema } from '../mailbox-sync.js';
 export const passwordSchema = z
   .string()
   .min(8, 'Use ao menos 8 caracteres.')
@@ -45,7 +46,7 @@ export const tenantSettingsSchema = z
     contact_mode: z.enum(['tenant', 'personal']).optional(),
     max_attachment_mb: z.number().int().min(1).max(25),
     sla_first_response_hours: z.number().int().min(1).max(720),
-    default_sync_days: z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)]),
+    default_sync_days: mailboxSyncDaysSchema,
     allow_external_auto_forward: z.boolean(),
     default_invitation_mailbox_id: z.union([
       z.uuid(),
@@ -119,7 +120,7 @@ export const mailboxSchema = z.object({
   smtp_secure: z.boolean(),
   username: z.string().min(1).max(254),
   password: z.string().min(1).max(256),
-  sync_days: z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)]).default(90),
+  sync_days: mailboxSyncDaysSchema.default(90),
   history_classify_days: z.number().int().min(0).max(90).default(0),
   append_sent_copy: z.boolean().default(true),
   members: z

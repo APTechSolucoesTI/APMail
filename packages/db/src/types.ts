@@ -792,7 +792,10 @@ export interface Mailboxes {
   smtp_port: Generated<number>;
   smtp_secure: Generated<boolean>;
   status: Generated<MailboxStatus>;
-  sync_since: Generated<Timestamp>;
+  /**
+   * Initial IMAP import lower date boundary; NULL imports all available history.
+   */
+  sync_since: Generated<Timestamp | null>;
   tenant_id: string;
   updated_at: Generated<Timestamp>;
   username: string;

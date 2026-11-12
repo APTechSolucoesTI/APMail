@@ -35,3 +35,4 @@ export * from './company.js';
 export * from './domains.js';
 export * from './mail-policy.js';
 export * from './access-schedule.js';
+export * from './mailbox-sync.js';

@@ -46,6 +46,32 @@ function setup(settings: Record<string, unknown> = registration.settings) {
     </QueryClientProvider>,
   );
 }
+it.each([
+  ['1825', '5 anos'],
+  ['3650', '10 anos'],
+  ['0', 'Todo o histórico'],
+])('salva o período de importação %s selecionado pelo usuário', async (value, label) => {
+  setup();
+  fireEvent.mouseDown(await screen.findByRole('tab', { name: 'E-mail e contatos' }), {
+    button: 0,
+    ctrlKey: false,
+  });
+  expect(screen.getByRole('option', { name: label })).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Período de importação inicial'), { target: { value } });
+  fireEvent.click(screen.getByRole('button', { name: 'Salvar atendimento' }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith('/tenant', {
+      method: 'PATCH',
+      body: {
+        settings: {
+          sla_first_response_hours: 8,
+          default_sync_days: Number(value),
+          restrict_operators_to_assigned: false,
+        },
+      },
+    }),
+  );
+});
 it('saves operator restriction even when older settings are incomplete', async () => {
   setup({ mail_queues_enabled: true });
   fireEvent.mouseDown(await screen.findByRole('tab', { name: 'E-mail e contatos' }), {

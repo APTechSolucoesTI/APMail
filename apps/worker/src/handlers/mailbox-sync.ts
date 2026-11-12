@@ -12,6 +12,7 @@ import { markMailboxError } from './mailbox-health.js';
 import { emitThreads } from '../lib/events.js';
 import { applyPendingRules } from './rules-apply.js';
 import { handlePop3Sync } from './pop3-sync.js';
+import { mailboxSyncSearch } from '../imap/sync-search.js';
 export async function handleMailboxSync(r: WorkerResources, mailboxId: string, jobId: string) {
   return withMailboxLock(r.redis, mailboxId, jobId, async () => {
     const box = await r.db
@@ -90,10 +91,9 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
               .execute();
           }
           const cursor = Number(folder.last_uid);
-          const results = await t.imap.search(
-            cursor ? { uid: `${cursor + 1}:*` } : { since: box.sync_since },
-            { uid: true },
-          );
+          const results = await t.imap.search(mailboxSyncSearch(cursor, box.sync_since), {
+            uid: true,
+          });
           const uids = (Array.isArray(results) ? results : [])
             .filter((uid) => uid > cursor)
             .sort((a, b) => a - b);
