@@ -72,8 +72,9 @@ async function signIn() {
   fireEvent.click(screen.getByRole('button', { name: 'Entrar' }));
 }
 
-it('abre a caixa com o filtro original e substitui a rota de entrada no histórico', async () => {
-  const { history } = launch('web+apmail://abrir?caminho=' + encodeURIComponent(mailbox), true);
+it.each(['abrir', 'abrir/'])('abre a caixa e preserva o filtro pelo link %s', async (command) => {
+  const link = 'web+apmail://' + command + '?caminho=' + encodeURIComponent(mailbox);
+  const { history } = launch(link, true);
   await screen.findByText('Caixa QA');
   expect(history.location.href).toBe(mailbox);
   expect(history.length).toBe(1);

@@ -18,6 +18,13 @@ describe('abertura externa do APMail', () => {
     expect(await resolveExternalLaunch(destination, origin)).toBe(path);
   });
 
+  it('lê a rota da caixa quando o Chromium inclui a barra na URL do protocolo', async () => {
+    const link = 'web+apmail://abrir/?caminho=' + encodeURIComponent(pathToMailbox);
+    expect(await resolveExternalLaunch(readExternalLaunch(search(link), origin), origin)).toBe(
+      pathToMailbox,
+    );
+  });
+
   it('aceita UUID em maiúsculas e encaminha a mensagem à rota resolvida', async () => {
     const destination = readExternalLaunch(
       search('web+apmail://mensagem/' + id.toUpperCase()),
@@ -57,6 +64,9 @@ describe('abertura externa do APMail', () => {
     'web+apmail://usuario@mensagem/' + id,
     'web+apmail://abrir?caminho=%2F&caminho=%2Fapi',
     'web+apmail://abrir?caminho=%2F#fragmento',
+    'web+apmail://abrir/?caminho=%2F%2Fsite.com',
+    'web+apmail://abrir/extra?caminho=%2F',
+    'web+apmail://abrir//?caminho=%2F',
     'web+apmail://outra-coisa',
     'https://site.com',
   ])('volta ao início quando o link é inválido (%s)', async (link) => {

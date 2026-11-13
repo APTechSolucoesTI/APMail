@@ -37,7 +37,7 @@ export function parseExternalLaunch(link: string, origin: string): ExternalLaunc
   const message = messageLink.exec(link);
   if (message) return { kind: 'message', id: message[1]!.toLowerCase() };
 
-  const pathParam = /^web\+apmail:\/\/abrir\?caminho=([^&]+)$/i.exec(link);
+  const pathParam = /^web\+apmail:\/\/abrir\/?\?caminho=([^&]+)$/i.exec(link);
   if (!pathParam) return null;
   try {
     const path = validateExternalPath(decodeURIComponent(pathParam[1]!), origin);
