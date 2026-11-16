@@ -287,6 +287,23 @@ it('mantém o recebimento independente de uma falha SMTP', async () => {
   expect((await get(b.id)).status).toBe('active');
   expect(probes.smtp).not.toHaveBeenCalled();
 });
+it('recupera interrupção de socket TLS com espera curta, sem reconexão manual', async () => {
+  const b = await box('pending');
+  probes.connect.mockRejectedValueOnce(
+    Object.assign(
+      new Error('Client network socket disconnected before secure TLS connection was established'),
+      { code: 'ECONNRESET' },
+    ),
+  );
+  await handleMailboxConnection(r, b.id);
+  const failed = await get(b.id);
+  expect(failed.connection_error_kind).toBe('transient');
+  expect(failed.next_connection_attempt_at!.getTime() - Date.now()).toBeLessThanOrEqual(15000);
+  expect(failed.next_connection_attempt_at!.getTime() - Date.now()).toBeGreaterThan(10000);
+  await due(b.id);
+  await handleMailboxConnection(r, b.id);
+  expect((await get(b.id)).status).toBe('active');
+});
 it('respeita a espera de autenticação e evita alertas ou tentativas duplicadas', async () => {
   const b = await box();
   await markMailboxError(r, b, { code: 'EAUTH' });
