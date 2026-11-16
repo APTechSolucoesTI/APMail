@@ -7,13 +7,36 @@ import { transports } from '../imap/connect.js';
 import { syncFolders } from '../imap/sync-folders.js';
 import { ingestMessage } from '../imap/ingest-message.js';
 import { withMailboxLock } from '../lib/mailbox-lock.js';
-import { isConnectionError } from '../lib/errors.js';
+import { isConnectionError, connectionErrorKind } from '../lib/errors.js';
+import { setTimeout as delay } from 'node:timers/promises';
 import { markMailboxError } from './mailbox-health.js';
 import { emitThreads } from '../lib/events.js';
 import { applyPendingRules } from './rules-apply.js';
 import { handlePop3Sync } from './pop3-sync.js';
 import { mailboxSyncSearch } from '../imap/sync-search.js';
 export async function handleMailboxSync(r: WorkerResources, mailboxId: string, jobId: string) {
+  const retryDelays = [250, 1000];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await syncMailboxAttempt(r, mailboxId, jobId, attempt < retryDelays.length);
+    } catch (error) {
+      if (
+        attempt >= retryDelays.length ||
+        !isConnectionError(error) ||
+        connectionErrorKind(error) !== 'transient'
+      )
+        throw error;
+      await delay(retryDelays[attempt]!);
+    }
+  }
+}
+
+async function syncMailboxAttempt(
+  r: WorkerResources,
+  mailboxId: string,
+  jobId: string,
+  retryTransient: boolean,
+) {
   return withMailboxLock(r.redis, mailboxId, jobId, async () => {
     const box = await r.db
       .selectFrom('mailboxes')
@@ -91,12 +114,41 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
               .execute();
           }
           const cursor = Number(folder.last_uid);
+          const remote = reconcile ? await t.imap.search({ all: true }, { uid: true }) : null;
           const results = await t.imap.search(mailboxSyncSearch(cursor, box.sync_since), {
             uid: true,
           });
-          const uids = (Array.isArray(results) ? results : [])
-            .filter((uid) => uid > cursor)
-            .sort((a, b) => a - b);
+          const pending = (Array.isArray(results) ? results : []).filter((uid) => uid > cursor);
+          const actionInProgress =
+            reconcile && cursor
+              ? await r.db
+                  .selectFrom('messages')
+                  .select('id')
+                  .where('tenant_id', '=', box.tenant_id)
+                  .where('mailbox_id', '=', box.id)
+                  .where('pending_action', '=', true)
+                  .executeTakeFirst()
+              : undefined;
+          // A high-water mark alone cannot detect holes left by an earlier import.
+          // Recheck only history inside the configured date boundary and reuse ingestion's
+          // retention and duplicate guards for any missing UID.
+          if (reconcile && cursor && !actionInProgress) {
+            const stored = await r.db
+              .selectFrom('messages')
+              .select('imap_uid')
+              .where('tenant_id', '=', box.tenant_id)
+              .where('folder_id', '=', folder.id)
+              .where('deleted_at', 'is', null)
+              .execute();
+            const known = new Set(stored.map((message) => Number(message.imap_uid)));
+            const history =
+              box.sync_since === null
+                ? remote
+                : await t.imap.search({ since: box.sync_since }, { uid: true });
+            for (const uid of Array.isArray(history) ? history : [])
+              if (!known.has(uid)) pending.push(uid);
+          }
+          const uids = [...new Set(pending)].sort((a, b) => a - b);
           let consecutive = true,
             lastUid = cursor;
           for (let offset = 0; offset < uids.length; offset += 25) {
@@ -127,7 +179,7 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
                 if (!msg) throw new Error('Mensagem não encontrada durante a importação.');
                 const threadId = await ingestMessage(r, box, folder, msg);
                 affected.add(threadId);
-                if (consecutive) lastUid = meta.uid;
+                if (consecutive) lastUid = Math.max(lastUid, meta.uid);
               } catch (error) {
                 if (isStorageQuotaError(error)) {
                   await saveQuotaCheckpoint(
@@ -162,8 +214,7 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
               .execute();
           }
           if (reconcile) {
-            const remote = await t.imap.search({ all: true }, { uid: true }),
-              present = new Set(Array.isArray(remote) ? remote : []);
+            const present = new Set(Array.isArray(remote) ? remote : []);
             const local = await r.db
               .selectFrom('messages')
               .select(['id', 'imap_uid', 'thread_id'])
@@ -250,8 +301,10 @@ export async function handleMailboxSync(r: WorkerResources, mailboxId: string, j
       if (quotaState?.checkpoint)
         r.io.to(`mailbox:${box.id}`).emit('mailbox:storage', { mailbox_id: box.id, paused: false });
     } catch (error) {
-      if (isConnectionError(error)) await markMailboxError(r, box, error);
-      else throw error;
+      if (isConnectionError(error)) {
+        if (retryTransient && connectionErrorKind(error) === 'transient') throw error;
+        await markMailboxError(r, box, error);
+      } else throw error;
     } finally {
       await t.close();
     }

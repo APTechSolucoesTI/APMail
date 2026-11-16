@@ -38,6 +38,8 @@ export async function markMailboxError(
 ) {
   const last_error = connectionError(error, host, port),
     kind = connectionErrorKind(error);
+  const code = (error as { code?: unknown })?.code;
+  const error_code = typeof code === 'string' && /^[A-Z0-9_]{1,80}$/i.test(code) ? code : null;
   const result = await r.db.transaction().execute(async (tx) => {
     const current = await tx
       .selectFrom('mailboxes')
@@ -79,7 +81,7 @@ export async function markMailboxError(
         action: 'mailbox.connection_error',
         entityType: 'mailbox',
         entityId: box.id,
-        metadata: { last_error, kind, attempt, automatic_recovery: true },
+        metadata: { last_error, kind, attempt, error_code, automatic_recovery: true },
       });
     const notifications = [];
     if (notify) {
@@ -113,7 +115,7 @@ export async function markMailboxError(
   });
   if (!result) return;
   r.log.warn(
-    { mailbox_id: box.id, kind, attempt: result.row.connection_failures },
+    { mailbox_id: box.id, kind, attempt: result.row.connection_failures, error_code },
     'Conexão interrompida; recuperação automática agendada.',
   );
   await enqueueMailboxRecovery(r, result.row).catch(() =>

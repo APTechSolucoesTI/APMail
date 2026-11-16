@@ -37,6 +37,9 @@ vi.mock('../../src/imap/connect.js', async (original) => {
               mailbox: { uidValidity: 1, uidNext: 3 },
               getMailboxLock: async () => ({ release: () => {} }),
               search: async () => [2],
+              fetch: async function* () {
+                yield* [];
+              },
               fetchAll: async () => [{ uid: 2, size: probes.source.length }],
               fetchOne: async () => ({
                 uid: 2,
@@ -280,6 +283,102 @@ it('repete falhas transitórias sem limite total, com espera limitada e um alert
     .execute();
   expect(alerts).toHaveLength(1);
 });
+it('recupera uma queda breve durante a sincronização sem exibir estado de erro', async () => {
+  const b = await box();
+  probes.connect.mockRejectedValueOnce(
+    Object.assign(new Error('Socket closed'), { code: 'ECONNRESET' }),
+  );
+  await handleMailboxSync(r, b.id, 'brief-interruption');
+  expect(await get(b.id)).toMatchObject({
+    status: 'active',
+    connection_failures: 0,
+    last_error: null,
+  });
+  expect(await jobs(b.id)).toHaveLength(0);
+  expect(probes.connect).toHaveBeenCalledTimes(2);
+});
+it('reconcilia mensagens ausentes antes do cursor sem voltar o progresso nem duplicar', async () => {
+  const b = await box();
+  await db
+    .updateTable('mailboxes')
+    .set({ last_reconciled_at: null, sync_since: null })
+    .where('id', '=', b.id)
+    .execute();
+  await db.updateTable('folders').set({ last_uid: 10 }).where('mailbox_id', '=', b.id).execute();
+  await handleMailboxSync(r, b.id, 'repair-gap');
+  const messages = await db
+    .selectFrom('messages')
+    .select('imap_uid')
+    .where('mailbox_id', '=', b.id)
+    .execute();
+  expect(messages).toEqual([{ imap_uid: '2' }]);
+  expect(
+    (
+      await db
+        .selectFrom('folders')
+        .select('last_uid')
+        .where('mailbox_id', '=', b.id)
+        .executeTakeFirstOrThrow()
+    ).last_uid,
+  ).toBe('10');
+  await db
+    .updateTable('mailboxes')
+    .set({ last_reconciled_at: null })
+    .where('id', '=', b.id)
+    .execute();
+  await handleMailboxSync(r, b.id, 'repair-gap-again');
+  expect(
+    await db.selectFrom('messages').select('id').where('mailbox_id', '=', b.id).execute(),
+  ).toHaveLength(1);
+});
+
+it('limita as tentativas imediatas e agenda recuperação após queda persistente', async () => {
+  const b = await box();
+  probes.connect.mockRejectedValue(
+    Object.assign(new Error('Socket closed'), { code: 'ECONNRESET' }),
+  );
+  await handleMailboxSync(r, b.id, 'persistent-interruption');
+  expect(probes.connect).toHaveBeenCalledTimes(3);
+  expect(await get(b.id)).toMatchObject({
+    status: 'error',
+    connection_error_kind: 'transient',
+    connection_failures: 1,
+  });
+  expect(await jobs(b.id)).toHaveLength(1);
+});
+it('aguarda uma movimentação pendente antes de reparar lacunas do histórico', async () => {
+  const b = await box();
+  await handleMailboxSync(r, b.id, 'before-move');
+  await db
+    .updateTable('messages')
+    .set({ imap_uid: null, pending_action: true })
+    .where('mailbox_id', '=', b.id)
+    .execute();
+  await db.updateTable('folders').set({ last_uid: 10 }).where('mailbox_id', '=', b.id).execute();
+  await db
+    .updateTable('mailboxes')
+    .set({ last_reconciled_at: null, sync_since: null })
+    .where('id', '=', b.id)
+    .execute();
+  await handleMailboxSync(r, b.id, 'during-move');
+  expect(
+    await db
+      .selectFrom('messages')
+      .select(['imap_uid', 'pending_action'])
+      .where('mailbox_id', '=', b.id)
+      .execute(),
+  ).toEqual([{ imap_uid: null, pending_action: true }]);
+});
+it.each(['EAUTH', 'CERT_HAS_EXPIRED'])(
+  'preserva a espera e sinaliza falha real %s sem repetição imediata',
+  async (code) => {
+    const b = await box();
+    probes.connect.mockRejectedValue(Object.assign(new Error(code), { code }));
+    await handleMailboxSync(r, b.id, 'permanent-error');
+    expect(probes.connect).toHaveBeenCalledTimes(1);
+    expect((await get(b.id)).status).toBe('error');
+  },
+);
 it('mantém o recebimento independente de uma falha SMTP', async () => {
   const b = await box('pending');
   probes.smtp.mockRejectedValue(new Error('SMTP offline'));
