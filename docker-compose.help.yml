@@ -1,0 +1,22 @@
+services:
+  help-center:
+    build:
+      context: .
+      dockerfile: apps/help-center/Dockerfile
+    restart: unless-stopped
+    expose:
+      - '80'
+    networks:
+      apmail-tunnel:
+        aliases:
+          - apmail-help-center-site
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+networks:
+  apmail-tunnel:
+    external: true
+    name: apmail-next-production-qrufqc_default
