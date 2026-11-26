@@ -25,6 +25,7 @@ import {
   ListFilter,
   CalendarDays,
   BellRing,
+  CircleHelp,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { meQuery, TenantContext, type Mailbox, type Me } from '@/lib/auth';
@@ -388,80 +389,95 @@ export function AppShell() {
           )}
         </nav>
       </ScrollArea>
-      {(visibleUtilities.length > 0 || showSettings) && (
-        <nav
-          aria-label="Utilitários"
-          className="flex shrink-0 flex-wrap items-center justify-around border-t bg-sidebar px-1 py-2"
-        >
-          {visibleUtilities.map(({ to, label, icon: Icon }) => (
-            <Tooltip key={to}>
+      <nav
+        aria-label="Utilitários"
+        className="flex shrink-0 flex-wrap items-center justify-around border-t bg-sidebar px-1 py-2"
+      >
+        {visibleUtilities.map(({ to, label, icon: Icon }) => (
+          <Tooltip key={to}>
+            <TooltipTrigger asChild>
+              <Link
+                to={to}
+                onClick={() => setOpen(false)}
+                aria-label={label}
+                activeProps={{
+                  className: 'bg-accent text-accent-foreground ring-1 ring-inset ring-primary/30',
+                }}
+                className={utilityClassName}
+              >
+                <Icon aria-hidden className="size-4" />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent side="top" sideOffset={5}>
+              {label}
+            </TooltipContent>
+          </Tooltip>
+        ))}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a
+              href="https://ajuda.apmail.com.br"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setOpen(false)}
+              aria-label="Central de ajuda"
+              className={utilityClassName}
+            >
+              <CircleHelp aria-hidden className="size-4" />
+            </a>
+          </TooltipTrigger>
+          <TooltipContent side="top" sideOffset={5}>
+            Central de ajuda
+          </TooltipContent>
+        </Tooltip>
+        {showSettings && (
+          <DropdownMenu>
+            <Tooltip>
               <TooltipTrigger asChild>
-                <Link
-                  to={to}
-                  onClick={() => setOpen(false)}
-                  aria-label={label}
-                  activeProps={{
-                    className: 'bg-accent text-accent-foreground ring-1 ring-inset ring-primary/30',
-                  }}
-                  className={utilityClassName}
-                >
-                  <Icon aria-hidden className="size-4" />
-                </Link>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Configurações"
+                    data-active={pathname.startsWith('/settings/')}
+                    className={
+                      utilityClassName +
+                      ' data-[active=true]:bg-accent data-[active=true]:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground'
+                    }
+                  >
+                    <Settings aria-hidden className="size-4" />
+                  </button>
+                </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent side="top" sideOffset={5}>
-                {label}
+                Configurações
               </TooltipContent>
             </Tooltip>
-          ))}
-          {showSettings && (
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label="Configurações"
-                      data-active={pathname.startsWith('/settings/')}
-                      className={
-                        utilityClassName +
-                        ' data-[active=true]:bg-accent data-[active=true]:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground'
-                      }
-                    >
-                      <Settings aria-hidden className="size-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={5}>
-                  Configurações
-                </TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent side="top" align="end" sideOffset={8} className="w-52">
-                <DropdownMenuLabel>Configurações</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {visibleSettings.map(({ to, label, icon: Icon }) => (
-                  <DropdownMenuItem key={to} asChild className="min-h-11 lg:min-h-8">
-                    <Link
-                      to={to}
-                      activeProps={{ className: 'bg-accent text-accent-foreground' }}
-                      onClick={() => setOpen(false)}
-                    >
-                      <Icon aria-hidden />
-                      {label}
-                    </Link>
-                  </DropdownMenuItem>
-                ))}
-                {me.data.platform_admin && (
-                  <DropdownMenuItem asChild className="min-h-11 lg:min-h-8">
-                    <Link to="/superadmin" onClick={() => setOpen(false)}>
-                      Gestão da plataforma
-                    </Link>
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </nav>
-      )}
+            <DropdownMenuContent side="top" align="end" sideOffset={8} className="w-52">
+              <DropdownMenuLabel>Configurações</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {visibleSettings.map(({ to, label, icon: Icon }) => (
+                <DropdownMenuItem key={to} asChild className="min-h-11 lg:min-h-8">
+                  <Link
+                    to={to}
+                    activeProps={{ className: 'bg-accent text-accent-foreground' }}
+                    onClick={() => setOpen(false)}
+                  >
+                    <Icon aria-hidden />
+                    {label}
+                  </Link>
+                </DropdownMenuItem>
+              ))}
+              {me.data.platform_admin && (
+                <DropdownMenuItem asChild className="min-h-11 lg:min-h-8">
+                  <Link to="/superadmin" onClick={() => setOpen(false)}>
+                    Gestão da plataforma
+                  </Link>
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </nav>
     </div>
   );
   return (
